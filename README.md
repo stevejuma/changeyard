@@ -43,6 +43,8 @@ npm run pack:check
 npm link
 ```
 
+Changeyard now requires Node.js 22 or newer.
+
 After linking, both command names are available:
 
 ```bash
@@ -80,6 +82,7 @@ cy review complete CY-0001 --decision approve
 cy doctor
 cy list
 cy status CY-0001
+cy ui --no-open
 ```
 
 ## Default repository layout
@@ -115,6 +118,8 @@ The default provider is `noop`, which updates the local change metadata without 
 ## Workspace start and verify
 
 The default workspace engine is `plain-copy`. `cy start <id>` copies the repository into `.changeyard/workspaces/<id>/repo`, excluding VCS data, Changeyard runtime state, and configured `neverCopy` patterns. Changeyard also includes `jj` and `git-worktree` engines: set `vcs.engine` to `jj` to run `jj workspace add --name <workspace> <path>`, or `git-worktree` to run `git worktree add -b <branch> <path>`. Start writes workspace metadata next to the checkout, hydrates explicitly allowlisted files, updates the change to `in_progress`, and prints the next `cd` and `cy verify` commands. `cy verify <id>` must be run from inside that workspace and checks both the workspace marker and the engine-specific workspace status before allowing work to proceed.
+
+`cy ui` starts a local board UI backed by the same markdown and workspace metadata. The current UI reads all changes, shows provider/workspace details, and can trigger `sync` and `start` actions without creating any separate Kanban state files.
 
 ## Doctor, recovery, JSON, and errors
 

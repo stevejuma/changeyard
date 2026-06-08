@@ -22,6 +22,9 @@ type MergeRequestDiffFile = {
   old_path?: string;
   new_path?: string;
   diff?: string;
+  oldPath?: string;
+  newPath?: string;
+  patch?: string;
 };
 
 function encodeProject(owner: string, repo: string): string {
@@ -71,7 +74,14 @@ function mergeRequestDiffs(cfg: { baseUrl: string; owner: string; repo: string; 
     payload: {},
   });
   const changes = (response as { changes?: unknown }).changes;
-  return Array.isArray(changes) ? (changes as MergeRequestDiffFile[]) : [];
+  return Array.isArray(changes)
+    ? (changes as MergeRequestDiffFile[]).map((file) => ({
+        ...file,
+        oldPath: file.old_path,
+        newPath: file.new_path,
+        patch: file.diff,
+      }))
+    : [];
 }
 
 export class GitLabProvider implements ChangeProvider {

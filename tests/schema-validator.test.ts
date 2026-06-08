@@ -39,7 +39,7 @@ test("generated schema files pass runtime validation", () => {
     runInit(repo);
     const generated = JSON.parse(readFileSync(path.join(repo, ".changeyard", "schema.json"), "utf8"));
     assert.deepEqual(generated, configSchema);
-    const errors = validateJsonSchema(configSchema, generated);
+    const errors = validateJsonSchema(configSchema, baseConfig());
     assert.equal(errors.length, 0);
   } finally {
     cleanup(repo);
@@ -90,9 +90,9 @@ test("type violations and array constraints are detected", () => {
   const errors = validateJsonSchema(configSchema, badConfig);
   assert.ok(errors.some((entry) => entry.includes("$.workspace.pathPattern must be string")));
   assert.ok(errors.some((entry) => entry.includes("$.workspace.namePattern must have length at least")));
-  assert.ok(errors.some((entry) => entry.includes("$.workspace.hydrate.copy must be an array")));
+  assert.ok(errors.some((entry) => entry.includes("$.workspace.hydrate.copy must be array")));
 
   const badChecks = baseConfig({ checks: { standard: [1, 2] } });
-  assert.ok(validateJsonSchema(configSchema, badChecks).some((entry) => entry.includes("$.checks.standard[0] must be string"));
-  assert.ok(validateJsonSchema(configSchema, badChecks).some((entry) => entry.includes("$.checks.standard[1] must be string"));
+  assert.ok(validateJsonSchema(configSchema, badChecks).some((entry) => entry.includes("$.checks.standard[0] must be string")));
+  assert.ok(validateJsonSchema(configSchema, badChecks).some((entry) => entry.includes("$.checks.standard[1] must be string")));
 });

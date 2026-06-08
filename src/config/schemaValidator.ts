@@ -12,6 +12,7 @@ type JsonSchema = {
   minItems?: number;
   maxItems?: number;
   allOf?: readonly JsonSchema[];
+  anyOf?: readonly JsonSchema[];
   if?: JsonSchema;
   then?: JsonSchema;
   else?: JsonSchema;
@@ -55,7 +56,7 @@ function suggestKeys(allowed: string[], provided: string): string {
   return ` Did you mean: ${near.join(", ")}?`;
 }
 
-function suggestEnum(allowed: unknown[], provided: unknown): string {
+function suggestEnum(allowed: readonly unknown[], provided: unknown): string {
   if (typeof provided !== "string") return "";
   const near = allowed
     .filter((entry) => typeof entry === "string")
@@ -145,6 +146,10 @@ function validate(schema: JsonSchema, value: unknown, path: string, errors: stri
   }
 
   for (const nested of schema.allOf ?? []) validate(nested, value, path, target);
+  if (schema.anyOf?.length) {
+    const matched = schema.anyOf.some((nested) => validate(nested, value, path, [], false));
+    if (!matched) target.push(`${path} must match at least one allowed schema`);
+  }
   if (schema.if) {
     const ifResult = validate(schema.if, value, path, [], false);
     if (ifResult && schema.then) validate(schema.then, value, path, target);

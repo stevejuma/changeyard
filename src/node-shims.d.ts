@@ -12,6 +12,7 @@ declare module "node:fs" {
   export function copyFileSync(src: string, dest: string): void;
   export function mkdirSync(path: string, options?: { recursive?: boolean }): void;
   export function readdirSync(path: string): string[];
+  export function realpathSync(path: string): string;
   export function statSync(path: string): { isDirectory(): boolean; isFile(): boolean };
   export function mkdtempSync(prefix: string): string;
   export function rmSync(path: string, options?: { recursive?: boolean; force?: boolean }): void;
@@ -43,6 +44,13 @@ declare const process: {
   cwd(): string;
   env: Record<string, string | undefined>;
   exitCode?: number;
+  platform: string;
+  stdout: {
+    write(text: string): void;
+  };
+  versions: {
+    node: string;
+  };
 };
 declare const console: {
   log(...args: unknown[]): void;

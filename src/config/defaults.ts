@@ -45,4 +45,11 @@ export const defaultConfig: ChangeyardConfig = {
     standard: [],
     full: [],
   },
+  ui: {
+    host: "127.0.0.1",
+    port: "auto",
+    open: true,
+    requirePasscode: false,
+    theme: "system",
+  },
 };

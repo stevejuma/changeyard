@@ -73,6 +73,13 @@ export type ChangeyardConfig = {
     };
   };
   checks: Record<string, string[]>;
+  ui?: {
+    host?: string;
+    port?: number | "auto";
+    open?: boolean;
+    requirePasscode?: boolean;
+    theme?: "light" | "dark" | "system" | string;
+  };
 };
 
 export type TemplateDefinition = {

@@ -1,69 +1,91 @@
-# Pending and Incomplete Work
+# Pending: Kanban UI Integration
 
-This file tracks known work that remains after the current Changeyard prototype. The core local-first workflow exists, but the items below should be completed before treating Changeyard as production-ready.
+This file tracks implementation of the Changeyard + Kanban UI integration. Changeyard markdown, workspace metadata, reviews, and provider state remain the only authoritative state.
 
-## 1. Live forge validation
+## 1. Runtime version alignment
 
-Automated provider tests use a mocked HTTP transport. Before release, run live checks against disposable Forgejo, GitHub, and GitLab repositories.
+- [x] Update root `package.json` `engines.node` to `>=22.0.0`.
+- [x] Update `package-lock.json` workspace metadata for the new workspace layout.
+- [x] Update CI, release, and live-smoke workflows to run Node 22.
+- [x] Update docs to state Node 22 is the minimum supported runtime.
+- [x] Verify `npm ci`, `npm run check`, `npm test`, and `npm run pack:check` pass on Node 22.
 
-- [x] Automate the checklist in `docs/live-forge-smoke.md` against disposable repositories.
-- [x] Verify exact minimum token scopes for Forgejo, GitHub, and GitLab.
-- [x] Create and clean up real issues, branches, PRs/MRs, and review comments.
-- [x] Record live-smoke results in release notes.
+## 2. Internal package setup
 
-## 2. Provider-native inline reviews
+- [x] Add root npm workspaces for `packages/kanban`.
+- [x] Create private package `@changeyard/kanban`.
+- [x] Add an internal kanban server/UI baseline under `packages/kanban`.
+- [x] Keep the integration internal; do not expose a standalone `kanban` binary.
+- [ ] Vendor upstream `cline/kanban` at a pinned commit and record provenance.
+- [ ] Copy upstream license/notice files once vendoring is in place.
+- [ ] Disable or remove unused upstream telemetry/update behavior after vendoring.
+- [x] Ensure root `npm install` and workspace builds are stable from a clean checkout.
 
-Inline review comments are parsed from markdown and included in provider review summaries, but they are not yet mapped to provider-native diff-position APIs.
+## 3. Changeyard core API and board model
 
-- [x] Add GitHub native PR review comments with commit SHA, file path, line, and side/position metadata.
-- [x] Add GitLab native merge request discussions with position payloads.
-- [x] Add Forgejo/Gitea native review comments where supported.
-- [x] Validate that inline comments refer to changed files and valid diff lines.
-- [x] Keep summary-comment fallback for providers without native inline review support.
+- [x] Add `src/index.ts` exporting supported programmatic APIs.
+- [x] Add board DTO/types and status-to-column mapping.
+- [x] Implement markdown-backed board read service.
+- [x] Include workspace metadata from `.changeyard/workspaces/**/metadata.json`.
+- [x] Include provider references from existing change frontmatter.
+- [ ] Add structured create/update helpers for UI write paths.
+- [ ] Add file-locking/atomic mutation helpers for concurrent UI and CLI writes.
 
-## 3. Runtime schema validation hardening
+## 4. `cy ui` command
 
-Changeyard has a lightweight internal schema validator for the current config schema. It is intentionally small and should be hardened if config complexity grows.
+- [x] Add `src/commands/ui.ts`.
+- [x] Add CLI help for `cy ui`.
+- [x] Support `--host`, `--port`, `--open`, and `--no-open`.
+- [x] Start the internal kanban server with the discovered Changeyard repo root.
+- [ ] Add a tested install-from-tarball smoke for `cy ui`.
 
-- [x] Add targeted tests for every branch in `src/config/schema.ts`.
-- [x] Improve schema error messages with clearer suggestions and paths.
-- [x] Decide whether to keep the internal validator or adopt a full JSON Schema implementation.
-- [x] Validate generated `.changeyard/schema.json` against the runtime validator in tests.
+## 5. Read-only board UI
 
-## 4. Doctor and recovery expansion
+- [x] Add board and card API endpoints backed by Changeyard state.
+- [x] Render columns from Changeyard statuses.
+- [x] Render every `.changeyard/changes/*.md` file exactly once.
+- [x] Add a card detail view backed by Changeyard markdown.
+- [x] Show provider and workspace metadata, including engine type.
+- [x] Verify the UI does not create Kanban state files.
 
-`cy doctor` and `cy recover` now handle workspace marker drift, but they do not yet reconcile all Changeyard state.
+## 6. Initial UI actions
 
-- [x] Detect provider-state drift and stale remote issue/PR URLs.
-- [x] Detect stale branches/bookmarks and dirty/conflicted workspaces across all engines.
-- [x] Validate hydration markers and check logs.
-- [x] Add repair plans or a guarded `cy doctor --fix` flow.
-- [x] Recover interrupted `sync`, `complete`, and review publication operations.
+- [x] Add UI start action via `runStart`.
+- [x] Add UI sync action via `runSync`.
+- [x] Refresh the board after mutations.
+- [ ] Add UI create action.
+- [ ] Add guarded markdown/frontmatter edit actions.
+- [ ] Add completion/review actions.
 
-## 5. VCS integration depth
+## 7. Full workspace engine support
 
-Git worktree integration is covered with a real temporary Git repository, and jj coverage runs when jj is installed.
+- [x] Replace Kanban worktree assumptions with Changeyard workspace metadata.
+- [x] Support `plain-copy`, `git-worktree`, and `jj` in the UI data model.
+- [x] Surface engine-specific workspace verification state in the UI.
+- [ ] Add engine-specific diff and terminal tabs.
+- [ ] Route publish/completion actions through `runComplete`.
+- [ ] Add tests covering UI workspace behavior across all three engines.
 
-- [x] Ensure jj is installed in CI so jj integration coverage is always active.
-- [x] Add Git remote push tests against a local bare remote.
-- [x] Add jj bookmark push tests against a local remote.
-- [x] Test branch/bookmark collisions, missing binaries, dirty workspaces, and conflict states.
+## 8. Live updates and richer integration
 
-## 6. Release automation
+- [ ] Watch `.changeyard/changes/**/*.md`.
+- [ ] Watch `.changeyard/reviews/**/*.md`.
+- [ ] Watch `.changeyard/workspaces/**/metadata.json`.
+- [ ] Push invalidation events to the web UI and refetch automatically.
+- [ ] Surface provider review and PR flows through existing Changeyard providers.
 
-Release smoke scripts exist, but release publishing is still manual.
+## 9. Tests and packaging
 
-- [x] Add CI workflows for build, test, package dry-run, and live-smoke prerequisite checks.
-- [x] Add an npm publish workflow with provenance/signing if desired.
-- [x] Add changelog/versioning policy.
-- [x] Add install-from-tarball smoke tests for the generated package.
+- [x] Add focused board service tests.
+- [ ] Add server/API tests for `cy ui` startup and board/card endpoints.
+- [ ] Add integration tests proving UI start actions produce the same metadata as CLI start.
+- [x] Ensure `npm run pack:check` includes the server and built UI assets.
+- [ ] Ensure installed package runtime can resolve `packages/kanban/dist` correctly.
 
-## 7. CLI and UX polish
+## 10. Documentation
 
-The CLI has command-specific help and JSON wrapping, but richer ergonomics remain.
-
-- [x] Add examples to each command help message.
-- [x] Add `--dry-run` to mutating commands.
-- [x] Add `--verbose` and `--quiet` modes.
-- [x] Standardize exit codes and machine-readable error taxonomy.
-- [x] Expand structured JSON output for all commands.
+- [x] Add README usage for `cy ui`.
+- [ ] Add `docs/kanban-integration.md`.
+- [ ] Document the one-source-of-truth invariant for the UI.
+- [ ] Document workspace-engine behavior for `plain-copy`, `git-worktree`, and `jj`.
+- [ ] Document how to vendor/update from upstream `cline/kanban` later.
