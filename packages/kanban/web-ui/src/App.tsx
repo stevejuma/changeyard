@@ -1,419 +1,1199 @@
-import { CircleDot, ExternalLink, FileDiff, FolderKanban, GitBranch, Pencil, Play, RefreshCw, ShieldCheck, SquareTerminal } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import type { Board, Card, CardDetail, WorkspaceView } from "./types";
+// Main React composition root for the browser app.
+// Keep this file focused on wiring top-level hooks and surfaces together, and
+// push runtime-specific orchestration down into hooks and service modules.
+import { FolderOpen } from "lucide-react";
+import type { ReactElement } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(url, options);
-  const payload = await response.json();
-  if (!response.ok) {
-    const message = typeof payload?.error?.message === "string" ? payload.error.message : `Request failed: ${response.status}`;
-    throw new Error(message);
-  }
-  return payload as T;
-}
+import { AddProjectDialog } from "@/components/add-project-dialog";
+import { notifyError, showAppToast } from "@/components/app-toaster";
+import { CardDetailView } from "@/components/card-detail-view";
+import { ClearTrashDialog } from "@/components/clear-trash-dialog";
+import { DebugDialog } from "@/components/debug-dialog";
+import { AgentTerminalPanel } from "@/components/detail-panels/agent-terminal-panel";
+import { GitHistoryView } from "@/components/git-history-view";
+import { KanbanBoard } from "@/components/kanban-board";
+import { ProjectNavigationPanel } from "@/components/project-navigation-panel";
+import { RuntimeSettingsDialog, type RuntimeSettingsSection } from "@/components/runtime-settings-dialog";
+import { StartupOnboardingDialog } from "@/components/startup-onboarding-dialog";
+import { TaskCreateDialog } from "@/components/task-create-dialog";
+import { TaskInlineCreateCard } from "@/components/task-inline-create-card";
+import { TopBar } from "@/components/top-bar";
+import { Button } from "@/components/ui/button";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogBody,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@/components/ui/dialog";
+import { Spinner } from "@/components/ui/spinner";
+import { UpdateNotificationController } from "@/components/update-notification-controller";
+import { createInitialBoardData } from "@/data/board-data";
+import { createIdleTaskSession } from "@/hooks/app-utils";
+import { KanbanAccessBlockedFallback } from "@/hooks/kanban-access-blocked-fallback";
+import { RuntimeDisconnectedFallback } from "@/hooks/runtime-disconnected-fallback";
+import { useAppHotkeys } from "@/hooks/use-app-hotkeys";
+import { useBoardInteractions } from "@/hooks/use-board-interactions";
+import { useDebugTools } from "@/hooks/use-debug-tools";
+import { useDetailTaskNavigation } from "@/hooks/use-detail-task-navigation";
+import { useDocumentVisibility } from "@/hooks/use-document-visibility";
+import { useFeaturebaseFeedbackWidget } from "@/hooks/use-featurebase-feedback-widget";
+import { useGitActions } from "@/hooks/use-git-actions";
+import { useHomeSidebarAgentPanel } from "@/hooks/use-home-sidebar-agent-panel";
+import { useKanbanAccessGate } from "@/hooks/use-kanban-access-gate";
+import { useOpenWorkspace } from "@/hooks/use-open-workspace";
+import { parseRemovedProjectPathFromStreamError, useProjectNavigation } from "@/hooks/use-project-navigation";
+import { useProjectUiState } from "@/hooks/use-project-ui-state";
+import { useReviewReadyNotifications } from "@/hooks/use-review-ready-notifications";
+import { useShortcutActions } from "@/hooks/use-shortcut-actions";
+import { useStartupOnboarding } from "@/hooks/use-startup-onboarding";
+import { useTaskBranchOptions } from "@/hooks/use-task-branch-options";
+import { useTaskEditor } from "@/hooks/use-task-editor";
+import { useTaskSessions } from "@/hooks/use-task-sessions";
+import { useTaskStartActions } from "@/hooks/use-task-start-actions";
+import { useTerminalPanels } from "@/hooks/use-terminal-panels";
+import { useWorkspaceSync } from "@/hooks/use-workspace-sync";
+import { LayoutCustomizationsProvider } from "@/resize/layout-customizations";
+import { ResizableBottomPane } from "@/resize/resizable-bottom-pane";
+import { useProjectNavigationLayout } from "@/resize/use-project-navigation-layout";
+import {
+	getTaskAgentNavbarHint,
+	isTaskAgentSetupSatisfied,
+	selectLatestTaskChatMessageForTask,
+	selectTaskChatMessagesForTask,
+} from "@/runtime/native-agent";
+import type { RuntimeClineReasoningEffort, RuntimeTaskSessionSummary } from "@/runtime/types";
+import { useRuntimeProjectConfig } from "@/runtime/use-runtime-project-config";
+import { useTerminalConnectionReady } from "@/runtime/use-terminal-connection-ready";
+import { useWorkspacePersistence } from "@/runtime/use-workspace-persistence";
+import { saveWorkspaceState } from "@/runtime/workspace-state-query";
+import { applyTaskDetailClineSettingsChange, findCardSelection } from "@/state/board-state";
+import {
+	getTaskWorkspaceInfo,
+	getTaskWorkspaceSnapshot,
+	replaceWorkspaceMetadata,
+	resetWorkspaceMetadataStore,
+} from "@/stores/workspace-metadata-store";
+import { useTerminalThemeColors } from "@/terminal/theme-colors";
+import type { BoardData } from "@/types";
 
-function columnTone(id: string): string {
-  switch (id) {
-    case "backlog":
-      return "var(--color-status-blue)";
-    case "ready":
-      return "var(--color-status-cyan)";
-    case "in_progress":
-      return "var(--color-status-gold)";
-    case "review":
-      return "var(--color-status-purple)";
-    case "done":
-      return "var(--color-status-green)";
-    case "abandoned":
-      return "var(--color-status-red)";
-    default:
-      return "var(--color-text-tertiary)";
-  }
-}
+export default function App(): ReactElement {
+	const terminalThemeColors = useTerminalThemeColors();
+	const [board, setBoard] = useState<BoardData>(() => createInitialBoardData());
+	const [sessions, setSessions] = useState<Record<string, RuntimeTaskSessionSummary>>({});
+	const [canPersistWorkspaceState, setCanPersistWorkspaceState] = useState(false);
+	const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+	const [settingsInitialSection, setSettingsInitialSection] = useState<RuntimeSettingsSection | null>(null);
+	const [homeSidebarSection, setHomeSidebarSection] = useState<"projects" | "agent">("projects");
+	const [isClearTrashDialogOpen, setIsClearTrashDialogOpen] = useState(false);
+	const [isGitHistoryOpen, setIsGitHistoryOpen] = useState(false);
+	const [pendingTaskStartAfterEditId, setPendingTaskStartAfterEditId] = useState<string | null>(null);
+	const taskEditorResetRef = useRef<() => void>(() => {});
+	const lastStreamErrorRef = useRef<string | null>(null);
+	const handleProjectSwitchStart = useCallback(() => {
+		setCanPersistWorkspaceState(false);
+		setIsGitHistoryOpen(false);
+		setPendingTaskStartAfterEditId(null);
+		taskEditorResetRef.current();
+	}, []);
+	const {
+		currentProjectId,
+		projects,
+		workspaceState: streamedWorkspaceState,
+		workspaceMetadata,
+		latestTaskChatMessage,
+		taskChatMessagesByTaskId,
+		latestTaskReadyForReview,
+		latestMcpAuthStatuses,
+		clineSessionContextVersion,
+		streamError,
+		isRuntimeDisconnected,
+		hasReceivedSnapshot,
+		navigationCurrentProjectId,
+		removingProjectId,
+		hasNoProjects,
+		isProjectSwitching,
+		handleSelectProject,
+		handleAddProject,
+		handleAddProjectSuccess,
+		handleRemoveProject,
+		isAddProjectDialogOpen,
+		setIsAddProjectDialogOpen,
+		pendingNativeGitInitPath,
+		resetProjectNavigationState,
+	} = useProjectNavigation({
+		onProjectSwitchStart: handleProjectSwitchStart,
+	});
+	const activeNotificationWorkspaceId = navigationCurrentProjectId;
+	const isDocumentVisible = useDocumentVisibility();
+	const isInitialRuntimeLoad =
+		!hasReceivedSnapshot && currentProjectId === null && projects.length === 0 && !streamError;
+	const isAwaitingWorkspaceSnapshot = currentProjectId !== null && streamedWorkspaceState === null;
+	const {
+		config: runtimeProjectConfig,
+		isLoading: isRuntimeProjectConfigLoading,
+		refresh: refreshRuntimeProjectConfig,
+	} = useRuntimeProjectConfig(currentProjectId);
+	const { isBlocked: isKanbanAccessBlocked, refresh: refreshKanbanAccess } = useKanbanAccessGate({
+		workspaceId: currentProjectId,
+	});
+	const isTaskAgentReady = isTaskAgentSetupSatisfied(runtimeProjectConfig);
+	const settingsWorkspaceId = navigationCurrentProjectId ?? currentProjectId;
+	const { config: settingsRuntimeProjectConfig, refresh: refreshSettingsRuntimeProjectConfig } =
+		useRuntimeProjectConfig(settingsWorkspaceId);
+	const featurebaseFeedbackState = useFeaturebaseFeedbackWidget({
+		workspaceId: settingsWorkspaceId,
+		clineProviderSettings: settingsRuntimeProjectConfig?.clineProviderSettings ?? null,
+	});
+	const {
+		isStartupOnboardingDialogOpen,
+		handleOpenStartupOnboardingDialog,
+		handleCloseStartupOnboardingDialog,
+		handleSelectOnboardingAgent,
+		handleOnboardingClineSetupSaved,
+	} = useStartupOnboarding({
+		currentProjectId,
+		runtimeProjectConfig,
+		isRuntimeProjectConfigLoading,
+		isTaskAgentReady,
+		refreshRuntimeProjectConfig,
+		refreshSettingsRuntimeProjectConfig,
+	});
+	const {
+		debugModeEnabled,
+		isDebugDialogOpen,
+		isResetAllStatePending,
+		handleOpenDebugDialog,
+		handleShowStartupOnboardingDialog,
+		handleDebugDialogOpenChange,
+		handleResetAllState,
+	} = useDebugTools({
+		runtimeProjectConfig,
+		settingsRuntimeProjectConfig,
+		onOpenStartupOnboardingDialog: handleOpenStartupOnboardingDialog,
+	});
+	const {
+		markConnectionReady: markTerminalConnectionReady,
+		prepareWaitForConnection: prepareWaitForTerminalConnectionReady,
+	} = useTerminalConnectionReady();
+	const readyForReviewNotificationsEnabled = runtimeProjectConfig?.readyForReviewNotificationsEnabled ?? true;
+	const shortcuts = runtimeProjectConfig?.shortcuts ?? [];
+	const selectedShortcutLabel = useMemo(() => {
+		if (shortcuts.length === 0) {
+			return null;
+		}
+		const configured = runtimeProjectConfig?.selectedShortcutLabel ?? null;
+		if (configured && shortcuts.some((shortcut) => shortcut.label === configured)) {
+			return configured;
+		}
+		return shortcuts[0]?.label ?? null;
+	}, [runtimeProjectConfig?.selectedShortcutLabel, shortcuts]);
+	const {
+		upsertSession,
+		ensureTaskWorkspace,
+		startTaskSession,
+		stopTaskSession,
+		sendTaskSessionInput,
+		sendTaskChatMessage,
+		cancelTaskChatTurn,
+		fetchTaskChatMessages,
+		cleanupTaskWorkspace,
+		fetchTaskWorkspaceInfo,
+	} = useTaskSessions({
+		currentProjectId,
+		setSessions,
+	});
 
-function sectionOrder(sections: Record<string, string>): Array<[string, string]> {
-  return Object.entries(sections).sort(([left], [right]) => left.localeCompare(right));
-}
+	const {
+		workspacePath,
+		workspaceGit,
+		workspaceRevision,
+		setWorkspaceRevision,
+		workspaceHydrationNonce,
+		isWorkspaceStateRefreshing,
+		isWorkspaceMetadataPending,
+		refreshWorkspaceState,
+		resetWorkspaceSyncState,
+	} = useWorkspaceSync({
+		currentProjectId,
+		streamedWorkspaceState,
+		hasNoProjects,
+		hasReceivedSnapshot,
+		isDocumentVisible,
+		setBoard,
+		setSessions,
+		setCanPersistWorkspaceState,
+	});
+	const { selectedTaskId, selectedCard, setSelectedTaskId, handleBack } = useDetailTaskNavigation({
+		board,
+		currentProjectId,
+		isAwaitingWorkspaceSnapshot,
+		isInitialRuntimeLoad,
+		isProjectSwitching,
+		isWorkspaceMetadataPending,
+		onDetailClosed: () => {
+			setIsGitHistoryOpen(false);
+		},
+	});
 
-export default function App(): React.ReactElement {
-  const [board, setBoard] = useState<Board | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [selectedCard, setSelectedCard] = useState<CardDetail | null>(null);
-  const [workspaceView, setWorkspaceView] = useState<WorkspaceView | null>(null);
-  const [workspaceTab, setWorkspaceTab] = useState<"diff" | "terminal">("diff");
-  const [error, setError] = useState<string | null>(null);
-  const [pendingAction, setPendingAction] = useState<string | null>(null);
+	useEffect(() => {
+		replaceWorkspaceMetadata(workspaceMetadata);
+	}, [workspaceMetadata]);
 
-  const cards = useMemo(() => board?.columns.flatMap((column) => column.cards) ?? [], [board]);
+	useEffect(() => {
+		if (!isProjectSwitching) {
+			return;
+		}
+		resetWorkspaceMetadataStore();
+	}, [isProjectSwitching]);
 
-  async function loadBoard(nextSelectedId?: string | null): Promise<void> {
-    const nextBoard = await fetchJson<Board>("/api/board");
-    setBoard(nextBoard);
-    const targetId = nextSelectedId ?? selectedId ?? nextBoard.columns.flatMap((column) => column.cards)[0]?.id ?? null;
-    if (targetId) {
-      await loadCard(targetId);
-    } else {
-      setSelectedId(null);
-      setSelectedCard(null);
-      setWorkspaceView(null);
-    }
-  }
+	const {
+		displayedProjects,
+		navigationProjectPath,
+		shouldShowProjectLoadingState,
+		isProjectListLoading,
+		shouldUseNavigationPath,
+	} = useProjectUiState({
+		board,
+		canPersistWorkspaceState,
+		currentProjectId,
+		projects,
+		navigationCurrentProjectId,
+		selectedTaskId,
+		streamError,
+		isProjectSwitching,
+		isInitialRuntimeLoad,
+		isAwaitingWorkspaceSnapshot,
+		isWorkspaceMetadataPending,
+		hasReceivedSnapshot,
+	});
 
-  async function loadCard(id: string): Promise<void> {
-    setSelectedId(id);
-    const detail = await fetchJson<CardDetail>(`/api/cards/${encodeURIComponent(id)}`);
-    setSelectedCard(detail);
-    if (detail.workspace?.path) {
-      const nextWorkspaceView = await fetchJson<WorkspaceView>(`/api/cards/${encodeURIComponent(id)}/workspace-view`);
-      setWorkspaceView(nextWorkspaceView);
-    } else {
-      setWorkspaceView(null);
-    }
-  }
+	useReviewReadyNotifications({
+		activeWorkspaceId: activeNotificationWorkspaceId,
+		board,
+		isDocumentVisible,
+		latestTaskReadyForReview,
+		taskSessions: sessions,
+		readyForReviewNotificationsEnabled,
+		workspacePath,
+	});
 
-  async function runAction(action: string, card: CardDetail): Promise<void> {
-    setPendingAction(action);
-    setError(null);
-    try {
-      if (action === "create") {
-        const title = window.prompt("Task title");
-        if (!title) return;
-        const created = await fetchJson<CardDetail>("/api/cards", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title, template: "agent-task" }),
-        });
-        await loadBoard(created.id);
-        return;
-      }
-      if (action === "refresh") {
-        await loadBoard();
-        return;
-      }
-      if (action === "edit-metadata") {
-        const title = window.prompt("Task title", card.title);
-        if (title === null) return;
-        const priority = window.prompt("Priority", card.priority ?? "");
-        if (priority === null) return;
-        const labels = window.prompt("Labels (comma separated)", card.labels.join(", "));
-        if (labels === null) return;
-        await fetchJson(`/api/cards/${encodeURIComponent(card.id)}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            title,
-            priority: priority.trim() ? priority : null,
-            labels: labels.split(",").map((label) => label.trim()).filter(Boolean),
-          }),
-        });
-        await loadBoard(card.id);
-        return;
-      }
-      if (action.startsWith("edit-section:")) {
-        const sectionName = action.slice("edit-section:".length);
-        const currentContent = card.sections?.[sectionName] ?? "";
-        const content = window.prompt(`${sectionName} section`, currentContent);
-        if (content === null) return;
-        await fetchJson(`/api/cards/${encodeURIComponent(card.id)}/sections/${encodeURIComponent(sectionName)}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ content }),
-        });
-        await loadBoard(card.id);
-        return;
-      }
-      if (action === "complete-pr") {
-        await fetchJson(`/api/cards/${encodeURIComponent(card.id)}/complete`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ withPr: true }),
-        });
-      } else if (action === "review-approve") {
-        await fetchJson(`/api/cards/${encodeURIComponent(card.id)}/review/complete`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ decision: "approve" }),
-        });
-      } else if (action === "review-request-changes") {
-        await fetchJson(`/api/cards/${encodeURIComponent(card.id)}/review/complete`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ decision: "request-changes" }),
-        });
-      } else {
-        await fetchJson(`/api/cards/${encodeURIComponent(card.id)}/${action}`, { method: "POST" });
-      }
-      await loadBoard(card.id);
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : String(nextError));
-    } finally {
-      setPendingAction(null);
-    }
-  }
+	const { createTaskBranchOptions, defaultTaskBranchRef } = useTaskBranchOptions({ workspaceGit });
+	const queueTaskStartAfterEdit = useCallback((taskId: string) => {
+		setPendingTaskStartAfterEditId(taskId);
+	}, []);
 
-  useEffect(() => {
-    void loadBoard().catch((nextError) => {
-      setError(nextError instanceof Error ? nextError.message : String(nextError));
-    });
-  }, []);
+	const {
+		isInlineTaskCreateOpen,
+		newTaskPrompt,
+		setNewTaskPrompt,
+		newTaskImages,
+		setNewTaskImages,
+		newTaskStartInPlanMode,
+		setNewTaskStartInPlanMode,
+		newTaskAutoReviewEnabled,
+		setNewTaskAutoReviewEnabled,
+		newTaskAutoReviewMode,
+		setNewTaskAutoReviewMode,
+		isNewTaskStartInPlanModeDisabled,
+		newTaskBranchRef,
+		setNewTaskBranchRef,
+		newTaskAgentId,
+		setNewTaskAgentId,
+		newTaskClineSettings,
+		setNewTaskClineSettings,
+		editingTaskId,
+		editTaskPrompt,
+		setEditTaskPrompt,
+		editTaskImages,
+		setEditTaskImages,
+		editTaskStartInPlanMode,
+		setEditTaskStartInPlanMode,
+		editTaskAutoReviewEnabled,
+		setEditTaskAutoReviewEnabled,
+		editTaskAutoReviewMode,
+		setEditTaskAutoReviewMode,
+		isEditTaskStartInPlanModeDisabled,
+		editTaskBranchRef,
+		setEditTaskBranchRef,
+		editTaskAgentId,
+		setEditTaskAgentId,
+		editTaskClineSettings,
+		setEditTaskClineSettings,
+		handleOpenCreateTask,
+		handleCancelCreateTask,
+		handleOpenEditTask,
+		handleCancelEditTask,
+		handleSaveEditedTask,
+		handleSaveAndStartEditedTask,
+		handleSaveTaskTitle,
+		handleCreateTask,
+		handleCreateTasks,
+		resetTaskEditorState,
+	} = useTaskEditor({
+		board,
+		setBoard,
+		currentProjectId,
+		createTaskBranchOptions,
+		defaultTaskBranchRef,
+		selectedAgentId: runtimeProjectConfig?.selectedAgentId ?? null,
+		setSelectedTaskId,
+		queueTaskStartAfterEdit,
+	});
 
-  useEffect(() => {
-    const events = new EventSource("/api/events");
-    events.addEventListener("board-invalidated", () => {
-      void loadBoard(selectedId).catch((nextError) => {
-        setError(nextError instanceof Error ? nextError.message : String(nextError));
-      });
-    });
-    return () => events.close();
-  }, [selectedId]);
+	useEffect(() => {
+		taskEditorResetRef.current = resetTaskEditorState;
+	}, [resetTaskEditorState]);
 
-  function actionButtons(card: CardDetail): Array<{ id: string; label: string }> {
-    const buttons: Array<{ id: string; label: string }> = [{ id: "edit-metadata", label: "Edit" }];
-    if (card.status === "ready") buttons.push({ id: "sync", label: "Sync" });
-    if (["ready", "synced", "changes_requested"].includes(card.status)) buttons.push({ id: "start", label: "Start" });
-    if (card.status === "in_progress") {
-      buttons.push({ id: "complete", label: "Complete" });
-      buttons.push({ id: "complete-pr", label: "Draft PR" });
-    }
-    if (["ready_for_pr", "pr_open", "in_review"].includes(card.status)) {
-      buttons.push({ id: "review-start", label: "Review" });
-      buttons.push({ id: "review-approve", label: "Approve" });
-      buttons.push({ id: "review-request-changes", label: "Request Changes" });
-    }
-    return buttons;
-  }
+	useEffect(() => {
+		if (!isProjectSwitching) {
+			return;
+		}
+		resetWorkspaceSyncState();
+	}, [isProjectSwitching, resetWorkspaceSyncState]);
 
-  return (
-    <div className="min-h-screen bg-surface-0 text-text-primary">
-      <header className="sticky top-0 z-20 border-b border-border bg-surface-1/95 backdrop-blur">
-        <div className="mx-auto flex max-w-[1680px] items-center justify-between gap-4 px-4 py-3">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-border-bright bg-surface-2">
-              <FolderKanban size={18} />
-            </div>
-            <div className="min-w-0">
-              <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-text-tertiary">Changeyard</div>
-              <div className="truncate text-sm font-semibold">Kanban Runtime</div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button className="kb-btn kb-btn-secondary" onClick={() => void runAction("refresh", selectedCard ?? (cards[0] as CardDetail))}>
-              <RefreshCw size={14} />
-              Refresh
-            </button>
-            <button className="kb-btn kb-btn-primary" onClick={() => void runAction("create", selectedCard ?? (cards[0] as CardDetail))}>
-              <Play size={14} />
-              New Task
-            </button>
-          </div>
-        </div>
-      </header>
+	useEffect(() => {
+		if (!isProjectSwitching) {
+			return;
+		}
+		resetTaskEditorState();
+	}, [isProjectSwitching, resetTaskEditorState]);
 
-      <main className="mx-auto grid max-w-[1680px] grid-cols-[minmax(0,1.65fr)_minmax(360px,0.95fr)] gap-4 px-4 py-4 max-[1100px]:grid-cols-1">
-        <section className="flex min-h-[calc(100vh-112px)] min-w-0 flex-col rounded-lg border border-border bg-surface-1">
-          <div className="flex items-center justify-between border-b border-border px-4 py-3">
-            <div className="flex items-center gap-2">
-              <CircleDot size={14} className="text-accent" />
-              <span className="text-sm font-medium">Board</span>
-              {board ? <span className="rounded-full border border-border px-2 py-0.5 text-xs text-text-secondary">{board.workspaceEngine}</span> : null}
-            </div>
-            <div className="text-xs text-text-tertiary">{cards.length} cards</div>
-          </div>
-          <div className="grid min-h-0 flex-1 grid-cols-[repeat(auto-fit,minmax(250px,1fr))] gap-3 overflow-auto p-3">
-            {board?.columns.map((column) => (
-              <section key={column.id} className="flex min-h-[420px] min-w-0 flex-col rounded-lg border border-border bg-surface-2">
-                <div className="flex items-center justify-between border-b border-border px-3 py-2">
-                  <div className="flex items-center gap-2">
-                    <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: columnTone(column.id) }} />
-                    <span className="text-sm font-semibold">{column.title}</span>
-                  </div>
-                  <span className="text-xs text-text-tertiary">{column.cards.length}</span>
-                </div>
-                <div className="flex flex-1 flex-col gap-2 overflow-auto p-2">
-                  {column.cards.map((card) => (
-                    <button
-                      key={card.id}
-                      type="button"
-                      className={`kb-card ${selectedId === card.id ? "kb-card-selected" : ""}`}
-                      onClick={() => void loadCard(card.id)}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="mb-1 flex items-center gap-2 text-[11px] uppercase tracking-[0.14em] text-text-tertiary">
-                            <span>{card.id}</span>
-                            <span>{card.status}</span>
-                          </div>
-                          <div className="line-clamp-2 text-left text-sm font-semibold">{card.title}</div>
-                        </div>
-                        <Pencil size={14} className="shrink-0 text-text-tertiary" />
-                      </div>
-                      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-text-secondary">
-                        <span className="rounded-full border border-border px-2 py-0.5">{card.type}</span>
-                        {card.workspace?.engine ? <span className="rounded-full border border-border px-2 py-0.5">{card.workspace.engine}</span> : null}
-                        {card.provider?.type ? <span className="rounded-full border border-border px-2 py-0.5">{card.provider.type}</span> : null}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </section>
-            ))}
-          </div>
-        </section>
+	const {
+		runningGitAction,
+		taskGitActionLoadingByTaskId,
+		commitTaskLoadingById,
+		openPrTaskLoadingById,
+		agentCommitTaskLoadingById,
+		agentOpenPrTaskLoadingById,
+		isDiscardingHomeWorkingChanges,
+		gitActionError,
+		gitActionErrorTitle,
+		clearGitActionError,
+		gitHistory,
+		runGitAction,
+		switchHomeBranch,
+		discardHomeWorkingChanges,
+		handleCommitTask,
+		handleOpenPrTask,
+		handleAgentCommitTask,
+		handleAgentOpenPrTask,
+		runAutoReviewGitAction,
+		resetGitActionState,
+	} = useGitActions({
+		currentProjectId,
+		board,
+		selectedCard,
+		runtimeProjectConfig,
+		sendTaskSessionInput,
+		sendTaskChatMessage,
+		fetchTaskWorkspaceInfo,
+		isGitHistoryOpen,
+		refreshWorkspaceState,
+	});
+	const agentCommand = runtimeProjectConfig?.effectiveCommand ?? null;
+	const {
+		homeTerminalTaskId,
+		isHomeTerminalOpen,
+		isHomeTerminalStarting,
+		homeTerminalPaneHeight,
+		isDetailTerminalOpen,
+		detailTerminalTaskId,
+		isDetailTerminalStarting,
+		detailTerminalPaneHeight,
+		isHomeTerminalExpanded,
+		isDetailTerminalExpanded,
+		setHomeTerminalPaneHeight,
+		setDetailTerminalPaneHeight,
+		handleToggleExpandHomeTerminal,
+		handleToggleExpandDetailTerminal,
+		handleToggleHomeTerminal,
+		handleToggleDetailTerminal,
+		handleSendAgentCommandToHomeTerminal,
+		handleSendAgentCommandToDetailTerminal,
+		prepareTerminalForShortcut,
+		resetBottomTerminalLayoutCustomizations,
+		collapseHomeTerminal,
+		collapseDetailTerminal,
+		closeHomeTerminal,
+		closeDetailTerminal,
+		resetTerminalPanelsState,
+	} = useTerminalPanels({
+		currentProjectId,
+		selectedCard,
+		workspaceGit,
+		agentCommand,
+		upsertSession,
+		sendTaskSessionInput,
+	});
+	const homeTerminalSummary = sessions[homeTerminalTaskId] ?? null;
+	const homeSidebarAgentPanel = useHomeSidebarAgentPanel({
+		currentProjectId,
+		hasNoProjects,
+		runtimeProjectConfig,
+		clineSessionContextVersion,
+		taskSessions: sessions,
+		workspaceGit,
+		latestTaskChatMessage,
+		taskChatMessagesByTaskId,
+	});
+	const { runningShortcutLabel, handleSelectShortcutLabel, handleRunShortcut, handleCreateShortcut } =
+		useShortcutActions({
+			currentProjectId,
+			selectedShortcutLabel: runtimeProjectConfig?.selectedShortcutLabel,
+			shortcuts,
+			refreshRuntimeProjectConfig,
+			prepareTerminalForShortcut,
+			prepareWaitForTerminalConnectionReady,
+			sendTaskSessionInput,
+		});
 
-        <aside className="min-h-[calc(100vh-112px)] overflow-auto rounded-lg border border-border bg-surface-1">
-          {selectedCard ? (
-            <div className="flex h-full flex-col">
-              <div className="border-b border-border px-4 py-4">
-                <div className="mb-2 text-[11px] uppercase tracking-[0.18em] text-text-tertiary">{selectedCard.id}</div>
-                <div className="mb-4 text-lg font-semibold">{selectedCard.title}</div>
-                <div className="flex flex-wrap gap-2">
-                  {actionButtons(selectedCard).map((action) => (
-                    <button
-                      key={action.id}
-                      className={`kb-btn ${action.id === "complete-pr" ? "kb-btn-secondary" : "kb-btn-default"}`}
-                      disabled={pendingAction === action.id}
-                      onClick={() => void runAction(action.id, selectedCard)}
-                    >
-                      {action.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
+	const persistWorkspaceStateAsync = useCallback(
+		async (input: { workspaceId: string; payload: Parameters<typeof saveWorkspaceState>[1] }) =>
+			await saveWorkspaceState(input.workspaceId, input.payload),
+		[],
+	);
+	const handleWorkspaceStateConflict = useCallback(() => {
+		showAppToast(
+			{
+				intent: "warning",
+				icon: "warning-sign",
+				message: "Workspace changed elsewhere. Synced latest state. Retry your last edit if needed.",
+				timeout: 5000,
+			},
+			"workspace-state-conflict",
+		);
+	}, []);
 
-              {error ? (
-                <div className="mx-4 mt-4 rounded-md border border-status-red/30 bg-status-red/10 px-3 py-2 text-sm text-status-red">
-                  {error}
-                </div>
-              ) : null}
+	useWorkspacePersistence({
+		board,
+		sessions,
+		currentProjectId,
+		workspaceRevision,
+		hydrationNonce: workspaceHydrationNonce,
+		canPersistWorkspaceState,
+		isDocumentVisible,
+		isWorkspaceStateRefreshing,
+		persistWorkspaceState: persistWorkspaceStateAsync,
+		refetchWorkspaceState: refreshWorkspaceState,
+		onWorkspaceRevisionChange: setWorkspaceRevision,
+		onWorkspaceStateConflict: handleWorkspaceStateConflict,
+	});
 
-              <div className="grid gap-4 p-4">
-                <section className="rounded-lg border border-border bg-surface-2 p-4">
-                  <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
-                    <ShieldCheck size={14} />
-                    Overview
-                  </div>
-                  <dl className="grid gap-3 text-sm">
-                    <div className="grid gap-1">
-                      <dt className="text-[11px] uppercase tracking-[0.14em] text-text-tertiary">Status</dt>
-                      <dd>{selectedCard.status}</dd>
-                    </div>
-                    <div className="grid gap-1">
-                      <dt className="text-[11px] uppercase tracking-[0.14em] text-text-tertiary">Priority</dt>
-                      <dd>{selectedCard.priority ?? "n/a"}</dd>
-                    </div>
-                    <div className="grid gap-1">
-                      <dt className="text-[11px] uppercase tracking-[0.14em] text-text-tertiary">Labels</dt>
-                      <dd>{selectedCard.labels.join(", ") || "none"}</dd>
-                    </div>
-                    <div className="grid gap-1">
-                      <dt className="text-[11px] uppercase tracking-[0.14em] text-text-tertiary">Path</dt>
-                      <dd className="break-all">{selectedCard.path}</dd>
-                    </div>
-                  </dl>
-                </section>
+	useEffect(() => {
+		if (!streamError) {
+			lastStreamErrorRef.current = null;
+			return;
+		}
+		const removedPath = parseRemovedProjectPathFromStreamError(streamError);
+		if (removedPath !== null) {
+			showAppToast(
+				{
+					intent: "danger",
+					icon: "warning-sign",
+					message: removedPath
+						? `Project no longer exists and was removed: ${removedPath}`
+						: "Project no longer exists and was removed.",
+					timeout: 6000,
+				},
+				`project-removed-${removedPath || "unknown"}`,
+			);
+			lastStreamErrorRef.current = null;
+			return;
+		}
+		if (isRuntimeDisconnected) {
+			lastStreamErrorRef.current = streamError;
+			return;
+		}
+		if (lastStreamErrorRef.current !== streamError) {
+			notifyError(streamError, { key: `error:${streamError}` });
+		}
+		lastStreamErrorRef.current = streamError;
+	}, [isRuntimeDisconnected, streamError]);
 
-                <section className="rounded-lg border border-border bg-surface-2 p-4">
-                  <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
-                    <GitBranch size={14} />
-                    Workspace
-                  </div>
-                  <dl className="grid gap-3 text-sm">
-                    <div className="grid gap-1">
-                      <dt className="text-[11px] uppercase tracking-[0.14em] text-text-tertiary">Engine</dt>
-                      <dd>{selectedCard.workspace?.engine ?? "not started"}</dd>
-                    </div>
-                    <div className="grid gap-1">
-                      <dt className="text-[11px] uppercase tracking-[0.14em] text-text-tertiary">Path</dt>
-                      <dd className="break-all">{selectedCard.workspace?.path ?? "not started"}</dd>
-                    </div>
-                    <div className="grid gap-1">
-                      <dt className="text-[11px] uppercase tracking-[0.14em] text-text-tertiary">Branch</dt>
-                      <dd>{selectedCard.workspace?.branch ?? "n/a"}</dd>
-                    </div>
-                    <div className="grid gap-1">
-                      <dt className="text-[11px] uppercase tracking-[0.14em] text-text-tertiary">Verification</dt>
-                      <dd>
-                        {selectedCard.workspace?.verification
-                          ? (selectedCard.workspace.verification.valid ? "valid" : selectedCard.workspace.verification.errors.join("; "))
-                          : "not checked"}
-                      </dd>
-                    </div>
-                  </dl>
-                </section>
+	useEffect(() => {
+		resetTaskEditorState();
+		setIsClearTrashDialogOpen(false);
+		resetGitActionState();
+		resetProjectNavigationState();
+		resetTerminalPanelsState();
+	}, [
+		currentProjectId,
+		resetGitActionState,
+		resetProjectNavigationState,
+		resetTaskEditorState,
+		resetTerminalPanelsState,
+	]);
 
-                {workspaceView ? (
-                  <section className="rounded-lg border border-border bg-surface-2 p-4">
-                    <div className="mb-3 flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-2 text-sm font-semibold">
-                        <SquareTerminal size={14} />
-                        Workspace Runtime
-                      </div>
-                      <div className="flex gap-1">
-                        <button className={`kb-tab ${workspaceTab === "diff" ? "kb-tab-active" : ""}`} onClick={() => setWorkspaceTab("diff")}>
-                          <FileDiff size={13} />
-                          Diff
-                        </button>
-                        <button className={`kb-tab ${workspaceTab === "terminal" ? "kb-tab-active" : ""}`} onClick={() => setWorkspaceTab("terminal")}>
-                          <SquareTerminal size={13} />
-                          Terminal
-                        </button>
-                      </div>
-                    </div>
-                    <div className="mb-2 text-xs text-text-tertiary">{workspaceView.engine} workspace at {workspaceView.path}</div>
-                    <pre className="kb-code">
-                      {workspaceTab === "diff"
-                        ? workspaceView.diffOutput || "No diff output."
-                        : [`$ ${workspaceView.commands.join("\n$ ")}`, "", workspaceView.statusOutput, workspaceView.checkLog ? `\n# checks.log\n\n${workspaceView.checkLog}` : ""].join("\n").trim()}
-                    </pre>
-                  </section>
-                ) : null}
+	useEffect(() => {
+		if (selectedCard) {
+			return;
+		}
+		if (hasNoProjects || !currentProjectId) {
+			if (isHomeTerminalOpen) {
+				closeHomeTerminal();
+			}
+			return;
+		}
+	}, [closeHomeTerminal, currentProjectId, hasNoProjects, isHomeTerminalOpen, selectedCard]);
+	const showHomeBottomTerminal = !selectedCard && !hasNoProjects && isHomeTerminalOpen;
+	const homeTerminalSubtitle = useMemo(
+		() => workspacePath ?? navigationProjectPath ?? null,
+		[navigationProjectPath, workspacePath],
+	);
 
-                <section className="rounded-lg border border-border bg-surface-2 p-4">
-                  <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
-                    <ExternalLink size={14} />
-                    Provider
-                  </div>
-                  <dl className="grid gap-3 text-sm">
-                    <div className="grid gap-1">
-                      <dt className="text-[11px] uppercase tracking-[0.14em] text-text-tertiary">Provider</dt>
-                      <dd>{selectedCard.provider?.type ?? "none"}</dd>
-                    </div>
-                    <div className="grid gap-1">
-                      <dt className="text-[11px] uppercase tracking-[0.14em] text-text-tertiary">Issue</dt>
-                      <dd>{selectedCard.provider?.issueUrl ? <a className="kb-link" href={selectedCard.provider.issueUrl} target="_blank" rel="noreferrer">{selectedCard.provider.issueUrl}</a> : "n/a"}</dd>
-                    </div>
-                    <div className="grid gap-1">
-                      <dt className="text-[11px] uppercase tracking-[0.14em] text-text-tertiary">Pull Request</dt>
-                      <dd>{selectedCard.provider?.pullRequestUrl ? <a className="kb-link" href={selectedCard.provider.pullRequestUrl} target="_blank" rel="noreferrer">{selectedCard.provider.pullRequestUrl}</a> : "n/a"}</dd>
-                    </div>
-                  </dl>
-                </section>
+	const handleOpenSettings = useCallback((section?: RuntimeSettingsSection) => {
+		setSettingsInitialSection(section ?? null);
+		setIsSettingsOpen(true);
+	}, []);
+	const handleToggleGitHistory = useCallback(() => {
+		if (hasNoProjects) {
+			return;
+		}
+		setIsGitHistoryOpen((current) => !current);
+	}, [hasNoProjects]);
+	const handleCloseGitHistory = useCallback(() => {
+		setIsGitHistoryOpen(false);
+	}, []);
 
-                <section className="rounded-lg border border-border bg-surface-2 p-4">
-                  <div className="mb-3 text-sm font-semibold">Markdown Sections</div>
-                  <div className="grid gap-3">
-                    {sectionOrder(selectedCard.sections).map(([name, content]) => (
-                      <article key={name} className="rounded-md border border-border bg-surface-1 p-3">
-                        <div className="mb-2 flex items-center justify-between gap-2">
-                          <div className="text-sm font-medium">{name}</div>
-                          <button className="kb-btn kb-btn-secondary" onClick={() => void runAction(`edit-section:${name}`, selectedCard)}>
-                            Edit
-                          </button>
-                        </div>
-                        <pre className="kb-code">{content || "(empty)"}</pre>
-                      </article>
-                    ))}
-                  </div>
-                </section>
-              </div>
-            </div>
-          ) : (
-            <div className="flex h-full items-center justify-center p-8 text-center text-text-secondary">
-              Select a card to inspect its changeyard document, workspace state, and provider artifacts.
-            </div>
-          )}
-        </aside>
-      </main>
-    </div>
-  );
+	const {
+		handleProgrammaticCardMoveReady,
+		handleCreateDependency,
+		handleDeleteDependency,
+		handleDragEnd,
+		handleStartTask,
+		handleStartAllBacklogTasks,
+		handleDetailTaskDragEnd,
+		handleCardSelect,
+		handleMoveToTrash,
+		handleMoveReviewCardToTrash,
+		handleRestoreTaskFromTrash,
+		handleCancelAutomaticTaskAction,
+		handleOpenClearTrash,
+		handleConfirmClearTrash,
+		handleAddReviewComments,
+		handleSendReviewComments,
+		moveToTrashLoadingById,
+		trashTaskCount,
+	} = useBoardInteractions({
+		board,
+		setBoard,
+		sessions,
+		setSessions,
+		selectedCard,
+		selectedTaskId,
+		currentProjectId,
+		setSelectedTaskId,
+		setIsClearTrashDialogOpen,
+		setIsGitHistoryOpen,
+		stopTaskSession,
+		cleanupTaskWorkspace,
+		ensureTaskWorkspace,
+		startTaskSession,
+		fetchTaskWorkspaceInfo,
+		sendTaskSessionInput,
+		readyForReviewNotificationsEnabled,
+		taskGitActionLoadingByTaskId,
+		runAutoReviewGitAction,
+	});
+
+	const {
+		handleCreateAndStartTask,
+		handleCreateAndStartTasks,
+		handleCreateStartAndOpenTask,
+		handleStartTaskFromBoard,
+		handleStartAllBacklogTasksFromBoard,
+	} = useTaskStartActions({
+		board,
+		handleCreateTask,
+		handleCreateTasks,
+		handleStartTask,
+		handleStartAllBacklogTasks,
+		setSelectedTaskId,
+	});
+
+	useAppHotkeys({
+		selectedCard,
+		isDetailTerminalOpen,
+		isHomeTerminalOpen: showHomeBottomTerminal,
+		isHomeGitHistoryOpen: !selectedCard && isGitHistoryOpen,
+		canUseCreateTaskShortcut: !hasNoProjects && currentProjectId !== null,
+		handleToggleDetailTerminal,
+		handleToggleHomeTerminal,
+		handleToggleExpandDetailTerminal,
+		handleToggleExpandHomeTerminal: handleToggleExpandHomeTerminal,
+		handleOpenCreateTask,
+		handleOpenSettings,
+		handleToggleGitHistory,
+		handleCloseGitHistory,
+		onStartAllTasks: handleStartAllBacklogTasksFromBoard,
+	});
+
+	useEffect(() => {
+		if (!pendingTaskStartAfterEditId) {
+			return;
+		}
+		const selection = findCardSelection(board, pendingTaskStartAfterEditId);
+		if (!selection || selection.column.id !== "backlog") {
+			return;
+		}
+		handleStartTaskFromBoard(pendingTaskStartAfterEditId);
+		setPendingTaskStartAfterEditId(null);
+	}, [board, handleStartTaskFromBoard, pendingTaskStartAfterEditId]);
+
+	const detailSession = selectedCard
+		? (sessions[selectedCard.card.id] ?? createIdleTaskSession(selectedCard.card.id))
+		: null;
+	const detailTerminalSummary = detailTerminalTaskId ? (sessions[detailTerminalTaskId] ?? null) : null;
+	const detailTerminalSubtitle = useMemo(() => {
+		if (!selectedCard) {
+			return null;
+		}
+		return (
+			getTaskWorkspaceInfo(selectedCard.card.id, selectedCard.card.baseRef)?.path ??
+			getTaskWorkspaceSnapshot(selectedCard.card.id)?.path ??
+			null
+		);
+	}, [selectedCard]);
+
+	const runtimeHint = useMemo(() => {
+		return getTaskAgentNavbarHint(runtimeProjectConfig, {
+			shouldUseNavigationPath,
+		});
+	}, [runtimeProjectConfig, shouldUseNavigationPath]);
+
+	const activeWorkspacePath = selectedCard
+		? (getTaskWorkspaceInfo(selectedCard.card.id, selectedCard.card.baseRef)?.path ??
+			getTaskWorkspaceSnapshot(selectedCard.card.id)?.path ??
+			workspacePath ??
+			undefined)
+		: shouldUseNavigationPath
+			? (navigationProjectPath ?? undefined)
+			: (workspacePath ?? undefined);
+
+	const activeWorkspaceHint = useMemo(() => {
+		if (!selectedCard) {
+			return undefined;
+		}
+		const activeSelectedTaskWorkspaceInfo = getTaskWorkspaceInfo(selectedCard.card.id, selectedCard.card.baseRef);
+		if (!activeSelectedTaskWorkspaceInfo) {
+			return undefined;
+		}
+		if (!activeSelectedTaskWorkspaceInfo.exists) {
+			return selectedCard.column.id === "trash" ? "Task worktree deleted" : "Task worktree not created yet";
+		}
+		return undefined;
+	}, [selectedCard]);
+
+	const sidebarLayout = useProjectNavigationLayout();
+	const handleToggleSidebar = useCallback(() => {
+		sidebarLayout.setSidebarCollapsed(!sidebarLayout.isCollapsed);
+	}, [sidebarLayout]);
+
+	const navbarWorkspacePath = hasNoProjects ? undefined : activeWorkspacePath;
+	const navbarWorkspaceHint = hasNoProjects ? undefined : activeWorkspaceHint;
+	const navbarRuntimeHint = hasNoProjects ? undefined : runtimeHint;
+	const shouldHideProjectDependentTopBarActions =
+		!selectedCard && (isProjectSwitching || isAwaitingWorkspaceSnapshot || isWorkspaceMetadataPending);
+
+	const {
+		openTargetOptions,
+		selectedOpenTargetId,
+		onSelectOpenTarget,
+		onOpenWorkspace,
+		canOpenWorkspace,
+		isOpeningWorkspace,
+	} = useOpenWorkspace({
+		currentProjectId,
+		workspacePath: activeWorkspacePath,
+	});
+	const selectedTaskChatMessages = selectTaskChatMessagesForTask(selectedCard?.card.id, taskChatMessagesByTaskId);
+	const latestSelectedTaskChatMessage = selectLatestTaskChatMessageForTask(
+		selectedCard?.card.id,
+		latestTaskChatMessage,
+	);
+	const defaultTaskClineProviderId =
+		runtimeProjectConfig?.clineProviderSettings?.providerId ??
+		runtimeProjectConfig?.clineProviderSettings?.oauthProvider ??
+		null;
+	const handleClineTaskSettingsChangedForTask = useCallback(
+		({
+			providerId,
+			modelId,
+			reasoningEffort,
+		}: {
+			providerId: string;
+			modelId: string;
+			reasoningEffort: RuntimeClineReasoningEffort | "";
+		}) => {
+			if (!selectedCard) {
+				return;
+			}
+			const taskId = selectedCard.card.id;
+			setBoard((currentBoard) => {
+				const result = applyTaskDetailClineSettingsChange(
+					currentBoard,
+					taskId,
+					{
+						providerId,
+						modelId,
+						reasoningEffort,
+					},
+					{
+						providerId: defaultTaskClineProviderId,
+						modelId: runtimeProjectConfig?.clineProviderSettings?.modelId ?? null,
+					},
+				);
+				return result.updated ? result.board : currentBoard;
+			});
+		},
+		[defaultTaskClineProviderId, runtimeProjectConfig, selectedCard, setBoard],
+	);
+
+	const handleCreateDialogOpenChange = useCallback(
+		(open: boolean) => {
+			if (!open) {
+				handleCancelCreateTask();
+			}
+		},
+		[handleCancelCreateTask],
+	);
+
+	const inlineTaskEditor = editingTaskId ? (
+		<TaskInlineCreateCard
+			prompt={editTaskPrompt}
+			onPromptChange={setEditTaskPrompt}
+			images={editTaskImages}
+			onImagesChange={setEditTaskImages}
+			onCreate={handleSaveEditedTask}
+			onCreateAndStart={handleSaveAndStartEditedTask}
+			onCancel={handleCancelEditTask}
+			startInPlanMode={editTaskStartInPlanMode}
+			onStartInPlanModeChange={setEditTaskStartInPlanMode}
+			startInPlanModeDisabled={isEditTaskStartInPlanModeDisabled}
+			autoReviewEnabled={editTaskAutoReviewEnabled}
+			onAutoReviewEnabledChange={setEditTaskAutoReviewEnabled}
+			autoReviewMode={editTaskAutoReviewMode}
+			onAutoReviewModeChange={setEditTaskAutoReviewMode}
+			workspaceId={currentProjectId}
+			branchRef={editTaskBranchRef}
+			branchOptions={createTaskBranchOptions}
+			onBranchRefChange={setEditTaskBranchRef}
+			agentId={editTaskAgentId}
+			onAgentIdChange={setEditTaskAgentId}
+			clineSettings={editTaskClineSettings}
+			onClineSettingsChange={setEditTaskClineSettings}
+			defaultAgentId={runtimeProjectConfig?.selectedAgentId ?? null}
+			defaultProviderId={defaultTaskClineProviderId}
+			defaultModelId={runtimeProjectConfig?.clineProviderSettings?.modelId ?? null}
+			defaultReasoningEffort={runtimeProjectConfig?.clineProviderSettings?.reasoningEffort ?? null}
+			mode="edit"
+			idPrefix={`inline-edit-task-${editingTaskId}`}
+		/>
+	) : undefined;
+
+	if (isRuntimeDisconnected) {
+		return <RuntimeDisconnectedFallback />;
+	}
+	if (isKanbanAccessBlocked) {
+		return <KanbanAccessBlockedFallback />;
+	}
+
+	return (
+		<LayoutCustomizationsProvider onResetBottomTerminalLayoutCustomizations={resetBottomTerminalLayoutCustomizations}>
+			<div className="flex h-[100svh] min-w-0 overflow-hidden">
+				{!selectedCard ? (
+					<ProjectNavigationPanel
+						projects={displayedProjects}
+						isLoadingProjects={isProjectListLoading}
+						currentProjectId={navigationCurrentProjectId}
+						removingProjectId={removingProjectId}
+						activeSection={homeSidebarSection}
+						onActiveSectionChange={setHomeSidebarSection}
+						canShowAgentSection={!hasNoProjects && Boolean(currentProjectId)}
+						agentSectionContent={homeSidebarAgentPanel}
+						selectedAgentId={settingsRuntimeProjectConfig?.selectedAgentId ?? null}
+						clineProviderSettings={settingsRuntimeProjectConfig?.clineProviderSettings ?? null}
+						featurebaseFeedbackState={featurebaseFeedbackState}
+						onSelectProject={(projectId) => {
+							void handleSelectProject(projectId);
+						}}
+						onRemoveProject={handleRemoveProject}
+						onAddProject={() => {
+							void handleAddProject();
+						}}
+						sidebarWidth={sidebarLayout.sidebarWidth}
+						setExpandedSidebarWidth={sidebarLayout.setExpandedSidebarWidth}
+						isCollapsed={sidebarLayout.isCollapsed}
+						setSidebarCollapsed={sidebarLayout.setSidebarCollapsed}
+					/>
+				) : null}
+				<div className="flex flex-col flex-1 min-w-0 overflow-hidden">
+					<TopBar
+						onToggleSidebar={!selectedCard ? handleToggleSidebar : undefined}
+						onBack={selectedCard ? handleBack : undefined}
+						workspacePath={navbarWorkspacePath}
+						isWorkspacePathLoading={shouldShowProjectLoadingState}
+						workspaceHint={navbarWorkspaceHint}
+						runtimeHint={navbarRuntimeHint}
+						selectedTaskId={selectedCard?.card.id ?? null}
+						selectedTaskBaseRef={selectedCard?.card.baseRef ?? null}
+						showHomeGitSummary={!hasNoProjects && !selectedCard}
+						runningGitAction={selectedCard || hasNoProjects ? null : runningGitAction}
+						onGitFetch={
+							selectedCard
+								? undefined
+								: () => {
+										void runGitAction("fetch");
+									}
+						}
+						onGitPull={
+							selectedCard
+								? undefined
+								: () => {
+										void runGitAction("pull");
+									}
+						}
+						onGitPush={
+							selectedCard
+								? undefined
+								: () => {
+										void runGitAction("push");
+									}
+						}
+						onToggleTerminal={
+							hasNoProjects ? undefined : selectedCard ? handleToggleDetailTerminal : handleToggleHomeTerminal
+						}
+						isTerminalOpen={selectedCard ? isDetailTerminalOpen : showHomeBottomTerminal}
+						isTerminalLoading={selectedCard ? isDetailTerminalStarting : isHomeTerminalStarting}
+						onOpenSettings={handleOpenSettings}
+						showDebugButton={debugModeEnabled}
+						onOpenDebugDialog={debugModeEnabled ? handleOpenDebugDialog : undefined}
+						shortcuts={shortcuts}
+						selectedShortcutLabel={selectedShortcutLabel}
+						onSelectShortcutLabel={handleSelectShortcutLabel}
+						runningShortcutLabel={runningShortcutLabel}
+						onRunShortcut={handleRunShortcut}
+						onCreateFirstShortcut={currentProjectId ? handleCreateShortcut : undefined}
+						openTargetOptions={openTargetOptions}
+						selectedOpenTargetId={selectedOpenTargetId}
+						onSelectOpenTarget={onSelectOpenTarget}
+						onOpenWorkspace={onOpenWorkspace}
+						canOpenWorkspace={canOpenWorkspace}
+						isOpeningWorkspace={isOpeningWorkspace}
+						onToggleGitHistory={hasNoProjects ? undefined : handleToggleGitHistory}
+						isGitHistoryOpen={isGitHistoryOpen}
+						hideProjectDependentActions={shouldHideProjectDependentTopBarActions}
+					/>
+					<div className="relative flex flex-1 min-h-0 min-w-0 overflow-hidden">
+						<div
+							className="kb-home-layout"
+							aria-hidden={selectedCard ? true : undefined}
+							style={selectedCard ? { visibility: "hidden" } : undefined}
+						>
+							{shouldShowProjectLoadingState ? (
+								<div className="flex flex-1 min-h-0 items-center justify-center bg-surface-0">
+									<Spinner size={30} />
+								</div>
+							) : hasNoProjects ? (
+								<div className="flex flex-1 min-h-0 items-center justify-center bg-surface-0 p-6">
+									<div className="flex flex-col items-center justify-center gap-3 text-text-tertiary">
+										<FolderOpen size={48} strokeWidth={1} />
+										<h3 className="text-sm font-semibold text-text-primary">No projects yet</h3>
+										<p className="text-[13px] text-text-secondary">
+											Add a git repository to start using Kanban.
+										</p>
+										<Button
+											variant="primary"
+											onClick={() => {
+												void handleAddProject();
+											}}
+										>
+											Add Project
+										</Button>
+									</div>
+								</div>
+							) : (
+								<div className="flex flex-1 flex-col min-h-0 min-w-0">
+									<div className="flex flex-1 min-h-0 min-w-0">
+										{isGitHistoryOpen ? (
+											<GitHistoryView
+												workspaceId={currentProjectId}
+												gitHistory={gitHistory}
+												onCheckoutBranch={(branch) => {
+													void switchHomeBranch(branch);
+												}}
+												onDiscardWorkingChanges={() => {
+													void discardHomeWorkingChanges();
+												}}
+												isDiscardWorkingChangesPending={isDiscardingHomeWorkingChanges}
+											/>
+										) : (
+											<KanbanBoard
+												data={board}
+												taskSessions={sessions}
+												workspacePath={workspacePath}
+												onCardSelect={handleCardSelect}
+												onCreateTask={handleOpenCreateTask}
+												onStartTask={handleStartTaskFromBoard}
+												onStartAllTasks={handleStartAllBacklogTasksFromBoard}
+												onClearTrash={handleOpenClearTrash}
+												editingTaskId={editingTaskId}
+												inlineTaskEditor={inlineTaskEditor}
+												onEditTask={handleOpenEditTask}
+												onSaveTaskTitle={handleSaveTaskTitle}
+												onCommitTask={handleCommitTask}
+												onOpenPrTask={handleOpenPrTask}
+												onCancelAutomaticTaskAction={handleCancelAutomaticTaskAction}
+												commitTaskLoadingById={commitTaskLoadingById}
+												openPrTaskLoadingById={openPrTaskLoadingById}
+												moveToTrashLoadingById={moveToTrashLoadingById}
+												onMoveToTrashTask={handleMoveReviewCardToTrash}
+												onRestoreFromTrashTask={handleRestoreTaskFromTrash}
+												dependencies={board.dependencies}
+												onCreateDependency={handleCreateDependency}
+												onDeleteDependency={handleDeleteDependency}
+												onRequestProgrammaticCardMoveReady={
+													selectedCard ? undefined : handleProgrammaticCardMoveReady
+												}
+												onDragEnd={handleDragEnd}
+												defaultClineModelId={runtimeProjectConfig?.clineProviderSettings?.modelId ?? null}
+											/>
+										)}
+									</div>
+									{showHomeBottomTerminal ? (
+										<ResizableBottomPane
+											minHeight={200}
+											initialHeight={homeTerminalPaneHeight}
+											onHeightChange={setHomeTerminalPaneHeight}
+											onCollapse={collapseHomeTerminal}
+											isExpanded={isHomeTerminalExpanded}
+										>
+											<div
+												style={{
+													display: "flex",
+													flex: "1 1 0",
+													minWidth: 0,
+													paddingLeft: 12,
+													paddingRight: 12,
+												}}
+											>
+												<AgentTerminalPanel
+													key={`home-shell-${homeTerminalTaskId}`}
+													taskId={homeTerminalTaskId}
+													workspaceId={currentProjectId}
+													summary={homeTerminalSummary}
+													onSummary={upsertSession}
+													showSessionToolbar={false}
+													autoFocus
+													onClose={closeHomeTerminal}
+													minimalHeaderTitle="Terminal"
+													minimalHeaderSubtitle={homeTerminalSubtitle}
+													panelBackgroundColor="var(--color-surface-1)"
+													terminalBackgroundColor={terminalThemeColors.surfaceRaised}
+													cursorColor={terminalThemeColors.textPrimary}
+													onConnectionReady={markTerminalConnectionReady}
+													agentCommand={agentCommand}
+													onSendAgentCommand={handleSendAgentCommandToHomeTerminal}
+													isExpanded={isHomeTerminalExpanded}
+													onToggleExpand={handleToggleExpandHomeTerminal}
+												/>
+											</div>
+										</ResizableBottomPane>
+									) : null}
+								</div>
+							)}
+						</div>
+						{selectedCard && detailSession ? (
+							<div className="absolute inset-0 flex min-h-0 min-w-0">
+								<CardDetailView
+									selection={selectedCard}
+									currentProjectId={currentProjectId}
+									workspacePath={workspacePath}
+									selectedAgentId={runtimeProjectConfig?.selectedAgentId ?? null}
+									runtimeConfig={runtimeProjectConfig ?? null}
+									sessionSummary={detailSession}
+									taskSessions={sessions}
+									onSessionSummary={upsertSession}
+									onCardSelect={handleCardSelect}
+									onTaskDragEnd={handleDetailTaskDragEnd}
+									onCreateTask={handleOpenCreateTask}
+									onStartTask={handleStartTaskFromBoard}
+									onStartAllTasks={handleStartAllBacklogTasksFromBoard}
+									onClearTrash={handleOpenClearTrash}
+									editingTaskId={editingTaskId}
+									inlineTaskEditor={inlineTaskEditor}
+									onEditTask={(task) => {
+										handleOpenEditTask(task, { preserveDetailSelection: true });
+									}}
+									onSaveTaskTitle={handleSaveTaskTitle}
+									onCommitTask={handleCommitTask}
+									onOpenPrTask={handleOpenPrTask}
+									onAgentCommitTask={handleAgentCommitTask}
+									onAgentOpenPrTask={handleAgentOpenPrTask}
+									commitTaskLoadingById={commitTaskLoadingById}
+									openPrTaskLoadingById={openPrTaskLoadingById}
+									agentCommitTaskLoadingById={agentCommitTaskLoadingById}
+									agentOpenPrTaskLoadingById={agentOpenPrTaskLoadingById}
+									moveToTrashLoadingById={moveToTrashLoadingById}
+									onMoveReviewCardToTrash={handleMoveReviewCardToTrash}
+									onRestoreTaskFromTrash={handleRestoreTaskFromTrash}
+									onCancelAutomaticTaskAction={handleCancelAutomaticTaskAction}
+									onAddReviewComments={(taskId: string, text: string) => {
+										void handleAddReviewComments(taskId, text);
+									}}
+									onSendReviewComments={(taskId: string, text: string) => {
+										void handleSendReviewComments(taskId, text);
+									}}
+									onSendClineChatMessage={sendTaskChatMessage}
+									onCancelClineChatTurn={cancelTaskChatTurn}
+									onLoadClineChatMessages={fetchTaskChatMessages}
+									latestClineChatMessage={latestSelectedTaskChatMessage}
+									streamedClineChatMessages={selectedTaskChatMessages}
+									onMoveToTrash={handleMoveToTrash}
+									isMoveToTrashLoading={moveToTrashLoadingById[selectedCard.card.id] ?? false}
+									gitHistoryPanel={
+										isGitHistoryOpen ? (
+											<GitHistoryView workspaceId={currentProjectId} gitHistory={gitHistory} />
+										) : undefined
+									}
+									onCloseGitHistory={handleCloseGitHistory}
+									bottomTerminalOpen={isDetailTerminalOpen}
+									bottomTerminalTaskId={detailTerminalTaskId}
+									bottomTerminalSummary={detailTerminalSummary}
+									bottomTerminalSubtitle={detailTerminalSubtitle}
+									onBottomTerminalClose={closeDetailTerminal}
+									onBottomTerminalCollapse={collapseDetailTerminal}
+									bottomTerminalPaneHeight={detailTerminalPaneHeight}
+									onBottomTerminalPaneHeightChange={setDetailTerminalPaneHeight}
+									onBottomTerminalConnectionReady={markTerminalConnectionReady}
+									bottomTerminalAgentCommand={agentCommand}
+									onBottomTerminalSendAgentCommand={handleSendAgentCommandToDetailTerminal}
+									isBottomTerminalExpanded={isDetailTerminalExpanded}
+									onBottomTerminalToggleExpand={handleToggleExpandDetailTerminal}
+									isDocumentVisible={isDocumentVisible}
+									onClineSettingsSaved={refreshRuntimeProjectConfig}
+									onTaskClineSettingsChanged={handleClineTaskSettingsChangedForTask}
+								/>
+							</div>
+						) : null}
+					</div>
+				</div>
+				<RuntimeSettingsDialog
+					open={isSettingsOpen}
+					workspaceId={settingsWorkspaceId}
+					initialConfig={settingsRuntimeProjectConfig}
+					liveMcpAuthStatuses={latestMcpAuthStatuses}
+					initialSection={settingsInitialSection}
+					onOpenChange={(nextOpen) => {
+						setIsSettingsOpen(nextOpen);
+						if (!nextOpen) {
+							setSettingsInitialSection(null);
+						}
+					}}
+					onSaved={() => {
+						refreshRuntimeProjectConfig();
+						refreshSettingsRuntimeProjectConfig();
+					}}
+					onAccountSwitched={refreshKanbanAccess}
+				/>
+				<DebugDialog
+					open={isDebugDialogOpen}
+					onOpenChange={handleDebugDialogOpenChange}
+					isResetAllStatePending={isResetAllStatePending}
+					onShowStartupOnboardingDialog={handleShowStartupOnboardingDialog}
+					onResetAllState={handleResetAllState}
+				/>
+				<TaskCreateDialog
+					open={isInlineTaskCreateOpen}
+					onOpenChange={handleCreateDialogOpenChange}
+					prompt={newTaskPrompt}
+					onPromptChange={setNewTaskPrompt}
+					images={newTaskImages}
+					onImagesChange={setNewTaskImages}
+					onCreate={handleCreateTask}
+					onCreateAndStart={handleCreateAndStartTask}
+					onCreateStartAndOpen={handleCreateStartAndOpenTask}
+					onCreateMultiple={handleCreateTasks}
+					onCreateAndStartMultiple={handleCreateAndStartTasks}
+					startInPlanMode={newTaskStartInPlanMode}
+					onStartInPlanModeChange={setNewTaskStartInPlanMode}
+					startInPlanModeDisabled={isNewTaskStartInPlanModeDisabled}
+					autoReviewEnabled={newTaskAutoReviewEnabled}
+					onAutoReviewEnabledChange={setNewTaskAutoReviewEnabled}
+					autoReviewMode={newTaskAutoReviewMode}
+					onAutoReviewModeChange={setNewTaskAutoReviewMode}
+					workspaceId={currentProjectId}
+					branchRef={newTaskBranchRef}
+					branchOptions={createTaskBranchOptions}
+					onBranchRefChange={setNewTaskBranchRef}
+					agentId={newTaskAgentId}
+					onAgentIdChange={setNewTaskAgentId}
+					clineSettings={newTaskClineSettings}
+					onClineSettingsChange={setNewTaskClineSettings}
+					defaultAgentId={runtimeProjectConfig?.selectedAgentId ?? null}
+					defaultProviderId={defaultTaskClineProviderId}
+					defaultModelId={runtimeProjectConfig?.clineProviderSettings?.modelId ?? null}
+					defaultReasoningEffort={runtimeProjectConfig?.clineProviderSettings?.reasoningEffort ?? null}
+				/>
+				<ClearTrashDialog
+					open={isClearTrashDialogOpen}
+					taskCount={trashTaskCount}
+					onCancel={() => setIsClearTrashDialogOpen(false)}
+					onConfirm={handleConfirmClearTrash}
+				/>
+				<StartupOnboardingDialog
+					open={isStartupOnboardingDialogOpen}
+					onClose={handleCloseStartupOnboardingDialog}
+					selectedAgentId={runtimeProjectConfig?.selectedAgentId ?? null}
+					agents={runtimeProjectConfig?.agents ?? []}
+					clineProviderSettings={runtimeProjectConfig?.clineProviderSettings ?? null}
+					workspaceId={currentProjectId}
+					runtimeConfig={runtimeProjectConfig ?? null}
+					onSelectAgent={handleSelectOnboardingAgent}
+					onClineSetupSaved={handleOnboardingClineSetupSaved}
+				/>
+
+				<AddProjectDialog
+					open={isAddProjectDialogOpen}
+					onOpenChange={setIsAddProjectDialogOpen}
+					onProjectAdded={handleAddProjectSuccess}
+					currentProjectId={currentProjectId}
+					initialGitInitPath={pendingNativeGitInitPath}
+				/>
+
+				<UpdateNotificationController />
+
+				<AlertDialog
+					open={gitActionError !== null}
+					onOpenChange={(open) => {
+						if (!open) {
+							clearGitActionError();
+						}
+					}}
+				>
+					<AlertDialogHeader>
+						<AlertDialogTitle>{gitActionErrorTitle}</AlertDialogTitle>
+					</AlertDialogHeader>
+					<AlertDialogBody>
+						<p>{gitActionError?.message}</p>
+						{gitActionError?.output ? (
+							<pre className="max-h-[220px] overflow-auto rounded-md bg-surface-0 p-3 font-mono text-xs text-text-secondary whitespace-pre-wrap">
+								{gitActionError.output}
+							</pre>
+						) : null}
+					</AlertDialogBody>
+					<AlertDialogFooter className="justify-end">
+						<AlertDialogAction asChild>
+							<Button variant="default" onClick={clearGitActionError}>
+								Close
+							</Button>
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialog>
+			</div>
+		</LayoutCustomizationsProvider>
+	);
 }

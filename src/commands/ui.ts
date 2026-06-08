@@ -27,7 +27,12 @@ export async function runUi(options: UiOptions = {}, cwd = process.cwd()): Promi
   }
 
   const loaded = await import(moduleUrl.href) as {
-    startChangeyardKanban: (input: { repoRoot: string; host?: string; port?: number | "auto"; open?: boolean }) => Promise<{ url: string }>;
+    startChangeyardKanban: (input: {
+      repoRoot: string;
+      host?: string;
+      port?: number | "auto";
+      open?: boolean;
+    }) => Promise<{ url: string; close: () => Promise<void> }>;
   };
   const server = await loaded.startChangeyardKanban({
     repoRoot,
@@ -35,6 +40,29 @@ export async function runUi(options: UiOptions = {}, cwd = process.cwd()): Promi
     port: options.port ?? config.ui?.port ?? "auto",
     open: options.open ?? config.ui?.open ?? true,
   });
+  const runtimeProcess = process as typeof process & {
+    once: (event: string, listener: () => void) => void;
+    stderr: { write: (text: string) => void };
+    exit: (code?: number) => never;
+  };
+
+  let shuttingDown = false;
+  const shutdown = (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    void server.close()
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        runtimeProcess.stderr.write(`Failed to shut down Changeyard UI cleanly after ${signal}: ${message}\n`);
+        runtimeProcess.exitCode = 1;
+      })
+      .finally(() => {
+        runtimeProcess.exit();
+      });
+  };
+
+  runtimeProcess.once("SIGINT", () => shutdown("SIGINT"));
+  runtimeProcess.once("SIGTERM", () => shutdown("SIGTERM"));
 
   return `Changeyard UI running at ${server.url}`;
 }

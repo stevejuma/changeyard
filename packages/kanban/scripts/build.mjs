@@ -5,13 +5,17 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
 const dist = path.join(root, "dist");
-const src = path.join(root, "src");
+const srcIndex = path.join(root, "src", "index.js");
+const srcServerDir = path.join(root, "src", "server");
 const webUiDist = path.join(root, "web-ui", "dist");
 
-rmSync(dist, { recursive: true, force: true });
 mkdirSync(dist, { recursive: true });
+rmSync(path.join(dist, "index.js"), { force: true });
+rmSync(path.join(dist, "server"), { recursive: true, force: true });
+rmSync(path.join(dist, "web-ui"), { recursive: true, force: true });
 
-cpSync(src, dist, { recursive: true });
+cpSync(srcIndex, path.join(dist, "index.js"));
+cpSync(srcServerDir, path.join(dist, "server"), { recursive: true });
 if (existsSync(webUiDist)) {
   cpSync(webUiDist, path.join(dist, "web-ui"), { recursive: true });
 }

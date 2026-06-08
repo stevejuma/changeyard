@@ -1,18 +1,31 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "useDefineForClassFields": true,
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "ESNext",
-    "skipLibCheck": true,
     "moduleResolution": "Bundler",
-    "allowImportingTsExtensions": false,
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "noEmit": true,
     "jsx": "react-jsx",
     "strict": true,
-    "types": ["vite/client"]
+    "noUncheckedIndexedAccess": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "ignoreDeprecations": "5.0",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"],
+      "@runtime-agent-catalog": ["../src/runtime-stack/core/agent-catalog.ts"],
+      "@runtime-cline-tool-call-display": ["../src/runtime-stack/cline-sdk/cline-tool-call-display.ts"],
+      "@runtime-contract": ["../src/runtime-stack/core/api-contract.ts"],
+      "@runtime-home-agent-session": ["../src/runtime-stack/core/home-agent-session.ts"],
+      "@runtime-trpc": ["../src/runtime-stack/trpc/app-router.ts"],
+      "@runtime-shortcuts": ["../src/runtime-stack/config/shortcut-utils.ts"],
+      "@runtime-task-id": ["../src/runtime-stack/core/task-id.ts"],
+      "@runtime-task-title": ["../src/runtime-stack/core/task-title.ts"],
+      "@runtime-task-worktree-path": ["../src/runtime-stack/workspace/task-worktree-path.ts"],
+      "@runtime-task-state": ["../src/runtime-stack/core/task-board-mutations.ts"]
+    },
+    "types": ["vitest/globals"]
   },
-  "include": ["src"]
+  "include": ["src", "vite.config.ts", "vitest.config.ts", "playwright.config.ts"]
 }

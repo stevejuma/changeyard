@@ -1,92 +1,148 @@
-# Pending: Kanban UI Integration
+# PENDING: Vendored App.tsx + Full Upstream Runtime Stack Activation
 
-This file tracks implementation of the Changeyard + Kanban UI integration. Changeyard markdown, workspace metadata, reviews, and provider state remain the only authoritative state.
+Date: 2026-06-09  
+Objective: Replace the Changeyard custom kanban server surface with the vendored upstream App runtime stack so `npm run cli ui` serves upstream UI + upstream transport protocol end-to-end.
 
-## 1. Runtime version alignment
+---
 
-- [x] Update root `package.json` `engines.node` to `>=22.0.0`.
-- [x] Update `package-lock.json` workspace metadata for the new workspace layout.
-- [x] Update CI, release, and live-smoke workflows to run Node 22.
-- [x] Update docs to state Node 22 is the minimum supported runtime.
-- [x] Verify `npm ci`, `npm run check`, `npm test`, and `npm run pack:check` pass on Node 22.
+## Progress Status
+- [x] Not started
+- [x] Plan authored
+- [x] Runtime host cutover implemented
+- [x] Runtime build/typecheck restored
+- [x] CLI runtime smoke verified
 
-## 2. Internal package setup
+---
 
-- [x] Add root npm workspaces for `packages/kanban`.
-- [x] Create private package `@changeyard/kanban`.
-- [x] Add an internal kanban server/UI baseline under `packages/kanban`.
-- [x] Keep the integration internal; do not expose a standalone `kanban` binary.
-- [x] Vendor upstream `cline/kanban` at a pinned commit and record provenance.
-- [x] Copy upstream license/notice files once vendoring is in place.
-- [x] Disable or remove unused upstream telemetry/update behavior after vendoring.
-- [x] Ensure root `npm install` and workspace builds are stable from a clean checkout.
+## 1) Baseline & diff capture
+- [x] Confirm source references for upstream runtime stack exist locally:
+  - `packages/kanban/upstream/cline-kanban/web-ui/src/App.tsx`
+  - `packages/kanban/upstream/cline-kanban/src/server/runtime-server.ts`
+  - `packages/kanban/upstream/cline-kanban/src/server/runtime-state-hub.ts`
+  - `packages/kanban/upstream/cline-kanban/src/server/workspace-registry.ts`
+  - `packages/kanban/upstream/cline-kanban/src/projects/project-path.ts`
+- [x] Compare current UI entrypoint against upstream expectations:
+  - `packages/kanban/web-ui/src/main.tsx` mounts `App` and provider wrapper stack.
+  - `packages/kanban/web-ui/src/runtime/trpc-client.ts` targets `/api/trpc`.
+  - `packages/kanban/web-ui/src/runtime/use-runtime-state-stream.ts` targets `/api/runtime/ws`.
+  - `packages/kanban/web-ui/src/terminal/persistent-terminal-manager.ts` targets `/api/terminal/io` and `/api/terminal/control`.
+- [x] Confirm current server still exposes legacy paths on startup (`board`, `cards`, `events`) and stubbed `/api/trpc`:
+  - documented in `.runtime-baseline.md` before cutover.
+- [x] Add a short snapshot file (`.runtime-baseline.md`) documenting any intentional differences from upstream (if any).
 
-## 3. Changeyard core API and board model
+---
 
-- [x] Add `src/index.ts` exporting supported programmatic APIs.
-- [x] Add board DTO/types and status-to-column mapping.
-- [x] Implement markdown-backed board read service.
-- [x] Include workspace metadata from `.changeyard/workspaces/**/metadata.json`.
-- [x] Include provider references from existing change frontmatter.
-- [x] Add structured create/update helpers for UI write paths.
-- [x] Add file-locking/atomic mutation helpers for concurrent UI and CLI writes.
+## 2) Vendored `App.tsx` parity
+- [x] Compare `packages/kanban/web-ui/src/App.tsx` with upstream App and align:
+  - router wiring
+  - hooks import surface
+  - top-level route/modal/panel composition
+  - passcode/error boundary wrapper expectations
+- [x] If drift exists, patch `App.tsx` to match upstream behavior while preserving changeyard-specific branding/config points:
+  - no drift remained after vendored parity audit; current `App.tsx` and `main.tsx` match upstream copies.
+- [x] Verify `web-ui/src/main.tsx` imports and renders upstream-compatible `App` entry and providers.
+- [x] Run focused UI checks:
+  - `npm run --workspace @changeyard/kanban run check`
+  - targeted web-ui unit tests for app composition + startup fallback paths.
 
-## 4. `cy ui` command
+---
 
-- [x] Add `src/commands/ui.ts`.
-- [x] Add CLI help for `cy ui`.
-- [x] Support `--host`, `--port`, `--open`, and `--no-open`.
-- [x] Start the internal kanban server with the discovered Changeyard repo root.
-- [x] Add a tested install-from-tarball smoke for `cy ui`.
+## 3) Runtime host wiring in `packages/kanban/src/server/index.js`
+- [x] Replace legacy Changeyard REST handler body with upstream runtime host composition:
+  - instantiate/create `createWorkspaceRegistry`
+  - instantiate/create `createRuntimeStateHub`
+  - instantiate/create `createRuntimeServer`
+- [x] Route host options into runtime endpoint setters:
+  - bind runtime host/port to `setRuntimeApiHost`/`setRuntimeApiPort` (or equivalent upstream API).
+- [x] Remove custom API handlers that conflict with upstream stack:
+  - `/api/board*`
+  - `/api/cards*`
+  - `/api/events`
+  - `/api/trpc` stub
+- [x] Preserve required compatibility surfaces:
+  - `/api/health` for external scripts
+  - static asset serving + SPA fallback for `/`
+  - existing CLI launch/open-browser flow and return contract `{ url, close }`.
+- [x] Ensure `close()` triggers graceful runtime shutdown:
+  - wired through `shutdownRuntimeServer(...)`, with CLI signal handling calling `server.close()` on `SIGINT`/`SIGTERM`.
 
-## 5. Read-only board UI
+---
 
-- [x] Add board and card API endpoints backed by Changeyard state.
-- [x] Render columns from Changeyard statuses.
-- [x] Render every `.changeyard/changes/*.md` file exactly once.
-- [x] Add a card detail view backed by Changeyard markdown.
-- [x] Show provider and workspace metadata, including engine type.
-- [x] Verify the UI does not create Kanban state files.
+## 4) Add missing Changeyard adapters required by vendored runtime
+Create/adjust files so vendored modules can execute under changeyard ownership:
 
-## 6. Initial UI actions
+- [x] Add `packages/kanban/src/projects/project-path.ts` copied from upstream.
+- [x] Implement missing terminal/process adapters:
+  - `pickDirectoryPathFromSystemDialog`
+  - `runCommand(command, cwd)`
+  - optional timeout + output capture contract
+- [x] Implement missing path/git adapters:
+  - `resolveInteractiveShellCommand`
+  - `resolveProjectInputPath`
+  - `assertPathIsDirectory`
+  - `hasGitRepository`
+- [x] Implement workspace cleanup hooks:
+  - `collectProjectWorktreeTaskIdsForRemoval`
+  - `disposeWorkspace`
+  - ensure terminal-manager disposal hooks are called.
+- [x] Implement runtime update hooks if referenced by runtime stack:
+  - `getUpdateStatus`
+  - `runUpdateNow`
+- [x] Wire above adapters into `createRuntimeServer`/`createWorkspaceRegistry` callsites.
 
-- [x] Add UI start action via `runStart`.
-- [x] Add UI sync action via `runSync`.
-- [x] Refresh the board after mutations.
-- [x] Add UI create action.
-- [x] Add guarded frontmatter edit actions.
-- [x] Add guarded markdown section edit actions.
-- [x] Add completion/review actions.
+---
 
-## 7. Full workspace engine support
+## 5) Build/packaging integration
+- [x] Ensure runtime compile is part of normal package build:
+  - `runtime:build` runs before/with `build`
+  - `runtime:typecheck` available in CI/manual validation.
+- [x] Fix packaging script to preserve runtime output:
+  - avoid deleting `dist/runtime-stack` after runtime compilation
+  - preserve `dist/projects` emitted from vendored host helpers
+  - copy/retain `dist/runtime-stack` in final packaged output
+  - keep `dist/web-ui` copy behavior intact.
+- [x] Verify `dist/server/index.js` imports resolve to compiled runtime files.
+- [x] Add/update any required exports in `packages/kanban/package.json` if build/runtime entrypoints changed.
 
-- [x] Replace Kanban worktree assumptions with Changeyard workspace metadata.
-- [x] Support `plain-copy`, `git-worktree`, and `jj` in the UI data model.
-- [x] Surface engine-specific workspace verification state in the UI.
-- [x] Add engine-specific diff and terminal tabs.
-- [x] Route publish/completion actions through `runComplete`.
-- [x] Add tests covering UI workspace behavior across all three engines.
+---
 
-## 8. Live updates and richer integration
+## 6) Validation and smoke checks
+- [x] `npm --workspace @changeyard/kanban run runtime:typecheck`
+- [x] `npm --workspace @changeyard/kanban run runtime:build`
+- [x] `npm --workspace @changeyard/kanban run build`
+- [x] Root CLI rebuilt and validated with `node dist/src/cli.js ui --host 127.0.0.1 --port 3490 --no-open`
+- [x] Runtime endpoint verification:
+  - `POST /api/trpc/projects.list`
+  - websocket upgrade for `/api/runtime/ws`
+  - websocket upgrade for `/api/terminal/io` and `/api/terminal/control`
+  - `/api/passcode/status` and `/api/passcode/verify`
+- [x] Confirm legacy API surface (`/api/board`, `/api/cards*`, `/api/events`) is no longer in main startup path unless explicitly retained for migration.
+- [x] Record manual validation log in PENDING as each stage is completed.
 
-- [x] Watch `.changeyard/changes/**/*.md`.
-- [x] Watch `.changeyard/reviews/**/*.md`.
-- [x] Watch `.changeyard/workspaces/**/metadata.json`.
-- [x] Push invalidation events to the web UI and refetch automatically.
-- [x] Surface provider review and PR flows through existing Changeyard providers.
+Manual validation log:
+- `npm --workspace @changeyard/kanban run runtime:typecheck` passed.
+- `npm --workspace @changeyard/kanban run typecheck` passed.
+- `npm --workspace @changeyard/kanban run build` passed.
+- `npm run build:cli` passed.
+- `node dist/src/cli.js ui --host 127.0.0.1 --port 3490 --no-open` served `http://127.0.0.1:3490/changeyard`.
+- `GET /api/health` returned `{"ok":true}`.
+- `GET /api/passcode/status` returned `{"required":false,"authenticated":true}` in localhost mode.
+- `GET /api/trpc/projects.list` returned a real project payload for the current workspace instead of `RUNTIME_STACK_NOT_YET_IMPLEMENTED`.
+- WebSocket smoke script confirmed:
+  - `/api/runtime/ws?workspaceId=changeyard` opened and emitted a `snapshot`.
+  - `/api/terminal/io` upgrade succeeded.
+  - `/api/terminal/control` upgrade succeeded.
+- `GET /api/board` now returns `404`.
+- `GET /changeyard` serves the built SPA HTML shell.
+- Root CLI signal shutdown path exits cleanly on `Ctrl+C` with the new `server.close()` hook.
 
-## 9. Tests and packaging
+---
 
-- [x] Add focused board service tests.
-- [x] Add server/API tests for `cy ui` startup and board/card endpoints.
-- [x] Add integration tests proving UI start actions produce the same metadata as CLI start.
-- [x] Ensure `npm run pack:check` includes the server and built UI assets.
-- [x] Ensure installed package runtime can resolve `packages/kanban/dist` correctly.
-
-## 10. Documentation
-
-- [x] Add README usage for `cy ui`.
-- [x] Add `docs/kanban-integration.md`.
-- [x] Document the one-source-of-truth invariant for the UI.
-- [x] Document workspace-engine behavior for `plain-copy`, `git-worktree`, and `jj`.
-- [x] Document how to vendor/update from upstream `cline/kanban` later.
+## 7) Completion definition
+- [x] Upstream `App.tsx` is the rendered CLI UI shell.
+- [x] Upstream runtime transport is active and functional:
+  - `/api/trpc`, `/api/runtime/ws`, `/api/terminal/io`, `/api/terminal/control`.
+- [x] Changeyard CLI still retains expected persistence and project lifecycle behavior.
+- [x] Shutdown lifecycle is deterministic and does not leak terminal/runtime resources.
+- [x] Build outputs include both `dist/web-ui` and `dist/runtime-stack`.
+- [x] `PENDING.md` updated continuously as each checkbox is completed.
