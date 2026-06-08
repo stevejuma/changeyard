@@ -1,276 +1,237 @@
-import { createServer } from "node:http";
-import { existsSync, readFileSync, watch } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { stat } from "node:fs/promises";
+import { createServer as createNetServer } from "node:net";
 
-const projectApiUrl = new URL("../../../../dist/src/index.js", import.meta.url);
-const { createChangeyardBoardService } = await import(projectApiUrl.href);
+import packageJson from "../../package.json" with { type: "json" };
+import { loadGlobalRuntimeConfig, loadRuntimeConfig } from "../runtime-stack/config/runtime-config.js";
+import { createGitProcessEnv } from "../runtime-stack/core/git-process-env.js";
+import {
+	DEFAULT_KANBAN_RUNTIME_HOST,
+	DEFAULT_KANBAN_RUNTIME_PORT,
+	isKanbanRemoteHost,
+	setKanbanRuntimeHost,
+	setKanbanRuntimePort,
+} from "../runtime-stack/core/runtime-endpoint.js";
+import { disablePasscode, generateInternalToken, generatePasscode } from "../runtime-stack/security/passcode-manager.js";
+import { openInBrowser } from "../runtime-stack/server/browser.js";
+import { pickDirectoryPathFromSystemDialog } from "../runtime-stack/server/directory-picker.js";
+import { terminateProcessForTimeout } from "../runtime-stack/server/process-termination.js";
+import { createRuntimeServer } from "../runtime-stack/server/runtime-server.js";
+import { createRuntimeStateHub } from "../runtime-stack/server/runtime-state-hub.js";
+import { resolveInteractiveShellCommand } from "../runtime-stack/server/shell.js";
+import { shutdownRuntimeServer } from "../runtime-stack/server/shutdown-coordinator.js";
+import {
+	collectProjectWorktreeTaskIdsForRemoval,
+	createWorkspaceRegistry,
+} from "../runtime-stack/server/workspace-registry.js";
+import { resolveProjectInputPath } from "../projects/project-path.js";
 
-function openBrowser(url) {
-  const platform = process.platform;
-  const command = platform === "darwin" ? "open" : platform === "win32" ? "cmd" : "xdg-open";
-  const args = platform === "win32" ? ["/c", "start", "", url] : [url];
-  try {
-    const child = spawn(command, args, { detached: true, stdio: "ignore" });
-    child.unref();
-  } catch {
-    // Best effort only.
-  }
+async function assertPathIsDirectory(targetPath) {
+	const info = await stat(targetPath);
+	if (!info.isDirectory()) {
+		throw new Error(`Project path is not a directory: ${targetPath}`);
+	}
 }
 
-function sendJson(response, status, payload) {
-  response.writeHead(status, {
-    "Content-Type": "application/json; charset=utf-8",
-    "Cache-Control": "no-store",
-  });
-  response.end(JSON.stringify(payload));
+async function pathIsDirectory(targetPath) {
+	try {
+		const info = await stat(targetPath);
+		return info.isDirectory();
+	} catch {
+		return false;
+	}
 }
 
-function sendText(response, status, body, contentType) {
-  response.writeHead(status, {
-    "Content-Type": contentType,
-    "Cache-Control": "no-store",
-  });
-  response.end(body);
+function hasGitRepository(targetPath) {
+	const result = spawnSync("git", ["rev-parse", "--is-inside-work-tree"], {
+		cwd: targetPath,
+		encoding: "utf8",
+		stdio: ["ignore", "pipe", "ignore"],
+		env: createGitProcessEnv(),
+	});
+	return result.status === 0 && result.stdout.trim() === "true";
 }
 
-function createBoardInvalidationHub() {
-  const clients = new Set();
-  return {
-    add(response) {
-      clients.add(response);
-    },
-    remove(response) {
-      clients.delete(response);
-    },
-    broadcast(event, payload = {}) {
-      const frame = `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
-      for (const client of clients) {
-        try {
-          client.write(frame);
-        } catch {
-          clients.delete(client);
-        }
-      }
-    },
-  };
+async function isPortAvailable(port, host) {
+	return await new Promise((resolve) => {
+		const probe = createNetServer();
+		probe.once("error", () => {
+			resolve(false);
+		});
+		probe.listen(port, host, () => {
+			probe.close(() => {
+				resolve(true);
+			});
+		});
+	});
 }
 
-async function readJsonBody(request) {
-  const chunks = [];
-  for await (const chunk of request) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  }
-  if (chunks.length === 0) return {};
-  const raw = Buffer.concat(chunks).toString("utf8");
-  return raw.trim() ? JSON.parse(raw) : {};
+async function findAvailableRuntimePort(startPort, host) {
+	for (let candidate = startPort; candidate <= 65535; candidate += 1) {
+		if (await isPortAvailable(candidate, host)) {
+			return candidate;
+		}
+	}
+	throw new Error("No available runtime port found.");
 }
 
-function webUiDir() {
-  const candidate = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../web-ui");
-  if (!existsSync(path.join(candidate, "index.html"))) {
-    throw new Error("Changeyard UI assets were not found. Run npm run build before launching cy ui.");
-  }
-  return candidate;
+async function runScopedCommand(command, cwd) {
+	const startedAt = Date.now();
+	const outputLimitBytes = 64 * 1024;
+
+	return await new Promise((resolve, reject) => {
+		const child = spawn(command, {
+			cwd,
+			shell: true,
+			env: process.env,
+			stdio: ["ignore", "pipe", "pipe"],
+		});
+
+		if (!child.stdout || !child.stderr) {
+			reject(new Error("Shortcut process did not expose stdout/stderr."));
+			return;
+		}
+
+		let stdout = "";
+		let stderr = "";
+
+		const appendOutput = (current, chunk) => {
+			const next = current + chunk;
+			if (next.length <= outputLimitBytes) {
+				return next;
+			}
+			return next.slice(0, outputLimitBytes);
+		};
+
+		child.stdout.on("data", (chunk) => {
+			stdout = appendOutput(stdout, String(chunk));
+		});
+
+		child.stderr.on("data", (chunk) => {
+			stderr = appendOutput(stderr, String(chunk));
+		});
+
+		child.on("error", (error) => {
+			reject(error);
+		});
+
+		const timeout = setTimeout(() => {
+			terminateProcessForTimeout(child);
+		}, 60_000);
+
+		child.on("close", (code) => {
+			clearTimeout(timeout);
+			const exitCode = typeof code === "number" ? code : 1;
+			const trimmedStdout = stdout.trim();
+			const trimmedStderr = stderr.trim();
+			resolve({
+				exitCode,
+				stdout: trimmedStdout,
+				stderr: trimmedStderr,
+				combinedOutput: [trimmedStdout, trimmedStderr].filter(Boolean).join("\n"),
+				durationMs: Date.now() - startedAt,
+			});
+		});
+	});
 }
 
-function staticFile(targetPath) {
-  const root = webUiDir();
-  const requested = targetPath === "/" ? "/index.html" : targetPath;
-  const normalized = path.normalize(requested).replace(/^(\.\.[/\\])+/, "");
-  const filePath = path.join(root, normalized);
-  if (!filePath.startsWith(root) || !existsSync(filePath)) return null;
-  return filePath;
-}
-
-function cardActionId(pathname, suffix) {
-  return decodeURIComponent(pathname.slice("/api/cards/".length, -suffix.length));
+function warn(message) {
+	console.warn(`[changeyard] ${message}`);
 }
 
 export async function startChangeyardKanban(options) {
-  const board = createChangeyardBoardService(options.repoRoot);
-  const host = options.host ?? "127.0.0.1";
-  const requestedPort = options.port === undefined || options.port === "auto" ? 0 : options.port;
-  const invalidationHub = createBoardInvalidationHub();
-  const watchedRoots = [
-    path.join(options.repoRoot, ".changeyard", "changes"),
-    path.join(options.repoRoot, ".changeyard", "reviews"),
-    path.join(options.repoRoot, ".changeyard", "workspaces"),
-  ];
-  const watchers = [];
-  let invalidateTimer = null;
-  const scheduleInvalidation = () => {
-    if (invalidateTimer) clearTimeout(invalidateTimer);
-    invalidateTimer = setTimeout(() => {
-      invalidationHub.broadcast("board-invalidated", { at: new Date().toISOString() });
-    }, 120);
-  };
-  for (const root of watchedRoots) {
-    if (!existsSync(root)) continue;
-    try {
-      watchers.push(watch(root, { recursive: true }, () => scheduleInvalidation()));
-    } catch {
-      // Best effort; startup should not fail if recursive watch is unavailable.
-    }
-  }
+	const host = options.host ?? DEFAULT_KANBAN_RUNTIME_HOST;
+	const port =
+		options.port === undefined || options.port === "auto"
+			? await findAvailableRuntimePort(DEFAULT_KANBAN_RUNTIME_PORT, host)
+			: options.port;
 
-  const server = createServer(async (request, response) => {
-    try {
-      const url = new URL(request.url ?? "/", `http://${host}`);
+	setKanbanRuntimeHost(host);
+	setKanbanRuntimePort(port);
 
-      if (request.method === "GET" && url.pathname === "/api/health") {
-        sendJson(response, 200, { ok: true });
-        return;
-      }
+	if (isKanbanRemoteHost()) {
+		const passcode = generatePasscode();
+		generateInternalToken();
+		console.log(`\nRemote access passcode: ${passcode}\n`);
+	} else {
+		disablePasscode();
+	}
 
-      if (request.method === "GET" && url.pathname === "/api/events") {
-        response.writeHead(200, {
-          "Content-Type": "text/event-stream; charset=utf-8",
-          "Cache-Control": "no-store",
-          Connection: "keep-alive",
-        });
-        response.write(`event: ready\ndata: ${JSON.stringify({ ok: true })}\n\n`);
-        invalidationHub.add(response);
-        request.on("close", () => invalidationHub.remove(response));
-        return;
-      }
+	let runtimeStateHub;
+	const workspaceRegistry = await createWorkspaceRegistry({
+		cwd: options.repoRoot,
+		loadGlobalRuntimeConfig,
+		loadRuntimeConfig,
+		hasGitRepository,
+		pathIsDirectory,
+		onTerminalManagerReady: (workspaceId, manager) => {
+			runtimeStateHub?.trackTerminalManager(workspaceId, manager);
+		},
+	});
 
-      if (request.method === "GET" && url.pathname === "/api/board") {
-        sendJson(response, 200, board.getBoard());
-        return;
-      }
+	runtimeStateHub = createRuntimeStateHub({
+		workspaceRegistry,
+	});
 
-      if (request.method === "GET" && url.pathname.startsWith("/api/cards/")) {
-        if (url.pathname.endsWith("/workspace-view")) {
-          const id = cardActionId(url.pathname, "/workspace-view");
-          sendJson(response, 200, board.getWorkspaceView(id));
-          return;
-        }
-        const id = decodeURIComponent(url.pathname.slice("/api/cards/".length));
-        sendJson(response, 200, board.getCard(id));
-        return;
-      }
+	for (const { workspaceId, terminalManager } of workspaceRegistry.listManagedWorkspaces()) {
+		runtimeStateHub.trackTerminalManager(workspaceId, terminalManager);
+	}
 
-      if (request.method === "POST" && url.pathname === "/api/cards") {
-        const body = await readJsonBody(request);
-        sendJson(response, 200, board.createCard({
-          template: typeof body.template === "string" ? body.template : "agent-task",
-          title: typeof body.title === "string" ? body.title : "",
-          priority: typeof body.priority === "string" ? body.priority : undefined,
-          author: typeof body.author === "string" ? body.author : undefined,
-          labels: Array.isArray(body.labels) ? body.labels.map((entry) => String(entry)) : undefined,
-          planFile: typeof body.planFile === "string" ? body.planFile : undefined,
-        }));
-        return;
-      }
+	const disposeTrackedWorkspace = (workspaceId, disposeOptions) => {
+		const disposed = workspaceRegistry.disposeWorkspace(workspaceId, {
+			stopTerminalSessions: disposeOptions?.stopTerminalSessions,
+		});
+		runtimeStateHub.disposeWorkspace(workspaceId);
+		return disposed;
+	};
 
-      if (request.method === "PATCH" && url.pathname.startsWith("/api/cards/") && url.pathname.includes("/sections/")) {
-        const marker = "/sections/";
-        const markerIndex = url.pathname.indexOf(marker);
-        const id = decodeURIComponent(url.pathname.slice("/api/cards/".length, markerIndex));
-        const sectionName = decodeURIComponent(url.pathname.slice(markerIndex + marker.length));
-        const body = await readJsonBody(request);
-        sendJson(response, 200, board.updateCardSection(
-          id,
-          sectionName,
-          typeof body.content === "string" ? body.content : "",
-        ));
-        return;
-      }
+	const currentVersion = packageJson.version;
+	const runtimeServer = await createRuntimeServer({
+		workspaceRegistry,
+		runtimeStateHub,
+		warn,
+		ensureTerminalManagerForWorkspace: workspaceRegistry.ensureTerminalManagerForWorkspace,
+		resolveInteractiveShellCommand,
+		runCommand: runScopedCommand,
+		resolveProjectInputPath,
+		assertPathIsDirectory,
+		hasGitRepository,
+		disposeWorkspace: disposeTrackedWorkspace,
+		collectProjectWorktreeTaskIdsForRemoval,
+		pickDirectoryPathFromSystemDialog,
+		getUpdateStatus: () => ({
+			currentVersion,
+			latestVersion: null,
+			updateAvailable: false,
+			updateTiming: null,
+			installCommand: null,
+		}),
+		runUpdateNow: async () => ({
+			status: "unsupported_installation",
+			currentVersion,
+			latestVersion: null,
+			message: `Runtime update is not configured for ${packageJson.name}.`,
+		}),
+	});
 
-      if (request.method === "PATCH" && url.pathname.startsWith("/api/cards/")) {
-        const id = decodeURIComponent(url.pathname.slice("/api/cards/".length));
-        const body = await readJsonBody(request);
-        sendJson(response, 200, board.updateCard(id, {
-          title: typeof body.title === "string" ? body.title : undefined,
-          priority: body.priority === null ? null : typeof body.priority === "string" ? body.priority : undefined,
-          labels: Array.isArray(body.labels) ? body.labels.map((entry) => String(entry)) : undefined,
-        }));
-        return;
-      }
+	let shutdownPromise = null;
+	const close = async () => {
+		shutdownPromise ??= (async () => {
+			await shutdownRuntimeServer({
+				workspaceRegistry,
+				warn,
+				closeRuntimeServer: () => runtimeServer.close(),
+			});
+		})();
+		return await shutdownPromise;
+	};
 
-      if (request.method === "POST" && url.pathname.startsWith("/api/cards/") && url.pathname.endsWith("/review/start")) {
-        const id = cardActionId(url.pathname, "/review/start");
-        sendJson(response, 200, board.startReview(id));
-        return;
-      }
+	if (options.open) {
+		openInBrowser(runtimeServer.url, { warn });
+	}
 
-      if (request.method === "POST" && url.pathname.startsWith("/api/cards/") && url.pathname.endsWith("/review/complete")) {
-        const id = cardActionId(url.pathname, "/review/complete");
-        const body = await readJsonBody(request);
-        const decision = typeof body.decision === "string" ? body.decision : "";
-        sendJson(response, 200, board.completeReview(id, decision));
-        return;
-      }
-
-      if (request.method === "POST" && url.pathname.startsWith("/api/cards/") && url.pathname.endsWith("/sync")) {
-        const id = cardActionId(url.pathname, "/sync");
-        sendJson(response, 200, board.syncCard(id));
-        return;
-      }
-
-      if (request.method === "POST" && url.pathname.startsWith("/api/cards/") && url.pathname.endsWith("/start")) {
-        const id = cardActionId(url.pathname, "/start");
-        sendJson(response, 200, board.startCard(id));
-        return;
-      }
-
-      if (request.method === "POST" && url.pathname.startsWith("/api/cards/") && url.pathname.endsWith("/complete")) {
-        const id = cardActionId(url.pathname, "/complete");
-        const body = await readJsonBody(request);
-        const withPr = body.withPr === true;
-        sendJson(response, 200, board.completeCard(id, { noPr: !withPr }));
-        return;
-      }
-
-      if (request.method !== "GET" && request.method !== "HEAD") {
-        sendJson(response, 405, { ok: false, error: { message: "Method not allowed" } });
-        return;
-      }
-
-      const filePath = staticFile(url.pathname);
-      if (!filePath) {
-        sendText(response, 404, "Not found", "text/plain; charset=utf-8");
-        return;
-      }
-
-      const extension = path.extname(filePath);
-      const contentType = extension === ".css"
-        ? "text/css; charset=utf-8"
-        : extension === ".js"
-          ? "application/javascript; charset=utf-8"
-          : "text/html; charset=utf-8";
-      sendText(response, 200, readFileSync(filePath, "utf8"), contentType);
-    } catch (error) {
-      sendJson(response, 500, {
-        ok: false,
-        error: {
-          message: error instanceof Error ? error.message : String(error),
-        },
-      });
-    }
-  });
-
-  await new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(requestedPort, host, () => resolve(undefined));
-  });
-
-  const address = server.address();
-  const port = typeof address === "object" && address ? address.port : requestedPort;
-  const url = `http://${host}:${port}`;
-  if (options.open) openBrowser(url);
-
-  return {
-    url,
-    close: () => new Promise((resolve, reject) => {
-      if (invalidateTimer) clearTimeout(invalidateTimer);
-      for (const watcher of watchers) watcher.close();
-      server.close((error) => {
-        if (error) reject(error);
-        else resolve(undefined);
-      });
-    }),
-  };
+	return {
+		url: runtimeServer.url,
+		close,
+	};
 }
