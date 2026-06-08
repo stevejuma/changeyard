@@ -76,6 +76,14 @@ export function runReviewStart(id: string, repoRoot = process.cwd(), mutationOpt
   const config = loadConfig(repoRoot);
   const changePath = findChangeFile(changesRoot(repoRoot, config), id);
   if (!changePath) throw new Error(`Change not found: ${id}`);
+  const parsedChange = parseFrontmatter(readFileSync(changePath, "utf8"));
+  const currentStatus = String(parsedChange.frontmatter.status ?? "");
+  const nextChangeStatus: ChangeStatus = (currentStatus === "ready_for_pr" || currentStatus === "pr_open")
+    ? "in_review"
+    : currentStatus as ChangeStatus;
+  if (nextChangeStatus !== currentStatus) {
+    assertTransition(currentStatus, nextChangeStatus, `Review ${id}`);
+  }
 
   const root = path.join(reviewsRoot(repoRoot, config), id);
   mkdirSync(root, { recursive: true });
@@ -95,6 +103,11 @@ export function runReviewStart(id: string, repoRoot = process.cwd(), mutationOpt
   }
 
   writeFileSync(reviewPath, writeFrontmatter(frontmatter, body));
+  writeFileSync(changePath, writeFrontmatter({
+    ...parsedChange.frontmatter,
+    status: nextChangeStatus,
+    updatedAt: new Date().toISOString(),
+  }, parsedChange.body));
   return `Started review ${review} for ${id}: ${path.relative(repoRoot, reviewPath)}`;
 }
 

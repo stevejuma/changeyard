@@ -16,9 +16,9 @@ This file tracks implementation of the Changeyard + Kanban UI integration. Chang
 - [x] Create private package `@changeyard/kanban`.
 - [x] Add an internal kanban server/UI baseline under `packages/kanban`.
 - [x] Keep the integration internal; do not expose a standalone `kanban` binary.
-- [ ] Vendor upstream `cline/kanban` at a pinned commit and record provenance.
-- [ ] Copy upstream license/notice files once vendoring is in place.
-- [ ] Disable or remove unused upstream telemetry/update behavior after vendoring.
+- [x] Vendor upstream `cline/kanban` at a pinned commit and record provenance.
+- [x] Copy upstream license/notice files once vendoring is in place.
+- [x] Disable or remove unused upstream telemetry/update behavior after vendoring.
 - [x] Ensure root `npm install` and workspace builds are stable from a clean checkout.
 
 ## 3. Changeyard core API and board model
@@ -28,8 +28,8 @@ This file tracks implementation of the Changeyard + Kanban UI integration. Chang
 - [x] Implement markdown-backed board read service.
 - [x] Include workspace metadata from `.changeyard/workspaces/**/metadata.json`.
 - [x] Include provider references from existing change frontmatter.
-- [ ] Add structured create/update helpers for UI write paths.
-- [ ] Add file-locking/atomic mutation helpers for concurrent UI and CLI writes.
+- [x] Add structured create/update helpers for UI write paths.
+- [x] Add file-locking/atomic mutation helpers for concurrent UI and CLI writes.
 
 ## 4. `cy ui` command
 
@@ -37,7 +37,7 @@ This file tracks implementation of the Changeyard + Kanban UI integration. Chang
 - [x] Add CLI help for `cy ui`.
 - [x] Support `--host`, `--port`, `--open`, and `--no-open`.
 - [x] Start the internal kanban server with the discovered Changeyard repo root.
-- [ ] Add a tested install-from-tarball smoke for `cy ui`.
+- [x] Add a tested install-from-tarball smoke for `cy ui`.
 
 ## 5. Read-only board UI
 
@@ -53,39 +53,40 @@ This file tracks implementation of the Changeyard + Kanban UI integration. Chang
 - [x] Add UI start action via `runStart`.
 - [x] Add UI sync action via `runSync`.
 - [x] Refresh the board after mutations.
-- [ ] Add UI create action.
-- [ ] Add guarded markdown/frontmatter edit actions.
-- [ ] Add completion/review actions.
+- [x] Add UI create action.
+- [x] Add guarded frontmatter edit actions.
+- [x] Add guarded markdown section edit actions.
+- [x] Add completion/review actions.
 
 ## 7. Full workspace engine support
 
 - [x] Replace Kanban worktree assumptions with Changeyard workspace metadata.
 - [x] Support `plain-copy`, `git-worktree`, and `jj` in the UI data model.
 - [x] Surface engine-specific workspace verification state in the UI.
-- [ ] Add engine-specific diff and terminal tabs.
-- [ ] Route publish/completion actions through `runComplete`.
-- [ ] Add tests covering UI workspace behavior across all three engines.
+- [x] Add engine-specific diff and terminal tabs.
+- [x] Route publish/completion actions through `runComplete`.
+- [x] Add tests covering UI workspace behavior across all three engines.
 
 ## 8. Live updates and richer integration
 
-- [ ] Watch `.changeyard/changes/**/*.md`.
-- [ ] Watch `.changeyard/reviews/**/*.md`.
-- [ ] Watch `.changeyard/workspaces/**/metadata.json`.
-- [ ] Push invalidation events to the web UI and refetch automatically.
-- [ ] Surface provider review and PR flows through existing Changeyard providers.
+- [x] Watch `.changeyard/changes/**/*.md`.
+- [x] Watch `.changeyard/reviews/**/*.md`.
+- [x] Watch `.changeyard/workspaces/**/metadata.json`.
+- [x] Push invalidation events to the web UI and refetch automatically.
+- [x] Surface provider review and PR flows through existing Changeyard providers.
 
 ## 9. Tests and packaging
 
 - [x] Add focused board service tests.
-- [ ] Add server/API tests for `cy ui` startup and board/card endpoints.
-- [ ] Add integration tests proving UI start actions produce the same metadata as CLI start.
+- [x] Add server/API tests for `cy ui` startup and board/card endpoints.
+- [x] Add integration tests proving UI start actions produce the same metadata as CLI start.
 - [x] Ensure `npm run pack:check` includes the server and built UI assets.
-- [ ] Ensure installed package runtime can resolve `packages/kanban/dist` correctly.
+- [x] Ensure installed package runtime can resolve `packages/kanban/dist` correctly.
 
 ## 10. Documentation
 
 - [x] Add README usage for `cy ui`.
-- [ ] Add `docs/kanban-integration.md`.
-- [ ] Document the one-source-of-truth invariant for the UI.
-- [ ] Document workspace-engine behavior for `plain-copy`, `git-worktree`, and `jj`.
-- [ ] Document how to vendor/update from upstream `cline/kanban` later.
+- [x] Add `docs/kanban-integration.md`.
+- [x] Document the one-source-of-truth invariant for the UI.
+- [x] Document workspace-engine behavior for `plain-copy`, `git-worktree`, and `jj`.
+- [x] Document how to vendor/update from upstream `cline/kanban` later.

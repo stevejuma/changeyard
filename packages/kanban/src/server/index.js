@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, watch } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
@@ -35,6 +35,38 @@ function sendText(response, status, body, contentType) {
   response.end(body);
 }
 
+function createBoardInvalidationHub() {
+  const clients = new Set();
+  return {
+    add(response) {
+      clients.add(response);
+    },
+    remove(response) {
+      clients.delete(response);
+    },
+    broadcast(event, payload = {}) {
+      const frame = `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
+      for (const client of clients) {
+        try {
+          client.write(frame);
+        } catch {
+          clients.delete(client);
+        }
+      }
+    },
+  };
+}
+
+async function readJsonBody(request) {
+  const chunks = [];
+  for await (const chunk of request) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  if (chunks.length === 0) return {};
+  const raw = Buffer.concat(chunks).toString("utf8");
+  return raw.trim() ? JSON.parse(raw) : {};
+}
+
 function webUiDir() {
   const candidate = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../web-ui");
   if (!existsSync(path.join(candidate, "index.html"))) {
@@ -52,10 +84,36 @@ function staticFile(targetPath) {
   return filePath;
 }
 
+function cardActionId(pathname, suffix) {
+  return decodeURIComponent(pathname.slice("/api/cards/".length, -suffix.length));
+}
+
 export async function startChangeyardKanban(options) {
   const board = createChangeyardBoardService(options.repoRoot);
   const host = options.host ?? "127.0.0.1";
   const requestedPort = options.port === undefined || options.port === "auto" ? 0 : options.port;
+  const invalidationHub = createBoardInvalidationHub();
+  const watchedRoots = [
+    path.join(options.repoRoot, ".changeyard", "changes"),
+    path.join(options.repoRoot, ".changeyard", "reviews"),
+    path.join(options.repoRoot, ".changeyard", "workspaces"),
+  ];
+  const watchers = [];
+  let invalidateTimer = null;
+  const scheduleInvalidation = () => {
+    if (invalidateTimer) clearTimeout(invalidateTimer);
+    invalidateTimer = setTimeout(() => {
+      invalidationHub.broadcast("board-invalidated", { at: new Date().toISOString() });
+    }, 120);
+  };
+  for (const root of watchedRoots) {
+    if (!existsSync(root)) continue;
+    try {
+      watchers.push(watch(root, { recursive: true }, () => scheduleInvalidation()));
+    } catch {
+      // Best effort; startup should not fail if recursive watch is unavailable.
+    }
+  }
 
   const server = createServer(async (request, response) => {
     try {
@@ -66,26 +124,103 @@ export async function startChangeyardKanban(options) {
         return;
       }
 
+      if (request.method === "GET" && url.pathname === "/api/events") {
+        response.writeHead(200, {
+          "Content-Type": "text/event-stream; charset=utf-8",
+          "Cache-Control": "no-store",
+          Connection: "keep-alive",
+        });
+        response.write(`event: ready\ndata: ${JSON.stringify({ ok: true })}\n\n`);
+        invalidationHub.add(response);
+        request.on("close", () => invalidationHub.remove(response));
+        return;
+      }
+
       if (request.method === "GET" && url.pathname === "/api/board") {
         sendJson(response, 200, board.getBoard());
         return;
       }
 
       if (request.method === "GET" && url.pathname.startsWith("/api/cards/")) {
+        if (url.pathname.endsWith("/workspace-view")) {
+          const id = cardActionId(url.pathname, "/workspace-view");
+          sendJson(response, 200, board.getWorkspaceView(id));
+          return;
+        }
         const id = decodeURIComponent(url.pathname.slice("/api/cards/".length));
         sendJson(response, 200, board.getCard(id));
         return;
       }
 
+      if (request.method === "POST" && url.pathname === "/api/cards") {
+        const body = await readJsonBody(request);
+        sendJson(response, 200, board.createCard({
+          template: typeof body.template === "string" ? body.template : "agent-task",
+          title: typeof body.title === "string" ? body.title : "",
+          priority: typeof body.priority === "string" ? body.priority : undefined,
+          author: typeof body.author === "string" ? body.author : undefined,
+          labels: Array.isArray(body.labels) ? body.labels.map((entry) => String(entry)) : undefined,
+          planFile: typeof body.planFile === "string" ? body.planFile : undefined,
+        }));
+        return;
+      }
+
+      if (request.method === "PATCH" && url.pathname.startsWith("/api/cards/") && url.pathname.includes("/sections/")) {
+        const marker = "/sections/";
+        const markerIndex = url.pathname.indexOf(marker);
+        const id = decodeURIComponent(url.pathname.slice("/api/cards/".length, markerIndex));
+        const sectionName = decodeURIComponent(url.pathname.slice(markerIndex + marker.length));
+        const body = await readJsonBody(request);
+        sendJson(response, 200, board.updateCardSection(
+          id,
+          sectionName,
+          typeof body.content === "string" ? body.content : "",
+        ));
+        return;
+      }
+
+      if (request.method === "PATCH" && url.pathname.startsWith("/api/cards/")) {
+        const id = decodeURIComponent(url.pathname.slice("/api/cards/".length));
+        const body = await readJsonBody(request);
+        sendJson(response, 200, board.updateCard(id, {
+          title: typeof body.title === "string" ? body.title : undefined,
+          priority: body.priority === null ? null : typeof body.priority === "string" ? body.priority : undefined,
+          labels: Array.isArray(body.labels) ? body.labels.map((entry) => String(entry)) : undefined,
+        }));
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname.startsWith("/api/cards/") && url.pathname.endsWith("/review/start")) {
+        const id = cardActionId(url.pathname, "/review/start");
+        sendJson(response, 200, board.startReview(id));
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname.startsWith("/api/cards/") && url.pathname.endsWith("/review/complete")) {
+        const id = cardActionId(url.pathname, "/review/complete");
+        const body = await readJsonBody(request);
+        const decision = typeof body.decision === "string" ? body.decision : "";
+        sendJson(response, 200, board.completeReview(id, decision));
+        return;
+      }
+
       if (request.method === "POST" && url.pathname.startsWith("/api/cards/") && url.pathname.endsWith("/sync")) {
-        const id = decodeURIComponent(url.pathname.slice("/api/cards/".length, -"/sync".length));
+        const id = cardActionId(url.pathname, "/sync");
         sendJson(response, 200, board.syncCard(id));
         return;
       }
 
       if (request.method === "POST" && url.pathname.startsWith("/api/cards/") && url.pathname.endsWith("/start")) {
-        const id = decodeURIComponent(url.pathname.slice("/api/cards/".length, -"/start".length));
+        const id = cardActionId(url.pathname, "/start");
         sendJson(response, 200, board.startCard(id));
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname.startsWith("/api/cards/") && url.pathname.endsWith("/complete")) {
+        const id = cardActionId(url.pathname, "/complete");
+        const body = await readJsonBody(request);
+        const withPr = body.withPr === true;
+        sendJson(response, 200, board.completeCard(id, { noPr: !withPr }));
         return;
       }
 
@@ -130,6 +265,8 @@ export async function startChangeyardKanban(options) {
   return {
     url,
     close: () => new Promise((resolve, reject) => {
+      if (invalidateTimer) clearTimeout(invalidateTimer);
+      for (const watcher of watchers) watcher.close();
       server.close((error) => {
         if (error) reject(error);
         else resolve(undefined);
