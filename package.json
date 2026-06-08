@@ -1,0 +1,27 @@
+{
+  "name": "changeyard",
+  "version": "0.1.0",
+  "description": "Generic markdown-first local change workflow manager prototype.",
+  "type": "module",
+  "bin": {
+    "changeyard": "./dist/src/cli.js",
+    "cy": "./dist/src/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && mkdir -p dist/src/templates && cp src/templates/*.md dist/src/templates/",
+    "test": "npm run build && node --test dist/tests/*.test.js",
+    "check": "npm run build",
+    "pack:check": "npm run build && npm pack --dry-run",
+    "prepack": "npm run build",
+    "smoke:forge": "node scripts/live-forge-smoke.mjs"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "files": [
+    "dist/src",
+    "README.md",
+    "docs",
+    "scripts"
+  ]
+}

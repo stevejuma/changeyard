@@ -1,0 +1,13 @@
+node_modules/
+dist/
+
+# Changeyard runtime state
+.changeyard/workspaces/
+.changeyard/cache/
+.changeyard/**/logs/
+
+# Keep markdown specs/reviews trackable when a repo opts in
+!.changeyard/changes/
+!.changeyard/reviews/
+!.changeyard/templates/
+!.changeyard/config.jsonc
