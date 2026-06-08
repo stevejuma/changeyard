@@ -3,31 +3,10 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Changeyard Board</title>
-    <link rel="stylesheet" href="/styles.css">
+    <title>Changeyard Kanban</title>
   </head>
   <body>
-    <div class="app-shell">
-      <header class="topbar">
-        <div>
-          <p class="eyebrow">Changeyard</p>
-          <h1>Board</h1>
-        </div>
-        <div class="topbar-meta">
-          <button id="create-button" class="action-button" type="button">New Card</button>
-          <span id="engine-chip" class="chip">Loading</span>
-          <button id="refresh-button" class="action-button secondary" type="button">Refresh</button>
-        </div>
-      </header>
-      <main class="layout">
-        <section id="board" class="board" aria-live="polite"></section>
-        <aside id="detail-panel" class="detail-panel">
-          <div class="detail-empty">
-            <p>Select a card to inspect its markdown, provider links, and workspace details.</p>
-          </div>
-        </aside>
-      </main>
-    </div>
-    <script type="module" src="/app.js"></script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
   </body>
-  </html>
+</html>

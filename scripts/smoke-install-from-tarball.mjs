@@ -20,6 +20,15 @@ function ensureBinary(name) {
   return where.length > 0;
 }
 
+function parsePackJson(output) {
+  const trimmed = output.trim();
+  const match = /(\[\s*\{[\s\S]*\}\s*\])\s*$/.exec(trimmed);
+  if (!match) {
+    throw new Error(`Could not locate npm pack JSON output in:\n${output}`);
+  }
+  return JSON.parse(match[1]);
+}
+
 async function waitForServerUrl(child) {
   return await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("Timed out waiting for cy ui to start")), 20000);
@@ -56,7 +65,7 @@ const workdir = mkdtempSync(path.join(os.tmpdir(), "changeyard-smoke-install-"))
 let packagedArtifact = "";
 try {
   const packResult = run("npm", ["pack", "--silent", "--json"], projectRoot);
-  const [packed] = JSON.parse(packResult);
+  const [packed] = parsePackJson(packResult);
   if (!packed || !packed.filename) {
     throw new Error("npm pack did not return an archive name");
   }
