@@ -13,7 +13,8 @@
     "check": "npm run build",
     "pack:check": "npm run build && npm pack --dry-run",
     "prepack": "npm run build",
-    "smoke:forge": "node scripts/live-forge-smoke.mjs"
+    "smoke:forge": "node scripts/live-forge-smoke.mjs",
+    "smoke:install": "node scripts/smoke-install-from-tarball.mjs"
   },
   "engines": {
     "node": ">=20.0.0"

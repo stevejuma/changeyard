@@ -14,8 +14,17 @@ function writeJsonc(filePath: string, config: ChangeyardConfig): void {
   writeFileSync(filePath, content);
 }
 
-export function runInit(repoRoot = process.cwd()): string {
+type InitOptions = {
+  dryRun?: boolean;
+};
+
+export function runInit(repoRoot = process.cwd(), options: InitOptions = {}): string {
   const root = path.join(repoRoot, defaultConfig.storage.root);
+  const target = options.dryRun ? path.relative(repoRoot, root) || root : `Initialized Changeyard in ${path.relative(repoRoot, root) || root}`;
+  if (options.dryRun) {
+    return `Dry-run: would initialize Changeyard in ${target}`;
+  }
+
   const templatesDir = path.join(root, "templates");
   mkdirSync(path.join(root, "changes"), { recursive: true });
   mkdirSync(path.join(root, "reviews"), { recursive: true });

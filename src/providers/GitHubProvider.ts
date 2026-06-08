@@ -2,6 +2,21 @@ import type { ChangeyardConfig } from "../types.js";
 import { ChangeyardError } from "../errors.js";
 import type { ChangeProvider, CreatePullRequestInput, ProviderCapabilities, PublishReviewInput, RemoteIssue, RemotePullRequest, RemoteReview, SyncIssueInput } from "./ChangeProvider.js";
 import { curlJson } from "./http.js";
+import { validateReviewCommentPath } from "./reviewHelpers.js";
+
+type PullRequestResponse = {
+  number?: number;
+  html_url?: string;
+  url?: string;
+  head?: {
+    sha?: string;
+  };
+};
+
+type PullRequestListFile = {
+  filename?: string;
+  patch?: string;
+};
 
 function requireConfig(config: ChangeyardConfig): { baseUrl: string; owner: string; repo: string; token: string } {
   const tokenEnv = config.provider.auth?.tokenEnv ?? "GITHUB_TOKEN";
@@ -11,7 +26,6 @@ function requireConfig(config: ChangeyardConfig): { baseUrl: string; owner: stri
   }
   return { baseUrl: (config.provider.baseUrl ?? "https://api.github.com").replace(/\/$/, ""), owner: config.provider.owner, repo: config.provider.repo, token };
 }
-
 
 function inlineCommentSummary(input: PublishReviewInput): string {
   const comments = input.inlineComments ?? [];
@@ -24,6 +38,29 @@ function remoteThreadNumber(input: PublishReviewInput): number | null {
   const pr = remote.pullRequestNumber;
   const issue = remote.issueNumber;
   return typeof pr === "number" ? pr : typeof issue === "number" ? issue : null;
+}
+
+function pullRequest(cfg: { baseUrl: string; owner: string; repo: string; token: string }, pullNumber: number): PullRequestResponse {
+  return curlJson({
+    method: "GET",
+    url: `${cfg.baseUrl}/repos/${cfg.owner}/${cfg.repo}/pulls/${pullNumber}`,
+    token: cfg.token,
+    tokenScheme: "Bearer",
+    payload: {},
+    extraHeaders: ["Accept: application/vnd.github+json", "X-GitHub-Api-Version: 2022-11-28"],
+  });
+}
+
+function pullRequestFiles(cfg: { baseUrl: string; owner: string; repo: string; token: string }, pullNumber: number): PullRequestListFile[] {
+  const response = curlJson({
+    method: "GET",
+    url: `${cfg.baseUrl}/repos/${cfg.owner}/${cfg.repo}/pulls/${pullNumber}/files?per_page=100`,
+    token: cfg.token,
+    tokenScheme: "Bearer",
+    payload: {},
+    extraHeaders: ["Accept: application/vnd.github+json", "X-GitHub-Api-Version: 2022-11-28"],
+  });
+  return Array.isArray(response) ? response as PullRequestListFile[] : [];
 }
 
 export class GitHubProvider implements ChangeProvider {
@@ -51,10 +88,52 @@ export class GitHubProvider implements ChangeProvider {
     const cfg = requireConfig(this.config);
     const thread = remoteThreadNumber(input);
     if (thread === null) throw new ChangeyardError("PROVIDER_CONFIG_INVALID", "Cannot publish review without remote issue or pull request number");
-    const response = curlJson({ method: "POST", url: `${cfg.baseUrl}/repos/${cfg.owner}/${cfg.repo}/issues/${thread}/comments`, token: cfg.token, tokenScheme: "Bearer", payload: {
-      body: `Review decision: ${input.decision}\n\n${input.reviewBody}${inlineCommentSummary(input)}`,
-    }, extraHeaders: ["Accept: application/vnd.github+json", "X-GitHub-Api-Version: 2022-11-28"] });
-    return { provider: this.name, reviewNumber: response.id ?? null, reviewUrl: response.html_url ?? response.url ?? null };
+
+    const comments = input.inlineComments ?? [];
+    let review: { id?: number | null; html_url?: string | null; url?: string | null };
+    let postedInline = false;
+
+    if (comments.length > 0) {
+      const pull = pullRequest(cfg, thread);
+      const commitId = typeof pull.head?.sha === "string" ? pull.head.sha : undefined;
+      if (!commitId) {
+        throw new ChangeyardError("REVIEW_COMMENT_INVALID", `Pull request ${thread} is missing head SHA`);
+      }
+      const files = pullRequestFiles(cfg, thread);
+
+      for (const comment of comments) {
+        const position = validateReviewCommentPath(files, comment);
+        curlJson({
+          method: "POST",
+          url: `${cfg.baseUrl}/repos/${cfg.owner}/${cfg.repo}/pulls/${thread}/comments`,
+          token: cfg.token,
+          tokenScheme: "Bearer",
+          payload: {
+            body: comment.body,
+            path: comment.path,
+            side: "RIGHT",
+            line: comment.line,
+            position,
+            commit_id: commitId,
+          },
+          extraHeaders: ["Accept: application/vnd.github+json", "X-GitHub-Api-Version: 2022-11-28"],
+        });
+        postedInline = true;
+      }
+    }
+
+    review = curlJson({
+      method: "POST",
+      url: `${cfg.baseUrl}/repos/${cfg.owner}/${cfg.repo}/issues/${thread}/comments`,
+      token: cfg.token,
+      tokenScheme: "Bearer",
+      payload: {
+        body: `Review decision: ${input.decision}\n\n${input.reviewBody}${postedInline ? `\n\n(Posted ${comments.length} inline review comment${comments.length === 1 ? "" : "s"} directly on this pull request.)` : ""}${inlineCommentSummary(input)}`,
+      },
+      extraHeaders: ["Accept: application/vnd.github+json", "X-GitHub-Api-Version: 2022-11-28"],
+    });
+
+    return { provider: this.name, reviewNumber: review.id ?? null, reviewUrl: review.html_url ?? review.url ?? null };
   }
 
   createPullRequest(input: CreatePullRequestInput): RemotePullRequest {

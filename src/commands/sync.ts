@@ -13,7 +13,11 @@ function asRecord(value: unknown): Frontmatter {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Frontmatter : {};
 }
 
-export function runSync(id: string, repoRoot = process.cwd()): string {
+type MutationOptions = {
+  dryRun?: boolean;
+};
+
+export function runSync(id: string, repoRoot = process.cwd(), mutationOptions: MutationOptions = {}): string {
   if (!id) throw new Error("change id is required");
   const config = loadConfig(repoRoot);
   const root = storageRoot(repoRoot, config);
@@ -30,7 +34,13 @@ export function runSync(id: string, repoRoot = process.cwd()): string {
     status: "synced",
     updatedAt: new Date().toISOString(),
   };
+
   const provider = createProvider(config.provider.type, config);
+  if (mutationOptions.dryRun) {
+    const relativeChangePath = path.relative(repoRoot, filePath);
+    return `Dry-run: would sync ${String(parsed.frontmatter.id ?? id)} with ${provider.name}; updates ${relativeChangePath}`;
+  }
+
   const remote = provider.syncIssue({
     repoRoot,
     storageRoot: root,

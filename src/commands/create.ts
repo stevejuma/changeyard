@@ -17,11 +17,15 @@ export type CreateOptions = {
   planFile?: string;
 };
 
+type MutationOptions = {
+  dryRun?: boolean;
+};
+
 function nowIso(): string {
   return new Date().toISOString();
 }
 
-export function runCreate(options: CreateOptions, repoRoot = process.cwd()): string {
+export function runCreate(options: CreateOptions, repoRoot = process.cwd(), mutationOptions: MutationOptions = {}): string {
   if (!options.title) throw new Error("--title is required");
   const config = loadConfig(repoRoot);
   const root = storageRoot(repoRoot, config);
@@ -78,6 +82,10 @@ export function runCreate(options: CreateOptions, repoRoot = process.cwd()): str
   if (!validation.valid) throw new Error(`Generated change failed validation:\n${validation.errors.join("\n")}`);
 
   const filePath = path.join(changes, `${id}-${slug}.md`);
+  if (mutationOptions.dryRun) {
+    return `Dry-run: would create ${id}: ${path.relative(repoRoot, filePath)}`;
+  }
+
   writeFileSync(filePath, writeFrontmatter(frontmatter, body));
   return `Created ${id}: ${path.relative(repoRoot, filePath)}`;
 }
