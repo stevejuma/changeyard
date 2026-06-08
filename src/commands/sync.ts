@@ -1,0 +1,57 @@
+import { readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { loadConfig } from "../config/loadConfig.js";
+import { parseFrontmatter, writeFrontmatter } from "../documents/frontmatter.js";
+import { validateChangeFile } from "../documents/validateDocument.js";
+import { changesRoot, storageRoot } from "../paths.js";
+import { createProvider } from "../providers/index.js";
+import { findChangeFile } from "../state/id.js";
+import { assertTransition } from "../state/transitions.js";
+import type { Frontmatter } from "../types.js";
+
+function asRecord(value: unknown): Frontmatter {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Frontmatter : {};
+}
+
+export function runSync(id: string, repoRoot = process.cwd()): string {
+  if (!id) throw new Error("change id is required");
+  const config = loadConfig(repoRoot);
+  const root = storageRoot(repoRoot, config);
+  const filePath = findChangeFile(changesRoot(repoRoot, config), id);
+  if (!filePath) throw new Error(`Change not found: ${id}`);
+
+  const validation = validateChangeFile(filePath, root);
+  if (!validation.valid) throw new Error(validation.errors.join("\n"));
+
+  const parsed = parseFrontmatter(readFileSync(filePath, "utf8"));
+  assertTransition(String(parsed.frontmatter.status ?? ""), "synced", `Sync ${id}`);
+  const syncFrontmatter: Frontmatter = {
+    ...parsed.frontmatter,
+    status: "synced",
+    updatedAt: new Date().toISOString(),
+  };
+  const provider = createProvider(config.provider.type, config);
+  const remote = provider.syncIssue({
+    repoRoot,
+    storageRoot: root,
+    changePath: filePath,
+    frontmatter: syncFrontmatter,
+    body: parsed.body,
+  });
+
+  const nextFrontmatter: Frontmatter = {
+    ...syncFrontmatter,
+    remote: {
+      ...asRecord(parsed.frontmatter.remote),
+      provider: remote.provider,
+      issueNumber: remote.issueNumber,
+      issueUrl: remote.issueUrl,
+    },
+  };
+
+  writeFileSync(filePath, writeFrontmatter(nextFrontmatter, parsed.body));
+
+  const relativeChangePath = path.relative(repoRoot, filePath);
+  const target = remote.issueUrl ? ` -> ${remote.issueUrl}` : "";
+  return `Synced ${String(parsed.frontmatter.id ?? id)} with ${provider.name}${target}\nUpdated ${relativeChangePath}`;
+}
