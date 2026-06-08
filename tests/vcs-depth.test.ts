@@ -128,7 +128,8 @@ test("jj engine publishes bookmarks to a local bare remote", () => {
     };
     const engine = new JjWorkspaceEngine();
     const created = engine.create({ repoRoot: repo, workspacePath, metadata, neverCopy: [] });
-    engine.publish({ cwd: created.path, metadata: created, branch: created.branch });
+    runCommand("jj", ["describe", "-m", "workspace commit"], created.path);
+    engine.publish({ cwd: created.path, metadata: created, branch: created.branch! });
 
     const remoteRefs = runCommand("git", ["ls-remote", "--heads", remote, "cy/CY-0001"], repo);
     assert.ok(remoteRefs.includes("refs/heads/cy/CY-0001"));
@@ -141,6 +142,12 @@ test("doctor detects workspace branch collisions and dirty workspace state", () 
   if (!hasCommand("git")) return;
   const repo = createTempRepo();
   try {
+    runCommand("git", ["init", "-b", "main"], repo);
+    runCommand("git", ["config", "user.email", "changeyard@example.test"], repo);
+    runCommand("git", ["config", "user.name", "Changeyard Test"], repo);
+    writeFileSync(path.join(repo, "README.md"), "# repo\n");
+    runCommand("git", ["add", "README.md"], repo);
+    runCommand("git", ["commit", "-m", "initial"], repo);
     runInit(repo);
     writeFileSync(
       path.join(repo, ".changeyard", "config.local.jsonc"),
@@ -157,6 +164,7 @@ test("doctor detects workspace branch collisions and dirty workspace state", () 
     const report = runDoctor(repo);
     assert.match(report, /workspace bookmark\/branch collision: cy\/shared-workspace/);
 
+    rmSync(path.join(repo, ".changeyard", "workspaces", "CY-0001"), { recursive: true, force: true });
     const startOutput = runStart("CY-0001", repo);
     const match = /in\s+\.changeyard\/workspaces\/CY-0001\/repo/.exec(startOutput);
     const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
@@ -164,7 +172,7 @@ test("doctor detects workspace branch collisions and dirty workspace state", () 
       writeFileSync(path.join(workspacePath, "dirty.txt"), "dirty-workspace\n");
     }
     let changeBody = readFileSync(changePath1, "utf8");
-    changeBody = changeBody.replace("status: ready", "status: ready_for_pr");
+    changeBody = changeBody.replace("status: in_progress", "status: ready_for_pr");
     writeFileSync(changePath1, changeBody);
     const secondReport = runDoctor(repo, { verbose: true });
     assert.match(secondReport, /workspace has uncommitted changes/);

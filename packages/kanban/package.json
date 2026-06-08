@@ -1,0 +1,19 @@
+{
+  "name": "@changeyard/kanban",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./server": "./dist/server/index.js"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "node --check src/index.js && node --check src/server/index.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

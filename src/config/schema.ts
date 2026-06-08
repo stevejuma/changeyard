@@ -92,6 +92,22 @@ export const configSchema = {
         items: { type: "string" },
       },
     },
+    ui: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        host: { type: "string", minLength: 1 },
+        port: {
+          anyOf: [
+            { type: "integer", minimum: 0 },
+            { const: "auto" },
+          ],
+        },
+        open: { type: "boolean" },
+        requirePasscode: { type: "boolean" },
+        theme: { type: "string", enum: ["light", "dark", "system"] },
+      },
+    },
     pullRequests: {
       type: "object",
       additionalProperties: false,

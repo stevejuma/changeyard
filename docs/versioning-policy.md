@@ -9,6 +9,8 @@ the packaged CLI/API compatibility guarantees:
 - `MINOR`: New provider/workflow capabilities and backward-compatible features.
 - `PATCH`: Bugfixes, validation improvements, and internal refactors with no breaking behavior changes.
 
+Current runtime baseline: Node.js 22 or newer.
+
 ## Release Workflow
 
 1. Merge provider and release-related changes into the mainline branch.

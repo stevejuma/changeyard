@@ -12,6 +12,9 @@ export function validateConfig(config: ChangeyardConfig): void {
   if (!config.workspace.pathPattern.includes("{id}")) errors.push("workspace.pathPattern must include {id}");
   if (!Array.isArray(config.workspace.hydrate.copy)) errors.push("workspace.hydrate.copy must be an array");
   if (!Array.isArray(config.workspace.hydrate.neverCopy)) errors.push("workspace.hydrate.neverCopy must be an array");
+  if (config.ui?.port !== undefined && config.ui.port !== "auto" && (!Number.isInteger(config.ui.port) || config.ui.port < 0)) {
+    errors.push("ui.port must be a non-negative integer or \"auto\"");
+  }
   for (const [profile, commands] of Object.entries(config.checks)) {
     if (!Array.isArray(commands) || commands.some((command) => typeof command !== "string")) errors.push(`checks.${profile} must be an array of strings`);
   }

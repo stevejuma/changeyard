@@ -11,12 +11,13 @@ import { runReviewComplete, runReviewStart } from "./commands/review.js";
 import { runStart } from "./commands/start.js";
 import { getStatus, runStatus } from "./commands/status.js";
 import { runSync } from "./commands/sync.js";
+import { runUi } from "./commands/ui.js";
 import { runValidate } from "./commands/validate.js";
 import { runVerify } from "./commands/verify.js";
 import { findRepoRoot } from "./config/loadConfig.js";
 import { errorCode, errorExitCode } from "./errors.js";
 
-type CommandName = "init" | "create" | "validate" | "sync" | "start" | "verify" | "hydrate" | "complete" | "review" | "doctor" | "completions" | "recover" | "list" | "status" | "help";
+type CommandName = "init" | "create" | "validate" | "sync" | "start" | "verify" | "hydrate" | "complete" | "review" | "doctor" | "completions" | "recover" | "list" | "status" | "ui" | "help";
 
 type ParsedArgs = {
   command: string;
@@ -31,7 +32,8 @@ type MutationOptions = {
 };
 
 function parseArgs(argv: string[]): ParsedArgs {
-  const [command = "help", ...rest] = argv;
+  const startsWithFlag = argv[0]?.startsWith("--") ?? false;
+  const [command = "help", ...rest] = startsWithFlag ? ["help", ...argv] : argv;
   const positional: string[] = [];
   const flags: Record<string, string | boolean | string[]> = {};
 
@@ -94,6 +96,7 @@ Usage:
   cy completions
   cy list [--json]
   cy status CY-0001 [--json]
+  cy ui [--host <host>] [--port <port|auto>] [--open|--no-open]
 
 Global options:
   --json         print machine-readable output
@@ -143,6 +146,7 @@ function commandUsage(command: string): string {
     completions: `${"completions".padEnd(12)}install shell completion helper.\n\nExample:\n${commandExamples(["cy completions"])}`,
     list: `${"list".padEnd(12)}list all local changes.\n\nExample:\n${commandExamples(["cy list"])}`,
     status: `${"status".padEnd(12)}print one change summary.\n\nExample:\n${commandExamples(["cy status CY-0001"])}`,
+    ui: `${"ui".padEnd(12)}start the local Changeyard board UI.\n\nExamples:\n${commandExamples(["cy ui --no-open", "cy ui --host 127.0.0.1 --port 4310"])}`,
     help: usage(),
   };
   return lines[command] ?? usage();
@@ -153,6 +157,7 @@ function commandBaseName(command: string): CommandName {
   if (command === "begin") return "start";
   if (command === "check") return "verify";
   if (command === "done") return "complete";
+  if (command === "kanban") return "ui";
   return command as CommandName;
 }
 
@@ -162,7 +167,7 @@ function outputLine(command: string, output: unknown): void {
   else process.stdout.write(`${JSON.stringify(output)}\n`);
 }
 
-function jsonPayload(command: string, output: unknown): unknown {
+function jsonPayload(command: string, output: unknown): { command: string; message?: string; data?: unknown } {
   return typeof output === "string" ? { command, message: output } : { command, data: output };
 }
 
@@ -251,6 +256,15 @@ async function main(): Promise<void> {
       case "status":
         output = json ? getStatus(args.positional[0] ?? "", repoRoot) : runStatus(args.positional[0] ?? "", repoRoot);
         break;
+      case "ui": {
+        const rawPort = stringFlag(args.flags, "port");
+        output = await runUi({
+          open: args.flags["no-open"] === true ? false : args.flags.open === true ? true : undefined,
+          host: stringFlag(args.flags, "host"),
+          port: rawPort === "auto" ? "auto" : rawPort ? Number(rawPort) : undefined,
+        }, process.cwd());
+        break;
+      }
       case "help":
       default:
         if (command === "help") output = usage();

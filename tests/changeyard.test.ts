@@ -416,6 +416,18 @@ test("remote providers send expected issue, PR, and review HTTP requests", () =>
   const requests: ProviderRequest[] = [];
   setHttpTransportForTests((request) => {
     requests.push(request as ProviderRequest);
+    if (request.url.endsWith("/pulls/42")) {
+      return { status: 200, body: JSON.stringify({ number: 42, html_url: "https://example.test/pull/42", head: { sha: "abc123" } }) };
+    }
+    if (request.url.includes("/pulls/42/files")) {
+      return { status: 200, body: JSON.stringify([{ filename: "src/example.ts", patch: "@@ -40,3 +40,4 @@\n context\n+line 42\n context\n" }]) };
+    }
+    if (request.url.endsWith("/merge_requests/43")) {
+      return { status: 200, body: JSON.stringify({ iid: 43, web_url: "https://example.test/merge/43", diff_refs: { base_sha: "base", head_sha: "head", start_sha: "start" } }) };
+    }
+    if (request.url.endsWith("/merge_requests/43/changes")) {
+      return { status: 200, body: JSON.stringify({ changes: [{ new_path: "src/example.ts", old_path: "src/example.ts", diff: "@@ -40,3 +40,4 @@\n context\n+line 42\n context\n" }] }) };
+    }
     if (request.url.includes("/comments") || request.url.includes("/notes")) return { status: 201, body: JSON.stringify({ id: 44, html_url: "https://example.test/review/44", web_url: "https://example.test/review/44" }) };
     if (request.url.includes("/pulls")) return { status: 201, body: JSON.stringify({ number: 42, html_url: "https://example.test/pull/42" }) };
     if (request.url.includes("/merge_requests")) return { status: 201, body: JSON.stringify({ iid: 43, web_url: "https://example.test/merge/43" }) };
@@ -438,19 +450,26 @@ test("remote providers send expected issue, PR, and review HTTP requests", () =>
     assert.equal(github.publishReview?.({ ...providerSyncInput({ pullRequestNumber: 42 }), reviewPath: "/repo/.changeyard/reviews/CY-0001/review-001.md", reviewFrontmatter: { review: 1 }, reviewBody: "# Summary\n\nApproved.", decision: "approved", inlineComments: [{ path: "src/example.ts", line: 42, body: "Tighten this assertion." }] }).reviewNumber, 44);
     assert.equal(gitlab.publishReview?.({ ...providerSyncInput({ pullRequestNumber: 43 }), reviewPath: "/repo/.changeyard/reviews/CY-0001/review-001.md", reviewFrontmatter: { review: 1 }, reviewBody: "# Summary\n\nApproved.", decision: "approved" }).reviewNumber, 44);
 
-    assert.equal(requests[0].method, "POST");
-    assert.equal(requests[0].url, "https://forgejo.example.test/api/v1/repos/example-org/example-repo/issues");
-    assert.deepEqual(requests[0].payload.labels, ["agent-ready", "provider"]);
-    assert.equal(requests[1].method, "PATCH");
-    assert.equal(requests[1].url, "https://github.example.test/repos/example-org/example-repo/issues/7");
-    assert.equal(requests[1].tokenScheme, "Bearer");
-    assert.equal(requests[2].method, "PUT");
-    assert.equal(requests[2].url, "https://gitlab.example.test/api/v4/projects/example-org%2Fexample-repo/issues/8");
-    assert.equal(requests[5].url, "https://gitlab.example.test/api/v4/projects/example-org%2Fexample-repo/merge_requests");
-    assert.equal(requests[5].payload.target_branch, "main");
-    assert.equal(requests[6].url, "https://github.example.test/repos/example-org/example-repo/issues/42/comments");
-    assert.match(String(requests[6].payload.body), /Inline comments:/);
-    assert.equal(requests[7].url, "https://gitlab.example.test/api/v4/projects/example-org%2Fexample-repo/merge_requests/43/notes");
+    const forgeIssue = requests.find((request) => request.url === "https://forgejo.example.test/api/v1/repos/example-org/example-repo/issues");
+    const githubIssue = requests.find((request) => request.url === "https://github.example.test/repos/example-org/example-repo/issues/7");
+    const gitlabIssue = requests.find((request) => request.url === "https://gitlab.example.test/api/v4/projects/example-org%2Fexample-repo/issues/8");
+    const gitlabMergeRequest = requests.find((request) => request.url === "https://gitlab.example.test/api/v4/projects/example-org%2Fexample-repo/merge_requests");
+    const githubReview = requests.find((request) => request.url === "https://github.example.test/repos/example-org/example-repo/issues/42/comments");
+    const gitlabReview = requests.find((request) => request.url === "https://gitlab.example.test/api/v4/projects/example-org%2Fexample-repo/merge_requests/43/notes");
+
+    assert.ok(forgeIssue);
+    assert.ok(githubIssue);
+    assert.ok(gitlabIssue);
+    assert.ok(gitlabMergeRequest);
+    assert.ok(githubReview);
+    assert.ok(gitlabReview);
+    assert.equal(forgeIssue?.method, "POST");
+    assert.deepEqual(forgeIssue?.payload.labels, ["agent-ready", "provider"]);
+    assert.equal(githubIssue?.method, "PATCH");
+    assert.equal(githubIssue?.tokenScheme, "Bearer");
+    assert.equal(gitlabIssue?.method, "PUT");
+    assert.equal(gitlabMergeRequest?.payload.target_branch, "main");
+    assert.match(String(githubReview?.payload.body), /Inline comments:/);
   } finally {
     setHttpTransportForTests();
     if (previousForgeToken === undefined) delete process.env.CHANGEYARD_TEST_FORGE_TOKEN; else process.env.CHANGEYARD_TEST_FORGE_TOKEN = previousForgeToken;
@@ -474,9 +493,12 @@ test("HTTP provider helper surfaces remote status and JSON errors", () => {
 test("package metadata includes release smoke scripts", () => {
   const packageJson = JSON.parse(readFileSync(path.join(process.cwd(), "package.json"), "utf8"));
   assert.equal(packageJson.scripts.prepack, "npm run build");
+  assert.equal(packageJson.scripts.cli, "node dist/src/cli.js");
+  assert.equal(packageJson.scripts["build:kanban"], "npm --workspace @changeyard/kanban run build");
   assert.equal(packageJson.scripts["pack:check"], "npm run build && npm pack --dry-run");
   assert.equal(packageJson.bin.cy, "./dist/src/cli.js");
-  assert.deepEqual(packageJson.files, ["dist/src", "README.md", "docs", "scripts"]);
+  assert.equal(packageJson.engines.node, ">=22.0.0");
+  assert.deepEqual(packageJson.files, ["dist/src", "packages/kanban/dist", "packages/kanban/package.json", "packages/kanban/README.md", "README.md", "docs", "scripts"]);
 });
 
 

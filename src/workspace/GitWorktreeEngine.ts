@@ -1,4 +1,5 @@
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { pathInside } from "./patterns.js";
 import { shellCommandRunner, type CommandRunner } from "./commandRunner.js";
@@ -11,6 +12,7 @@ export class GitWorktreeEngine implements WorkspaceEngine {
 
   create(input: CreateWorkspaceInput) {
     const branch = input.metadata.branch ?? `cy/${input.metadata.changeId}`;
+    mkdirSync(path.dirname(input.workspacePath), { recursive: true });
     this.run("git", ["worktree", "add", "-b", branch, input.workspacePath], input.repoRoot);
     return { ...input.metadata, branch };
   }
@@ -23,7 +25,9 @@ export class GitWorktreeEngine implements WorkspaceEngine {
     if (!pathInside(cwd, expectedPath)) errors.push(`Current directory is not inside expected workspace: ${expectedPath}`);
     try {
       const root = this.run("git", ["rev-parse", "--show-toplevel"], cwd);
-      if (path.resolve(root) !== expectedPath) errors.push(`Git root mismatch: expected ${expectedPath}, got ${root}`);
+      const resolvedExpected = existsSync(expectedPath) ? realpathSync(expectedPath) : expectedPath;
+      const resolvedRoot = existsSync(root) ? realpathSync(root) : path.resolve(root);
+      if (resolvedRoot !== resolvedExpected) errors.push(`Git root mismatch: expected ${expectedPath}, got ${root}`);
       const status = this.run("git", ["status", "--porcelain"], expectedPath);
       if (status.includes("UU ")) errors.push("Git workspace has unresolved conflicts");
     } catch (error) {

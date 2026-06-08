@@ -598,7 +598,7 @@ export function doctorReport(repoRoot = process.cwd(), options: MutationOptions 
           warnings.push(`${change.id}: stale issue URL "${issueUrl}"`);
         }
       }
-    } else if (issueNumber !== undefined) {
+    } else if (issueNumber !== undefined && issueNumber !== null) {
       warnings.push(`${change.id}: remote.issueNumber must be a number`);
     }
 
@@ -613,7 +613,7 @@ export function doctorReport(repoRoot = process.cwd(), options: MutationOptions 
           warnings.push(`${change.id}: stale pull request URL "${prUrl}"`);
         }
       }
-    } else if (prNumber !== undefined) {
+    } else if (prNumber !== undefined && prNumber !== null) {
       warnings.push(`${change.id}: remote.pullRequestNumber must be a number`);
     }
 
