@@ -1,5 +1,8 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { runComplete, type CompleteOptions } from "../commands/complete.js";
+import { createChange, type CreateOptions } from "../commands/create.js";
+import { runReviewComplete, runReviewStart, type ReviewDecision } from "../commands/review.js";
 import { runStart } from "../commands/start.js";
 import { runSync } from "../commands/sync.js";
 import { loadConfig } from "../config/loadConfig.js";
@@ -9,6 +12,8 @@ import { changesRoot, workspacesRoot } from "../paths.js";
 import { findChangeFile } from "../state/id.js";
 import type { Frontmatter, WorkspaceMetadata } from "../types.js";
 import { createWorkspaceEngine } from "../workspace/index.js";
+import { updateCardMetadata, updateCardSection, type UpdateCardMetadataInput } from "./changeMutations.js";
+import { readWorkspaceTerminalView, type WorkspaceTerminalView } from "./workspaceView.js";
 import type { ChangeyardBoard, ChangeyardBoardColumn, ChangeyardCardDetail } from "./boardTypes.js";
 import { COLUMN_STATUS_MAP, COLUMN_TITLES, columnForStatus } from "./statusColumns.js";
 
@@ -123,13 +128,53 @@ export class ChangeyardBoardService {
     return toCard(this.repoRoot, filePath);
   }
 
+  getWorkspaceView(id: string): WorkspaceTerminalView {
+    const card = this.getCard(id);
+    const metadata = card.workspace?.metadata;
+    if (!metadata) throw new Error(`Workspace not started for ${id}`);
+    return readWorkspaceTerminalView(this.repoRoot, id, metadata);
+  }
+
   syncCard(id: string): ChangeyardCardDetail {
     runSync(id, this.repoRoot);
     return this.getCard(id);
   }
 
+  createCard(input: CreateOptions): ChangeyardCardDetail {
+    const created = createChange(input, this.repoRoot);
+    return this.getCard(created.id);
+  }
+
+  updateCard(id: string, patch: UpdateCardMetadataInput): ChangeyardCardDetail {
+    updateCardMetadata(this.repoRoot, id, patch);
+    return this.getCard(id);
+  }
+
+  updateCardSection(id: string, sectionName: string, content: string): ChangeyardCardDetail {
+    updateCardSection(this.repoRoot, id, sectionName, content);
+    return this.getCard(id);
+  }
+
   startCard(id: string): ChangeyardCardDetail {
     runStart(id, this.repoRoot);
+    return this.getCard(id);
+  }
+
+  completeCard(id: string, options: CompleteOptions = { noPr: true }): ChangeyardCardDetail {
+    const card = this.getCard(id);
+    const workspacePath = card.workspace?.metadata?.path;
+    if (!workspacePath) throw new Error(`Workspace not started for ${id}`);
+    runComplete(id, options, workspacePath);
+    return this.getCard(id);
+  }
+
+  startReview(id: string): ChangeyardCardDetail {
+    runReviewStart(id, this.repoRoot);
+    return this.getCard(id);
+  }
+
+  completeReview(id: string, decision: ReviewDecision): ChangeyardCardDetail {
+    runReviewComplete(id, decision, this.repoRoot);
     return this.getCard(id);
   }
 }

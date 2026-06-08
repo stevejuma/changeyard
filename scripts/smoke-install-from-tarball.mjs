@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 
@@ -18,6 +18,34 @@ function run(command, args, cwd) {
 function ensureBinary(name) {
   const where = run(process.platform === "win32" ? "where" : "command", ["-v", name]);
   return where.length > 0;
+}
+
+async function waitForServerUrl(child) {
+  return await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("Timed out waiting for cy ui to start")), 20000);
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+      const match = /Changeyard UI running at (http:\/\/[^\s]+)/.exec(stdout);
+      if (match) {
+        clearTimeout(timer);
+        resolve(match[1]);
+      }
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.on("exit", (code) => {
+      clearTimeout(timer);
+      reject(new Error(`cy ui exited before reporting a URL (code ${code}): ${stderr || stdout}`));
+    });
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+  });
 }
 
 if (!ensureBinary("node") || !ensureBinary("npm")) {
@@ -48,6 +76,25 @@ try {
   const help = run("npx", ["changeyard", "--help"], installDir);
   if (!/Changeyard/.test(help)) {
     throw new Error("Installed package did not expose a usable changeyard CLI");
+  }
+
+  const uiProcess = spawn("npx", ["changeyard", "ui", "--no-open", "--port", "auto"], {
+    cwd: installDir,
+    stdio: ["ignore", "pipe", "pipe"],
+    env: process.env,
+  });
+  try {
+    const uiUrl = await waitForServerUrl(uiProcess);
+    const healthResponse = await fetch(`${uiUrl}/api/health`);
+    if (!healthResponse.ok) {
+      throw new Error(`Installed package UI health check failed with HTTP ${healthResponse.status}`);
+    }
+    const boardResponse = await fetch(`${uiUrl}/api/board`);
+    if (!boardResponse.ok) {
+      throw new Error(`Installed package UI board query failed with HTTP ${boardResponse.status}`);
+    }
+  } finally {
+    uiProcess.kill("SIGTERM");
   }
 
   writeFileSync(path.join(workdir, "smoke-install.log"), `smoke-install-from-tarball passed for ${packagedArtifact}\n`);

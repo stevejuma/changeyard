@@ -169,6 +169,13 @@ body {
   align-items: flex-start;
 }
 
+.workspace-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .detail-section {
   padding-top: 18px;
   margin-top: 18px;
@@ -200,6 +207,13 @@ body {
   margin-top: 14px;
 }
 
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .section-block pre {
   margin: 8px 0 0;
   padding: 12px;
@@ -227,6 +241,32 @@ body {
   background: transparent;
   border: 1px solid var(--line);
   color: var(--text);
+}
+
+.inline-action {
+  min-height: 30px;
+  padding: 0 10px;
+}
+
+.tab-strip {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.tab-button {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  min-height: 30px;
+  padding: 0 10px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.tab-button.active {
+  background: var(--panel-strong);
+  border-color: var(--accent);
 }
 
 @media (max-width: 960px) {

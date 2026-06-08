@@ -6,7 +6,7 @@ import { loadTemplate } from "../documents/template.js";
 import { validateParsedChange } from "../documents/validateDocument.js";
 import { changesRoot, storageRoot } from "../paths.js";
 import { allocateId, slugifyTitle } from "../state/id.js";
-import type { Frontmatter } from "../types.js";
+import type { Frontmatter, ChangeSummary } from "../types.js";
 
 export type CreateOptions = {
   template: string;
@@ -21,11 +21,15 @@ type MutationOptions = {
   dryRun?: boolean;
 };
 
+export type CreateChangeResult = ChangeSummary & {
+  message: string;
+};
+
 function nowIso(): string {
   return new Date().toISOString();
 }
 
-export function runCreate(options: CreateOptions, repoRoot = process.cwd(), mutationOptions: MutationOptions = {}): string {
+export function createChange(options: CreateOptions, repoRoot = process.cwd(), mutationOptions: MutationOptions = {}): CreateChangeResult {
   if (!options.title) throw new Error("--title is required");
   const config = loadConfig(repoRoot);
   const root = storageRoot(repoRoot, config);
@@ -83,9 +87,27 @@ export function runCreate(options: CreateOptions, repoRoot = process.cwd(), muta
 
   const filePath = path.join(changes, `${id}-${slug}.md`);
   if (mutationOptions.dryRun) {
-    return `Dry-run: would create ${id}: ${path.relative(repoRoot, filePath)}`;
+    return {
+      id,
+      title: options.title,
+      status: "ready",
+      type: template.definition.type,
+      path: path.relative(repoRoot, filePath),
+      message: `Dry-run: would create ${id}: ${path.relative(repoRoot, filePath)}`,
+    };
   }
 
   writeFileSync(filePath, writeFrontmatter(frontmatter, body));
-  return `Created ${id}: ${path.relative(repoRoot, filePath)}`;
+  return {
+    id,
+    title: options.title,
+    status: "ready",
+    type: template.definition.type,
+    path: path.relative(repoRoot, filePath),
+    message: `Created ${id}: ${path.relative(repoRoot, filePath)}`,
+  };
+}
+
+export function runCreate(options: CreateOptions, repoRoot = process.cwd(), mutationOptions: MutationOptions = {}): string {
+  return createChange(options, repoRoot, mutationOptions).message;
 }
