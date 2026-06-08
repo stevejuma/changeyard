@@ -18,6 +18,7 @@ export type CompleteOptions = {
   noPr?: boolean;
   noCodeChange?: boolean;
   profile?: string;
+  dryRun?: boolean;
 };
 
 function listFiles(root: string, neverCopy: string[], prefix = ""): string[] {
@@ -74,6 +75,11 @@ export function runComplete(id: string, options: CompleteOptions = {}, cwd = pro
   const profile = options.profile ?? String(asRecord(parsed.frontmatter.checks).profile ?? "standard");
   const commands = config.checks[profile] ?? [];
   const logPath = path.join(workspacesRoot(metadata.repoRoot, config), id, "logs", "checks.log");
+
+  if (options.dryRun) {
+    return `Dry-run: would run ${commands.length} checks using ${profile} profile and complete ${id}`;
+  }
+
   const results = runChecks(commands, metadata.path, logPath);
   const failed = results.find((result) => result.status === "failed");
   if (failed) throw new Error(`Check failed: ${failed.command}`);

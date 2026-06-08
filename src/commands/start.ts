@@ -7,8 +7,8 @@ import { changesRoot, storageRoot, workspacesRoot } from "../paths.js";
 import { findChangeFile } from "../state/id.js";
 import { assertTransition } from "../state/transitions.js";
 import { hydrateWorkspace } from "../hydrate/hydrateWorkspace.js";
-import type { Frontmatter, WorkspaceMetadata } from "../types.js";
 import { createWorkspaceEngine } from "../workspace/index.js";
+import type { Frontmatter, WorkspaceMetadata } from "../types.js";
 
 function asRecord(value: unknown): Frontmatter {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Frontmatter : {};
@@ -18,7 +18,11 @@ function fillPattern(pattern: string, id: string): string {
   return pattern.replaceAll("{id}", id);
 }
 
-export function runStart(id: string, repoRoot = process.cwd()): string {
+type MutationOptions = {
+  dryRun?: boolean;
+};
+
+export function runStart(id: string, repoRoot = process.cwd(), mutationOptions: MutationOptions = {}): string {
   if (!id) throw new Error("change id is required");
   const config = loadConfig(repoRoot);
   const root = storageRoot(repoRoot, config);
@@ -33,13 +37,12 @@ export function runStart(id: string, repoRoot = process.cwd()): string {
   assertTransition(status, "in_progress", `Start ${id}`);
 
   const engineName = String(asRecord(parsed.frontmatter.workspace).engine ?? config.vcs.engine);
-  const engine = createWorkspaceEngine(engineName);
   const workspacePath = path.resolve(repoRoot, config.storage.root, config.storage.workspacesDir, fillPattern(config.workspace.pathPattern, id));
   const workspaceName = String(asRecord(parsed.frontmatter.workspace).name ?? config.workspace.namePattern.replace("{id}", id));
   const workspaceRelativePath = path.relative(repoRoot, workspacePath);
   const metadata: WorkspaceMetadata = {
     changeId: id,
-    engine: engine.name,
+    engine: engineName,
     name: workspaceName,
     path: workspacePath,
     repoRoot,
@@ -48,6 +51,11 @@ export function runStart(id: string, repoRoot = process.cwd()): string {
     branch: String(asRecord(parsed.frontmatter.branch).name ?? `cy/${id}`),
   };
 
+  if (mutationOptions.dryRun) {
+    return `Dry-run: would start ${id} in ${workspaceRelativePath}`;
+  }
+
+  const engine = createWorkspaceEngine(engineName);
   const createdMetadata = engine.create({ repoRoot, workspacePath, metadata, neverCopy: config.workspace.hydrate.neverCopy });
   const metadataPath = path.join(workspacesRoot(repoRoot, config), id, "metadata.json");
   mkdirSync(path.dirname(metadataPath), { recursive: true });

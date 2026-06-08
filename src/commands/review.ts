@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { loadConfig } from "../config/loadConfig.js";
 import { parseFrontmatter, writeFrontmatter } from "../documents/frontmatter.js";
@@ -26,6 +26,10 @@ function reviewStatus(decision: ReviewDecision): string {
   return "rejected";
 }
 
+export function mapReviewDecisionToStatus(decision: ReviewDecision): string {
+  return reviewStatus(decision);
+}
+
 function changeStatus(decision: ReviewDecision): string {
   if (decision === "approve") return "approved";
   if (decision === "request-changes") return "changes_requested";
@@ -46,7 +50,7 @@ function hasRemoteThread(frontmatter: Frontmatter): boolean {
   return typeof remote.issueNumber === "number" || typeof remote.pullRequestNumber === "number";
 }
 
-function parseInlineComments(body: string): { path: string; line: number; body: string }[] {
+export function parseInlineComments(body: string): { path: string; line: number; body: string }[] {
   const lines = body.split(/\r?\n/);
   const comments: { path: string; line: number; body: string }[] = [];
   let inSection = false;
@@ -63,7 +67,11 @@ function parseInlineComments(body: string): { path: string; line: number; body: 
   return comments;
 }
 
-export function runReviewStart(id: string, repoRoot = process.cwd()): string {
+type MutationOptions = {
+  dryRun?: boolean;
+};
+
+export function runReviewStart(id: string, repoRoot = process.cwd(), mutationOptions: MutationOptions = {}): string {
   if (!id) throw new Error("change id is required");
   const config = loadConfig(repoRoot);
   const changePath = findChangeFile(changesRoot(repoRoot, config), id);
@@ -82,11 +90,15 @@ export function runReviewStart(id: string, repoRoot = process.cwd()): string {
     commitBased: false,
   };
   const body = `# Summary\n\nReview the change here.\n\n# Required Changes\n\n- [ ] Add any required changes, or leave this checklist as a record.\n\n# Inline Comments\n\nAdd inline comments as bullets: - path/to/file.ts:42: Comment text.\n`;
+  if (mutationOptions.dryRun) {
+    return `Dry-run: would start review ${review} for ${id}: ${path.relative(repoRoot, reviewPath)}`;
+  }
+
   writeFileSync(reviewPath, writeFrontmatter(frontmatter, body));
   return `Started review ${review} for ${id}: ${path.relative(repoRoot, reviewPath)}`;
 }
 
-export function runReviewComplete(id: string, decision: ReviewDecision, repoRoot = process.cwd()): string {
+export function runReviewComplete(id: string, decision: ReviewDecision, repoRoot = process.cwd(), mutationOptions: MutationOptions = {}): string {
   if (!id) throw new Error("change id is required");
   if (!decision) throw new Error("--decision is required");
   const config = loadConfig(repoRoot);
@@ -100,6 +112,12 @@ export function runReviewComplete(id: string, decision: ReviewDecision, repoRoot
   const changePath = findChangeFile(changesRoot(repoRoot, config), id);
   if (!changePath) throw new Error(`Change not found: ${id}`);
   const parsedChange = parseFrontmatter(readFileSync(changePath, "utf8"));
+
+  const inlineComments = parseInlineComments(parsedReview.body);
+  if (mutationOptions.dryRun) {
+    return `Dry-run: would complete review for ${id}: ${status} (${inlineComments.length} inline comments)`;
+  }
+
   const provider = createProvider(config.provider.type, config);
   let reviewFrontmatter: Frontmatter = { ...parsedReview.frontmatter, status, completedAt: new Date().toISOString() };
   if (provider.publishReview && (provider.name === "local-folder" || hasRemoteThread(parsedChange.frontmatter))) {
@@ -113,7 +131,7 @@ export function runReviewComplete(id: string, decision: ReviewDecision, repoRoot
       reviewFrontmatter,
       reviewBody: parsedReview.body,
       decision: status,
-      inlineComments: parseInlineComments(parsedReview.body),
+      inlineComments,
     });
     reviewFrontmatter = {
       ...reviewFrontmatter,
@@ -124,6 +142,7 @@ export function runReviewComplete(id: string, decision: ReviewDecision, repoRoot
       },
     };
   }
+
   writeFileSync(reviewPath, writeFrontmatter(reviewFrontmatter, parsedReview.body));
 
   const nextStatus = changeStatus(decision) as ChangeStatus;

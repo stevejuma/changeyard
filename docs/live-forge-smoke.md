@@ -1,43 +1,67 @@
 # Live forge smoke checks
 
-Changeyard's automated provider tests use a mocked HTTP transport. Before a release that changes provider behavior, run a live smoke check against disposable Forgejo, GitHub, and GitLab repositories.
+Run the automated provider checks against disposable repos before releases and before merging any provider-path changes.
 
-## Safety rules
-
-- Use a disposable repository.
-- Use a token with the smallest practical scope for creating issues, branches, pull requests / merge requests, and comments.
-- Delete the test repository or test issue/PR artifacts after the run.
-- Do not run this checklist against a production repository unless the repository owner explicitly approves it.
-
-## Prerequisite helper
-
-```bash
-npm run smoke:forge -- github
-npm run smoke:forge -- gitlab
-npm run smoke:forge -- forgejo
-```
-
-The helper is intentionally non-destructive. It verifies that live-smoke mode is enabled and that the provider-specific environment variables are present.
-
-## Enable live-smoke mode
+## Required environment
 
 ```bash
 export CHANGEYARD_LIVE_SMOKE=1
 ```
 
+Optional scope diagnostics:
+
+```bash
+export CHANGEYARD_LIVE_SMOKE_SCOPE_CHECK=1
+```
+
 Provider variables:
 
-- Forgejo: `FORGEJO_BASE_URL`, `FORGEJO_OWNER`, `FORGEJO_REPO`, `FORGE_TOKEN`
-- GitHub: `GITHUB_OWNER`, `GITHUB_REPO`, `GITHUB_TOKEN`
-- GitLab: `GITLAB_OWNER`, `GITLAB_REPO`, `GITLAB_TOKEN`
+- GitHub
+  - `GITHUB_OWNER`
+  - `GITHUB_REPO`
+  - `GITHUB_TOKEN`
+- GitLab
+  - `GITLAB_OWNER`
+  - `GITLAB_REPO`
+  - `GITLAB_TOKEN`
+- Forgejo
+  - `FORGEJO_BASE_URL`
+  - `FORGEJO_OWNER`
+  - `FORGEJO_REPO`
+  - `FORGE_TOKEN`
 
-## Manual checklist
+Run one provider:
 
-1. Initialize a disposable local repository and run `cy init`.
-2. Configure the target provider in `.changeyard/config.local.jsonc`.
-3. Create and validate a change with `cy create` and `cy validate`.
-4. Run `cy sync <id>` and verify the remote issue exists.
-5. Run `cy start <id>`, edit inside the workspace, fill completion notes, and run `cy complete <id>`.
-6. Verify the remote PR/MR exists and links back to the local change metadata.
-7. Run `cy review start <id>`, add a summary and optional `# Inline Comments` bullets, then run `cy review complete <id> --decision approve`.
-8. Verify the provider received the review summary / comment payload.
+```bash
+node scripts/live-forge-smoke.mjs github
+node scripts/live-forge-smoke.mjs gitlab
+node scripts/live-forge-smoke.mjs forgejo
+```
+
+Each run:
+
+1. Initializes a disposable local git repo.
+2. Initializes changeyard and writes a provider-local config.
+3. Creates a changeyard issue/change path and syncs it.
+4. Starts a workspace and marks completion.
+5. Starts and completes a review.
+6. Verifies remote issue/PR/MR/review artifacts are reachable.
+7. Checks review comments landed and records a pass/fail line in `docs/release-notes.md`.
+
+## Token scope guidance
+
+Use the following minimum scopes to satisfy the automated smoke checks:
+
+- GitHub: `repo`, `read:user`, `user:email` (or equivalent fine-grained token capabilities for code + issues + pull requests).
+- GitLab: `api` scope.
+- Forgejo: repository write access plus write permissions for issues and pull requests.
+
+## Cleanup
+
+Set `CHANGEYARD_KEEP_LIVE_ARTIFACTS=1` to keep remote branches for manual inspection.
+Without it, branches and remote artifacts are best-effort cleaned up and temporary directories are removed.
+
+## Exit criteria
+
+- Exit code `0` only when remote issue/PR/MR/review assets are reachable and the change lifecycle completes end-to-end.
+- Failures append a detail line to `docs/release-notes.md`.
