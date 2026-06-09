@@ -1,0 +1,157 @@
+import { testRender } from "@opentui/solid";
+import type { TestRendererSetup } from "@opentui/core/testing";
+import { App } from "../src/app";
+import { createMockRuntimeClient } from "./mock-runtime-client";
+
+const TEST_WIDTH = 100;
+const TEST_HEIGHT = 32;
+
+type TestCase = {
+  name: string;
+  run: (ctx: TestRendererSetup) => Promise<void>;
+};
+
+function assert(condition: unknown, message: string): asserts condition {
+  if (!condition) throw new Error(message);
+}
+
+async function mountHomeApp(): Promise<TestRendererSetup> {
+  const setup = await testRender(
+    () => (
+      <App
+        client={createMockRuntimeClient()}
+        project="/tmp/changeyard-test"
+        smokeTest={false}
+        smokeCreateAll={false}
+      />
+    ),
+    { width: TEST_WIDTH, height: TEST_HEIGHT },
+  );
+  await setup.flush();
+  return setup;
+}
+
+const cases: TestCase[] = [
+  {
+    name: "renders home screen with composer",
+    async run({ captureCharFrame }) {
+      const frame = captureCharFrame();
+      assert(frame.includes("Type /help"), "expected composer placeholder");
+      assert(frame.includes("ctrl+p"), "expected command palette hint");
+    },
+  },
+  {
+    name: "opens command palette with ctrl+p from focused composer",
+    async run({ mockInput, waitForFrame }) {
+      mockInput.pressKey("p", { ctrl: true });
+      const frame = await waitForFrame((text) => text.includes("Commands"), { maxPasses: 40 });
+      assert(frame.includes("Create change"), "expected create command in palette");
+    },
+  },
+  {
+    name: "opens help dialog via /help slash command",
+    async run({ mockInput, waitForFrame, flush }) {
+      await mockInput.typeText("/help");
+      mockInput.pressEnter();
+      await flush();
+      mockInput.pressEnter();
+      const frame = await waitForFrame((text) => text.includes("Help"), { maxPasses: 40 });
+      assert(frame.includes("Press ctrl+p"), "expected help body text");
+    },
+  },
+  {
+    name: "runs command selected from command palette",
+    async run({ mockInput, waitForFrame, flush }) {
+      mockInput.pressKey("p", { ctrl: true });
+      await waitForFrame((text) => text.includes("Commands"), { maxPasses: 40 });
+      await flush();
+      mockInput.pressEnter();
+      const frame = await waitForFrame((text) => text.includes("Help") && !text.includes("Commands"), {
+        maxPasses: 40,
+      });
+      assert(frame.includes("Press ctrl+p"), "expected help after selecting from command palette");
+    },
+  },
+  {
+    name: "closes command palette",
+    async run({ mockInput, mockMouse, waitForFrame, flush }) {
+      mockInput.pressKey("p", { ctrl: true });
+      await waitForFrame((text) => text.includes("Commands"), { maxPasses: 40 });
+      await flush();
+      await mockMouse.click(88, 11);
+      await waitForFrame((text) => !text.includes("Commands"), { maxPasses: 40 });
+    },
+  },
+  {
+    name: "autocomplete enter completes slash without executing",
+    async run({ mockInput, waitForFrame, flush }) {
+      await mockInput.typeText("/he");
+      mockInput.pressEnter();
+      await flush();
+      const frame = await waitForFrame((text) => !text.includes("Press ctrl+p") && !text.includes("esc/enter"), {
+        maxPasses: 40,
+      });
+      assert(frame.includes("/help") || frame.includes("/he"), "expected completed slash in composer");
+    },
+  },
+  {
+    name: "closes help dialog with enter",
+    async run({ mockInput, waitForFrame, flush, captureCharFrame }) {
+      await mockInput.typeText("/help");
+      mockInput.pressEnter();
+      await flush();
+      mockInput.pressEnter();
+      await waitForFrame((text) => text.includes("Help"), { maxPasses: 40 });
+      await flush();
+      mockInput.pressEnter();
+      await waitForFrame((text) => !text.includes("esc/enter"), { maxPasses: 40 });
+      const frame = captureCharFrame();
+      assert(frame.includes("Type /help"), "expected composer after closing help");
+    },
+  },
+  {
+    name: "opens theme selector via /themes slash command",
+    async run({ mockInput, waitForFrame, flush }) {
+      await mockInput.typeText("/themes");
+      mockInput.pressEnter();
+      await flush();
+      mockInput.pressEnter();
+      const frame = await waitForFrame((text) => text.includes("Themes") && text.includes("dracula"), {
+        maxPasses: 40,
+      });
+      assert(frame.includes("aura"), "expected bundled themes in selector");
+    },
+  },
+  {
+    name: "autocomplete lists slash commands while typing",
+    async run({ mockInput, waitForFrame }) {
+      await mockInput.typeText("/cre");
+      const frame = await waitForFrame((text) => /create|Create/i.test(text), { maxPasses: 40 });
+      assert(/create|Create/i.test(frame), "expected create slash suggestion");
+    },
+  },
+];
+
+let failed = 0;
+
+for (const testCase of cases) {
+  let setup: TestRendererSetup | null = null;
+  try {
+    setup = await mountHomeApp();
+    await testCase.run(setup);
+    process.stdout.write(`ok - ${testCase.name}\n`);
+  } catch (error) {
+    failed += 1;
+    const message = error instanceof Error ? error.stack ?? error.message : String(error);
+    process.stderr.write(`not ok - ${testCase.name}\n${message}\n`);
+  } finally {
+    setup?.renderer.destroy();
+  }
+}
+
+if (failed > 0) {
+  process.exitCode = 1;
+  process.stderr.write(`\n${failed}/${cases.length} tui interaction tests failed\n`);
+} else {
+  process.stdout.write(`\n${cases.length}/${cases.length} tui interaction tests passed\n`);
+}

@@ -19,8 +19,10 @@ Objective: Implement the OpenCode-inspired, composer-first TUI described in `PLA
 - [x] Composer-first shell implementation started
 - [x] First shared slash/command-list command registry landed
 - [x] Initial lifecycle/create command wiring landed
+- [x] Solid.js + OpenTUI 0.4 migration with OpenCode-aligned UI primitives
+- [x] Dual-route Home/Workspace shell with modal dialogs
 
-Current focus: Stage U4 dialogs and focused flow refinements.
+Current focus: Visual parity milestone complete; monitor for follow-up polish.
 
 ## Stage U1: Tracker Realignment
 
@@ -59,7 +61,7 @@ Status: `completed`
 - [x] Add slash autocomplete for `/` commands
 - [x] Add `ctrl+p` command list backed by same registry
 - [x] Implement initial commands:
-- [x] `/help`, `/refresh`, `/sidebar`
+- [x] `/help`, `/refresh`, `/sidebar`, `/home`
 - [x] `/create quick|planned|strict|legacy`
 - [x] `/validate`, `/sync`, `/start`, `/verify`, `/complete`, `/review`
 - [x] `/prompt`
@@ -72,49 +74,52 @@ Acceptance checks:
 
 ## Stage U4: Dialogs And Focused Flows
 
-Status: `pending`
+Status: `completed`
 
-- [ ] Move create flow into focused dialog/panel experience
-- [ ] Present planning prompt in dialog/panel flow
-- [ ] Add lightweight key help dialog
-- [ ] Add confirmation for destructive or irreversible actions when needed
+- [x] Move create flow into focused dialog/panel experience
+- [x] Present planning prompt in dialog/panel flow
+- [x] Add lightweight key help dialog
+- [x] Add confirmation for destructive or irreversible actions when needed
 
 Acceptance checks:
 
-- [ ] No required workflow depends on full-screen view rotation
-- [ ] Dialogs can be dismissed with `escape`
+- [x] No required workflow depends on full-screen view rotation
+- [x] Dialogs can be dismissed with `escape`
 
 ## Stage U5: Keyboard And UX Parity
 
-Status: `pending`
+Status: `completed`
 
-- [ ] Align keyboard behavior: `ctrl+p`, `escape`, `up/down`, `ctrl+n/ctrl+p`, `enter`
-- [ ] Ensure composer input behavior is predictable for slash and non-slash text
-- [ ] Improve empty-state and error-state messaging for command-driven UX
+- [x] Align keyboard behavior: `ctrl+p`, `escape`, `up/down`, `ctrl+n/ctrl+p`, `enter`
+- [x] Ensure composer input behavior is predictable for slash and non-slash text
+- [x] Improve empty-state and error-state messaging for command-driven UX
 
 Acceptance checks:
 
-- [ ] Primary actions are discoverable from key help and footer hints
-- [ ] No keybinding conflicts break text input editing
+- [x] Primary actions are discoverable from key help and footer hints
+- [x] No keybinding conflicts break text input editing
 
 ## Stage U6: Verification And Packaging
 
-Status: `pending`
+Status: `completed`
 
-- [ ] Run `npm run check:tui`
-- [ ] Run `npm run build:tui`
-- [ ] Update and run `npm run smoke:tui` for slash/palette/sidebar/dialog coverage
-- [ ] Run Node-side tests for launcher/runtime behavior
-- [ ] Run `npm pack --dry-run`
+- [x] Run `npm run check:tui`
+- [x] Run `npm run build:tui`
+- [x] Update and run `npm run smoke:tui` for slash/palette/sidebar/dialog coverage
+- [x] Run Node-side tests for launcher/runtime behavior
+- [x] Run `npm pack --dry-run`
 
 Acceptance checks:
 
-- [ ] TUI checks pass
-- [ ] Node launcher checks remain green
-- [ ] Packaged tarball still contains required TUI/runtime assets
+- [x] TUI checks pass
+- [x] Node launcher checks remain green
+- [x] Packaged tarball still contains required TUI/runtime assets
 
 ## Verification Notes
 
 - `npm run check:tui` passed.
 - `npm run build:tui` passed.
 - `npm run smoke:tui` passed.
+- `npm test` passed (85 tests).
+- `npm pack --dry-run` passed; TUI Solid sources and `packages/tui/dist/index.js` included.
+- TUI migrated to Solid.js + `@opentui/solid@0.4` with OpenCode-aligned theme, dialog stack, DialogSelect command palette, Prompt chrome, and dual-route Home/Workspace layout.

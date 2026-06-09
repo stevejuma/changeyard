@@ -134,7 +134,8 @@ Milestone M1 (completed):
 - wire slash commands and `ctrl+p` command list to existing lifecycle and create actions
 - keep runtime APIs unchanged
 
-Milestone M2 (in progress):
-- improve dialog behavior and focused workflows
-- refine keyboard parity and discoverability
-- expand smoke coverage to explicitly exercise slash, command list, sidebar toggle, and dialog flow
+Milestone M2 (completed):
+- OpenCode visual alignment: Solid.js migration, theme/dialog/prompt primitives, dual-route shell
+- Dialog-based create/help/prompt flows and complete confirmation
+- Keyboard parity and expanded smoke/verification coverage
+
