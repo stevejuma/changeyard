@@ -1,5 +1,5 @@
 import { FileText, Folder, FolderOpen } from "lucide-react";
-import { type WheelEvent as ReactWheelEvent, useMemo } from "react";
+import { useMemo } from "react";
 import type { RuntimeWorkspaceFileChange } from "@/runtime/types";
 import { buildFileTree, type FileTreeNode } from "@/utils/file-tree";
 
@@ -72,13 +72,11 @@ export function FileTreePanel({
 	selectedPath,
 	onSelectPath,
 	panelFlex,
-	onBodyWheelCapture,
 }: {
 	workspaceFiles: RuntimeWorkspaceFileChange[] | null;
 	selectedPath: string | null;
 	onSelectPath: (path: string) => void;
 	panelFlex?: string;
-	onBodyWheelCapture?: (event: ReactWheelEvent<HTMLElement>) => void;
 }): React.ReactElement {
 	const referencedPaths = useMemo(() => {
 		return workspaceFiles?.map((file) => file.path) ?? [];
@@ -107,8 +105,13 @@ export function FileTreePanel({
 			}}
 		>
 			<div
-				onWheelCapture={onBodyWheelCapture}
-				style={{ flex: "1 1 0", minHeight: 0, overflowY: "auto", overscrollBehavior: "contain", padding: 8 }}
+				style={{
+					flex: "1 1 0",
+					minHeight: 0,
+					overflowX: "hidden",
+					overflowY: "auto",
+					padding: 8,
+				}}
 			>
 				{tree.length === 0 ? (
 					<div className="kb-empty-state-center">

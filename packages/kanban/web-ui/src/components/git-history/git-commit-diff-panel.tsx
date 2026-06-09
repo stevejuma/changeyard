@@ -2,7 +2,6 @@ import { AlertCircle, ChevronDown, ChevronLeft, ChevronRight, GitCommit, GitComp
 import {
 	type CSSProperties,
 	type MouseEvent as ReactMouseEvent,
-	type WheelEvent as ReactWheelEvent,
 	useCallback,
 	useEffect,
 	useMemo,
@@ -99,7 +98,6 @@ export function GitCommitDiffPanel({
 	isFileTreePanelCollapsed,
 	setDiffContentPanelWidth,
 	setFileTreePanelCollapsed,
-	onBodyWheelCapture,
 	headerContent,
 }: {
 	diffSource: GitCommitDiffSource | null;
@@ -112,7 +110,6 @@ export function GitCommitDiffPanel({
 	isFileTreePanelCollapsed: boolean;
 	setDiffContentPanelWidth: (width: number) => void;
 	setFileTreePanelCollapsed: (collapsed: boolean) => void;
-	onBodyWheelCapture?: (event: ReactWheelEvent<HTMLElement>) => void;
 	headerContent?: React.ReactNode;
 }): React.ReactElement {
 	const [expandedPaths, setExpandedPaths] = useState<Record<string, boolean>>({});
@@ -346,13 +343,12 @@ export function GitCommitDiffPanel({
 				{headerContent ? headerContent : null}
 				<div
 					ref={scrollContainerRef}
-					onWheelCapture={onBodyWheelCapture}
 					onScroll={handleDiffScroll}
 					style={{
 						flex: "1 1 0",
 						minHeight: 0,
+						overflowX: "hidden",
 						overflowY: "auto",
-						overscrollBehavior: "contain",
 						padding: "0 12px 12px",
 					}}
 				>
@@ -518,7 +514,6 @@ export function GitCommitDiffPanel({
 						selectedPath={selectedPath}
 						onSelectPath={onSelectPath}
 						panelFlex="1 1 0"
-						onBodyWheelCapture={onBodyWheelCapture}
 					/>
 				</div>
 			)}

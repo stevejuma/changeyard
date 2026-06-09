@@ -1,6 +1,6 @@
 import { Fzf } from "fzf";
 import { AlertCircle, ArrowDown, ArrowUp, ChevronLeft, Cloud, FileText, GitBranch, Info, Locate, Search } from "lucide-react";
-import { type WheelEvent as ReactWheelEvent, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { renderFuzzyHighlightedText } from "@/components/shared/render-fuzzy-highlighted-text";
 import { Button } from "@/components/ui/button";
@@ -73,7 +73,6 @@ export function GitRefsPanel({
 	onSelectWorkingCopy,
 	onCheckoutRef,
 	onCollapse,
-	onBodyWheelCapture,
 }: {
 	refs: RuntimeGitRef[];
 	selectedRefName: string | null;
@@ -86,7 +85,6 @@ export function GitRefsPanel({
 	onSelectWorkingCopy?: () => void;
 	onCheckoutRef?: (branchName: string) => void;
 	onCollapse?: () => void;
-	onBodyWheelCapture?: (event: ReactWheelEvent<HTMLElement>) => void;
 }): React.ReactElement {
 	const [searchQuery, setSearchQuery] = useState("");
 
@@ -177,7 +175,7 @@ export function GitRefsPanel({
 					/>
 				) : null}
 			</div>
-			<div onWheelCapture={onBodyWheelCapture} style={{ overflowY: "auto", overscrollBehavior: "contain", padding: "8px 6px" }}>
+			<div style={{ overflowX: "hidden", overflowY: "auto", padding: "8px 6px" }}>
 				{isLoading ? (
 					<div style={{ padding: "4px 6px" }}>
 						<div
