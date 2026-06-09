@@ -82,6 +82,8 @@ function runBunTui(input: {
   smokeCreateAll?: boolean;
 }): Promise<number> {
   return awaitableChild("bun", [
+    "--preload",
+    "@opentui/solid/preload",
     input.entrypoint,
     "--connect",
     input.runtimeUrl,

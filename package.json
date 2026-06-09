@@ -20,7 +20,7 @@
     "cy": "node dist/src/cli.js",
     "test": "npm run build && node --test --test-force-exit dist/tests/*.test.js",
     "check:node": "npm run build:cli && npm --workspace @changeyard/kanban run typecheck",
-    "check:tui": "npm --workspace @changeyard/tui run typecheck",
+    "check:tui": "npm --workspace @changeyard/tui run typecheck && npm --workspace @changeyard/tui run test",
     "check": "npm run check:node",
     "pack:check": "npm run build && npm pack --dry-run",
     "prepack": "npm run build",
