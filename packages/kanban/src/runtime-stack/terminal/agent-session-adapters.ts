@@ -1,6 +1,7 @@
-import { access, readFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { access, mkdir, readdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import type {
@@ -14,6 +15,7 @@ import { quoteShellArg } from "../core/shell.js";
 import { lockedFileSystem } from "../fs/locked-file-system.js";
 import { resolveHomeAgentAppendSystemPrompt } from "../prompts/append-system-prompt.js";
 import { getRuntimeHomePath } from "../state/workspace-state.js";
+import { getGitStdout } from "../workspace/git-utils.js";
 import { configureCodexHooks, hasCodexConfigOverride } from "./codex-hook-config.js";
 import { createHookRuntimeEnv } from "./hook-runtime-context.js";
 import {
@@ -92,7 +94,7 @@ function resolveHookContext(input: AgentAdapterLaunchInput): HookContext | null 
 	};
 }
 
-function buildHookCommand(event: RuntimeHookEvent, metadata?: HookCommandMetadata): string {
+function buildHookCommandParts(event: RuntimeHookEvent, metadata?: HookCommandMetadata): string[] {
 	const parts = buildHooksCommandParts(["ingest", "--event", event]);
 	if (metadata?.source) {
 		parts.push("--source", metadata.source);
@@ -106,7 +108,11 @@ function buildHookCommand(event: RuntimeHookEvent, metadata?: HookCommandMetadat
 	if (metadata?.notificationType) {
 		parts.push("--notification-type", metadata.notificationType);
 	}
-	return parts.map(quoteShellArg).join(" ");
+	return parts;
+}
+
+function buildHookCommand(event: RuntimeHookEvent, metadata?: HookCommandMetadata): string {
+	return buildHookCommandParts(event, metadata).map(quoteShellArg).join(" ");
 }
 
 function buildHooksCommandParts(args: string[]): string[] {
@@ -1427,6 +1433,283 @@ const clineAdapter: AgentSessionAdapter = {
 	},
 };
 
+async function addToWorktreeGitExclude(worktreePath: string, pattern: string): Promise<void> {
+	try {
+		const excludePathOutput = await getGitStdout(["rev-parse", "--git-path", "info/exclude"], worktreePath);
+		if (!excludePathOutput) {
+			return;
+		}
+		const excludePath = isAbsolute(excludePathOutput) ? excludePathOutput : join(worktreePath, excludePathOutput);
+		await mkdir(dirname(excludePath), { recursive: true });
+		let existing = "";
+		try {
+			existing = await readFile(excludePath, "utf8");
+		} catch {
+			// Missing exclude files are created below.
+		}
+		if (!existing.split("\n").some((line) => line.trim() === pattern)) {
+			const separator = existing !== "" && !existing.endsWith("\n") ? "\n" : "";
+			await writeFile(excludePath, `${existing}${separator}${pattern}\n`, "utf8");
+		}
+	} catch {
+		// Git exclude updates are best-effort; the hook file is still cleaned up on session end.
+	}
+}
+
+export async function addCopilotTrustedFolder(folderPath: string): Promise<void> {
+	try {
+		const copilotHome = process.env.COPILOT_HOME ?? join(homedir(), ".copilot");
+		const configPath = join(copilotHome, "config.json");
+		let config: Record<string, unknown> = {};
+		try {
+			config = JSON.parse(await readFile(configPath, "utf8")) as Record<string, unknown>;
+		} catch {
+			// Start fresh when Copilot has not created config yet or the file is unreadable.
+		}
+		const trustedFolders = Array.isArray(config.trustedFolders) ? [...config.trustedFolders] : [];
+		const normalizedPath = folderPath.replace(/\/+$/u, "");
+		if (!trustedFolders.some((entry) => entry === normalizedPath)) {
+			trustedFolders.push(normalizedPath);
+			config.trustedFolders = trustedFolders;
+			await mkdir(copilotHome, { recursive: true });
+			await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+		}
+	} catch {
+		// Trust pre-seeding should not prevent launching Copilot.
+	}
+}
+
+function unquoteYamlScalar(value: string): string {
+	const trimmed = value.trim();
+	if (
+		(trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+		(trimmed.startsWith("'") && trimmed.endsWith("'"))
+	) {
+		return trimmed.slice(1, -1);
+	}
+	return trimmed;
+}
+
+export async function findCopilotSessionIdForCwd(cwd: string): Promise<string | null> {
+	try {
+		const copilotHome = process.env.COPILOT_HOME ?? join(homedir(), ".copilot");
+		const sessionStateDir = join(copilotHome, "session-state");
+		const entries = await readdir(sessionStateDir);
+		const normalizedCwd = cwd.replace(/\/+$/u, "");
+		const candidates = await Promise.all(
+			entries.map(async (entry) => {
+				try {
+					const content = await readFile(join(sessionStateDir, entry, "workspace.yaml"), "utf8");
+					const cwdMatch = content.match(/^cwd:\s*(.+)$/mu);
+					if (unquoteYamlScalar(cwdMatch?.[1] ?? "").replace(/\/+$/u, "") !== normalizedCwd) {
+						return null;
+					}
+					const updatedMatch = content.match(/^updated_at:\s*(.+)$/mu);
+					return { id: entry, updatedAt: unquoteYamlScalar(updatedMatch?.[1] ?? "") };
+				} catch {
+					return null;
+				}
+			}),
+		);
+		let best: { id: string; updatedAt: string } | null = null;
+		for (const candidate of candidates) {
+			if (candidate && (!best || candidate.updatedAt > best.updatedAt)) {
+				best = candidate;
+			}
+		}
+		return best?.id ?? null;
+	} catch {
+		return null;
+	}
+}
+
+export function buildCopilotHookEntry(
+	event: RuntimeHookEvent,
+	metadata?: HookCommandMetadata,
+): { type: "command"; bash: string; powershell: string; timeoutSec: number } {
+	const parts = buildHookCommandParts(event, metadata);
+	return {
+		type: "command",
+		bash: parts.map(quoteShellArg).join(" "),
+		powershell: parts.map(powerShellQuote).join(" "),
+		timeoutSec: 5,
+	};
+}
+
+export const COPILOT_IDLE_TIMEOUT_MS = 3_000;
+
+interface CopilotDetector {
+	detect: AgentOutputTransitionDetector;
+	dispose: () => void;
+}
+
+export function createCopilotTaskCompleteDetector(onIdleTimeout: () => void): CopilotDetector {
+	let idleTimer: ReturnType<typeof setTimeout> | null = null;
+	let statusBarWasActive = false;
+	let strippedTail = "";
+
+	function clearIdleTimer(): void {
+		if (idleTimer !== null) {
+			clearTimeout(idleTimer);
+			idleTimer = null;
+		}
+	}
+
+	function startIdleTimer(): void {
+		if (idleTimer !== null) {
+			return;
+		}
+		idleTimer = setTimeout(() => {
+			idleTimer = null;
+			onIdleTimeout();
+		}, COPILOT_IDLE_TIMEOUT_MS);
+	}
+
+	const detect: AgentOutputTransitionDetector = (data, summary) => {
+		if (summary.state !== "running" && summary.state !== "awaiting_review") {
+			clearIdleTimer();
+			return null;
+		}
+
+		strippedTail = (strippedTail + stripAnsi(data)).slice(-500);
+		const tail = strippedTail;
+		const isWorking = tail.includes("(Esc to cancel");
+		const isAskingUser = tail.includes("Enter to confirm") || tail.includes("Enter to submit");
+
+		if (isWorking && !isAskingUser) {
+			clearIdleTimer();
+			statusBarWasActive = true;
+			return summary.state === "awaiting_review" ? { type: "hook.to_in_progress" } : null;
+		}
+
+		if (isAskingUser && summary.state === "running") {
+			clearIdleTimer();
+			return { type: "hook.to_review" };
+		}
+
+		if (statusBarWasActive && summary.state === "running") {
+			startIdleTimer();
+		}
+		return null;
+	};
+
+	return { detect, dispose: clearIdleTimer };
+}
+
+function shouldInspectCopilotOutputForTransition(summary: RuntimeTaskSessionSummary): boolean {
+	return summary.state === "running" || summary.state === "awaiting_review";
+}
+
+const copilotAdapter: AgentSessionAdapter = {
+	async prepare(input) {
+		const args = [...input.args];
+		const env: Record<string, string | undefined> = {};
+
+		if (input.autonomousModeEnabled) {
+			if (!hasCliOption(args, "--allow-all") && !hasCliOption(args, "--yolo")) {
+				args.push("--allow-all");
+			}
+		} else {
+			if (!hasCliOption(args, "--allow-all") && !hasCliOption(args, "--allow-all-tools")) {
+				args.push("--allow-all-tools");
+			}
+			if (!hasCliOption(args, "--allow-all") && !hasCliOption(args, "--allow-all-paths")) {
+				args.push("--allow-all-paths");
+			}
+		}
+
+		if (input.resumeFromTrash && !hasCliOption(args, "--resume")) {
+			const sessionId = await findCopilotSessionIdForCwd(input.cwd);
+			if (sessionId) {
+				args.push(`--resume=${sessionId}`);
+			}
+		}
+
+		if (!hasCliOption(args, "--add-dir")) {
+			args.push("--add-dir", input.cwd);
+		}
+
+		const hooks = resolveHookContext(input);
+		const hooksFilePath = hooks ? join(input.cwd, ".github", "hooks", "kanban.json") : null;
+		const trustPromise = addCopilotTrustedFolder(input.cwd);
+		if (hooks && hooksFilePath) {
+			const hookMetadata = { source: "copilot" };
+			const hooksConfig = {
+				version: 1,
+				hooks: {
+					agentStop: [buildCopilotHookEntry("to_review", hookMetadata)],
+					subagentStop: [buildCopilotHookEntry("activity", hookMetadata)],
+					preToolUse: [buildCopilotHookEntry("activity", hookMetadata)],
+					permissionRequest: [buildCopilotHookEntry("activity", hookMetadata)],
+					postToolUse: [buildCopilotHookEntry("activity", hookMetadata)],
+					postToolUseFailure: [buildCopilotHookEntry("activity", hookMetadata)],
+					userPromptSubmitted: [buildCopilotHookEntry("to_in_progress", hookMetadata)],
+					notification: [buildCopilotHookEntry("activity", hookMetadata)],
+				},
+			};
+			await Promise.all([ensureTextFile(hooksFilePath, JSON.stringify(hooksConfig, null, 2)), trustPromise]);
+			await addToWorktreeGitExclude(input.cwd, ".github/hooks/kanban.json");
+			Object.assign(
+				env,
+				createHookRuntimeEnv({
+					taskId: hooks.taskId,
+					workspaceId: hooks.workspaceId,
+				}),
+			);
+		} else {
+			await trustPromise;
+		}
+
+		const isResuming = hasCliOption(args, "--resume");
+		const trimmedPrompt = input.prompt.trim();
+		const effectivePrompt = isResuming
+			? ""
+			: input.startInPlanMode
+				? trimmedPrompt
+					? `/plan ${trimmedPrompt}`
+					: "/plan"
+				: input.prompt;
+		const withPromptLaunch = effectivePrompt.trim()
+			? withPrompt(args, effectivePrompt, "flag", "--interactive")
+			: { args, env: {} };
+
+		const copilotDetector = createCopilotTaskCompleteDetector(() => {
+			const parts = buildHookCommandParts("to_review", { source: "copilot" });
+			const [cmd, ...cmdArgs] = parts;
+			if (!cmd) {
+				return;
+			}
+			const child = spawn(cmd, cmdArgs, {
+				detached: true,
+				env: { ...process.env, ...env },
+				stdio: "ignore",
+			});
+			child.unref();
+		});
+
+		return {
+			...withPromptLaunch,
+			env: {
+				...withPromptLaunch.env,
+				...env,
+			},
+			detectOutputTransition: copilotDetector.detect,
+			shouldInspectOutputForTransition: shouldInspectCopilotOutputForTransition,
+			cleanup: async () => {
+				copilotDetector.dispose();
+				if (!hooksFilePath) {
+					return;
+				}
+				try {
+					await unlink(hooksFilePath);
+				} catch {
+					// Best-effort cleanup only.
+				}
+			},
+		};
+	},
+};
+
 const ADAPTERS: Record<RuntimeAgentId, AgentSessionAdapter> = {
 	claude: claudeAdapter,
 	codex: codexAdapter,
@@ -1435,6 +1718,7 @@ const ADAPTERS: Record<RuntimeAgentId, AgentSessionAdapter> = {
 	droid: droidAdapter,
 	kiro: kiroAdapter,
 	cline: clineAdapter,
+	copilot: copilotAdapter,
 };
 
 export async function prepareAgentLaunch(input: AgentAdapterLaunchInput): Promise<PreparedAgentLaunch> {
