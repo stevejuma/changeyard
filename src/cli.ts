@@ -27,8 +27,9 @@ import { runVerify } from "./commands/verify.js";
 import { findRepoRoot } from "./config/loadConfig.js";
 import { errorCode, errorExitCode } from "./errors.js";
 import type { PlanningModel } from "./planning/types.js";
+import type { CreateOptions } from "./commands/create.js";
 
-type CommandName = "init" | "create" | "validate" | "sync" | "start" | "verify" | "hydrate" | "complete" | "review" | "doctor" | "completions" | "recover" | "list" | "status" | "plan" | "ui" | "help";
+type CommandName = "init" | "create" | "quick" | "validate" | "sync" | "start" | "verify" | "hydrate" | "complete" | "review" | "doctor" | "completions" | "recover" | "list" | "status" | "plan" | "ui" | "help";
 
 type ParsedArgs = {
   command: string;
@@ -84,6 +85,31 @@ function stringFlag(flags: Record<string, string | boolean | string[]>, name: st
   return typeof value === "string" ? value : undefined;
 }
 
+function labelsFlag(flags: Record<string, string | boolean | string[]>): string[] | undefined {
+  const labels = flags.label;
+  if (Array.isArray(labels)) return labels;
+  if (typeof labels === "string") return [labels];
+  return undefined;
+}
+
+function createOptionsFromFlags(
+  flags: Record<string, string | boolean | string[]>,
+  defaults: Partial<CreateOptions> = {},
+): CreateOptions {
+  const quickRequested = defaults.template === "quick" || asBooleanFlag(flags, "quick");
+  return {
+    template: defaults.template ?? (quickRequested ? "quick" : stringFlag(flags, "template") ?? "agent-task"),
+    title: stringFlag(flags, "title") ?? "",
+    priority: stringFlag(flags, "priority") ?? defaults.priority,
+    labels: labelsFlag(flags) ?? defaults.labels,
+    author: stringFlag(flags, "author") ?? defaults.author,
+    planFile: stringFlag(flags, "plan-file") ?? defaults.planFile,
+    planning: (stringFlag(flags, "planning") as PlanningModel | undefined) ?? defaults.planning,
+    strict: asBooleanFlag(flags, "strict") || defaults.strict === true,
+    noPlanning: asBooleanFlag(flags, "no-planning") || defaults.noPlanning === true,
+  };
+}
+
 function commandExamples(entries: string[]): string {
   return entries.map((entry) => `  $ ${entry}`).join("\n");
 }
@@ -94,6 +120,8 @@ function usage(): string {
 Usage:
   cy init [--dry-run]
   cy create --template <name> --title <title> [--priority <priority>] [--label <label>...] [--author <name>] [--plan-file <path>] [--planning <none|openspec-lite>] [--strict] [--no-planning] [--dry-run]
+  cy create --quick --title <title> [--priority <priority>] [--label <label>...] [--author <name>] [--dry-run]
+  cy quick --title <title> [--priority <priority>] [--label <label>...] [--author <name>] [--dry-run]
   cy validate CY-0001
   cy sync CY-0001 [--dry-run]
   cy start CY-0001 [--dry-run]
@@ -140,6 +168,12 @@ function commandUsage(command: string): string {
       "cy create --template agent-task --title \"Add workspace verification\"",
       "cy create --template feature --title \"Add export command\" --label api --priority high",
       "cy create --template feature --title \"Add plugin permissions UI\" --planning openspec-lite --strict",
+      "cy create --quick --title \"Fix broken link\"",
+    ])}`,
+    quick: `${"quick".padEnd(12)}create a low-risk quick change.\n\nExamples:\n${commandExamples([
+      "cy quick --title \"Fix typo in README\"",
+      "cy quick --title \"Update docs wording\" --label docs",
+      "cy quick --dry-run --title \"Tighten release note copy\"",
     ])}`,
     validate: `${"validate".padEnd(12)}validate one change against templates and schema.\n\nExample:\n${commandExamples(["cy validate CY-0001"])}`,
     sync: `${"sync".padEnd(12)}sync change metadata to remote provider.\n\nExample:\n${commandExamples(["cy sync CY-0001", "cy sync CY-0001 --dry-run"])}`,
@@ -216,18 +250,11 @@ async function main(): Promise<void> {
         output = runInit(repoRoot, { dryRun });
         break;
       case "create": {
-        const labels = args.flags.label;
-        output = runCreate({
-          template: stringFlag(args.flags, "template") ?? "agent-task",
-          title: stringFlag(args.flags, "title") ?? "",
-          priority: stringFlag(args.flags, "priority"),
-          labels: Array.isArray(labels) ? labels : typeof labels === "string" ? [labels] : undefined,
-          author: stringFlag(args.flags, "author"),
-          planFile: stringFlag(args.flags, "plan-file"),
-          planning: stringFlag(args.flags, "planning") as PlanningModel | undefined,
-          strict: asBooleanFlag(args.flags, "strict"),
-          noPlanning: asBooleanFlag(args.flags, "no-planning"),
-        }, repoRoot, { dryRun });
+        output = runCreate(createOptionsFromFlags(args.flags), repoRoot, { dryRun });
+        break;
+      }
+      case "quick": {
+        output = runCreate(createOptionsFromFlags(args.flags, { template: "quick" }), repoRoot, { dryRun });
         break;
       }
       case "validate":

@@ -114,6 +114,10 @@ export const configSchema = {
       properties: {
         defaultProfile: { type: "string", enum: ["none", "openspec-lite"] },
         defaultStrictness: { type: "string", enum: ["normal", "strict"] },
+        allowQuickChanges: { type: "boolean" },
+        quickChangeCheckProfile: { type: "string", minLength: 1 },
+        quickChangeRequiresWorkspace: { type: "boolean" },
+        quickChangeEscalation: { type: "string", enum: ["off", "warn", "block"] },
         requireBeforeStart: { type: "boolean" },
         requireBeforeComplete: { type: "boolean" },
         syncSummaryToProvider: { type: "boolean" },

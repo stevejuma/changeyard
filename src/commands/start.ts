@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { loadConfig } from "../config/loadConfig.js";
+import { validateQuickStart } from "../change/quickLifecycle.js";
 import { parseFrontmatter, writeFrontmatter } from "../documents/frontmatter.js";
 import { validateChangeFile } from "../documents/validateDocument.js";
 import { changesRoot, storageRoot, workspacesRoot } from "../paths.js";
@@ -29,10 +30,12 @@ export function runStart(id: string, repoRoot = process.cwd(), mutationOptions: 
   const filePath = findChangeFile(changesRoot(repoRoot, config), id);
   if (!filePath) throw new Error(`Change not found: ${id}`);
 
-  const validation = validateChangeFile(filePath, root, { gate: "start" });
+  const validation = validateChangeFile(filePath, root, { gate: "start", config });
   if (!validation.valid) throw new Error(validation.errors.join("\n"));
 
   const parsed = parseFrontmatter(readFileSync(filePath, "utf8"));
+  const quickValidation = validateQuickStart(parsed.frontmatter, config);
+  if (!quickValidation.valid) throw new Error(quickValidation.errors.join("\n"));
   const status = String(parsed.frontmatter.status ?? "");
   assertTransition(status, "in_progress", `Start ${id}`);
 

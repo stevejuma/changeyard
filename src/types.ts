@@ -40,6 +40,35 @@ export type FrontmatterValue =
 
 export type Frontmatter = Record<string, FrontmatterValue>;
 
+export type ChangePlanningModel = "none" | "openspec-lite" | "speckit-strict" | string;
+
+export type ChangeWorkflowMode = "quick" | "planned" | string;
+
+export type ChangePlanningMetadata = {
+  model: ChangePlanningModel;
+  storage?: "inline" | "external" | string;
+  schema?: string;
+  strict?: boolean;
+  strictness?: PlanningStrictness | string;
+  phase?: PlanningPhase | string;
+  gates?: Record<string, FrontmatterValue>;
+};
+
+export type ChangeWorkflowMetadata = {
+  mode: ChangeWorkflowMode;
+  risk?: "low" | "medium" | "high" | string;
+  requiresWorkspace?: boolean;
+  completionPath?: "workspace" | "local" | string;
+};
+
+export type ChangeChecksMetadata = {
+  profile?: string;
+  lastRun?: string | null;
+  lastStatus?: string | null;
+};
+
+export type QuickChangeEscalation = "off" | "warn" | "block";
+
 export type ChangeyardConfig = {
   project: {
     idPrefix: string;
@@ -86,6 +115,10 @@ export type ChangeyardConfig = {
   planning?: {
     defaultProfile?: PlanningModel;
     defaultStrictness?: PlanningStrictness;
+    allowQuickChanges?: boolean;
+    quickChangeCheckProfile?: string;
+    quickChangeRequiresWorkspace?: boolean;
+    quickChangeEscalation?: QuickChangeEscalation;
     requireBeforeStart?: boolean;
     requireBeforeComplete?: boolean;
     syncSummaryToProvider?: boolean;
