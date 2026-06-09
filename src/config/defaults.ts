@@ -52,4 +52,17 @@ export const defaultConfig: ChangeyardConfig = {
     requirePasscode: false,
     theme: "system",
   },
+  planning: {
+    defaultProfile: "none",
+    defaultStrictness: "normal",
+    requireBeforeStart: true,
+    requireBeforeComplete: true,
+    syncSummaryToProvider: true,
+    adapterCacheDir: "cache/planning",
+    ui: {
+      enabled: true,
+      showBadges: true,
+      allowInlineEditing: true,
+    },
+  },
 };

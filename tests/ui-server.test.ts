@@ -1,14 +1,22 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
-import { runCreate } from "../src/commands/create.js";
+import { readFileSync, writeFileSync } from "node:fs";
+import { createChange } from "../src/commands/create.js";
+import { loadConfig } from "../src/config/loadConfig.js";
+import { parseFrontmatter, writeFrontmatter } from "../src/documents/frontmatter.js";
+import { changesRoot } from "../src/paths.js";
+import type { PlanningSectionId } from "../src/planning/types.js";
+import { replaceMarkedSection } from "../src/planning/sections.js";
+import { findChangeFile } from "../src/state/id.js";
 import { runInit } from "../src/commands/init.js";
+import { createChangeyardUiApi } from "../src/commands/ui.js";
 
-const { startChangeyardKanban } = await import(pathToFileURL(path.join(process.cwd(), "packages/kanban/src/server/index.js")).href);
+const { startChangeyardKanban } = await import(pathToFileURL(path.join(process.cwd(), "packages/kanban/dist/server/index.js")).href);
 
 function tempRepo(): string {
   return mkdtempSync(path.join(os.tmpdir(), "changeyard-ui-server-"));
@@ -26,32 +34,103 @@ function runCommand(command: string, args: string[], cwd: string): string {
   return (result.stdout || "").trim();
 }
 
-function hasCommand(command: string): boolean {
-  try {
-    return runCommand(command, ["--version"], process.cwd()).length > 0;
-  } catch {
-    return false;
+function replacePlanningSection(repoRoot: string, changeId: string, sectionId: PlanningSectionId, content: string): void {
+  const config = loadConfig(repoRoot);
+  const filePath = findChangeFile(changesRoot(repoRoot, config), changeId);
+  if (!filePath) {
+    throw new Error(`Could not find change file for ${changeId}`);
   }
+  const parsed = parseFrontmatter(readFileSync(filePath, "utf8"));
+  const nextBody = replaceMarkedSection(parsed.body, sectionId, content);
+  writeFileSync(filePath, writeFrontmatter(parsed.frontmatter, nextBody));
 }
 
-test("ui server exposes board and card endpoints from changeyard state", async () => {
+async function trpcQuery<T>(origin: string, procedurePath: string, input?: unknown, workspaceId?: string): Promise<T> {
+  const searchParams = new URLSearchParams();
+  if (input === undefined) {
+    searchParams.set("batch", "1");
+    searchParams.set("input", "{}");
+  } else {
+    searchParams.set("input", JSON.stringify(input));
+  }
+  const response = await fetch(`${origin}/api/trpc/${procedurePath}?${searchParams.toString()}`, {
+    headers: workspaceId ? { "x-kanban-workspace-id": workspaceId } : undefined,
+  });
+  assert.equal(response.status, 200);
+  const payload = await response.json() as
+    | { result?: { data?: T } }
+    | Array<{ result?: { data?: T } }>;
+  if (Array.isArray(payload)) {
+    return payload[0]?.result?.data as T;
+  }
+  return payload.result?.data as T;
+}
+
+async function trpcMutation<T>(origin: string, procedurePath: string, input: unknown, workspaceId?: string): Promise<T> {
+  const response = await fetch(`${origin}/api/trpc/${procedurePath}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...(workspaceId ? { "x-kanban-workspace-id": workspaceId } : {}),
+    },
+    body: JSON.stringify(input),
+  });
+  assert.equal(response.status, 200);
+  const payload = await response.json() as { result?: { data?: T } };
+  return payload.result?.data as T;
+}
+
+async function trpcMutationError(origin: string, procedurePath: string, input: unknown, workspaceId?: string): Promise<{
+  status: number;
+  message: string;
+  conflictUpdatedAt?: string | null;
+}> {
+  const response = await fetch(`${origin}/api/trpc/${procedurePath}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...(workspaceId ? { "x-kanban-workspace-id": workspaceId } : {}),
+    },
+    body: JSON.stringify(input),
+  });
+  const payload = await response.json() as {
+    error?: {
+      message?: string;
+      data?: {
+        conflictUpdatedAt?: string | null;
+      };
+    };
+  };
+  return {
+    status: response.status,
+    message: payload.error?.message ?? "",
+    conflictUpdatedAt: payload.error?.data?.conflictUpdatedAt ?? null,
+  };
+}
+
+test("ui server serves health, manifest, and the current shell entrypoint", async () => {
   const repo = tempRepo();
   try {
     runInit(repo);
-    runCreate({ template: "agent-task", title: "Serve board card" }, repo);
     const server = await startChangeyardKanban({ repoRoot: repo, open: false, port: "auto" });
-    try {
-      const boardResponse = await fetch(`${server.url}/api/board`);
-      assert.equal(boardResponse.status, 200);
-      const board = await boardResponse.json() as { columns: Array<{ id: string; cards: Array<{ id: string }> }> };
-      const readyColumn = board.columns.find((column) => column.id === "ready");
-      assert.ok(readyColumn?.cards.some((card) => card.id === "CY-0001"));
+    const origin = new URL(server.url).origin;
 
-      const cardResponse = await fetch(`${server.url}/api/cards/CY-0001`);
-      assert.equal(cardResponse.status, 200);
-      const card = await cardResponse.json() as { id: string; title: string };
-      assert.equal(card.id, "CY-0001");
-      assert.equal(card.title, "Serve board card");
+    try {
+      const healthResponse = await fetch(`${origin}/api/health`);
+      assert.equal(healthResponse.status, 200);
+      assert.deepEqual(await healthResponse.json(), { ok: true });
+
+      const manifestResponse = await fetch(`${origin}/manifest.json`);
+      assert.equal(manifestResponse.status, 200);
+      const manifest = await manifestResponse.json() as { name: string; short_name: string };
+      assert.equal(manifest.name, "ChangeYard");
+      assert.equal(manifest.short_name, "ChangeYard");
+
+      const shellResponse = await fetch(server.url);
+      assert.equal(shellResponse.status, 200);
+      const shellHtml = await shellResponse.text();
+      assert.match(shellHtml, /<!doctype html>/i);
+      assert.match(shellHtml, /<div id="root"><\/div>/);
     } finally {
       await server.close();
     }
@@ -60,234 +139,47 @@ test("ui server exposes board and card endpoints from changeyard state", async (
   }
 });
 
-test("ui start action writes the same changeyard workspace metadata as CLI start", async () => {
-  const repo = tempRepo();
-  try {
-    runInit(repo);
-    writeFileSync(path.join(repo, ".env.example"), "SAFE=1\n");
-    runCreate({ template: "agent-task", title: "Start via ui server" }, repo);
-    const server = await startChangeyardKanban({ repoRoot: repo, open: false, port: "auto" });
-    try {
-      const response = await fetch(`${server.url}/api/cards/CY-0001/start`, { method: "POST" });
-      assert.equal(response.status, 200);
-      const body = await response.json() as { status: string; workspace?: { engine?: string } };
-      assert.equal(body.status, "in_progress");
-      assert.equal(body.workspace?.engine, "plain-copy");
-
-      const metadataPath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "metadata.json");
-      assert.equal(existsSync(metadataPath), true);
-      const metadata = JSON.parse(readFileSync(metadataPath, "utf8")) as { changeId: string; engine: string };
-      assert.equal(metadata.changeId, "CY-0001");
-      assert.equal(metadata.engine, "plain-copy");
-
-      const workspaceViewResponse = await fetch(`${server.url}/api/cards/CY-0001/workspace-view`);
-      assert.equal(workspaceViewResponse.status, 200);
-      const workspaceView = await workspaceViewResponse.json() as { engine: string; commands: string[]; diffOutput: string };
-      assert.equal(workspaceView.engine, "plain-copy");
-      assert.ok(workspaceView.commands.includes("ls"));
-      assert.match(workspaceView.diffOutput, /No workspace changes detected\./);
-
-      const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-start-via-ui-server.md");
-      const change = readFileSync(changePath, "utf8");
-      assert.match(change, /status: in_progress/);
-    } finally {
-      await server.close();
-    }
-  } finally {
-    cleanup(repo);
-  }
-});
-
-test("ui create action creates a real changeyard markdown change", async () => {
-  const repo = tempRepo();
-  try {
-    runInit(repo);
-    const server = await startChangeyardKanban({ repoRoot: repo, open: false, port: "auto" });
-    try {
-      const response = await fetch(`${server.url}/api/cards`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: "Create through ui" }),
-      });
-      assert.equal(response.status, 200);
-      const card = await response.json() as { id: string; title: string; path: string };
-      assert.equal(card.id, "CY-0001");
-      assert.equal(card.title, "Create through ui");
-      assert.equal(existsSync(path.join(repo, card.path)), true);
-    } finally {
-      await server.close();
-    }
-  } finally {
-    cleanup(repo);
-  }
-});
-
-test("ui metadata edit action updates the underlying markdown frontmatter", async () => {
-  const repo = tempRepo();
-  try {
-    runInit(repo);
-    runCreate({ template: "agent-task", title: "Original title" }, repo);
-    const server = await startChangeyardKanban({ repoRoot: repo, open: false, port: "auto" });
-    try {
-      const response = await fetch(`${server.url}/api/cards/CY-0001`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: "Updated title",
-          priority: "high",
-          labels: ["ui", "edited"],
-        }),
-      });
-      assert.equal(response.status, 200);
-      const card = await response.json() as { title: string; priority?: string; labels: string[] };
-      assert.equal(card.title, "Updated title");
-      assert.equal(card.priority, "high");
-      assert.deepEqual(card.labels, ["ui", "edited"]);
-
-      const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-original-title.md");
-      const change = readFileSync(changePath, "utf8");
-      assert.match(change, /title: Updated title/);
-      assert.match(change, /priority: high/);
-      assert.match(change, /labels:\n  - ui\n  - edited/);
-    } finally {
-      await server.close();
-    }
-  } finally {
-    cleanup(repo);
-  }
-});
-
-test("ui section edit action updates the underlying markdown body", async () => {
-  const repo = tempRepo();
-  try {
-    runInit(repo);
-    runCreate({ template: "agent-task", title: "Original sections" }, repo);
-    const server = await startChangeyardKanban({ repoRoot: repo, open: false, port: "auto" });
-    try {
-      const response = await fetch(`${server.url}/api/cards/CY-0001/sections/Summary`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          content: "Updated summary from the UI server.",
-        }),
-      });
-      assert.equal(response.status, 200);
-      const card = await response.json() as { sections?: Record<string, string> };
-      assert.equal(card.sections?.Summary, "Updated summary from the UI server.");
-
-      const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-original-sections.md");
-      const change = readFileSync(changePath, "utf8");
-      assert.match(change, /# Summary\n\nUpdated summary from the UI server\./);
-    } finally {
-      await server.close();
-    }
-  } finally {
-    cleanup(repo);
-  }
-});
-
-test("ui complete action runs changeyard completion and updates status", async () => {
-  const repo = tempRepo();
-  try {
-    runInit(repo);
-    writeFileSync(path.join(repo, ".env.example"), "SAFE=1\n");
-    runCreate({ template: "agent-task", title: "Complete via ui server" }, repo);
-    const server = await startChangeyardKanban({ repoRoot: repo, open: false, port: "auto" });
-    try {
-      await fetch(`${server.url}/api/cards/CY-0001/start`, { method: "POST" });
-      const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
-      writeFileSync(path.join(workspacePath, "implementation.txt"), "done\n");
-      const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-complete-via-ui-server.md");
-      const change = readFileSync(changePath, "utf8").replace(
-        "Summarize what changed, what checks ran, and what risks remain.",
-        "Implemented via the UI server completion flow.",
-      );
-      writeFileSync(changePath, change);
-
-      const response = await fetch(`${server.url}/api/cards/CY-0001/complete`, { method: "POST" });
-      assert.equal(response.status, 200);
-      const card = await response.json() as { status: string };
-      assert.equal(card.status, "ready_for_pr");
-    } finally {
-      await server.close();
-    }
-  } finally {
-    cleanup(repo);
-  }
-});
-
-test("ui review actions create and complete changeyard reviews", async () => {
-  const repo = tempRepo();
-  try {
-    runInit(repo);
-    runCreate({ template: "agent-task", title: "Review via ui server" }, repo);
-    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-review-via-ui-server.md");
-    const change = readFileSync(changePath, "utf8").replace("status: ready", "status: ready_for_pr");
-    writeFileSync(changePath, change);
-    const server = await startChangeyardKanban({ repoRoot: repo, open: false, port: "auto" });
-    try {
-      const startResponse = await fetch(`${server.url}/api/cards/CY-0001/review/start`, { method: "POST" });
-      assert.equal(startResponse.status, 200);
-      assert.equal(existsSync(path.join(repo, ".changeyard", "reviews", "CY-0001", "review-001.md")), true);
-
-      const completeResponse = await fetch(`${server.url}/api/cards/CY-0001/review/complete`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ decision: "approve" }),
-      });
-      assert.equal(completeResponse.status, 200);
-      const card = await completeResponse.json() as { status: string };
-      assert.equal(card.status, "approved");
-    } finally {
-      await server.close();
-    }
-  } finally {
-    cleanup(repo);
-  }
-});
-
-test("ui workspace behavior reflects git-worktree metadata and verification", async () => {
-  if (!hasCommand("git")) return;
+test("ui server exposes the current project through the projects.list tRPC route", async () => {
   const repo = tempRepo();
   try {
     runCommand("git", ["init", "-b", "main"], repo);
-    runCommand("git", ["config", "user.name", "Changeyard Test"], repo);
-    runCommand("git", ["config", "user.email", "changeyard-test@example.test"], repo);
-    writeFileSync(path.join(repo, "README.md"), "# changeyard\n");
-    runCommand("git", ["add", "README.md"], repo);
-    runCommand("git", ["commit", "-m", "initial"], repo);
-
     runInit(repo);
-    writeFileSync(
-      path.join(repo, ".changeyard", "config.local.jsonc"),
-      JSON.stringify({ vcs: { engine: "git-worktree", fallback: "git-worktree" } }, null, 2) + "\n",
-    );
-    runCreate({ template: "agent-task", title: "Git worktree ui" }, repo);
     const server = await startChangeyardKanban({ repoRoot: repo, open: false, port: "auto" });
+    const origin = new URL(server.url).origin;
+
     try {
-      const startResponse = await fetch(`${server.url}/api/cards/CY-0001/start`, { method: "POST" });
-      assert.equal(startResponse.status, 200);
-      const started = await startResponse.json() as {
-        workspace?: { engine?: string; verification?: { valid: boolean } };
-      };
-      assert.equal(started.workspace?.engine, "git-worktree");
-      assert.equal(started.workspace?.verification?.valid, true);
+      const response = await fetch(`${origin}/api/trpc/projects.list?batch=1&input=%7B%7D`);
+      assert.equal(response.status, 200);
+      const payload = await response.json() as Array<{
+        result?: {
+          data?: {
+            currentProjectId?: string | null;
+            projects?: Array<{
+              id: string;
+              path: string;
+              name: string;
+              taskCounts: Record<string, number>;
+            }>;
+          };
+        };
+      }>;
 
-      const boardResponse = await fetch(`${server.url}/api/board`);
-      assert.equal(boardResponse.status, 200);
-      const board = await boardResponse.json() as {
-        workspaceEngine: string;
-        columns: Array<{ cards: Array<{ id: string; workspace?: { engine?: string } }> }>;
-      };
-      assert.equal(board.workspaceEngine, "git-worktree");
-      const card = board.columns.flatMap((column) => column.cards).find((entry) => entry.id === "CY-0001");
-      assert.equal(card?.workspace?.engine, "git-worktree");
+      const data = payload[0]?.result?.data;
+      assert.ok(data);
+      assert.equal(typeof data?.currentProjectId, "string");
 
-      const workspaceViewResponse = await fetch(`${server.url}/api/cards/CY-0001/workspace-view`);
-      assert.equal(workspaceViewResponse.status, 200);
-      const workspaceView = await workspaceViewResponse.json() as { engine: string; commands: string[] };
-      assert.equal(workspaceView.engine, "git-worktree");
-      assert.ok(workspaceView.commands.includes("git status --short"));
+      const currentProject = data?.projects?.find((entry) => entry.id === data?.currentProjectId);
+      assert.ok(currentProject);
+
+      const project = data?.projects?.find((entry) => entry.name === path.basename(repo));
+      assert.ok(project);
+      assert.equal(project?.name, path.basename(repo));
+      assert.deepEqual(project?.taskCounts, {
+        backlog: 0,
+        in_progress: 0,
+        review: 0,
+        trash: 0,
+      });
     } finally {
       await server.close();
     }
@@ -296,49 +188,74 @@ test("ui workspace behavior reflects git-worktree metadata and verification", as
   }
 });
 
-test("ui workspace behavior reflects jj metadata and verification", async () => {
-  if (!hasCommand("git") || !hasCommand("jj")) return;
+test("ui server exposes markdown-backed planned and unplanned changes through the changeyard tRPC routes", async () => {
   const repo = tempRepo();
   try {
     runCommand("git", ["init", "-b", "main"], repo);
-    runCommand("git", ["config", "user.name", "Changeyard Test"], repo);
-    runCommand("git", ["config", "user.email", "changeyard-test@example.test"], repo);
-    writeFileSync(path.join(repo, "README.md"), "# changeyard\n");
-    runCommand("git", ["add", "README.md"], repo);
-    runCommand("git", ["commit", "-m", "initial"], repo);
-    runCommand("jj", ["git", "init", "--colocate"], repo);
-
     runInit(repo);
-    writeFileSync(
-      path.join(repo, ".changeyard", "config.local.jsonc"),
-      JSON.stringify({ vcs: { engine: "jj", fallback: "jj" } }, null, 2) + "\n",
-    );
-    runCreate({ template: "agent-task", title: "Jj ui" }, repo);
-    const server = await startChangeyardKanban({ repoRoot: repo, open: false, port: "auto" });
+    const planned = createChange({
+      template: "feature",
+      title: "Add planning summary panel",
+      planning: "openspec-lite",
+    }, repo);
+    const unplanned = createChange({
+      template: "bug",
+      title: "Fix stale toast dismissal",
+      noPlanning: true,
+    }, repo);
+    const server = await startChangeyardKanban({
+      repoRoot: repo,
+      open: false,
+      port: "auto",
+      changeyardApi: createChangeyardUiApi(),
+    });
+    const origin = new URL(server.url).origin;
+
     try {
-      const startResponse = await fetch(`${server.url}/api/cards/CY-0001/start`, { method: "POST" });
-      assert.equal(startResponse.status, 200);
-      const started = await startResponse.json() as {
-        workspace?: { engine?: string; verification?: { valid: boolean } };
-      };
-      assert.equal(started.workspace?.engine, "jj");
-      assert.equal(started.workspace?.verification?.valid, true);
+      const projects = await trpcQuery<{
+        currentProjectId: string | null;
+        projects: Array<{ id: string }>;
+      }>(origin, "projects.list");
+      assert.equal(typeof projects.currentProjectId, "string");
+      const workspaceId = projects.currentProjectId as string;
+      const changes = await trpcQuery<{
+        changes: Array<{
+          id: string;
+          planning: {
+            model: string;
+            phase: string;
+            gateSummary: { pending: number };
+          } | null;
+        }>;
+      }>(origin, "changes.list", undefined, workspaceId);
+      assert.equal(changes.changes.length, 2);
 
-      const boardResponse = await fetch(`${server.url}/api/board`);
-      assert.equal(boardResponse.status, 200);
-      const board = await boardResponse.json() as {
-        workspaceEngine: string;
-        columns: Array<{ cards: Array<{ id: string; workspace?: { engine?: string } }> }>;
-      };
-      assert.equal(board.workspaceEngine, "jj");
-      const card = board.columns.flatMap((column) => column.cards).find((entry) => entry.id === "CY-0001");
-      assert.equal(card?.workspace?.engine, "jj");
+      const plannedChange = changes.changes.find((change) => change.id === planned.id);
+      assert.ok(plannedChange);
+      assert.equal(plannedChange?.planning?.model, "openspec-lite");
+      assert.equal(plannedChange?.planning?.phase, "draft");
+      assert.equal(plannedChange?.planning?.gateSummary.pending, 5);
 
-      const workspaceViewResponse = await fetch(`${server.url}/api/cards/CY-0001/workspace-view`);
-      assert.equal(workspaceViewResponse.status, 200);
-      const workspaceView = await workspaceViewResponse.json() as { engine: string; commands: string[] };
-      assert.equal(workspaceView.engine, "jj");
-      assert.ok(workspaceView.commands.includes("jj status"));
+      const unplannedChange = changes.changes.find((change) => change.id === unplanned.id);
+      assert.ok(unplannedChange);
+      assert.equal(unplannedChange?.planning, null);
+
+      const plannedDetail = await trpcQuery<{
+        id: string;
+        sections: Array<{ id: string }>;
+      } | null>(origin, "changes.get", { id: planned.id }, workspaceId);
+      assert.ok(plannedDetail);
+      assert.equal(plannedDetail?.id, planned.id);
+      assert.ok(plannedDetail?.sections.some((section) => section.id === "proposal"));
+      assert.ok(plannedDetail?.sections.some((section) => section.id === "verification"));
+
+      const unplannedDetail = await trpcQuery<{
+        planning: null;
+        sections: unknown[];
+      } | null>(origin, "changes.get", { id: unplanned.id }, workspaceId);
+      assert.ok(unplannedDetail);
+      assert.equal(unplannedDetail?.planning, null);
+      assert.deepEqual(unplannedDetail?.sections, []);
     } finally {
       await server.close();
     }
@@ -347,64 +264,156 @@ test("ui workspace behavior reflects jj metadata and verification", async () => 
   }
 });
 
-test("ui provider actions publish local-folder PRs and reviews", async () => {
+test("ui changeyard mutations create planned changes and surface planning gate failures before sync/start", async () => {
   const repo = tempRepo();
   try {
+    runCommand("git", ["init", "-b", "main"], repo);
     runInit(repo);
-    writeFileSync(
-      path.join(repo, ".changeyard", "config.local.jsonc"),
-      JSON.stringify({
-        provider: { type: "local-folder" },
-        checks: { standard: ["node -v"] },
-      }, null, 2) + "\n",
-    );
-    writeFileSync(path.join(repo, ".env.example"), "SAFE=1\n");
-    runCreate({ template: "agent-task", title: "Provider flow ui" }, repo);
-    const server = await startChangeyardKanban({ repoRoot: repo, open: false, port: "auto" });
+    const server = await startChangeyardKanban({
+      repoRoot: repo,
+      open: false,
+      port: "auto",
+      changeyardApi: createChangeyardUiApi(),
+    });
+    const origin = new URL(server.url).origin;
+
     try {
-      const startResponse = await fetch(`${server.url}/api/cards/CY-0001/start`, { method: "POST" });
-      assert.equal(startResponse.status, 200);
+      const projects = await trpcQuery<{
+        currentProjectId: string | null;
+      }>(origin, "projects.list");
+      assert.equal(typeof projects.currentProjectId, "string");
+      const workspaceId = projects.currentProjectId as string;
 
-      const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
-      writeFileSync(path.join(workspacePath, "implementation.txt"), "done\n");
-      const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-provider-flow-ui.md");
-      writeFileSync(
-        changePath,
-        readFileSync(changePath, "utf8").replace(
-          "Summarize what changed, what checks ran, and what risks remain.",
-          "Published provider artifacts through the UI server.",
-        ),
-      );
+      const created = await trpcMutation<{
+        id: string;
+        planning: { model: string; strictness: string } | null;
+        sections: Array<{ id: string }>;
+      }>(origin, "changes.create", {
+        template: "feature",
+        title: "Launch planned UI flow",
+        planning: "openspec-lite",
+        strict: true,
+      }, workspaceId);
+      assert.equal(created.planning?.model, "openspec-lite");
+      assert.equal(created.planning?.strictness, "strict");
+      assert.ok(created.sections.some((section) => section.id === "clarifications"));
+      assert.ok(created.sections.some((section) => section.id === "analysis"));
 
-      const completeResponse = await fetch(`${server.url}/api/cards/CY-0001/complete`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ withPr: true }),
-      });
-      assert.equal(completeResponse.status, 200);
-      const completed = await completeResponse.json() as { status: string; provider?: { pullRequestUrl?: string } };
-      assert.equal(completed.status, "pr_open");
-      assert.equal(
-        existsSync(path.join(repo, ".changeyard", "cache", "local-folder", "pull-requests", "0001-CY-0001.md")),
-        true,
-      );
-      assert.match(String(completed.provider?.pullRequestUrl ?? ""), /^file:\/\//);
+      const validationFailure = await trpcMutationError(origin, "changes.validate", { id: created.id }, workspaceId);
+      assert.equal(validationFailure.status, 500);
+      assert.match(validationFailure.message, /Sync Gate:/);
+      assert.match(validationFailure.message, /Start Gate:/);
+      assert.match(validationFailure.message, /Complete Gate:/);
+      assert.match(validationFailure.message, /<!-- cy:proposal:start -->/);
 
-      const reviewStartResponse = await fetch(`${server.url}/api/cards/CY-0001/review/start`, { method: "POST" });
-      assert.equal(reviewStartResponse.status, 200);
+      const syncFailure = await trpcMutationError(origin, "changes.sync", { id: created.id }, workspaceId);
+      assert.equal(syncFailure.status, 500);
+      assert.match(syncFailure.message, /<!-- cy:proposal:start -->/);
 
-      const reviewCompleteResponse = await fetch(`${server.url}/api/cards/CY-0001/review/complete`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ decision: "approve" }),
-      });
-      assert.equal(reviewCompleteResponse.status, 200);
-      const reviewed = await reviewCompleteResponse.json() as { status: string };
-      assert.equal(reviewed.status, "approved");
-      assert.equal(
-        existsSync(path.join(repo, ".changeyard", "cache", "local-folder", "reviews", "0002-CY-0001.md")),
-        true,
-      );
+      const startFailure = await trpcMutationError(origin, "changes.start", { id: created.id }, workspaceId);
+      assert.equal(startFailure.status, 500);
+      assert.match(startFailure.message, /<!-- cy:proposal:start -->/);
+      assert.match(startFailure.message, /<!-- cy:design:start -->/);
+      assert.match(startFailure.message, /<!-- cy:clarifications:start -->/);
+      assert.match(startFailure.message, /<!-- cy:requirements-checklist:start -->/);
+
+      replacePlanningSection(repo, created.id, "proposal", "Concrete proposal for the UI flow.");
+      replacePlanningSection(repo, created.id, "spec-deltas", "No behavior change");
+      replacePlanningSection(repo, created.id, "design", "Use the existing injected changeyardApi mutation path.");
+      replacePlanningSection(repo, created.id, "tasks", "- [x] Create planned issue\n- [ ] Start work");
+      replacePlanningSection(repo, created.id, "clarifications", "No clarifications required.");
+      replacePlanningSection(repo, created.id, "requirements-checklist", "- [x] Mutation path uses root CLI-core logic");
+
+      const synced = await trpcMutation<{
+        id: string;
+        status: string;
+        planning: { model: string } | null;
+      }>(origin, "changes.sync", { id: created.id }, workspaceId);
+      assert.equal(synced.id, created.id);
+      assert.equal(synced.status, "synced");
+      assert.equal(synced.planning?.model, "openspec-lite");
+
+      const started = await trpcMutation<{
+        id: string;
+        status: string;
+        workspace?: { path?: string };
+      }>(origin, "changes.start", { id: created.id }, workspaceId);
+      assert.equal(started.id, created.id);
+      assert.equal(started.status, "in_progress");
+      assert.equal(typeof started.workspace?.path, "string");
+      assert.ok(started.workspace?.path?.includes(".changeyard/workspaces"));
+    } finally {
+      await server.close();
+    }
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("ui changeyard planning section updates are marker-scoped and reject stale writes", async () => {
+  const repo = tempRepo();
+  try {
+    runCommand("git", ["init", "-b", "main"], repo);
+    runInit(repo);
+    const created = createChange({
+      template: "feature",
+      title: "Inline planning editor",
+      planning: "openspec-lite",
+    }, repo);
+    const server = await startChangeyardKanban({
+      repoRoot: repo,
+      open: false,
+      port: "auto",
+      changeyardApi: createChangeyardUiApi(),
+    });
+    const origin = new URL(server.url).origin;
+
+    try {
+      const projects = await trpcQuery<{ currentProjectId: string | null }>(origin, "projects.list");
+      const workspaceId = projects.currentProjectId as string;
+      const initial = await trpcQuery<{
+        id: string;
+        updatedAt?: string;
+        sections: Array<{ id: string; content: string }>;
+      }>(origin, "changes.get", { id: created.id }, workspaceId);
+      assert.equal(initial.id, created.id);
+      const initialUpdatedAt = initial.updatedAt ?? null;
+      const initialVerification = initial.sections.find((section) => section.id === "verification");
+      const initialVerificationContent = initialVerification?.content ?? "";
+
+      const saved = await trpcMutation<{
+        updatedAt?: string;
+        sections: Array<{ id: string; content: string }>;
+      }>(origin, "changes.updatePlanningSection", {
+        id: created.id,
+        sectionId: "proposal",
+        content: "## Summary\n\nShip the inline planning editor.",
+        expectedUpdatedAt: initialUpdatedAt,
+      }, workspaceId);
+      const savedProposal = saved.sections.find((section) => section.id === "proposal");
+      assert.match(savedProposal?.content ?? "", /inline planning editor/);
+      const savedVerification = saved.sections.find((section) => section.id === "verification");
+      assert.equal(savedVerification?.content ?? "", initialVerificationContent);
+      assert.notEqual(saved.updatedAt ?? null, initialUpdatedAt);
+
+      const stale = await trpcMutationError(origin, "changes.updatePlanningSection", {
+        id: created.id,
+        sectionId: "design",
+        content: "Add a stale write that should fail.",
+        expectedUpdatedAt: initialUpdatedAt,
+      }, workspaceId);
+      assert.equal(stale.status, 409);
+      assert.match(stale.message, /updated elsewhere/i);
+      assert.equal(stale.conflictUpdatedAt, saved.updatedAt ?? null);
+
+      const latest = await trpcQuery<{
+        sections: Array<{ id: string; content: string }>;
+      }>(origin, "changes.get", { id: created.id }, workspaceId);
+      const latestProposal = latest.sections.find((section) => section.id === "proposal");
+      const latestDesign = latest.sections.find((section) => section.id === "design");
+      const initialDesign = initial.sections.find((section) => section.id === "design");
+      assert.match(latestProposal?.content ?? "", /inline planning editor/);
+      assert.equal(latestDesign?.content ?? "", initialDesign?.content ?? "");
     } finally {
       await server.close();
     }

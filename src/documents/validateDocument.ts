@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { CHANGE_STATUSES, type Frontmatter, type TemplateDefinition } from "../types.js";
+import { validatePlanningForGate, type ValidationGate } from "../planning/validation.js";
 import { parseFrontmatter } from "./frontmatter.js";
 import { hasCheckboxTask, hasUncheckedCheckboxTask, parseSections } from "./sections.js";
 import { loadTemplate } from "./template.js";
@@ -8,6 +9,7 @@ import { loadTemplate } from "./template.js";
 export type ValidationResult = {
   valid: boolean;
   errors: string[];
+  warnings?: string[];
 };
 
 function valueMissing(frontmatter: Frontmatter, key: string): boolean {
@@ -15,8 +17,9 @@ function valueMissing(frontmatter: Frontmatter, key: string): boolean {
   return value === undefined || value === null || value === "" || (Array.isArray(value) && value.length === 0);
 }
 
-export function validateParsedChange(frontmatter: Frontmatter, body: string, template?: TemplateDefinition): ValidationResult {
+export function validateParsedChange(frontmatter: Frontmatter, body: string, template?: TemplateDefinition, options: { gate?: ValidationGate } = {}): ValidationResult {
   const errors: string[] = [];
+  const warnings: string[] = [];
   const required = new Set(["id", "title", "type", "status", ...(template?.requiredFrontmatter ?? [])]);
 
   for (const key of required) {
@@ -47,10 +50,14 @@ export function validateParsedChange(frontmatter: Frontmatter, body: string, tem
     errors.push("Acceptance Criteria must include at least one unchecked task");
   }
 
-  return { valid: errors.length === 0, errors };
+  const planningValidation = validatePlanningForGate(frontmatter, body, options.gate ?? "document");
+  errors.push(...planningValidation.errors);
+  warnings.push(...planningValidation.warnings);
+
+  return { valid: errors.length === 0, errors, warnings };
 }
 
-export function validateChangeFile(filePath: string, storageRoot: string): ValidationResult {
+export function validateChangeFile(filePath: string, storageRoot: string, options: { gate?: ValidationGate } = {}): ValidationResult {
   const parsed = parseFrontmatter(readFileSync(filePath, "utf8"));
   let template: TemplateDefinition | undefined;
   const type = typeof parsed.frontmatter.type === "string" ? parsed.frontmatter.type : undefined;
@@ -58,5 +65,5 @@ export function validateChangeFile(filePath: string, storageRoot: string): Valid
     const templatePath = path.join(storageRoot, "templates", `${type}.md`);
     if (existsSync(templatePath)) template = loadTemplate(storageRoot, type).definition;
   }
-  return validateParsedChange(parsed.frontmatter, parsed.body, template);
+  return validateParsedChange(parsed.frontmatter, parsed.body, template, options);
 }

@@ -26,8 +26,12 @@ The served UI is a built React/Vite frontend that uses the upstream Kanban visua
 The current active surface provides:
 
 - board and card reads from Changeyard markdown
+- planned and unplanned change creation
+- planning badges, gate summaries, and strictness display
+- inline planning section editing with marker-scoped writes
+- planning `validate`, `sync`, and `start` actions through the root Changeyard command path
+- stale-write conflict reload behavior for inline planning edits
 - provider and workspace metadata display
-- `sync` and `start` actions via Changeyard command functions
 - runtime state, transport, and project registration under `packages/kanban/src/runtime-stack/**`
 - workspace-engine awareness for `plain-copy`, `git-worktree`, and `jj`
 

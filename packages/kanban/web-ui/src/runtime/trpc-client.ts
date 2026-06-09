@@ -4,6 +4,7 @@ import { createTRPCProxyClient, httpBatchLink, TRPCClientError } from "@trpc/cli
 interface TrpcErrorDataWithConflictRevision {
 	code?: string;
 	conflictRevision?: number | null;
+	conflictUpdatedAt?: string | null;
 }
 
 type RuntimeTrpcClient = ReturnType<typeof createTRPCProxyClient<RuntimeAppRouter>>;
@@ -49,4 +50,15 @@ export function readTrpcConflictRevision(error: unknown): number | null {
 		return null;
 	}
 	return typeof data.conflictRevision === "number" ? data.conflictRevision : null;
+}
+
+export function readTrpcConflictUpdatedAt(error: unknown): string | null {
+	if (!(error instanceof TRPCClientError)) {
+		return null;
+	}
+	const data = readTrpcErrorData(error);
+	if (data?.code !== "CONFLICT") {
+		return null;
+	}
+	return typeof data.conflictUpdatedAt === "string" ? data.conflictUpdatedAt : null;
 }

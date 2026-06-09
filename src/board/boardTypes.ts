@@ -1,4 +1,5 @@
 import type { Frontmatter, ChangeStatus, WorkspaceMetadata } from "../types.js";
+import type { ChangeSummary } from "../types.js";
 
 export type ChangeyardColumnId =
   | "backlog"
@@ -41,6 +42,7 @@ export type ChangeyardCard = {
   updatedAt?: string;
   workspace?: ChangeyardWorkspaceInfo;
   provider?: ChangeyardProviderInfo;
+  planning?: ChangeSummary["planning"];
 };
 
 export type ChangeyardCardDetail = ChangeyardCard & {

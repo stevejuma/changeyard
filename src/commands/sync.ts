@@ -5,6 +5,7 @@ import { parseFrontmatter, writeFrontmatter } from "../documents/frontmatter.js"
 import { validateChangeFile } from "../documents/validateDocument.js";
 import { changesRoot, storageRoot } from "../paths.js";
 import { createProvider } from "../providers/index.js";
+import { renderProviderIssueBody } from "../providers/renderIssueBody.js";
 import { findChangeFile } from "../state/id.js";
 import { assertTransition } from "../state/transitions.js";
 import type { Frontmatter } from "../types.js";
@@ -24,7 +25,7 @@ export function runSync(id: string, repoRoot = process.cwd(), mutationOptions: M
   const filePath = findChangeFile(changesRoot(repoRoot, config), id);
   if (!filePath) throw new Error(`Change not found: ${id}`);
 
-  const validation = validateChangeFile(filePath, root);
+  const validation = validateChangeFile(filePath, root, { gate: "sync" });
   if (!validation.valid) throw new Error(validation.errors.join("\n"));
 
   const parsed = parseFrontmatter(readFileSync(filePath, "utf8"));
@@ -36,6 +37,11 @@ export function runSync(id: string, repoRoot = process.cwd(), mutationOptions: M
   };
 
   const provider = createProvider(config.provider.type, config);
+  const renderedBody = renderProviderIssueBody({
+    canonicalPath: path.relative(repoRoot, filePath),
+    frontmatter: syncFrontmatter,
+    body: parsed.body,
+  });
   if (mutationOptions.dryRun) {
     const relativeChangePath = path.relative(repoRoot, filePath);
     return `Dry-run: would sync ${String(parsed.frontmatter.id ?? id)} with ${provider.name}; updates ${relativeChangePath}`;
@@ -46,7 +52,7 @@ export function runSync(id: string, repoRoot = process.cwd(), mutationOptions: M
     storageRoot: root,
     changePath: filePath,
     frontmatter: syncFrontmatter,
-    body: parsed.body,
+    body: renderedBody,
   });
 
   const nextFrontmatter: Frontmatter = {

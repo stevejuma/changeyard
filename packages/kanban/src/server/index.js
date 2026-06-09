@@ -222,6 +222,7 @@ export async function startChangeyardKanban(options) {
 	const runtimeServer = await createRuntimeServer({
 		workspaceRegistry,
 		runtimeStateHub,
+		changeyardApi: options.changeyardApi ?? null,
 		warn,
 		ensureTerminalManagerForWorkspace: workspaceRegistry.ensureTerminalManagerForWorkspace,
 		resolveInteractiveShellCommand,

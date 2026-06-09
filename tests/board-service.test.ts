@@ -53,3 +53,20 @@ test("board service includes started workspace metadata and verification", () =>
     cleanup(repo);
   }
 });
+
+test("board service surfaces planning summaries on planned changes", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "feature", title: "Board planned change", planning: "openspec-lite" }, repo);
+    const service = createChangeyardBoardService(repo);
+    const card = service.getCard("CY-0001");
+    assert.equal(card.planning?.model, "openspec-lite");
+    assert.equal(card.planning?.strictness, "normal");
+    assert.equal(card.planning?.phase, "draft");
+    assert.equal(card.planning?.gateSummary.pending, 5);
+    assert.equal(card.planning?.nextAction, "Complete pending planning gate: proposal");
+  } finally {
+    cleanup(repo);
+  }
+});

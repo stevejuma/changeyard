@@ -8,6 +8,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AddProjectDialog } from "@/components/add-project-dialog";
 import { notifyError, showAppToast } from "@/components/app-toaster";
 import { CardDetailView } from "@/components/card-detail-view";
+import { CreateChangeDialog } from "@/components/changeyard/create-change-dialog";
+import { ChangeDetailPlanningPanel } from "@/components/changeyard/change-detail-planning-panel";
+import { ChangeStrip } from "@/components/changeyard/change-strip";
 import { ClearTrashDialog } from "@/components/clear-trash-dialog";
 import { DebugDialog } from "@/components/debug-dialog";
 import { AgentTerminalPanel } from "@/components/detail-panels/agent-terminal-panel";
@@ -64,9 +67,15 @@ import {
 	selectLatestTaskChatMessageForTask,
 	selectTaskChatMessagesForTask,
 } from "@/runtime/native-agent";
-import type { RuntimeClineReasoningEffort, RuntimeTaskSessionSummary } from "@/runtime/types";
+import type {
+	RuntimeChangeyardPlanningSectionId,
+	RuntimeClineReasoningEffort,
+	RuntimeTaskSessionSummary,
+} from "@/runtime/types";
+import { getRuntimeTrpcClient, readTrpcConflictUpdatedAt } from "@/runtime/trpc-client";
 import { useRuntimeProjectConfig } from "@/runtime/use-runtime-project-config";
 import { useTerminalConnectionReady } from "@/runtime/use-terminal-connection-ready";
+import { useTrpcQuery } from "@/runtime/use-trpc-query";
 import { useWorkspacePersistence } from "@/runtime/use-workspace-persistence";
 import { saveWorkspaceState } from "@/runtime/workspace-state-query";
 import { applyTaskDetailClineSettingsChange, findCardSelection } from "@/state/board-state";
@@ -87,8 +96,13 @@ export default function App(): ReactElement {
 	const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 	const [settingsInitialSection, setSettingsInitialSection] = useState<RuntimeSettingsSection | null>(null);
 	const [homeSidebarSection, setHomeSidebarSection] = useState<"projects" | "agent">("projects");
+	const [isCreateChangeDialogOpen, setIsCreateChangeDialogOpen] = useState(false);
 	const [isClearTrashDialogOpen, setIsClearTrashDialogOpen] = useState(false);
 	const [isGitHistoryOpen, setIsGitHistoryOpen] = useState(false);
+	const [selectedChangeId, setSelectedChangeId] = useState<string | null>(null);
+	const [isChangeActionPending, setIsChangeActionPending] = useState(false);
+	const [changeActionError, setChangeActionError] = useState<string | null>(null);
+	const [savingPlanningSectionId, setSavingPlanningSectionId] = useState<RuntimeChangeyardPlanningSectionId | null>(null);
 	const [pendingTaskStartAfterEditId, setPendingTaskStartAfterEditId] = useState<string | null>(null);
 	const taskEditorResetRef = useRef<() => void>(() => {});
 	const lastStreamErrorRef = useRef<string | null>(null);
@@ -268,6 +282,24 @@ export default function App(): ReactElement {
 		isAwaitingWorkspaceSnapshot,
 		isWorkspaceMetadataPending,
 		hasReceivedSnapshot,
+	});
+	const {
+		data: changeyardChangesData,
+		isLoading: isChangeyardChangesLoading,
+		refetch: refetchChangeyardChanges,
+	} = useTrpcQuery({
+		enabled: currentProjectId !== null,
+		queryFn: async () => (await getRuntimeTrpcClient(currentProjectId).changes.list.query()).changes,
+	});
+	const changeyardChanges = changeyardChangesData ?? [];
+	const {
+		data: selectedChangeDetail,
+		refetch: refetchSelectedChangeDetail,
+		setData: setSelectedChangeDetail,
+	} = useTrpcQuery({
+		enabled: currentProjectId !== null && selectedChangeId !== null,
+		queryFn: async () => await getRuntimeTrpcClient(currentProjectId).changes.get.query({ id: selectedChangeId ?? "" }),
+		retainDataOnError: true,
 	});
 
 	useReviewReadyNotifications({
@@ -515,7 +547,11 @@ export default function App(): ReactElement {
 
 	useEffect(() => {
 		resetTaskEditorState();
+		setIsCreateChangeDialogOpen(false);
 		setIsClearTrashDialogOpen(false);
+		setSelectedChangeId(null);
+		setChangeActionError(null);
+		setSavingPlanningSectionId(null);
 		resetGitActionState();
 		resetProjectNavigationState();
 		resetTerminalPanelsState();
@@ -526,6 +562,145 @@ export default function App(): ReactElement {
 		resetTaskEditorState,
 		resetTerminalPanelsState,
 	]);
+
+	useEffect(() => {
+		if (!selectedChangeId) {
+			return;
+		}
+		if (changeyardChanges.some((change) => change.id === selectedChangeId)) {
+			return;
+		}
+		setSelectedChangeId(null);
+	}, [changeyardChanges, selectedChangeId]);
+
+	const handleCreateChange = useCallback(
+		async (input: {
+			template: "feature" | "bug" | "refactor" | "agent-task";
+			title: string;
+			priority?: string;
+			labels?: string[];
+			planning?: "none" | "openspec-lite";
+			strict?: boolean;
+		}) => {
+			if (!currentProjectId) {
+				return;
+			}
+			setIsChangeActionPending(true);
+			setChangeActionError(null);
+			try {
+				const created = await getRuntimeTrpcClient(currentProjectId).changes.create.mutate(input);
+				setSelectedChangeId(created.id);
+				setSelectedChangeDetail(created);
+				await refetchChangeyardChanges();
+				setIsCreateChangeDialogOpen(false);
+				showAppToast({
+					intent: "success",
+					icon: "tick",
+					message: `Created ${created.id}: ${created.title}`,
+					timeout: 4000,
+				});
+			} catch (error) {
+				setChangeActionError(error instanceof Error ? error.message : String(error));
+			} finally {
+				setIsChangeActionPending(false);
+			}
+		},
+		[currentProjectId, refetchChangeyardChanges, setSelectedChangeDetail],
+	);
+
+	const runChangeAction = useCallback(
+		async (action: "validate" | "sync" | "start", changeId: string) => {
+			if (!currentProjectId) {
+				return;
+			}
+			setIsChangeActionPending(true);
+			setChangeActionError(null);
+			try {
+				const client = getRuntimeTrpcClient(currentProjectId);
+				const nextDetail =
+					action === "validate"
+						? await client.changes.validate.mutate({ id: changeId })
+						: action === "sync"
+							? await client.changes.sync.mutate({ id: changeId })
+							: await client.changes.start.mutate({ id: changeId });
+				setSelectedChangeId(nextDetail.id);
+				setSelectedChangeDetail(nextDetail);
+				await refetchChangeyardChanges();
+				await refetchSelectedChangeDetail();
+				showAppToast({
+					intent: "success",
+					icon: "tick",
+					message:
+						action === "validate"
+							? `Validated ${nextDetail.id}`
+							: action === "sync"
+								? `Synced ${nextDetail.id}`
+								: `Started ${nextDetail.id}`,
+					timeout: 4000,
+				});
+			} catch (error) {
+				setChangeActionError(error instanceof Error ? error.message : String(error));
+			} finally {
+				setIsChangeActionPending(false);
+			}
+		},
+		[currentProjectId, refetchChangeyardChanges, refetchSelectedChangeDetail, setSelectedChangeDetail],
+	);
+
+	const handleSavePlanningSection = useCallback(
+		async (input: {
+			changeId: string;
+			sectionId: RuntimeChangeyardPlanningSectionId;
+			content: string;
+			expectedUpdatedAt?: string | null;
+		}) => {
+			if (!currentProjectId) {
+				return;
+			}
+			setIsChangeActionPending(true);
+			setSavingPlanningSectionId(input.sectionId);
+			setChangeActionError(null);
+			try {
+				const nextDetail = await getRuntimeTrpcClient(currentProjectId).changes.updatePlanningSection.mutate({
+					id: input.changeId,
+					sectionId: input.sectionId,
+					content: input.content,
+					expectedUpdatedAt: input.expectedUpdatedAt ?? null,
+				});
+				setSelectedChangeId(nextDetail.id);
+				setSelectedChangeDetail(nextDetail);
+				await refetchChangeyardChanges();
+				await refetchSelectedChangeDetail();
+				showAppToast({
+					intent: "success",
+					icon: "tick",
+					message: `Saved ${input.sectionId} for ${nextDetail.id}`,
+					timeout: 4000,
+				});
+			} catch (error) {
+				const conflictUpdatedAt = readTrpcConflictUpdatedAt(error);
+				if (conflictUpdatedAt !== null) {
+					setChangeActionError(
+						"Planning content changed elsewhere. Reloaded the latest section content; reapply your edit if still needed.",
+					);
+					await refetchChangeyardChanges();
+					await refetchSelectedChangeDetail();
+					showAppToast({
+						intent: "warning",
+						icon: "warning-sign",
+						message: `Planning content changed elsewhere at ${conflictUpdatedAt}. Latest content has been reloaded.`,
+						timeout: 5000,
+					});
+				} else {
+					setChangeActionError(error instanceof Error ? error.message : String(error));
+				}
+			} finally {
+				setSavingPlanningSectionId(null);
+				setIsChangeActionPending(false);
+			}
+		},
+		[currentProjectId, refetchChangeyardChanges, refetchSelectedChangeDetail, setSelectedChangeDetail],
+	);
 
 	useEffect(() => {
 		if (selectedCard) {
@@ -917,6 +1092,38 @@ export default function App(): ReactElement {
 								</div>
 							) : (
 								<div className="flex flex-1 flex-col min-h-0 min-w-0">
+									<ChangeStrip
+										changes={changeyardChanges}
+										selectedChangeId={selectedChangeId}
+										isLoading={isChangeyardChangesLoading}
+										onSelectChange={(changeId) => {
+											setChangeActionError(null);
+											setSelectedChangeId((current) => (current === changeId ? null : changeId));
+										}}
+										onCreateChange={() => {
+											setChangeActionError(null);
+											setIsCreateChangeDialogOpen(true);
+										}}
+									/>
+									<ChangeDetailPlanningPanel
+										change={selectedCard || !selectedChangeId ? null : selectedChangeDetail}
+										onClose={() => setSelectedChangeId(null)}
+										isActionPending={isChangeActionPending}
+										actionError={changeActionError}
+										onValidate={(changeId) => {
+											void runChangeAction("validate", changeId);
+										}}
+										onSync={(changeId) => {
+											void runChangeAction("sync", changeId);
+										}}
+										onStart={(changeId) => {
+											void runChangeAction("start", changeId);
+										}}
+										onSaveSection={(input) => {
+											void handleSavePlanningSection(input);
+										}}
+										savingSectionId={savingPlanningSectionId}
+									/>
 									<div className="flex flex-1 min-h-0 min-w-0">
 										{isGitHistoryOpen ? (
 											<GitHistoryView
@@ -1105,6 +1312,13 @@ export default function App(): ReactElement {
 					isResetAllStatePending={isResetAllStatePending}
 					onShowStartupOnboardingDialog={handleShowStartupOnboardingDialog}
 					onResetAllState={handleResetAllState}
+				/>
+				<CreateChangeDialog
+					open={isCreateChangeDialogOpen}
+					isPending={isChangeActionPending}
+					error={changeActionError}
+					onOpenChange={setIsCreateChangeDialogOpen}
+					onCreate={handleCreateChange}
 				/>
 				<TaskCreateDialog
 					open={isInlineTaskCreateOpen}

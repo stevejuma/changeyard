@@ -40,6 +40,7 @@ import { loadWorkspaceContextById } from "../state/workspace-state.js";
 import type { TerminalSessionManager } from "../terminal/session-manager.js";
 import { createTerminalWebSocketBridge } from "../terminal/ws-server.js";
 import { type RuntimeTrpcContext, type RuntimeTrpcWorkspaceScope, runtimeAppRouter } from "../trpc/app-router.js";
+import { createChangesApi, type RuntimeChangeyardApiAdapter } from "../trpc/changes-api.js";
 import { createHooksApi } from "../trpc/hooks-api.js";
 import { createProjectsApi } from "../trpc/projects-api.js";
 import { createRuntimeApi } from "../trpc/runtime-api.js";
@@ -57,6 +58,7 @@ interface DisposeTrackedWorkspaceResult {
 export interface CreateRuntimeServerDependencies {
 	workspaceRegistry: WorkspaceRegistry;
 	runtimeStateHub: RuntimeStateHub;
+	changeyardApi?: RuntimeChangeyardApiAdapter | null;
 	warn: (message: string) => void;
 	ensureTerminalManagerForWorkspace: (workspaceId: string, repoPath: string) => Promise<TerminalSessionManager>;
 	resolveInteractiveShellCommand: () => { binary: string; args: string[] };
@@ -246,6 +248,9 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				ensureTerminalManagerForWorkspace: deps.ensureTerminalManagerForWorkspace,
 				broadcastRuntimeWorkspaceStateUpdated: deps.runtimeStateHub.broadcastRuntimeWorkspaceStateUpdated,
 				broadcastTaskReadyForReview: deps.runtimeStateHub.broadcastTaskReadyForReview,
+			}),
+			changesApi: createChangesApi({
+				changeyardApi: deps.changeyardApi ?? null,
 			}),
 		};
 	};
