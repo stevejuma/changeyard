@@ -221,7 +221,7 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 			const systemMessage = createMessage(
 				taskId,
 				"system",
-				`Cline SDK ${context} failed: ${errorMessage}. You can send another message to continue the conversation.`,
+				`ChangeYard agent runtime ${context} failed: ${errorMessage}. You can send another message to continue the conversation.`,
 			);
 			entry.messages.push(systemMessage);
 			this.emitMessage(taskId, systemMessage);
@@ -269,7 +269,7 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 		}
 
 		if (isHomeAgentSessionId(input.taskId) && !this.sessionRuntime.canRestartTaskSession(input.taskId)) {
-			throw new Error(`No previous Cline session config is available for task ${input.taskId}.`);
+			throw new Error(`No previous ChangeYard agent session config is available for task ${input.taskId}.`);
 		}
 
 		const persistedSnapshot = await this.sessionRuntime.readPersistedTaskSession(input.taskId);

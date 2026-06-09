@@ -1,166 +1,118 @@
-# PENDING: Vendored Upstream App.tsx + Runtime Stack Cutover
+# PLAN: Native `packages/kanban` Migration
 
 Date: 2026-06-09
 
-## Goal
-Run the vendored upstream Kanban web UI (currently `packages/kanban/web-ui/src/App.tsx`) on a real upstream runtime surface:
-- upstream tRPC router (`/api/trpc`)
-- upstream websocket/runtime bus (`/api/runtime/ws`, `/api/terminal/io`, `/api/terminal/control`)
-- upstream passcode flow (`/api/passcode/status`, `/api/passcode/verify`)
-- Changeyard-backed persistence and project/workspace management.
+## Objective
 
-This PENDING file is the execution plan and live checklist.
+Make `packages/kanban` the canonical ChangeYard kanban package instead of treating `packages/kanban/upstream/cline-kanban` as an active upstream package. Finish the visible ChangeYard rebrand, then collapse the remaining Git-centric runtime flows onto ChangeYard's WorkspaceEngine model so the UI and runtime behave consistently for both Git and JJ repositories.
 
----
+## Current State
 
-## Track
-- [ ] not started
-- [x] done
+- `packages/kanban` is already the active build and runtime package.
+- The vendored upstream tree has been removed; provenance now lives in docs plus the copied upstream license.
+- Visible UI branding has been partly reworked to `ChangeYard`, but some runtime-facing messages still say `Cline`.
+- Root ChangeYard already has a real `WorkspaceEngine` abstraction in `src/workspace/`.
+- `packages/kanban` still carries its own runtime-specific Git/JJ workspace orchestration in:
+  - `packages/kanban/src/server/index.js`
+  - `packages/kanban/src/runtime-stack/workspace/task-worktree.ts`
+  - `packages/kanban/src/runtime-stack/workspace/git-sync.ts`
+  - `packages/kanban/src/runtime-stack/workspace/get-workspace-changes.ts`
+  - `packages/kanban/src/runtime-stack/workspace/git-history.ts`
+- JJ detection and some JJ task-workspace handling already exist in the runtime, but the API surface is still Git-shaped and not yet driven by a shared WorkspaceEngine bridge.
 
----
+## Design Direction
 
-## 0) Baseline checks (do these before code edits)
+1. `packages/kanban` remains the only active package.
+2. Upstream provenance lives as documentation and license material, not as a second active source tree.
+3. Product branding shown to users becomes `ChangeYard`.
+4. Compatibility identifiers that are part of the SDK/runtime contract stay in place for now:
+   - `agentId: "cline"`
+   - `@clinebot/*`
+   - `cline-sdk`
+   - `.cline` runtime storage paths until a storage migration is intentionally designed
+5. Runtime workspace lifecycle should be driven by a shared bridge to ChangeYard's `WorkspaceEngine`, not by parallel Git/JJ implementations that drift apart.
 
-- [ ] Verify upstream UI contract in this branch:
-  - [ ] `web-ui/src/main.tsx` renders `App` from `web-ui/src/App.tsx` and contains the Passcode gate/telemetry/error-boundary providers.
-  - [ ] `web-ui/src/runtime/trpc-client.ts` still points to `/api/trpc` with `x-kanban-workspace-id`.
-  - [ ] `web-ui/src/runtime/use-runtime-state-stream.ts` still points to `/api/runtime/ws`.
-  - [ ] `web-ui/src/terminal/persistent-terminal-manager.ts` still points to `/api/terminal/io` and `/api/terminal/control`.
-  - [ ] no `custom` legacy fetch path is used by the App path except compatibility features.
-- [ ] Snapshot legacy endpoints currently still handled by `packages/kanban/src/server/index.js`:
-  - [ ] `/api/board`
-  - [ ] `/api/cards*`
-  - `/api/events`
-  - [ ] `/api/trpc` currently returns `RUNTIME_STACK_NOT_YET_IMPLEMENTED`.
-- [ ] Inspect upstream server composition entrypoint for reuse in this repo:
-  - [ ] `packages/kanban/upstream/cline-kanban/src/cli.ts` (server-start orchestration)
-  - [ ] `packages/kanban/upstream/cline-kanban/src/server/runtime-server.ts`
-  - [ ] `packages/kanban/upstream/cline-kanban/src/server/runtime-state-hub.ts`
-  - [ ] `packages/kanban/upstream/cline-kanban/src/server/workspace-registry.ts`.
+## Workstreams
 
----
+### 1) Package ownership and layout cleanup
 
-## 1) Rewrite `packages/kanban/src/server/index.js` to use upstream runtime host
+- Audit any remaining references to the removed vendored tree in active code, docs, scripts, and planning files.
+- Move any still-needed assets, docs, or reference snippets under native `packages/kanban` locations.
+- Replace stale vendored-snapshot language in:
+  - `packages/kanban/README.md`
+  - `docs/kanban-integration.md`
+  - `docs/kanban-upstream.md`
+  - `.runtime-baseline.md`
+  - `PLAN.md`
+  - `PENDING.md`
+- Keep the provenance note with upstream repo + pinned commit as the remaining record of origin.
 
-- [ ] Replace custom REST handlers in `packages/kanban/src/server/index.js`:
-  - [ ] remove Changeyard board service path (`createChangeyardBoardService` and `/api/board*`)
-  - [ ] remove file-watch invalidation SSE (`/api/events`) if no longer needed
-  - [ ] remove stub `/api/trpc` response.
-- [ ] Lift runtime-startup flow from upstream:
-  - [ ] import and call `createWorkspaceRegistry`
-  - [ ] import and call `createRuntimeStateHub`
-  - [ ] import and call `createRuntimeServer`
-  - [ ] preserve `options.open` browser launch and existing return contract (`url`, `close`).
-- [ ] Implement dependency surface for `createRuntimeServer` in this package:
-  - [ ] `resolveProjectInputPath`
-  - [ ] `pickDirectoryPathFromSystemDialog`
-  - [ ] `resolveInteractiveShellCommand`
-  - [ ] `runCommand`
-  - [ ] `assertPathIsDirectory` / `hasGitRepository`
-  - [ ] `disposeWorkspace` integration with terminal-manager cleanup
-  - [ ] `collectProjectWorktreeTaskIdsForRemoval`
-  - [ ] `getUpdateStatus` and `runUpdateNow`.
-- [ ] Ensure server lifecycle:
-  - [ ] `close()` and CLI shutdown route call runtime `shutdown` path
-  - [ ] terminal managers and runtime state hub are disposed cleanly.
-- [ ] Keep `/api/health` in place for compatibility.
+### 2) Visible ChangeYard rebrand
 
----
+- Finish the audit of user-facing strings in active UI and runtime responses.
+- Update runtime-facing messages that still expose product branding as `Cline`, especially in:
+  - `packages/kanban/src/runtime-stack/cline-sdk/cline-session-runtime.ts`
+  - `packages/kanban/src/runtime-stack/cline-sdk/cline-task-session-service.ts`
+- Keep internal type names and compatibility symbols unless changing them is required for behavior.
+- Update tests that assert visible copy so they match the new branding.
+- Re-run a manual shell smoke of `npm run cli ui` and check the rendered UI, manifest, and runtime dialogs for leftover visible `Cline` branding.
 
-## 2) Add/adjust Changeyard adapter layer for runtime expectations
+### 3) Shared WorkspaceEngine bridge
 
-- [ ] Create explicit Changeyard adapters (or confirm already copied versions) to decouple runtime assumptions from raw Changeyard internals:
-  - [ ] project registry adapter (`load/sync projects`, `create/remove project` semantics, stable IDs)
-  - [ ] workspace state adapter (board/state/session persistence mapping)
-  - [ ] runtime config adapter (`loadGlobalRuntimeConfig`, `loadRuntimeConfig`, `saveRuntimeConfig`)
-  - [ ] terminal adapter (command execution hooks, session bootstrap/cleanup).
-- [ ] Wire adapters into runtime entrypoint glue:
-  - [ ] `runtime-stack/server/workspace-registry.ts`
-  - [ ] `runtime-stack/state/workspace-state.ts` if runtime persistence path differs from Changeyard source
-  - [ ] `runtime-stack/trpc/*-api.ts` implementations as needed.
-- [ ] Decide and document source-of-truth policy:
-  - [ ] existing `.changeyard`/repo-based state continues as canonical task/workspace truth
-  - [ ] runtime board/session writes are translated into this canonical store without duplicate IDs.
-- [ ] Create a migration note for any transitional legacy API behavior in `PENDING.md` or `docs/`.
+- Define a bridge module that makes the root `src/workspace/` engines consumable from `packages/kanban` runtime code.
+- Export the bridge from the root package so kanban runtime code does not reimplement repository/workspace lifecycle rules.
+- Resolve the interface mismatch explicitly:
+  - root `WorkspaceEngine` APIs are synchronous and CLI-oriented
+  - kanban runtime flows are async and need richer runtime responses
+- Introduce an adapter layer that maps runtime operations onto WorkspaceEngine concepts:
+  - detect workspace engine
+  - create task workspace
+  - verify task workspace
+  - publish/push workspace state where applicable
+  - describe unsupported operations cleanly per engine
 
----
+### 4) Replace Git-centric runtime workflow with WorkspaceEngine-backed behavior
 
-## 3) Build and packaging wiring for runtime stack output
+- Replace duplicate repository detection in `packages/kanban/src/server/index.js` with the shared bridge.
+- Refactor task workspace lifecycle in `packages/kanban/src/runtime-stack/workspace/task-worktree.ts` so creation, verification, and disposal align with WorkspaceEngine behavior.
+- Review whether task workspace naming and base-ref handling need a small runtime-specific wrapper on top of `WorkspaceEngine`.
+- Move workspace-summary and sync behavior toward a VCS-neutral model:
+  - `packages/kanban/src/runtime-stack/workspace/git-sync.ts`
+  - `packages/kanban/src/runtime-stack/trpc/workspace-api.ts`
+- Address the remaining Git-only read surfaces so JJ support is real in the UI, not only accepted at project load time:
+  - `packages/kanban/src/runtime-stack/workspace/get-workspace-changes.ts`
+  - `packages/kanban/src/runtime-stack/workspace/git-history.ts`
+- Preserve explicit unsupported responses where a Git operation has no JJ equivalent yet, instead of silently failing or pretending parity.
 
-- [ ] Fix `packages/kanban/scripts/build.mjs` ordering:
-  - [ ] stop deleting `dist/runtime-stack` after `runtime:build`.
-  - [ ] copy `dist/runtime-stack/**` into final package output after `runtime:build` or preserve both `dist/src` and `dist/runtime-stack`.
-  - [ ] keep web UI assets path matching `runtime-server`/`server/index`.
-- [ ] Validate package entrypoints still resolve to compiled files:
-  - [ ] `packages/kanban/package.json` `main` and `exports`
-  - [ ] `dist/server/index.js` imports runtime modules by working relative paths.
-- [ ] Add/adjust scripts so repeated builds are deterministic:
-  - [ ] `build` runs `runtime:build` and does not wipe runtime runtime artifacts.
-  - [ ] optional: `runtime:check` target to run `runtime:typecheck` and fail fast before full build.
+### 5) Verification and deletion gate
 
----
+- Command verification:
+  - `npm --workspace @changeyard/kanban run typecheck`
+  - `npm --workspace @changeyard/kanban run build`
+  - `npm run build:cli`
+- Runtime smoke:
+  - `npm run cli ui`
+  - Git-backed project loads and workspace actions still work
+  - JJ-backed project loads and task workspace actions still work
+  - rendered UI shows `ChangeYard` product branding
+- Deletion gate before removing `packages/kanban/upstream/cline-kanban`:
+  - no active imports or docs rely on it
+  - no build step reads from it
+  - provenance note exists elsewhere
 
-## 4) Runtime compile/type hardening
+## Implementation Order
 
-- [ ] Run `npm run --workspace @changeyard/kanban run runtime:typecheck` and resolve all errors in vendored files:
-  - [ ] convert extensionless internal runtime imports to NodeNext-compatible form where needed.
-  - [ ] remove/replace implicit `any` hotspots introduced by the vendoring pass.
-  - [ ] reconcile any package API mismatch with installed `@clinebot/*` versions.
-  - [ ] ensure JSON imports (e.g. package metadata) are typed correctly for this package context.
-- [ ] Add minimal typing helpers where needed instead of `any` shortcuts.
-- [ ] Run `npm run --workspace @changeyard/kanban run runtime:build` and confirm `dist/runtime-stack` emits.
-- [ ] Update/remove local `.d.ts` patches only if unavoidable (document why).
+1. Rewrite planning/docs so the migration target is unambiguous.
+2. Finish the visible rebrand in active runtime/UI copy.
+3. Add the shared WorkspaceEngine bridge and export surface.
+4. Move task workspace lifecycle and runtime repo detection onto that bridge.
+5. Refactor Git-only history/diff/sync paths into a VCS-aware runtime layer.
+6. Finish the remaining runtime and branding cleanup now that the active package is self-contained.
 
----
+## Exit Criteria
 
-## 5) Endpoint parity and behavior verification
-
-- [ ] `/api/trpc` must return real router responses for procedures used by App:
-  - [ ] projects API
-  - [ ] workspace API
-  - [ ] runtime API
-  - [ ] hooks API.
-- [ ] `/api/runtime/ws`:
-  - [ ] open stream successfully
-  - [ ] receives runtime state updates
-  - [ ] works under remote-mode with passcode enforcement.
-- [ ] `/api/terminal/io` and `/api/terminal/control`:
-  - [ ] websocket upgrade works
-  - [ ] terminal manager attached to workspace
-  - [ ] sessions can be created/closed.
-- [ ] Passcode endpoints:
-  - [ ] `/api/passcode/status` returns enabled mode and session state.
-  - [ ] `/api/passcode/verify` accepts valid token and rejects invalid.
-- [ ] Optional cleanup routes:
-  - [ ] keep legacy `/api/board*` only if App still depends during migration
-  - [ ] add explicit removal criteria and date before deletion.
-
----
-
-## 6) Integration smoke + manual UI validation
-
-- [ ] Add/run command-level checks in a temporary script or test:
-  - [ ] `npm run --workspace @changeyard/kanban run runtime:typecheck`
-  - [ ] `npm run --workspace @changeyard/kanban run runtime:build`
-  - [ ] `npm run --workspace @changeyard/kanban run build`
-  - [ ] `npm run --workspace @changeyard/kanban run cli ui`
-  - [ ] verify `/api/trpc` no longer returns `RUNTIME_STACK_NOT_YET_IMPLEMENTED`.
-- [ ] Add one smoke test per transport path:
-  - [ ] project switch + task create/open path
-  - [ ] runtime state stream updates
-  - [ ] terminal bridge opens, receives, sends input
-  - [ ] review-ready/hook-update notifications appear in UI.
-- [ ] Update docs:
-  - [ ] `docs/release-notes.md` with runtime-stack landing note
-  - [ ] `docs/live-forge-smoke.md` or a new runtime smoke checklist file with current commands.
-
----
-
-## 7) Completion criteria (must all be true)
-
-- [ ] `packages/kanban/src/server/index.js` is not serving legacy `/api/cards*` or `/api/board` by default.
-- [ ] `npm run cli ui` opens upstream UI behavior in this repo (not legacy board-mode behavior).
-- [ ] `/api/trpc`, `/api/runtime/ws`, `/api/terminal/io`, `/api/terminal/control` all respond with upstream protocol.
-- [ ] Passcode gate works in remote host mode through `/api/passcode/status` and `/api/passcode/verify`.
-- [ ] Runtime state and config are persisted via Changeyard-backed sources, not separate, disconnected state roots.
-- [ ] PENDING entry is updated after each milestone so progress is visible.
+- `packages/kanban` is clearly the only active kanban package.
+- User-visible branding says `ChangeYard`.
+- The runtime no longer carries separate ad hoc Git/JJ workspace lifecycle logic when the root WorkspaceEngine can own it.
+- JJ support works through the same runtime workflow model as Git where the feature maps cleanly.
+- Upstream provenance is recorded without treating upstream source as a second package root.

@@ -1,4 +1,4 @@
-// Layout component for the native Cline chat panel.
+// Layout component for the native ChangeYard chat panel.
 // Rendering lives here, while session state and action wiring come from the
 // controller hook so multiple surfaces can share the same behavior.
 
@@ -46,7 +46,7 @@ const ClineCreditLimitNotice = React.memo(function ClineCreditLimitNotice() {
 		<div className="mx-1 flex items-start gap-2 rounded-md border border-status-orange/40 bg-status-orange/10 px-3 py-2 text-xs text-status-orange">
 			<AlertTriangle size={14} className="mt-0.5 shrink-0" />
 			<p className="m-0 min-w-0">
-				Out of Cline credits.{" "}
+				Out of ChangeYard credits.{" "}
 				<Link href={CLINE_BUY_CREDITS_URL} external>
 					Buy more credits
 				</Link>{" "}
@@ -105,7 +105,7 @@ export const ClineAgentChatPanel = React.forwardRef<ClineAgentChatPanelHandle, C
 			summary,
 			taskColumnId = "in_progress",
 			defaultMode = "act",
-			composerPlaceholder = "Ask Cline to add, edit, start, or link tasks",
+			composerPlaceholder = "Ask ChangeYard to add, edit, start, or link tasks",
 			showComposerModeToggle = true,
 			workspaceId = null,
 			runtimeConfig = null,
@@ -219,7 +219,7 @@ export const ClineAgentChatPanel = React.forwardRef<ClineAgentChatPanelHandle, C
 		const panelError = composerError ?? error;
 		const attachmentWarningMessage =
 			draftImages.length > 0 && selectedModel?.supportsVision === false
-				? "The selected Cline model may not accept image input. Choose a vision-capable model to use these images."
+				? "The selected ChangeYard model may not accept image input. Choose a vision-capable model to use these images."
 				: null;
 
 		const isPinnedToBottom = useCallback((container: HTMLDivElement): boolean => {
@@ -285,11 +285,11 @@ export const ClineAgentChatPanel = React.forwardRef<ClineAgentChatPanelHandle, C
 		const persistClineModelSettings = useCallback(
 			async (overrides?: PersistClineModelSettingsOverrides): Promise<boolean> => {
 				if (!workspaceId) {
-					setComposerError("Select a workspace before choosing a Cline model.");
+					setComposerError("Select a workspace before choosing a ChangeYard model.");
 					return false;
 				}
 				if (clineSettings.providerId.trim().length === 0) {
-					setComposerError("Choose a Cline provider in Settings before selecting a model.");
+					setComposerError("Choose a ChangeYard provider in Settings before selecting a model.");
 					return false;
 				}
 				setComposerError(null);
@@ -313,7 +313,7 @@ export const ClineAgentChatPanel = React.forwardRef<ClineAgentChatPanelHandle, C
 						reasoningEffort: nextReasoningEffort || null,
 					});
 					if (!result.ok) {
-						setComposerError(result.message ?? "Could not save Cline model settings.");
+						setComposerError(result.message ?? "Could not save ChangeYard model settings.");
 						return false;
 					}
 					onClineSettingsSaved?.();

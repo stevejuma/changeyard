@@ -9,6 +9,7 @@ import type {
 	RuntimeGitSyncSummary,
 } from "../core/api-contract.js";
 import { runGit } from "./git-utils.js";
+import { getJjCurrentBookmark, getJjStdout, runJj } from "./jj-utils.js";
 
 interface GitPathFingerprint {
 	path: string;
@@ -18,6 +19,7 @@ interface GitPathFingerprint {
 }
 
 export interface GitWorkspaceProbe {
+	engine: "git" | "jj";
 	repoRoot: string;
 	headCommit: string | null;
 	currentBranch: string | null;
@@ -110,7 +112,73 @@ function parseStatusPath(line: string): string | null {
 	return tokens[tokens.length - 1] ?? null;
 }
 
-export async function probeGitWorkspaceState(cwd: string): Promise<GitWorkspaceProbe> {
+export async function detectWorkspaceEngine(cwd: string): Promise<"git" | "jj"> {
+	const jjRoot = await getJjStdout(["workspace", "root"], cwd).catch(() => null);
+	if (jjRoot) {
+		return "jj";
+	}
+	return "git";
+}
+
+function parseJjSummaryPaths(output: string): string[] {
+	return output
+		.split("\n")
+		.map((line) => line.trim())
+		.filter(Boolean)
+		.map((line) => line.replace(/^[A-Z]\s+/, "").trim())
+		.filter(Boolean);
+}
+
+function parseJjDiffStatTotals(output: string): { additions: number; deletions: number } {
+	const summaryLine = output
+		.split("\n")
+		.map((line) => line.trim())
+		.reverse()
+		.find((line) => /files? changed/.test(line));
+	if (!summaryLine) {
+		return { additions: 0, deletions: 0 };
+	}
+	const additionsMatch = summaryLine.match(/(\d+)\s+insertions?\(\+\)/);
+	const deletionsMatch = summaryLine.match(/(\d+)\s+deletions?\(-\)/);
+	return {
+		additions: additionsMatch ? Number.parseInt(additionsMatch[1] ?? "", 10) || 0 : 0,
+		deletions: deletionsMatch ? Number.parseInt(deletionsMatch[1] ?? "", 10) || 0 : 0,
+	};
+}
+
+async function probeJjWorkspaceState(cwd: string): Promise<GitWorkspaceProbe> {
+	const repoRoot = await getJjStdout(["workspace", "root"], cwd);
+	const [summaryOutput, diffStatOutput, headCommit, currentBranch] = await Promise.all([
+		getJjStdout(["diff", "--summary"], repoRoot).catch(() => ""),
+		getJjStdout(["diff", "--stat"], repoRoot).catch(() => ""),
+		getJjStdout(["log", "-r", "@", "--no-graph", "-T", "commit_id"], repoRoot).catch(() => null),
+		getJjCurrentBookmark(repoRoot),
+	]);
+	const changedPaths = parseJjSummaryPaths(summaryOutput);
+	const fingerprints = await buildPathFingerprints(repoRoot, changedPaths);
+	return {
+		engine: "jj",
+		repoRoot,
+		headCommit,
+		currentBranch,
+		upstreamBranch: null,
+		aheadCount: 0,
+		behindCount: 0,
+		changedFiles: changedPaths.length,
+		untrackedPaths: [],
+		stateToken: [
+			"jj",
+			repoRoot,
+			headCommit ?? "no-head",
+			currentBranch ?? "no-bookmark",
+			summaryOutput,
+			diffStatOutput,
+			buildFingerprintToken(fingerprints),
+		].join("\n--\n"),
+	};
+}
+
+async function probeGitWorkspaceStateInternal(cwd: string): Promise<GitWorkspaceProbe> {
 	const repoRoot = await resolveRepoRoot(cwd);
 	const [statusResult, headCommitResult] = await Promise.all([
 		runGit(repoRoot, ["status", "--porcelain=v2", "--branch", "--untracked-files=all"]),
@@ -178,6 +246,7 @@ export async function probeGitWorkspaceState(cwd: string): Promise<GitWorkspaceP
 	const fingerprints = await buildPathFingerprints(repoRoot, fingerprintPaths);
 
 	return {
+		engine: "git",
 		repoRoot,
 		headCommit,
 		currentBranch,
@@ -187,6 +256,7 @@ export async function probeGitWorkspaceState(cwd: string): Promise<GitWorkspaceP
 		changedFiles,
 		untrackedPaths,
 		stateToken: [
+			"git",
 			repoRoot,
 			headCommit ?? "no-head",
 			currentBranch ?? "detached",
@@ -197,6 +267,11 @@ export async function probeGitWorkspaceState(cwd: string): Promise<GitWorkspaceP
 			buildFingerprintToken(fingerprints),
 		].join("\n--\n"),
 	};
+}
+
+export async function probeGitWorkspaceState(cwd: string): Promise<GitWorkspaceProbe> {
+	const engine = await detectWorkspaceEngine(cwd);
+	return engine === "jj" ? await probeJjWorkspaceState(cwd) : await probeGitWorkspaceStateInternal(cwd);
 }
 
 async function resolveRepoRoot(cwd: string): Promise<string> {
@@ -231,6 +306,19 @@ export async function getGitSyncSummary(
 	options?: { probe?: GitWorkspaceProbe },
 ): Promise<RuntimeGitSyncSummary> {
 	const probe = options?.probe ?? (await probeGitWorkspaceState(cwd));
+	if (probe.engine === "jj") {
+		const diffStatOutput = await getJjStdout(["diff", "--stat"], probe.repoRoot).catch(() => "");
+		const totals = parseJjDiffStatTotals(diffStatOutput);
+		return {
+			currentBranch: probe.currentBranch,
+			upstreamBranch: probe.upstreamBranch,
+			changedFiles: probe.changedFiles,
+			additions: totals.additions,
+			deletions: totals.deletions,
+			aheadCount: 0,
+			behindCount: 0,
+		};
+	}
 	const diffResult = await runGit(probe.repoRoot, ["diff", "--numstat", "HEAD", "--"]);
 	const trackedTotals = diffResult.ok ? parseNumstatTotals(diffResult.stdout) : { additions: 0, deletions: 0 };
 	const untrackedAdditions = await countUntrackedAdditions(probe.repoRoot, probe.untrackedPaths);
@@ -250,6 +338,51 @@ export async function runGitSyncAction(options: {
 	cwd: string;
 	action: RuntimeGitSyncAction;
 }): Promise<RuntimeGitSyncResponse> {
+	const engine = await detectWorkspaceEngine(options.cwd);
+	if (engine === "jj") {
+		const initialSummary = await getGitSyncSummary(options.cwd);
+		const currentBranch = initialSummary.currentBranch?.trim() || "";
+		if (options.action === "pull") {
+			return {
+				ok: false,
+				action: options.action,
+				summary: initialSummary,
+				output: "",
+				error:
+					"Pull is not available for JJ workspaces in ChangeYard Kanban yet. Fetch in the UI, then rebase or merge from the command line.",
+			};
+		}
+		const commandResult =
+			options.action === "fetch"
+				? await runJj(options.cwd, ["git", "fetch"])
+				: currentBranch
+					? await runJj(options.cwd, ["git", "push", "--bookmark", currentBranch])
+					: {
+							ok: false,
+							stdout: "",
+							stderr: "",
+							output: "",
+							error:
+								"Push is only available for JJ workspaces that already have a bookmark. Create or select a bookmark first, then push again.",
+							exitCode: 1,
+						};
+		const nextSummary = await getGitSyncSummary(options.cwd);
+		if (!commandResult.ok) {
+			return {
+				ok: false,
+				action: options.action,
+				summary: nextSummary,
+				output: commandResult.output,
+				error: commandResult.error ?? "JJ command failed.",
+			};
+		}
+		return {
+			ok: true,
+			action: options.action,
+			summary: nextSummary,
+			output: commandResult.output,
+		};
+	}
 	const initialSummary = await getGitSyncSummary(options.cwd);
 
 	if (options.action === "pull" && initialSummary.changedFiles > 0) {
@@ -292,6 +425,18 @@ export async function runGitCheckoutAction(options: {
 	cwd: string;
 	branch: string;
 }): Promise<RuntimeGitCheckoutResponse> {
+	const engine = await detectWorkspaceEngine(options.cwd);
+	if (engine === "jj") {
+		const summary = await getGitSyncSummary(options.cwd);
+		return {
+			ok: false,
+			branch: options.branch.trim(),
+			summary,
+			output: "",
+			error:
+				"Branch switching is not available for JJ workspaces in ChangeYard Kanban yet. Open the target workspace or bookmark from the command line instead.",
+		};
+	}
 	const requestedBranch = options.branch.trim();
 	const initialSummary = await getGitSyncSummary(options.cwd);
 
@@ -343,6 +488,17 @@ export async function runGitCheckoutAction(options: {
 }
 
 export async function discardGitChanges(options: { cwd: string }): Promise<RuntimeGitDiscardResponse> {
+	const engine = await detectWorkspaceEngine(options.cwd);
+	if (engine === "jj") {
+		const summary = await getGitSyncSummary(options.cwd);
+		return {
+			ok: false,
+			summary,
+			output: "",
+			error:
+				"Discard all changes is not available for JJ workspaces in ChangeYard Kanban yet. Use jj restore or jj abandon from the command line instead.",
+		};
+	}
 	const repoRoot = await resolveRepoRoot(options.cwd);
 	const initialSummary = await getGitSyncSummary(repoRoot);
 

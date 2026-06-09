@@ -90,7 +90,7 @@ function createRuntimeConfig(overrides: Partial<RuntimeConfigResponse> = {}): Ru
 			},
 			{
 				id: "cline",
-				label: "Cline",
+				label: "ChangeYard",
 				binary: "cline",
 				command: "cline",
 				defaultArgs: [],
@@ -124,6 +124,7 @@ function createLegacyRuntimeConfig(overrides: Partial<RuntimeConfigResponse> = {
 }
 
 const DEFAULT_WORKSPACE_GIT: RuntimeGitRepositoryInfo = {
+	engine: "git",
 	currentBranch: "main",
 	defaultBranch: "main",
 	branches: ["main"],

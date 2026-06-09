@@ -438,8 +438,45 @@ function runGitCapture(cwd: string, args: string[]): string | null {
 	return value.length > 0 ? value : null;
 }
 
+function runJjCapture(cwd: string, args: string[]): string | null {
+	const result = spawnSync("jj", args, {
+		cwd,
+		encoding: "utf8",
+		stdio: ["ignore", "pipe", "ignore"],
+	});
+	if (result.status !== 0 || typeof result.stdout !== "string") {
+		return null;
+	}
+	const value = result.stdout.trim();
+	return value.length > 0 ? value : null;
+}
+
 function detectGitRoot(cwd: string): string | null {
 	return runGitCapture(cwd, ["rev-parse", "--show-toplevel"]);
+}
+
+function detectJjRoot(cwd: string): string | null {
+	return runJjCapture(cwd, ["workspace", "root"]);
+}
+
+function detectRepositoryRoot(cwd: string): { engine: "git" | "jj"; repoRoot: string } | null {
+	const jjRoot = detectJjRoot(cwd);
+	if (jjRoot) {
+		return {
+			engine: "jj",
+			repoRoot: jjRoot,
+		};
+	}
+
+	const gitRoot = detectGitRoot(cwd);
+	if (gitRoot) {
+		return {
+			engine: "git",
+			repoRoot: gitRoot,
+		};
+	}
+
+	return null;
 }
 
 function detectGitCurrentBranch(repoPath: string): string | null {
@@ -482,6 +519,55 @@ function detectGitDefaultBranch(repoPath: string, branches: string[]): string | 
 	return branches[0] ?? null;
 }
 
+function parseJjBookmarkName(line: string): string | null {
+	const trimmed = line.trim();
+	if (!trimmed) {
+		return null;
+	}
+	const match = /^([^\s:][^:]*)\s*:/.exec(trimmed);
+	return match?.[1]?.trim() || null;
+}
+
+function detectJjBranches(repoPath: string): string[] {
+	const output = runJjCapture(repoPath, ["bookmark", "list"]);
+	if (!output) {
+		return [];
+	}
+
+	const unique = new Set<string>();
+	for (const line of output.split("\n")) {
+		const name = parseJjBookmarkName(line);
+		if (name) {
+			unique.add(name);
+		}
+	}
+
+	return Array.from(unique).sort((left, right) => left.localeCompare(right));
+}
+
+function detectJjDefaultBranch(branches: string[]): string | null {
+	if (branches.includes("main")) {
+		return "main";
+	}
+	if (branches.includes("master")) {
+		return "master";
+	}
+	return branches[0] ?? null;
+}
+
+function detectJjCurrentBranch(repoPath: string, branches: string[]): string | null {
+	const currentBookmarks = runJjCapture(repoPath, ["bookmark", "list", "-r", "@"]);
+	if (currentBookmarks) {
+		for (const line of currentBookmarks.split("\n")) {
+			const name = parseJjBookmarkName(line);
+			if (name) {
+				return name;
+			}
+		}
+	}
+	return branches[0] ?? null;
+}
+
 function detectGitRepositoryInfo(repoPath: string): RuntimeGitRepositoryInfo {
 	const gitRoot = detectGitRoot(repoPath);
 	if (!gitRoot) {
@@ -494,10 +580,38 @@ function detectGitRepositoryInfo(repoPath: string): RuntimeGitRepositoryInfo {
 	const defaultBranch = detectGitDefaultBranch(repoPath, orderedBranches);
 
 	return {
+		engine: "git",
 		currentBranch,
 		defaultBranch,
 		branches: orderedBranches,
 	};
+}
+
+function detectJjRepositoryInfo(repoPath: string): RuntimeGitRepositoryInfo {
+	const jjRoot = detectJjRoot(repoPath);
+	if (!jjRoot) {
+		throw new Error(`No JJ repository detected at ${repoPath}`);
+	}
+
+	const branches = detectJjBranches(repoPath);
+	const currentBranch = detectJjCurrentBranch(repoPath, branches);
+	const orderedBranches = currentBranch && !branches.includes(currentBranch) ? [currentBranch, ...branches] : branches;
+	const defaultBranch = detectJjDefaultBranch(orderedBranches);
+
+	return {
+		engine: "jj",
+		currentBranch,
+		defaultBranch,
+		branches: orderedBranches,
+	};
+}
+
+function detectRepositoryInfo(repoPath: string): RuntimeGitRepositoryInfo {
+	const repository = detectRepositoryRoot(repoPath);
+	if (!repository) {
+		throw new Error(`No Git or JJ repository detected at ${repoPath}`);
+	}
+	return repository.engine === "jj" ? detectJjRepositoryInfo(repoPath) : detectGitRepositoryInfo(repoPath);
 }
 
 async function resolveWorkspacePath(cwd: string): Promise<string> {
@@ -509,16 +623,16 @@ async function resolveWorkspacePath(cwd: string): Promise<string> {
 		canonicalCwd = resolvedCwd;
 	}
 
-	const gitRoot = detectGitRoot(canonicalCwd);
-	if (!gitRoot) {
-		throw new Error(`No git repository detected at ${canonicalCwd}`);
+	const repository = detectRepositoryRoot(canonicalCwd);
+	if (!repository) {
+		throw new Error(`No Git or JJ repository detected at ${canonicalCwd}`);
 	}
 
-	const resolvedGitRoot = resolve(gitRoot);
+	const resolvedRepoRoot = resolve(repository.repoRoot);
 	try {
-		return await realpath(resolvedGitRoot);
+		return await realpath(resolvedRepoRoot);
 	} catch {
-		return resolvedGitRoot;
+		return resolvedRepoRoot;
 	}
 }
 
@@ -564,7 +678,7 @@ export async function loadWorkspaceContext(
 			repoPath,
 			workspaceId: existingEntry.workspaceId,
 			statePath: getWorkspaceDirectoryPath(existingEntry.workspaceId),
-			git: detectGitRepositoryInfo(repoPath),
+			git: detectRepositoryInfo(repoPath),
 		};
 	}
 
@@ -583,7 +697,7 @@ export async function loadWorkspaceContext(
 			repoPath,
 			workspaceId: ensured.entry.workspaceId,
 			statePath: getWorkspaceDirectoryPath(ensured.entry.workspaceId),
-			git: detectGitRepositoryInfo(repoPath),
+			git: detectRepositoryInfo(repoPath),
 		};
 	});
 }

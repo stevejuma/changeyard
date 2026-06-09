@@ -147,7 +147,7 @@ export function GitRefsPanel({
 						color: "var(--color-text-primary)",
 					}}
 				>
-					Git History
+					Repository History
 				</span>
 				<Tooltip
 					content={
@@ -161,7 +161,7 @@ export function GitRefsPanel({
 					}
 					side="bottom"
 				>
-					<Button variant="ghost" size="sm" icon={<Info size={14} />} aria-label="Git history help" />
+					<Button variant="ghost" size="sm" icon={<Info size={14} />} aria-label="Repository history help" />
 				</Tooltip>
 			</div>
 			<div style={{ overflowY: "auto", overscrollBehavior: "contain", padding: "8px 6px" }}>

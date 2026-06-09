@@ -288,7 +288,7 @@ export class InMemoryClineSessionRuntime implements ClineSessionRuntime {
 	}): Promise<StartClineSessionRuntimeResult> {
 		const lastStartRequest = this.lastStartRequestByTaskId.get(input.taskId);
 		if (!lastStartRequest) {
-			throw new Error(`No previous Cline session config is available for task ${input.taskId}.`);
+			throw new Error(`No previous ChangeYard agent session config is available for task ${input.taskId}.`);
 		}
 
 		return await this.startTaskSession({
@@ -309,7 +309,7 @@ export class InMemoryClineSessionRuntime implements ClineSessionRuntime {
 	): Promise<unknown> {
 		const sessionId = this.sessionIdByTaskId.get(taskId);
 		if (!sessionId) {
-			throw new Error(`No active Cline session for task ${taskId}.`);
+			throw new Error(`No active ChangeYard agent session for task ${taskId}.`);
 		}
 		const sessionHost = await this.ensureSessionHost();
 		if (mode) {

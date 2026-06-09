@@ -7,6 +7,9 @@ import type {
 	RuntimeWorkspaceFileStatus,
 } from "../core/api-contract.js";
 import { getGitStdout } from "./git-utils.js";
+import { detectWorkspaceEngine } from "./git-sync.js";
+import { parseGitStylePatchEntries } from "./git-style-patch.js";
+import { getJjStdout, runJj } from "./jj-utils.js";
 
 const WORKSPACE_CHANGES_CACHE_MAX_ENTRIES = 128;
 
@@ -182,6 +185,14 @@ async function readFileAtRef(repoRoot: string, ref: string, path: string): Promi
 	}
 }
 
+async function readJjFileAtRef(repoRoot: string, ref: string, path: string): Promise<string | null> {
+	try {
+		return await getJjStdout(["file", "show", "-r", ref, path], repoRoot);
+	} catch {
+		return null;
+	}
+}
+
 async function readWorkingTreeFile(repoRoot: string, path: string): Promise<string | null> {
 	try {
 		return await readFile(join(repoRoot, path), "utf8");
@@ -352,9 +363,13 @@ async function buildFileChangeFromRef(
 }
 
 export async function createEmptyWorkspaceChangesResponse(cwd: string): Promise<RuntimeWorkspaceChangesResponse> {
-	const repoRoot = (await getGitStdout(["rev-parse", "--show-toplevel"], cwd)).trim();
+	const engine = await detectWorkspaceEngine(cwd);
+	const repoRoot =
+		engine === "jj"
+			? (await getJjStdout(["workspace", "root"], cwd)).trim()
+			: (await getGitStdout(["rev-parse", "--show-toplevel"], cwd)).trim();
 	if (!repoRoot) {
-		throw new Error("Could not resolve git repository root.");
+		throw new Error(`Could not resolve ${engine} repository root.`);
 	}
 	return {
 		repoRoot,
@@ -364,6 +379,10 @@ export async function createEmptyWorkspaceChangesResponse(cwd: string): Promise<
 }
 
 export async function getWorkspaceChanges(cwd: string): Promise<RuntimeWorkspaceChangesResponse> {
+	const engine = await detectWorkspaceEngine(cwd);
+	if (engine === "jj") {
+		return await getJjWorkspaceChanges(cwd);
+	}
 	const repoRoot = (await getGitStdout(["rev-parse", "--show-toplevel"], cwd)).trim();
 	if (!repoRoot) {
 		throw new Error("Could not resolve git repository root.");
@@ -424,6 +443,10 @@ export async function getWorkspaceChanges(cwd: string): Promise<RuntimeWorkspace
 export async function getWorkspaceChangesBetweenRefs(
 	input: ChangesBetweenRefsInput,
 ): Promise<RuntimeWorkspaceChangesResponse> {
+	const engine = await detectWorkspaceEngine(input.cwd);
+	if (engine === "jj") {
+		return await getJjWorkspaceChangesBetweenRefs(input);
+	}
 	const repoRoot = (await getGitStdout(["rev-parse", "--show-toplevel"], input.cwd)).trim();
 	if (!repoRoot) {
 		throw new Error("Could not resolve git repository root.");
@@ -455,6 +478,10 @@ export async function getWorkspaceChangesBetweenRefs(
 }
 
 export async function getWorkspaceChangesFromRef(input: ChangesFromRefInput): Promise<RuntimeWorkspaceChangesResponse> {
+	const engine = await detectWorkspaceEngine(input.cwd);
+	if (engine === "jj") {
+		return await getJjWorkspaceChangesFromRef(input);
+	}
 	const repoRoot = (await getGitStdout(["rev-parse", "--show-toplevel"], input.cwd)).trim();
 	if (!repoRoot) {
 		throw new Error("Could not resolve git repository root.");
@@ -489,6 +516,176 @@ export async function getWorkspaceChangesFromRef(input: ChangesFromRefInput): Pr
 	}
 
 	const files = await Promise.all(allChanges.map((entry) => buildFileChangeFromRef(repoRoot, entry, input.fromRef)));
+	files.sort((left, right) => left.path.localeCompare(right.path));
+	return {
+		repoRoot,
+		generatedAt: Date.now(),
+		files,
+	};
+}
+
+async function buildJjWorkingCopyFileChange(
+	repoRoot: string,
+	fromRef: string,
+	entry: ReturnType<typeof parseGitStylePatchEntries>[number],
+): Promise<RuntimeWorkspaceFileChange> {
+	const basePath = entry.previousPath ?? entry.path;
+	const oldText = entry.status === "added" ? null : await readJjFileAtRef(repoRoot, fromRef, basePath);
+	const newText = entry.status === "deleted" ? null : await readWorkingTreeFile(repoRoot, entry.path);
+	const stats =
+		entry.status === "modified" && entry.additions === 0 && entry.deletions === 0
+			? fallbackStats(oldText, newText)
+			: { additions: entry.additions, deletions: entry.deletions };
+
+	return {
+		path: entry.path,
+		previousPath: entry.previousPath,
+		status: entry.status,
+		additions: stats.additions,
+		deletions: stats.deletions,
+		oldText,
+		newText,
+	};
+}
+
+async function buildJjRefFileChange(
+	repoRoot: string,
+	fromRef: string,
+	toRef: string,
+	entry: ReturnType<typeof parseGitStylePatchEntries>[number],
+): Promise<RuntimeWorkspaceFileChange> {
+	const basePath = entry.previousPath ?? entry.path;
+	const oldText = entry.status === "added" ? null : await readJjFileAtRef(repoRoot, fromRef, basePath);
+	const newText = entry.status === "deleted" ? null : await readJjFileAtRef(repoRoot, toRef, entry.path);
+	const stats =
+		entry.status === "modified" && entry.additions === 0 && entry.deletions === 0
+			? fallbackStats(oldText, newText)
+			: { additions: entry.additions, deletions: entry.deletions };
+
+	return {
+		path: entry.path,
+		previousPath: entry.previousPath,
+		status: entry.status,
+		additions: stats.additions,
+		deletions: stats.deletions,
+		oldText,
+		newText,
+	};
+}
+
+async function getJjWorkspaceChanges(cwd: string): Promise<RuntimeWorkspaceChangesResponse> {
+	const repoRoot = (await getJjStdout(["workspace", "root"], cwd)).trim();
+	if (!repoRoot) {
+		throw new Error("Could not resolve jj repository root.");
+	}
+
+	const [summaryOutput, patchResult, headCommitOutput] = await Promise.all([
+		getJjStdout(["diff", "--summary"], repoRoot).catch(() => ""),
+		runJj(repoRoot, ["diff", "--git"], { trimStdout: false }),
+		getJjStdout(["log", "-r", "@", "--no-graph", "-T", "commit_id"], repoRoot).catch(() => ""),
+	]);
+	const patchOutput = patchResult.ok ? patchResult.stdout : "";
+	const patchEntries = parseGitStylePatchEntries(patchOutput);
+	const fingerprintPaths = patchEntries.flatMap((entry) =>
+		[entry.path, entry.previousPath].filter((candidate): candidate is string => Boolean(candidate)),
+	);
+	const fingerprints = await buildFileFingerprints(repoRoot, fingerprintPaths);
+	const stateKey = buildWorkspaceChangesStateKey({
+		repoRoot,
+		headCommit: headCommitOutput.trim() || null,
+		trackedChangesOutput: summaryOutput,
+		untrackedOutput: patchOutput,
+		fingerprints,
+	});
+	const existing = workspaceChangesCacheByRepoRoot.get(repoRoot);
+	if (existing && existing.stateKey === stateKey) {
+		existing.lastAccessedAt = Date.now();
+		return existing.response;
+	}
+
+	if (patchEntries.length === 0) {
+		const response: RuntimeWorkspaceChangesResponse = {
+			repoRoot,
+			generatedAt: Date.now(),
+			files: [],
+		};
+		workspaceChangesCacheByRepoRoot.set(repoRoot, {
+			stateKey,
+			response,
+			lastAccessedAt: Date.now(),
+		});
+		pruneWorkspaceChangesCache();
+		return response;
+	}
+
+	const files = await Promise.all(patchEntries.map((entry) => buildJjWorkingCopyFileChange(repoRoot, "@-", entry)));
+	files.sort((left, right) => left.path.localeCompare(right.path));
+	const response: RuntimeWorkspaceChangesResponse = {
+		repoRoot,
+		generatedAt: Date.now(),
+		files,
+	};
+	workspaceChangesCacheByRepoRoot.set(repoRoot, {
+		stateKey,
+		response,
+		lastAccessedAt: Date.now(),
+	});
+	pruneWorkspaceChangesCache();
+	return response;
+}
+
+async function getJjWorkspaceChangesBetweenRefs(
+	input: ChangesBetweenRefsInput,
+): Promise<RuntimeWorkspaceChangesResponse> {
+	const repoRoot = (await getJjStdout(["workspace", "root"], input.cwd)).trim();
+	if (!repoRoot) {
+		throw new Error("Could not resolve jj repository root.");
+	}
+
+	const patchResult = await runJj(repoRoot, ["diff", "--from", input.fromRef, "--to", input.toRef, "--git"], {
+		trimStdout: false,
+	});
+	if (!patchResult.ok || !patchResult.stdout.trim()) {
+		return {
+			repoRoot,
+			generatedAt: Date.now(),
+			files: [],
+		};
+	}
+
+	const patchEntries = parseGitStylePatchEntries(patchResult.stdout);
+	const files = await Promise.all(
+		patchEntries.map((entry) => buildJjRefFileChange(repoRoot, input.fromRef, input.toRef, entry)),
+	);
+	files.sort((left, right) => left.path.localeCompare(right.path));
+	return {
+		repoRoot,
+		generatedAt: Date.now(),
+		files,
+	};
+}
+
+async function getJjWorkspaceChangesFromRef(input: ChangesFromRefInput): Promise<RuntimeWorkspaceChangesResponse> {
+	const repoRoot = (await getJjStdout(["workspace", "root"], input.cwd)).trim();
+	if (!repoRoot) {
+		throw new Error("Could not resolve jj repository root.");
+	}
+
+	const patchResult = await runJj(repoRoot, ["diff", "--from", input.fromRef, "--git"], {
+		trimStdout: false,
+	});
+	if (!patchResult.ok || !patchResult.stdout.trim()) {
+		return {
+			repoRoot,
+			generatedAt: Date.now(),
+			files: [],
+		};
+	}
+
+	const patchEntries = parseGitStylePatchEntries(patchResult.stdout);
+	const files = await Promise.all(
+		patchEntries.map((entry) => buildJjWorkingCopyFileChange(repoRoot, input.fromRef, entry)),
+	);
 	files.sort((left, right) => left.path.localeCompare(right.path));
 	return {
 		repoRoot,

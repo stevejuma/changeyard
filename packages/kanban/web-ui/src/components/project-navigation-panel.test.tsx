@@ -196,7 +196,7 @@ describe("ProjectNavigationPanel width persistence", () => {
 		expect(container.textContent).toContain("Report issue");
 	});
 
-	it("shows send feedback instead of report issue when Cline OAuth is available", () => {
+	it("shows send feedback instead of report issue when ChangeYard OAuth is available", () => {
 		renderPanel({
 			selectedAgentId: "cline",
 			clineProviderSettings: CLINE_OAUTH_SETTINGS,

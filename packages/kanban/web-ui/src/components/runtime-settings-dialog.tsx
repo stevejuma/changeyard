@@ -1,5 +1,5 @@
 // Settings dialog composition for Kanban.
-// Generic app settings live here, while Cline-specific provider state and
+// Generic app settings live here, while ChangeYard-specific provider state and
 // side effects should stay in use-runtime-settings-cline-controller.ts.
 import * as RadixCheckbox from "@radix-ui/react-checkbox";
 import * as RadixPopover from "@radix-ui/react-popover";
@@ -58,6 +58,8 @@ import {
 import { formatPathForDisplay } from "@/utils/path-display";
 import { useUnmount, useWindowEvent } from "@/utils/react-use";
 
+const CHANGEYARD_KANBAN_DOCS_URL = "https://github.com/stevejuma/changeyard/blob/main/docs/kanban-integration.md";
+
 interface RuntimeSettingsAgentRowModel {
 	id: RuntimeAgentId;
 	label: string;
@@ -103,7 +105,7 @@ const SETTINGS_NAV_ITEMS: ReadonlyArray<{
 	clineOnly?: boolean;
 }> = [
 	{ id: "general", label: "General", icon: <SlidersHorizontal size={16} /> },
-	{ id: "cline", label: "Cline", icon: <Bot size={16} />, clineOnly: true },
+	{ id: "cline", label: "ChangeYard", icon: <Bot size={16} />, clineOnly: true },
 	{ id: "git-prompts", label: "Git Prompts", icon: <GitCommit size={16} /> },
 	{ id: "notifications", label: "Notifications", icon: <Bell size={16} /> },
 	{ id: "appearance", label: "Appearance", icon: <Palette size={16} /> },
@@ -682,18 +684,18 @@ export function RuntimeSettingsDialog({
 			setNotificationPermission(nextPermission);
 		}
 		if (selectedAgentId === "cline" && clineSettings.providerId.trim().length === 0) {
-			setSaveError("Choose a Cline provider before saving.");
+			setSaveError("Choose a ChangeYard provider before saving.");
 			return;
 		}
 		if (selectedAgentId === "cline") {
 			const clineProviderSaveResult = await clineSettings.saveProviderSettings();
 			if (!clineProviderSaveResult.ok) {
-				setSaveError(clineProviderSaveResult.message ?? "Could not save Cline provider settings.");
+				setSaveError(clineProviderSaveResult.message ?? "Could not save ChangeYard provider settings.");
 				return;
 			}
 			const clineMcpSaveResult = await clineMcpSettings.saveMcpSettings();
 			if (!clineMcpSaveResult.ok) {
-				setSaveError(clineMcpSaveResult.message ?? "Could not save Cline MCP settings.");
+				setSaveError(clineMcpSaveResult.message ?? "Could not save ChangeYard MCP settings.");
 				return;
 			}
 		}
@@ -814,14 +816,14 @@ export function RuntimeSettingsDialog({
 						</p>
 					</div>
 
-					{/* ---- Cline ---- */}
+					{/* ---- ChangeYard ---- */}
 					{selectedAgentId === "cline" ? (
 						<>
 							<div data-settings-section="cline" />
 							<div className="sticky top-0 -mx-5 px-5 pt-4 pb-2 bg-surface-1 z-10">
 								<h2 className="flex items-center gap-2 text-base font-semibold text-text-primary m-0">
 									<Bot size={16} className="text-text-secondary" />
-									Cline
+									ChangeYard
 								</h2>
 							</div>
 							<div className="rounded-lg border border-border bg-surface-0 px-4 py-3 mb-4">
@@ -1172,7 +1174,7 @@ export function RuntimeSettingsDialog({
 					variant="ghost"
 					className="mr-auto mt-[3px]"
 					icon={<ExternalLink size={14} />}
-					onClick={() => window.open("https://docs.cline.bot/kanban/overview", "_blank")}
+					onClick={() => window.open(CHANGEYARD_KANBAN_DOCS_URL, "_blank")}
 				>
 					Read the docs
 				</Button>

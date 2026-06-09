@@ -166,7 +166,7 @@ export function useHomeSidebarAgentPanel({
 				onLoadMessages={handleLoadHomeClineChatMessages}
 				incomingMessage={latestHomeTaskChatMessage}
 				incomingMessages={homeTaskChatMessages}
-				composerPlaceholder="Ask Cline to add, edit, start, or link tasks"
+				composerPlaceholder="Ask ChangeYard to add, edit, start, or link tasks"
 			/>
 		);
 	}
@@ -198,7 +198,7 @@ export function useHomeSidebarAgentPanel({
 
 	return (
 		<div className="flex w-full items-center justify-center rounded-md border border-border bg-surface-2 px-3 text-center text-sm text-text-secondary">
-			Select a Cline provider in Settings to start a home chat session.
+			Select a ChangeYard provider in Settings to start a home chat session.
 		</div>
 	);
 }

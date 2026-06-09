@@ -74,7 +74,7 @@ describe("FeaturebaseFeedbackButton", () => {
 		return null;
 	}
 
-	it("renders nothing when selected agent is not Cline", () => {
+	it("renders nothing when selected agent is not ChangeYard", () => {
 		const { state: fbState } = createFeaturebaseFeedbackState("ready");
 		act(() => {
 			root.render(

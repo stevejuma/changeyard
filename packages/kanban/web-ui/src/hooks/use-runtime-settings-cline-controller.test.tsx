@@ -79,7 +79,7 @@ function createRuntimeConfigResponse(
 		agents: [
 			{
 				id: "cline",
-				label: "Cline",
+				label: "ChangeYard",
 				binary: "cline",
 				command: "cline",
 				defaultArgs: [],
@@ -241,13 +241,13 @@ describe("useRuntimeSettingsClineController", () => {
 		}
 	});
 
-	it("loads provider catalog and models for the current Cline provider", async () => {
+	it("loads provider catalog and models for the current ChangeYard provider", async () => {
 		const config = createRuntimeConfigResponse();
 		let latestSnapshot: HookSnapshot | null = null;
 		fetchClineProviderCatalogMock.mockResolvedValue([
 			{
 				id: "cline",
-				name: "Cline",
+				name: "ChangeYard",
 				oauthSupported: true,
 				enabled: true,
 				defaultModelId: "claude-sonnet-4-6",
@@ -296,7 +296,7 @@ describe("useRuntimeSettingsClineController", () => {
 		fetchClineProviderCatalogMock.mockResolvedValue([
 			{
 				id: "cline",
-				name: "Cline",
+				name: "ChangeYard",
 				oauthSupported: true,
 				enabled: true,
 				defaultModelId: "claude-sonnet-4-6",
@@ -342,7 +342,7 @@ describe("useRuntimeSettingsClineController", () => {
 		fetchClineProviderCatalogMock.mockResolvedValue([
 			{
 				id: "cline",
-				name: "Cline",
+				name: "ChangeYard",
 				oauthSupported: true,
 				enabled: true,
 				defaultModelId: "claude-sonnet-4-6",
@@ -415,7 +415,7 @@ describe("useRuntimeSettingsClineController", () => {
 		fetchClineProviderCatalogMock.mockResolvedValue([
 			{
 				id: "cline",
-				name: "Cline",
+				name: "ChangeYard",
 				oauthSupported: true,
 				enabled: true,
 				defaultModelId: "claude-sonnet-4-6",
@@ -946,7 +946,7 @@ describe("useRuntimeSettingsClineController", () => {
 			.mockResolvedValueOnce([
 				{
 					id: "cline",
-					name: "Cline",
+					name: "ChangeYard",
 					oauthSupported: true,
 					enabled: true,
 					defaultModelId: "claude-sonnet-4-6",
@@ -955,7 +955,7 @@ describe("useRuntimeSettingsClineController", () => {
 			.mockResolvedValueOnce([
 				{
 					id: "cline",
-					name: "Cline",
+					name: "ChangeYard",
 					oauthSupported: true,
 					enabled: false,
 					defaultModelId: "claude-sonnet-4-6",
@@ -1127,7 +1127,7 @@ describe("useRuntimeSettingsClineController", () => {
 		fetchClineProviderCatalogMock.mockResolvedValue([
 			{
 				id: "cline",
-				name: "Cline",
+				name: "ChangeYard",
 				oauthSupported: true,
 				enabled: true,
 				defaultModelId: "claude-sonnet-4-6",
@@ -1201,7 +1201,7 @@ describe("useRuntimeSettingsClineController", () => {
 		fetchClineProviderCatalogMock.mockResolvedValue([
 			{
 				id: "cline",
-				name: "Cline",
+				name: "ChangeYard",
 				oauthSupported: true,
 				enabled: true,
 				defaultModelId: "openai/gpt-5.4",

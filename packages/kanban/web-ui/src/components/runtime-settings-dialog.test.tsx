@@ -86,7 +86,7 @@ vi.mock("@runtime-agent-catalog", () => ({
 		autonomousArgs: [],
 	})),
 	getRuntimeLaunchSupportedAgentCatalog: vi.fn(() => [
-		{ id: "cline", label: "Cline", binary: "cline" },
+		{ id: "cline", label: "ChangeYard", binary: "cline" },
 		{ id: "claude", label: "Claude Code", binary: "claude" },
 	]),
 }));
@@ -183,7 +183,7 @@ const savedClineOauthConfig = {
 	agents: [
 		{
 			id: "cline",
-			label: "Cline",
+			label: "ChangeYard",
 			binary: "cline",
 			command: "cline",
 			installed: true,

@@ -35,7 +35,7 @@ const COLLAPSED_WIDTH = 48;
 const SIDEBAR_COLLAPSE_THRESHOLD = 120;
 const SIDEBAR_MIN_EXPANDED_WIDTH = 200;
 const SIDEBAR_MAX_EXPANDED_WIDTH = 600;
-const GITHUB_ISSUES_URL = "https://github.com/cline/kanban/issues";
+const GITHUB_ISSUES_URL = "https://github.com/stevejuma/changeyard/issues";
 
 interface TaskCountBadge {
 	id: string;
@@ -300,7 +300,7 @@ export function ProjectNavigationPanel({
 				<div className="flex items-center justify-between">
 					<div className="font-semibold text-base flex items-baseline gap-1.5">
 						<ClineIcon size={18} className="text-text-primary shrink-0 self-center" />
-						Cline <span className="text-text-secondary font-normal text-xs">v{__APP_VERSION__}</span>
+						ChangeYard <span className="text-text-secondary font-normal text-xs">v{__APP_VERSION__}</span>
 					</div>
 					{isMobile ? (
 						<Button
@@ -593,7 +593,7 @@ const ESSENTIAL_SHORTCUTS = [
 	{ keys: [MOD, "B"], label: "Start backlog tasks" },
 	{ keys: [MOD, "Shift", "S"], label: "Settings" },
 	{ keys: ["Click", MOD], label: "Hold to link tasks" },
-	{ keys: [MOD, "G"], label: "Toggle git view" },
+	{ keys: [MOD, "G"], label: "Toggle history view" },
 	{ keys: [MOD, "J"], label: "Toggle terminal" },
 ];
 

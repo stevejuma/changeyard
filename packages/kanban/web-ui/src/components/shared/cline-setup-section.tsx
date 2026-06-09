@@ -270,7 +270,7 @@ export function ClineSetupSection({
 			onError?.(null);
 			const result = await controller.refreshProviderModels();
 			if (!result.ok) {
-				onError?.(result.message ?? "Failed to refresh Cline models.");
+				onError?.(result.message ?? "Failed to refresh ChangeYard models.");
 				return;
 			}
 		})();
@@ -342,7 +342,7 @@ export function ClineSetupSection({
 					</div>
 				</div>
 				{controller.isLoadingProviderCatalog ? (
-					<p className="text-text-secondary text-[12px] mt-1 mb-0">Fetching Cline providers...</p>
+					<p className="text-text-secondary text-[12px] mt-1 mb-0">Fetching ChangeYard providers...</p>
 				) : null}
 				<div
 					className="grid gap-2 mt-3"
@@ -370,7 +370,7 @@ export function ClineSetupSection({
 							<input
 								value={controller.baseUrl}
 								onChange={(event) => controller.setBaseUrl(event.target.value)}
-								placeholder="https://api.cline.bot"
+								placeholder="https://api.example.com"
 								disabled={controlsDisabled}
 								className="h-8 w-full rounded-md border border-border bg-surface-2 px-2 text-[13px] text-text-primary placeholder:text-text-tertiary focus:border-border-focus focus:outline-none"
 							/>
@@ -501,7 +501,7 @@ export function ClineSetupSection({
 						) : null}
 						{controller.isRunningOauthLogin && controller.deviceAuthInfo ? (
 							<div className="mt-2 rounded-md border border-border bg-surface-2 p-3">
-								<p className="text-text-secondary text-[13px] font-medium mt-0 mb-2">Sign in to Cline</p>
+								<p className="text-text-secondary text-[13px] font-medium mt-0 mb-2">Sign in to ChangeYard</p>
 								<ol className="list-decimal pl-4 text-[12px] text-text-primary m-0">
 									<li>
 										Go to this URL:{" "}
@@ -641,7 +641,7 @@ export function ClineSetupSection({
 					) : null}
 				</div>
 				{controller.isLoadingProviderModels ? (
-					<p className="text-text-secondary text-[12px] mt-1 mb-0">Fetching Cline models...</p>
+					<p className="text-text-secondary text-[12px] mt-1 mb-0">Fetching ChangeYard models...</p>
 				) : null}
 			</div>
 
@@ -660,7 +660,7 @@ export function ClineSetupSection({
 						</Button>
 					</div>
 					<p className="text-text-secondary text-[12px] mt-0 mb-2">
-						Configure Cline MCP servers for tool integrations.
+						Configure ChangeYard MCP servers for tool integrations.
 					</p>
 					{mcpController.mcpSettingsPath ? (
 						<p

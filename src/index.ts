@@ -14,6 +14,20 @@ export { assertTransition } from "./state/transitions.js";
 export { mutateChangeFrontmatter, updateCardMetadata, updateCardSection } from "./board/changeMutations.js";
 export { ChangeyardBoardService, createChangeyardBoardService } from "./board/boardService.js";
 export { COLUMN_STATUS_MAP, COLUMN_TITLES, columnForStatus } from "./board/statusColumns.js";
+export {
+  createWorkspaceEngine,
+} from "./workspace/index.js";
+export {
+  detectWorkspaceEngineName,
+  detectWorkspaceRepositoryKind,
+  hasWorkspaceRepository,
+  resolveWorkspaceEngineNameFromRepositoryKind,
+  createTaskWorkspace,
+  deleteTaskWorkspace,
+  readTaskWorkspaceHead,
+  verifyTaskWorkspace,
+  publishTaskWorkspace,
+} from "./workspace/runtimeBridge.js";
 export type {
   ChangeStatus,
   ChangeSummary,

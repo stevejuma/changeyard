@@ -199,7 +199,7 @@ export function GitHistoryView({
 			/>
 			<ResizeHandle
 				orientation="vertical"
-				ariaLabel="Resize git refs and commits panels"
+				ariaLabel="Resize repository refs and commits panels"
 				onMouseDown={handleRefsSeparatorMouseDown}
 				className="z-10"
 			/>
@@ -218,7 +218,7 @@ export function GitHistoryView({
 			/>
 			<ResizeHandle
 				orientation="vertical"
-				ariaLabel="Resize git commits and diff panels"
+				ariaLabel="Resize repository commits and diff panels"
 				onMouseDown={handleCommitsSeparatorMouseDown}
 				className="z-10"
 			/>

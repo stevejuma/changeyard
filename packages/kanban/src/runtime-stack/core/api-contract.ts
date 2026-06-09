@@ -191,6 +191,7 @@ export const runtimeBoardDataSchema = z.object({
 export type RuntimeBoardData = z.infer<typeof runtimeBoardDataSchema>;
 
 export const runtimeGitRepositoryInfoSchema = z.object({
+	engine: z.enum(["git", "jj"]),
 	currentBranch: z.string().nullable(),
 	defaultBranch: z.string().nullable(),
 	branches: z.array(z.string()),

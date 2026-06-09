@@ -285,7 +285,7 @@ function DirectoryEntryList({
 							data-testid={`dir-entry-${entry.name}`}
 						>
 							{entry.isGitRepository ? (
-								<span className="flex items-center shrink-0 text-text-secondary" title="Git repository">
+								<span className="flex items-center shrink-0 text-text-secondary" title="Repository">
 									<Folder size={16} className="text-text-secondary" />
 									<GitBranch size={10} className="text-accent -ml-1.5 mb-1.5" />
 								</span>

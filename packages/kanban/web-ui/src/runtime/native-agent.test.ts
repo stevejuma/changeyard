@@ -26,7 +26,7 @@ function createRuntimeConfigResponse(
 		agents: [
 			{
 				id: "cline",
-				label: "Cline",
+				label: "ChangeYard",
 				binary: "cline",
 				command: "cline",
 				defaultArgs: [],
@@ -97,7 +97,7 @@ describe("native-agent helpers", () => {
 			agents: [
 				{
 					id: "cline",
-					label: "Cline",
+					label: "ChangeYard",
 					binary: "cline",
 					command: "cline",
 					defaultArgs: [],
@@ -125,7 +125,7 @@ describe("native-agent helpers", () => {
 			agents: [
 				{
 					id: "cline",
-					label: "Cline",
+					label: "ChangeYard",
 					binary: "cline",
 					command: "cline",
 					defaultArgs: [],
@@ -166,7 +166,7 @@ describe("native-agent helpers", () => {
 			agents: [
 				{
 					id: "cline",
-					label: "Cline",
+					label: "ChangeYard",
 					binary: "cline",
 					command: "cline",
 					defaultArgs: [],

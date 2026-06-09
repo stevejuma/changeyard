@@ -500,7 +500,7 @@ export function useRuntimeSettingsClineController(
 			if (trimmedProviderId.length === 0) {
 				return {
 					ok: false,
-					message: "Choose a Cline provider before saving.",
+					message: "Choose a ChangeYard provider before saving.",
 				};
 			}
 			const trimmedBaseUrl = toManagedClineOauthProvider(trimmedProviderId)
@@ -599,7 +599,7 @@ export function useRuntimeSettingsClineController(
 		if (trimmedProviderId.length === 0) {
 			return {
 				ok: false,
-				message: "Choose a Cline provider before refreshing models.",
+				message: "Choose a ChangeYard provider before refreshing models.",
 			};
 		}
 
