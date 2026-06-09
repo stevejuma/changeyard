@@ -20,8 +20,8 @@ function createRuntimeConfigResponse(selectedAgentId: RuntimeConfigResponse["sel
 		selectedShortcutLabel: null,
 		agentAutonomousModeEnabled: true,
 		effectiveCommand: selectedAgentId,
-		globalConfigPath: "/tmp/.cline/kanban/config.json",
-		projectConfigPath: "/tmp/project/.cline/kanban/config.json",
+		globalConfigPath: "/tmp/.changeyard/kanban/config.json",
+		projectConfigPath: "/tmp/project/.changeyard/kanban/config.json",
 		readyForReviewNotificationsEnabled: true,
 		detectedCommands: ["codex"],
 		agents: [

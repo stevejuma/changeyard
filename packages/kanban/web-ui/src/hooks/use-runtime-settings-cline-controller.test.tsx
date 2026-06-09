@@ -73,7 +73,7 @@ function createRuntimeConfigResponse(
 		agentAutonomousModeEnabled: true,
 		effectiveCommand: "cline",
 		globalConfigPath: "/tmp/global-config.json",
-		projectConfigPath: "/tmp/project/.cline/kanban/config.json",
+		projectConfigPath: "/tmp/project/.changeyard/kanban/config.json",
 		readyForReviewNotificationsEnabled: true,
 		detectedCommands: ["cline"],
 		agents: [

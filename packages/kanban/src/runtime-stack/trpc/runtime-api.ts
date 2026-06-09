@@ -100,9 +100,9 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 		},
 	});
 	const debugResetTargetPaths = [
-		join(homedir(), ".cline", "data"),
-		join(homedir(), ".cline", "kanban"),
-		join(homedir(), ".cline", "worktrees"),
+		join(homedir(), ".changeyard", "data"),
+		join(homedir(), ".changeyard", "kanban"),
+		join(homedir(), ".changeyard", "worktrees"),
 	] as const;
 
 	const buildConfigResponse = (runtimeConfig: RuntimeConfigState) =>

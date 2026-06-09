@@ -39,6 +39,7 @@ import { KanbanAccessBlockedFallback } from "@/hooks/kanban-access-blocked-fallb
 import { RuntimeDisconnectedFallback } from "@/hooks/runtime-disconnected-fallback";
 import { useAppHotkeys } from "@/hooks/use-app-hotkeys";
 import { useBoardInteractions } from "@/hooks/use-board-interactions";
+import { useChangeyardChanges } from "@/hooks/use-changeyard-changes";
 import { useDebugTools } from "@/hooks/use-debug-tools";
 import { useDetailTaskNavigation } from "@/hooks/use-detail-task-navigation";
 import { useDocumentVisibility } from "@/hooks/use-document-visibility";
@@ -75,7 +76,6 @@ import type {
 import { getRuntimeTrpcClient, readTrpcConflictUpdatedAt } from "@/runtime/trpc-client";
 import { useRuntimeProjectConfig } from "@/runtime/use-runtime-project-config";
 import { useTerminalConnectionReady } from "@/runtime/use-terminal-connection-ready";
-import { useTrpcQuery } from "@/runtime/use-trpc-query";
 import { useWorkspacePersistence } from "@/runtime/use-workspace-persistence";
 import { saveWorkspaceState } from "@/runtime/workspace-state-query";
 import { applyTaskDetailClineSettingsChange, findCardSelection } from "@/state/board-state";
@@ -284,23 +284,13 @@ export default function App(): ReactElement {
 		hasReceivedSnapshot,
 	});
 	const {
-		data: changeyardChangesData,
-		isLoading: isChangeyardChangesLoading,
-		refetch: refetchChangeyardChanges,
-	} = useTrpcQuery({
-		enabled: currentProjectId !== null,
-		queryFn: async () => (await getRuntimeTrpcClient(currentProjectId).changes.list.query()).changes,
-	});
-	const changeyardChanges = changeyardChangesData ?? [];
-	const {
-		data: selectedChangeDetail,
-		refetch: refetchSelectedChangeDetail,
-		setData: setSelectedChangeDetail,
-	} = useTrpcQuery({
-		enabled: currentProjectId !== null && selectedChangeId !== null,
-		queryFn: async () => await getRuntimeTrpcClient(currentProjectId).changes.get.query({ id: selectedChangeId ?? "" }),
-		retainDataOnError: true,
-	});
+		changeyardChanges,
+		isChangeyardChangesLoading,
+		refetchChangeyardChanges,
+		selectedChangeDetail,
+		refetchSelectedChangeDetail,
+		setSelectedChangeDetail,
+	} = useChangeyardChanges(currentProjectId, selectedChangeId);
 
 	useReviewReadyNotifications({
 		activeWorkspaceId: activeNotificationWorkspaceId,

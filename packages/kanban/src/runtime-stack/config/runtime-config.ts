@@ -47,10 +47,10 @@ export interface RuntimeConfigUpdateInput {
 	openPrPromptTemplate?: string;
 }
 
-const RUNTIME_HOME_PARENT_DIR = ".cline";
+const RUNTIME_HOME_PARENT_DIR = ".changeyard";
 const RUNTIME_HOME_DIR = "kanban";
 const CONFIG_FILENAME = "config.json";
-const PROJECT_CONFIG_PARENT_DIR = ".cline";
+const PROJECT_CONFIG_PARENT_DIR = ".changeyard";
 const PROJECT_CONFIG_DIR = "kanban";
 const PROJECT_CONFIG_FILENAME = "config.json";
 const DEFAULT_AGENT_ID: RuntimeAgentId = "cline";
