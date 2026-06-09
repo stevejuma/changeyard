@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "hooks": {
+    "agentStop": [
+      {
+        "type": "command",
+        "bash": "'/Users/stevejuma/.nvm/versions/node/v24.10.0/bin/node' '/Users/stevejuma/code/changeyard/dist/src/cli.js' 'hooks' 'ingest' '--event' 'to_review' '--source' 'copilot'",
+        "powershell": "\"/Users/stevejuma/.nvm/versions/node/v24.10.0/bin/node\" \"/Users/stevejuma/code/changeyard/dist/src/cli.js\" \"hooks\" \"ingest\" \"--event\" \"to_review\" \"--source\" \"copilot\"",
+        "timeoutSec": 5
+      }
+    ],
+    "subagentStop": [
+      {
+        "type": "command",
+        "bash": "'/Users/stevejuma/.nvm/versions/node/v24.10.0/bin/node' '/Users/stevejuma/code/changeyard/dist/src/cli.js' 'hooks' 'ingest' '--event' 'activity' '--source' 'copilot'",
+        "powershell": "\"/Users/stevejuma/.nvm/versions/node/v24.10.0/bin/node\" \"/Users/stevejuma/code/changeyard/dist/src/cli.js\" \"hooks\" \"ingest\" \"--event\" \"activity\" \"--source\" \"copilot\"",
+        "timeoutSec": 5
+      }
+    ],
+    "preToolUse": [
+      {
+        "type": "command",
+        "bash": "'/Users/stevejuma/.nvm/versions/node/v24.10.0/bin/node' '/Users/stevejuma/code/changeyard/dist/src/cli.js' 'hooks' 'ingest' '--event' 'activity' '--source' 'copilot'",
+        "powershell": "\"/Users/stevejuma/.nvm/versions/node/v24.10.0/bin/node\" \"/Users/stevejuma/code/changeyard/dist/src/cli.js\" \"hooks\" \"ingest\" \"--event\" \"activity\" \"--source\" \"copilot\"",
+        "timeoutSec": 5
+      }
+    ],
+    "permissionRequest": [
+      {
+        "type": "command",
+        "bash": "'/Users/stevejuma/.nvm/versions/node/v24.10.0/bin/node' '/Users/stevejuma/code/changeyard/dist/src/cli.js' 'hooks' 'ingest' '--event' 'activity' '--source' 'copilot'",
+        "powershell": "\"/Users/stevejuma/.nvm/versions/node/v24.10.0/bin/node\" \"/Users/stevejuma/code/changeyard/dist/src/cli.js\" \"hooks\" \"ingest\" \"--event\" \"activity\" \"--source\" \"copilot\"",
+        "timeoutSec": 5
+      }
+    ],
+    "postToolUse": [
+      {
+        "type": "command",
+        "bash": "'/Users/stevejuma/.nvm/versions/node/v24.10.0/bin/node' '/Users/stevejuma/code/changeyard/dist/src/cli.js' 'hooks' 'ingest' '--event' 'activity' '--source' 'copilot'",
+        "powershell": "\"/Users/stevejuma/.nvm/versions/node/v24.10.0/bin/node\" \"/Users/stevejuma/code/changeyard/dist/src/cli.js\" \"hooks\" \"ingest\" \"--event\" \"activity\" \"--source\" \"copilot\"",
+        "timeoutSec": 5
+      }
+    ],
+    "postToolUseFailure": [
+      {
+        "type": "command",
+        "bash": "'/Users/stevejuma/.nvm/versions/node/v24.10.0/bin/node' '/Users/stevejuma/code/changeyard/dist/src/cli.js' 'hooks' 'ingest' '--event' 'activity' '--source' 'copilot'",
+        "powershell": "\"/Users/stevejuma/.nvm/versions/node/v24.10.0/bin/node\" \"/Users/stevejuma/code/changeyard/dist/src/cli.js\" \"hooks\" \"ingest\" \"--event\" \"activity\" \"--source\" \"copilot\"",
+        "timeoutSec": 5
+      }
+    ],
+    "userPromptSubmitted": [
+      {
+        "type": "command",
+        "bash": "'/Users/stevejuma/.nvm/versions/node/v24.10.0/bin/node' '/Users/stevejuma/code/changeyard/dist/src/cli.js' 'hooks' 'ingest' '--event' 'to_in_progress' '--source' 'copilot'",
+        "powershell": "\"/Users/stevejuma/.nvm/versions/node/v24.10.0/bin/node\" \"/Users/stevejuma/code/changeyard/dist/src/cli.js\" \"hooks\" \"ingest\" \"--event\" \"to_in_progress\" \"--source\" \"copilot\"",
+        "timeoutSec": 5
+      }
+    ],
+    "notification": [
+      {
+        "type": "command",
+        "bash": "'/Users/stevejuma/.nvm/versions/node/v24.10.0/bin/node' '/Users/stevejuma/code/changeyard/dist/src/cli.js' 'hooks' 'ingest' '--event' 'activity' '--source' 'copilot'",
+        "powershell": "\"/Users/stevejuma/.nvm/versions/node/v24.10.0/bin/node\" \"/Users/stevejuma/code/changeyard/dist/src/cli.js\" \"hooks\" \"ingest\" \"--event\" \"activity\" \"--source\" \"copilot\"",
+        "timeoutSec": 5
+      }
+    ]
+  }
+}

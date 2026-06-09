@@ -13,6 +13,7 @@ import {
   runPlanStrictEnable,
 } from "./commands/plan.js";
 import { runCreate } from "./commands/create.js";
+import { runHooks } from "./commands/hooks.js";
 import { runHydrate } from "./commands/hydrate.js";
 import { runInit } from "./commands/init.js";
 import { listChanges, runList } from "./commands/list.js";
@@ -29,7 +30,7 @@ import { errorCode, errorExitCode } from "./errors.js";
 import type { PlanningModel } from "./planning/types.js";
 import type { CreateOptions } from "./commands/create.js";
 
-type CommandName = "init" | "create" | "quick" | "validate" | "sync" | "start" | "verify" | "hydrate" | "complete" | "review" | "doctor" | "completions" | "recover" | "list" | "status" | "plan" | "ui" | "help";
+type CommandName = "init" | "create" | "quick" | "validate" | "sync" | "start" | "verify" | "hydrate" | "complete" | "review" | "doctor" | "completions" | "recover" | "list" | "status" | "plan" | "ui" | "hooks" | "help";
 
 type ParsedArgs = {
   command: string;
@@ -142,6 +143,7 @@ Usage:
   cy plan export CY-0001 --format openspec [--dry-run]
   cy plan import CY-0001 --format speckit [--dry-run]
   cy ui [--host <host>] [--port <port|auto>] [--open|--no-open]
+  cy hooks ingest --event to_review|to_in_progress|activity
 
 Global options:
   --json         print machine-readable output
@@ -200,6 +202,7 @@ function commandUsage(command: string): string {
     status: `${"status".padEnd(12)}print one change summary.\n\nExample:\n${commandExamples(["cy status CY-0001"])}`,
     plan: `${"plan".padEnd(12)}inspect planning status, generate planning prompts, toggle strict mode, or manage adapter mirrors.\n\nExamples:\n${commandExamples(["cy plan status CY-0001", "cy plan status CY-0001 --json", "cy plan prompt CY-0001 proposal", "cy plan strict enable CY-0001", "cy plan export CY-0001 --format openspec", "cy plan import CY-0001 --format speckit --dry-run"])}`,
     ui: `${"ui".padEnd(12)}start the local Changeyard board UI.\n\nExamples:\n${commandExamples(["cy ui --no-open", "cy ui --host 127.0.0.1 --port 4310"])}`,
+    hooks: `${"hooks".padEnd(12)}forward terminal-agent hook events to the local Changeyard runtime.\n\nExamples:\n${commandExamples(["cy hooks ingest --event to_review", "cy hooks notify --event activity --activity-text \"Waiting for input\""])}`,
     help: usage(),
   };
   return lines[command] ?? usage();
@@ -343,6 +346,9 @@ async function main(): Promise<void> {
         }, process.cwd());
         break;
       }
+      case "hooks":
+        output = await runHooks(args.positional, args.flags);
+        break;
       case "help":
       default:
         if (command === "help") output = usage();
