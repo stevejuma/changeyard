@@ -16,27 +16,26 @@ The UI may keep ephemeral browser state, but it must not create or rely on `.kan
 
 ## Current active integration
 
-The active runtime is the adapted internal package under `packages/kanban/`:
+The active runtime is the native Changeyard package under `packages/kanban/`:
 
 - `packages/kanban/src/server/index.js`
 - `packages/kanban/web-ui/src/*`
 
-The served UI is now a built React/Vite frontend that uses the upstream Kanban style system and an internal Changeyard API client. The runtime contract is still Changeyard-specific rather than the full vendored upstream tRPC/runtime stack.
+The served UI is a built React/Vite frontend that uses the upstream Kanban visual system together with the active Changeyard runtime stack.
 
 The current active surface provides:
 
 - board and card reads from Changeyard markdown
 - provider and workspace metadata display
 - `sync` and `start` actions via Changeyard command functions
+- runtime state, transport, and project registration under `packages/kanban/src/runtime-stack/**`
 - workspace-engine awareness for `plain-copy`, `git-worktree`, and `jj`
 
-## Vendored upstream source
+## Upstream provenance
 
-The current upstream Kanban snapshot is stored in:
+The active implementation lives under `packages/kanban/`.
 
-- `packages/kanban/upstream/cline-kanban/`
-
-This lets the repo preserve the real upstream UI/runtime as reference source while the adapter layer is integrated incrementally. The active frontend now reuses the upstream visual system, but it does not yet boot the vendored upstream `App.tsx` and runtime server unchanged.
+Upstream provenance is documented in `docs/kanban-upstream.md`. The active package no longer keeps a vendored upstream source tree under `packages/kanban/`, so current runtime behavior, package layout, and build wiring must be read from the native package itself.
 
 ## Workspace engines
 

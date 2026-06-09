@@ -435,7 +435,7 @@ export function GitCommitDiffPanel({
 			</div>
 			<ResizeHandle
 				orientation="vertical"
-				ariaLabel="Resize git diff panels"
+				ariaLabel="Resize repository diff panels"
 				onMouseDown={handleDiffSplitSeparatorMouseDown}
 				className="z-10"
 			/>

@@ -28,7 +28,7 @@ export const RUNTIME_AGENT_CATALOG: RuntimeAgentCatalogEntry[] = [
 	},
 	{
 		id: "cline",
-		label: "Cline",
+		label: "ChangeYard",
 		binary: "cline",
 		baseArgs: [],
 		autonomousArgs: ["--auto-approve-all"],

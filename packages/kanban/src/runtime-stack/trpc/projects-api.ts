@@ -35,7 +35,7 @@ export interface CreateProjectsApiDependencies {
 	clearActiveWorkspace: () => void;
 	resolveProjectInputPath: (inputPath: string, cwd: string) => string;
 	assertPathIsDirectory: (path: string) => Promise<void>;
-	hasGitRepository: (path: string) => boolean;
+	detectWorkspaceRepositoryKind: (path: string) => "git" | "jj" | null;
 	summarizeProjectTaskCounts: (workspaceId: string, repoPath: string) => Promise<RuntimeProjectTaskCounts>;
 	createProjectSummary: (project: {
 		workspaceId: string;
@@ -99,13 +99,14 @@ export function createProjectsApi(deps: CreateProjectsApiDependencies): RuntimeT
 					projectPath = deps.resolveProjectInputPath(body.path as string, resolveBasePath);
 				}
 				await deps.assertPathIsDirectory(projectPath);
-				if (!deps.hasGitRepository(projectPath)) {
+				const repositoryKind = deps.detectWorkspaceRepositoryKind(projectPath);
+				if (!repositoryKind) {
 					if (!body.initializeGit) {
 						return {
 							ok: false,
 							project: null,
 							requiresGitInitialization: true,
-							error: "This folder is not a git repository. Cline requires git to manage worktrees. Initialize git to continue.",
+							error: "This folder is not a Git or JJ repository. ChangeYard can initialize Git to continue.",
 						} satisfies RuntimeProjectAddResponse;
 					}
 					const initResult = await initializeGitRepository(projectPath);
@@ -116,7 +117,7 @@ export function createProjectsApi(deps: CreateProjectsApiDependencies): RuntimeT
 							error: initResult.error ?? "Failed to initialize git repository.",
 						} satisfies RuntimeProjectAddResponse;
 					}
-				} else {
+				} else if (repositoryKind === "git") {
 					const commitResult = await ensureInitialCommit(projectPath);
 					if (!commitResult.ok) {
 						return {

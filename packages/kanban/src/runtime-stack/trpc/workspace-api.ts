@@ -196,6 +196,59 @@ function isMissingTaskWorktreeError(error: unknown): boolean {
 	return error.message.startsWith("Task worktree not found for task ");
 }
 
+async function resolveScopedRepositoryCwd(
+	workspaceScope: { workspacePath: string },
+	taskScope: { taskId: string; baseRef: string } | null,
+): Promise<string> {
+	let cwd = workspaceScope.workspacePath;
+	if (!taskScope) {
+		return cwd;
+	}
+	cwd = await resolveTaskCwd({
+		cwd: workspaceScope.workspacePath,
+		taskId: taskScope.taskId,
+		baseRef: taskScope.baseRef,
+		ensure: false,
+	});
+	return cwd;
+}
+
+async function getWorkspaceApiRepositoryLog(
+	workspaceScope: { workspacePath: string },
+	input: { ref?: string | null; refs?: string[] | null; maxCount?: number | null; skip?: number | null; taskScope?: { taskId: string; baseRef: string } | null },
+) {
+	const taskScope = normalizeOptionalTaskWorkspaceScopeInput(input.taskScope ?? null);
+	const logCwd = await resolveScopedRepositoryCwd(workspaceScope, taskScope);
+	return await getGitLog({
+		cwd: logCwd,
+		ref: input.ref ?? null,
+		refs: input.refs ?? null,
+		maxCount: input.maxCount ?? undefined,
+		skip: input.skip ?? undefined,
+	});
+}
+
+async function getWorkspaceApiRepositoryRefs(
+	workspaceScope: { workspacePath: string },
+	input: { taskId: string; baseRef: string } | null,
+) {
+	const taskScope = normalizeOptionalTaskWorkspaceScopeInput(input ?? null);
+	const refsCwd = await resolveScopedRepositoryCwd(workspaceScope, taskScope);
+	return await getGitRefs(refsCwd);
+}
+
+async function getWorkspaceApiRepositoryCommitDiff(
+	workspaceScope: { workspacePath: string },
+	input: { commitHash: string; taskScope?: { taskId: string; baseRef: string } | null },
+) {
+	const taskScope = normalizeOptionalTaskWorkspaceScopeInput(input.taskScope ?? null);
+	const diffCwd = await resolveScopedRepositoryCwd(workspaceScope, taskScope);
+	return await getCommitDiff({
+		cwd: diffCwd,
+		commitHash: input.commitHash,
+	});
+}
+
 export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): RuntimeTrpcContext["workspaceApi"] {
 	return {
 		loadGitSummary: async (workspaceScope, input) => {
@@ -408,6 +461,9 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 				skip: input.skip,
 			});
 		},
+		loadRepositoryLog: async (workspaceScope, input) => {
+			return await getWorkspaceApiRepositoryLog(workspaceScope, input);
+		},
 		loadGitRefs: async (workspaceScope, input) => {
 			const taskScope = normalizeOptionalTaskWorkspaceScopeInput(input ?? null);
 			let refsCwd = workspaceScope.workspacePath;
@@ -420,6 +476,9 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 				});
 			}
 			return await getGitRefs(refsCwd);
+		},
+		loadRepositoryRefs: async (workspaceScope, input) => {
+			return await getWorkspaceApiRepositoryRefs(workspaceScope, input);
 		},
 		loadCommitDiff: async (workspaceScope, input) => {
 			const taskScope = normalizeOptionalTaskWorkspaceScopeInput(input.taskScope ?? null);
@@ -436,6 +495,9 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 				cwd: diffCwd,
 				commitHash: input.commitHash,
 			});
+		},
+		loadRepositoryCommitDiff: async (workspaceScope, input) => {
+			return await getWorkspaceApiRepositoryCommitDiff(workspaceScope, input);
 		},
 	};
 }

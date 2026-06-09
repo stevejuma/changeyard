@@ -34,13 +34,13 @@ const OAUTH_CALLBACK_REQUEST_ID_PARAM = "requestId";
 
 const CALLBACK_RESPONSE_HTML = {
 	success:
-		"<html><body><h1>Authorization complete</h1><p>You can close this tab and return to Cline.</p></body></html>",
+		"<html><body><h1>Authorization complete</h1><p>You can close this tab and return to ChangeYard.</p></body></html>",
 	failure: "<html><body><h1>OAuth failed</h1><p>You can close this tab.</p></body></html>",
 	missingCode: "<html><body><h1>Missing authorization code</h1><p>You can close this tab.</p></body></html>",
 	expired:
-		"<html><body><h1>Authorization session expired</h1><p>Return to Cline and run Connect OAuth again.</p></body></html>",
+		"<html><body><h1>Authorization session expired</h1><p>Return to ChangeYard and run Connect OAuth again.</p></body></html>",
 	missingRequestId:
-		"<html><body><h1>Invalid authorization callback</h1><p>Return to Cline and run Connect OAuth again.</p></body></html>",
+		"<html><body><h1>Invalid authorization callback</h1><p>Return to ChangeYard and run Connect OAuth again.</p></body></html>",
 } as const;
 
 const pendingOauthCallbacksByRequestId = new Map<
@@ -283,7 +283,7 @@ function isAuthCapableTransport(transport: SdkTransport): transport is AuthCapab
 
 function createOauthClientMetadata(redirectUrl: string): OAuthClientMetadata {
 	return {
-		client_name: "Cline",
+		client_name: "ChangeYard",
 		redirect_uris: [redirectUrl],
 		grant_types: ["authorization_code", "refresh_token"],
 		response_types: ["code"],

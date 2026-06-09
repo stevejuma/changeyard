@@ -11,23 +11,23 @@ import type {
 	RuntimeWorkspaceChangesResponse,
 } from "@/runtime/types";
 
-const getGitRefsQueryMock = vi.hoisted(() => vi.fn());
-const getGitLogQueryMock = vi.hoisted(() => vi.fn());
-const getCommitDiffQueryMock = vi.hoisted(() => vi.fn());
+const getRepositoryRefsQueryMock = vi.hoisted(() => vi.fn());
+const getRepositoryLogQueryMock = vi.hoisted(() => vi.fn());
+const getRepositoryCommitDiffQueryMock = vi.hoisted(() => vi.fn());
 const getChangesQueryMock = vi.hoisted(() => vi.fn());
 const getWorkspaceChangesQueryMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/runtime/trpc-client", () => ({
 	getRuntimeTrpcClient: () => ({
 		workspace: {
-			getGitRefs: {
-				query: getGitRefsQueryMock,
+			getRepositoryRefs: {
+				query: getRepositoryRefsQueryMock,
 			},
-			getGitLog: {
-				query: getGitLogQueryMock,
+			getRepositoryLog: {
+				query: getRepositoryLogQueryMock,
 			},
-			getCommitDiff: {
-				query: getCommitDiffQueryMock,
+			getRepositoryCommitDiff: {
+				query: getRepositoryCommitDiffQueryMock,
 			},
 			getChanges: {
 				query: getChangesQueryMock,
@@ -179,20 +179,20 @@ describe("useGitHistoryData", () => {
 	let previousActEnvironment: boolean | undefined;
 
 	beforeEach(() => {
-		getGitRefsQueryMock.mockReset();
-		getGitLogQueryMock.mockReset();
-		getCommitDiffQueryMock.mockReset();
+		getRepositoryRefsQueryMock.mockReset();
+		getRepositoryLogQueryMock.mockReset();
+		getRepositoryCommitDiffQueryMock.mockReset();
 		getChangesQueryMock.mockReset();
 		getWorkspaceChangesQueryMock.mockReset();
 
-		getGitRefsQueryMock.mockImplementation(async (taskScope: { taskId: string; baseRef: string } | null) =>
+		getRepositoryRefsQueryMock.mockImplementation(async (taskScope: { taskId: string; baseRef: string } | null) =>
 			taskScope ? createRefsResponse("task-branch", "taskhash1") : createRefsResponse("main", "homehash1"),
 		);
-		getGitLogQueryMock.mockImplementation(
+		getRepositoryLogQueryMock.mockImplementation(
 			async ({ taskScope }: { taskScope?: { taskId: string; baseRef: string } | null }) =>
 				taskScope ? createLogResponse("taskhash1", "Task commit") : createLogResponse("homehash1", "Home commit"),
 		);
-		getCommitDiffQueryMock.mockImplementation(async ({ commitHash }: { commitHash: string }) =>
+		getRepositoryCommitDiffQueryMock.mockImplementation(async ({ commitHash }: { commitHash: string }) =>
 			createDiffResponse(commitHash),
 		);
 		getChangesQueryMock.mockImplementation(async () => createWorkspaceChangesResponse());
@@ -359,14 +359,14 @@ describe("useGitHistoryData", () => {
 	});
 
 	it("loads the active branch together with its upstream remote when both refs are available", async () => {
-		getGitRefsQueryMock.mockResolvedValue(createRefsResponse("main", "homehash1", { includeRemote: true }));
+		getRepositoryRefsQueryMock.mockResolvedValue(createRefsResponse("main", "homehash1", { includeRemote: true }));
 
 		await act(async () => {
 			root.render(<HookHarness taskScope={null} onRender={() => {}} />);
 			await flushPromises();
 		});
 
-		expect(getGitLogQueryMock).toHaveBeenCalledWith(
+		expect(getRepositoryLogQueryMock).toHaveBeenCalledWith(
 			expect.objectContaining({
 				ref: "main",
 				refs: ["main", "origin/main"],
@@ -378,13 +378,13 @@ describe("useGitHistoryData", () => {
 	it("selects the checked out branch head by default when the remote has newer commits", async () => {
 		const snapshots: HookSnapshot[] = [];
 
-		getGitRefsQueryMock.mockResolvedValue(
+		getRepositoryRefsQueryMock.mockResolvedValue(
 			createRefsResponse("main", "homehash1", {
 				includeRemote: true,
 				remoteHash: "remotehash1",
 			}),
 		);
-		getGitLogQueryMock.mockResolvedValue(
+		getRepositoryLogQueryMock.mockResolvedValue(
 			createLogResponse([
 				{ hash: "remotehash1", message: "Remote commit", relation: "upstream" },
 				{ hash: "homehash1", message: "Local head", relation: "selected" },

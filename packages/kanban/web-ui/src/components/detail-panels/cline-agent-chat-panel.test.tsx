@@ -299,7 +299,7 @@ describe("ClineAgentChatPanel", () => {
 							activityText: "Agent error: 402 Insufficient balance",
 							toolName: null,
 							toolInputSummary: null,
-							finalMessage: "402 Insufficient balance. Your Cline Credits balance is $0.00",
+							finalMessage: "402 Insufficient balance. Your ChangeYard Credits balance is $0.00",
 							hookEventName: "agent_error",
 							notificationType: "credit_limit",
 							source: "cline-sdk",
@@ -316,7 +316,7 @@ describe("ClineAgentChatPanel", () => {
 			const buyCreditsLink = container.querySelector('a[href="https://app.cline.bot/"]');
 			expect(buyCreditsLink).toBeInstanceOf(HTMLAnchorElement);
 		});
-		expect(container.textContent).toContain("Out of Cline credits.");
+		expect(container.textContent).toContain("Out of ChangeYard credits.");
 	});
 
 	it("shows out-of-credits notice after interrupted state when credit-limit metadata persists", async () => {
@@ -331,7 +331,7 @@ describe("ClineAgentChatPanel", () => {
 							activityText: "Agent error: 402 Insufficient balance",
 							toolName: null,
 							toolInputSummary: null,
-							finalMessage: "402 Insufficient balance. Your Cline Credits balance is $0.00",
+							finalMessage: "402 Insufficient balance. Your ChangeYard Credits balance is $0.00",
 							hookEventName: "agent_end",
 							notificationType: "credit_limit",
 							source: "cline-sdk",
@@ -1024,7 +1024,7 @@ describe("ClineAgentChatPanel", () => {
 			await Promise.resolve();
 		});
 
-		expect(container.querySelector('[aria-label="Cline mode"]')).toBeNull();
+		expect(container.querySelector('[aria-label="ChangeYard mode"]')).toBeNull();
 
 		const textarea = container.querySelector("textarea");
 		expect(textarea).toBeInstanceOf(HTMLTextAreaElement);

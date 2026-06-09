@@ -8,9 +8,15 @@ import type {
 } from "../core/api-contract.js";
 import { type LockRequest, lockedFileSystem } from "../fs/locked-file-system.js";
 import { getRuntimeHomePath, getTaskWorktreesHomePath, loadWorkspaceContext } from "../state/workspace-state.js";
-import { getGitCommandErrorMessage, getGitStdout, readGitHeadInfo, runGit } from "./git-utils.js";
+import { getGitCommandErrorMessage, getGitStdout, runGit } from "./git-utils.js";
+import { getJjStdout } from "./jj-utils.js";
 import { getWorkspaceFolderLabelForWorktreePath, normalizeTaskIdForWorktreePath } from "./task-worktree-path.js";
 import { listTurbopackNodeModulesSymlinkSkipPaths } from "./task-worktree-turbopack.js";
+import {
+	createTaskWorkspaceViaBridge,
+	deleteTaskWorkspaceViaBridge,
+	readTaskWorkspaceHeadViaBridge,
+} from "./workspace-runtime-bridge.js";
 
 const KANBAN_MANAGED_EXCLUDE_BLOCK_START = "# kanban-managed-symlinked-ignored-paths:start";
 const KANBAN_MANAGED_EXCLUDE_BLOCK_END = "# kanban-managed-symlinked-ignored-paths:end";
@@ -96,7 +102,14 @@ async function getGitCommonDir(repoPath: string): Promise<string> {
 	return isAbsolute(gitCommonDir) ? gitCommonDir : join(repoPath, gitCommonDir);
 }
 
-async function getTaskWorktreeSetupLock(repoPath: string): Promise<LockRequest> {
+async function getTaskWorktreeSetupLock(repoPath: string, engine: "git" | "jj"): Promise<LockRequest> {
+	if (engine === "jj") {
+		return {
+			path: join(repoPath, ".jj"),
+			type: "directory",
+			lockfileName: KANBAN_TASK_WORKTREE_SETUP_LOCKFILE_NAME,
+		};
+	}
 	return {
 		path: await getGitCommonDir(repoPath),
 		type: "directory",
@@ -105,14 +118,21 @@ async function getTaskWorktreeSetupLock(repoPath: string): Promise<LockRequest> 
 }
 
 export async function removeTaskWorktreeSetupLock(repoPath: string): Promise<boolean> {
-	const lockPath = join(repoPath, ".git", KANBAN_TASK_WORKTREE_SETUP_LOCKFILE_NAME);
-	const existed = await pathExists(lockPath);
-	await rm(lockPath, { force: true, recursive: true });
-	return existed;
+	const gitLockPath = join(repoPath, ".git", KANBAN_TASK_WORKTREE_SETUP_LOCKFILE_NAME);
+	const jjLockPath = join(repoPath, ".jj", KANBAN_TASK_WORKTREE_SETUP_LOCKFILE_NAME);
+	const gitExisted = await pathExists(gitLockPath);
+	const jjExisted = await pathExists(jjLockPath);
+	await rm(gitLockPath, { force: true, recursive: true });
+	await rm(jjLockPath, { force: true, recursive: true });
+	return gitExisted || jjExisted;
 }
 
-async function withTaskWorktreeSetupLock<T>(repoPath: string, operation: () => Promise<T>): Promise<T> {
-	return await lockedFileSystem.withLock(await getTaskWorktreeSetupLock(repoPath), operation);
+async function withTaskWorktreeSetupLock<T>(
+	repoPath: string,
+	engine: "git" | "jj",
+	operation: () => Promise<T>,
+): Promise<T> {
+	return await lockedFileSystem.withLock(await getTaskWorktreeSetupLock(repoPath, engine), operation);
 }
 
 function getWorktreesRootPath(taskId: string): string {
@@ -408,13 +428,120 @@ async function prepareNewTaskWorktree(repoPath: string, worktreePath: string): P
 
 async function removeTaskWorktreeInternal(repoPath: string, worktreePath: string): Promise<boolean> {
 	const existed = await pathExists(worktreePath);
-	const removeResult = await runGit(repoPath, ["worktree", "remove", "--force", worktreePath]);
-	if (!removeResult.ok) {
-		// If remove failed (e.g. worktree in bad state), prune stale registrations
-		// so git doesn't think the path is still registered after we rm it.
-		await runGit(repoPath, ["worktree", "prune"]);
-	}
+	await deleteTaskWorkspaceViaBridge({
+		repositoryKind: "git",
+		repoRoot: repoPath,
+		workspacePath: worktreePath,
+	}).catch(() => null);
 	await rm(worktreePath, { recursive: true, force: true });
+	return existed;
+}
+
+function getJjWorkspaceName(repoPath: string, taskId: string): string {
+	const workspaceLabel = getWorkspaceFolderLabelForWorktreePath(repoPath).replace(/[^a-zA-Z0-9._-]+/g, "-");
+	return `${workspaceLabel}-${normalizeTaskIdForWorktreePath(taskId)}`;
+}
+
+async function ensureJjTaskWorkspace(options: {
+	repoPath: string;
+	taskId: string;
+	baseRef: string;
+	worktreePath: string;
+}): Promise<RuntimeWorktreeEnsureResponse> {
+	const existingHead = await getJjStdout(["log", "-r", "@", "--no-graph", "-T", "commit_id"], options.worktreePath).catch(
+		() => null,
+	);
+	if (existingHead) {
+		return {
+			ok: true,
+			path: options.worktreePath,
+			baseRef: options.baseRef,
+			baseCommit: existingHead,
+		};
+	}
+
+	return await withTaskWorktreeSetupLock(options.repoPath, "jj", async () => {
+		const lockedExistingHead = await getJjStdout(
+			["log", "-r", "@", "--no-graph", "-T", "commit_id"],
+			options.worktreePath,
+		).catch(() => null);
+		if (lockedExistingHead) {
+			return {
+				ok: true,
+				path: options.worktreePath,
+				baseRef: options.baseRef,
+				baseCommit: lockedExistingHead,
+			};
+		}
+
+		const requestedBaseRef = options.baseRef.trim();
+		if (!requestedBaseRef) {
+			return {
+				ok: false,
+				path: null,
+				baseRef: requestedBaseRef,
+				baseCommit: null,
+				error: "Task base branch is required for workspace creation.",
+			};
+		}
+
+		const requestedBaseCommit = await getJjStdout(
+			["log", "-r", requestedBaseRef, "--no-graph", "-T", "commit_id"],
+			options.repoPath,
+		).catch(() => null);
+		if (!requestedBaseCommit) {
+			return {
+				ok: false,
+				path: null,
+				baseRef: requestedBaseRef,
+				baseCommit: null,
+				error: `Could not resolve JJ revision or bookmark "${requestedBaseRef}" for task workspace creation.`,
+			};
+		}
+
+		if (await pathExists(options.worktreePath)) {
+			await rm(options.worktreePath, { recursive: true, force: true });
+		}
+		await mkdir(dirname(options.worktreePath), { recursive: true });
+		const workspaceName = getJjWorkspaceName(options.repoPath, options.taskId);
+		const addResult = await createTaskWorkspaceViaBridge({
+			repositoryKind: "jj",
+			repoRoot: options.repoPath,
+			workspacePath: options.worktreePath,
+			revision: requestedBaseRef,
+			workspaceName,
+		});
+		if (!addResult.ok) {
+			return {
+				ok: false,
+				path: null,
+				baseRef: requestedBaseRef,
+				baseCommit: null,
+				error: addResult.error,
+			};
+		}
+
+		const headCommit = addResult.headCommit ?? requestedBaseCommit;
+
+		return {
+			ok: true,
+			path: options.worktreePath,
+			baseRef: requestedBaseRef,
+			baseCommit: headCommit,
+		};
+	});
+}
+
+async function deleteJjTaskWorkspace(options: { repoPath: string; taskId: string; worktreePath: string }): Promise<boolean> {
+	const existed = await pathExists(options.worktreePath);
+	const workspaceName = getJjWorkspaceName(options.repoPath, options.taskId);
+	await deleteTaskWorkspaceViaBridge({
+		repositoryKind: "jj",
+		repoRoot: options.repoPath,
+		workspacePath: options.worktreePath,
+		workspaceName,
+	}).catch(() => null);
+	await rm(options.worktreePath, { recursive: true, force: true });
 	return existed;
 }
 
@@ -443,6 +570,14 @@ export async function ensureTaskWorktreeIfDoesntExist(options: {
 		const context = await loadWorkspaceContext(options.cwd);
 		const taskId = normalizeTaskIdForWorktreePath(options.taskId);
 		const worktreePath = getTaskWorktreePath(context.repoPath, taskId);
+		if (context.git.engine === "jj") {
+			return await ensureJjTaskWorkspace({
+				repoPath: context.repoPath,
+				taskId,
+				baseRef: options.baseRef.trim(),
+				worktreePath,
+			});
+		}
 		// Investigation note: ensure is called on every task start. The previous implementation
 		// compared the worktree HEAD to the latest baseRef commit and recreated the worktree
 		// when the base branch advanced, which could destroy valid task progress. Existing
@@ -458,7 +593,7 @@ export async function ensureTaskWorktreeIfDoesntExist(options: {
 			};
 		}
 
-		return await withTaskWorktreeSetupLock(context.repoPath, async () => {
+		return await withTaskWorktreeSetupLock(context.repoPath, "git", async () => {
 			const lockedExistingCommit = await tryRunGit(worktreePath, ["rev-parse", "HEAD"]);
 			if (lockedExistingCommit) {
 				await syncIgnoredPathsIntoWorktree(context.repoPath, worktreePath);
@@ -514,7 +649,12 @@ export async function ensureTaskWorktreeIfDoesntExist(options: {
 			await runGit(context.repoPath, ["worktree", "prune"]);
 
 			await mkdir(dirname(worktreePath), { recursive: true });
-			const addResult = await runGit(context.repoPath, ["worktree", "add", "--detach", worktreePath, baseCommit]);
+			const addResult = await createTaskWorkspaceViaBridge({
+				repositoryKind: "git",
+				repoRoot: context.repoPath,
+				workspacePath: worktreePath,
+				revision: baseCommit,
+			});
 			if (!addResult.ok) {
 				if (!storedPatch) {
 					return {
@@ -522,14 +662,28 @@ export async function ensureTaskWorktreeIfDoesntExist(options: {
 						path: null,
 						baseRef: requestedBaseRef,
 						baseCommit: null,
-						error: addResult.stderr || addResult.output,
+						error: addResult.error,
 					};
 				}
 
 				baseCommit = requestedBaseCommit;
 				warning =
 					"Could not restore the saved task patch onto its original commit. Started from the task base ref instead.";
-				await getGitStdout(["worktree", "add", "--detach", worktreePath, baseCommit], context.repoPath);
+				const fallbackAddResult = await createTaskWorkspaceViaBridge({
+					repositoryKind: "git",
+					repoRoot: context.repoPath,
+					workspacePath: worktreePath,
+					revision: baseCommit,
+				});
+				if (!fallbackAddResult.ok) {
+					return {
+						ok: false,
+						path: null,
+						baseRef: requestedBaseRef,
+						baseCommit: null,
+						error: fallbackAddResult.error,
+					};
+				}
 			}
 			await prepareNewTaskWorktree(context.repoPath, worktreePath);
 
@@ -567,6 +721,7 @@ export async function deleteTaskWorktree(options: {
 	taskId: string;
 }): Promise<RuntimeWorktreeDeleteResponse> {
 	try {
+		const context = await loadWorkspaceContext(options.repoPath);
 		const taskId = normalizeTaskIdForWorktreePath(options.taskId);
 		const rootPath = getWorktreesBaseRootPath();
 		const worktreePath = getTaskWorktreePath(options.repoPath, taskId);
@@ -579,17 +734,26 @@ export async function deleteTaskWorktree(options: {
 			};
 		}
 
-		try {
-			await captureTaskPatch({
+		let removed: boolean;
+		if (context.git.engine === "jj") {
+			removed = await deleteJjTaskWorkspace({
 				repoPath: options.repoPath,
 				taskId,
 				worktreePath,
 			});
-		} catch {
-			// Patch capture is best-effort. A corrupted or partially-created
-			// worktree (e.g. plain directory, no git init) should still be removed.
+		} else {
+			try {
+				await captureTaskPatch({
+					repoPath: options.repoPath,
+					taskId,
+					worktreePath,
+				});
+			} catch {
+				// Patch capture is best-effort. A corrupted or partially-created
+				// worktree (e.g. plain directory, no git init) should still be removed.
+			}
+			removed = await removeTaskWorktreeInternal(options.repoPath, worktreePath);
 		}
-		const removed = await removeTaskWorktreeInternal(options.repoPath, worktreePath);
 		await pruneEmptyParents(rootPath, dirname(worktreePath));
 
 		return {
@@ -682,7 +846,11 @@ export async function getTaskWorkspaceInfo(options: {
 		};
 	}
 
-	const headInfo = await readGitHeadInfo(workspacePathInfo.path);
+	const context = await loadWorkspaceContext(options.cwd);
+	const headInfo = await readTaskWorkspaceHeadViaBridge({
+		repositoryKind: context.git.engine,
+		cwd: workspacePathInfo.path,
+	});
 	return {
 		taskId: workspacePathInfo.taskId,
 		path: workspacePathInfo.path,

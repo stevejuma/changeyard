@@ -207,13 +207,13 @@ describe("RemoteFileBrowserDialog", () => {
 		expect(bc!.textContent).toContain("src");
 	});
 
-	it("shows git indicator for git directories", async () => {
+	it("shows repository indicator for repository directories", async () => {
 		mockQuery.mockResolvedValue(makeResponse());
 		renderDialog();
 		await flushQuery();
 		const gitEntry = q('[data-testid="dir-entry-app-a"]');
 		expect(gitEntry).not.toBeNull();
-		expect(gitEntry!.querySelector('[title="Git repository"]')).not.toBeNull();
+		expect(gitEntry!.querySelector('[title="Repository"]')).not.toBeNull();
 	});
 
 	it("navigates up when Up button is clicked", async () => {

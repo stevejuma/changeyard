@@ -103,9 +103,9 @@ export function useGitHistoryData({
 			throw new Error("Missing workspace.");
 		}
 		const trpc = getRuntimeTrpcClient(workspaceId);
-		const payload = await trpc.workspace.getGitRefs.query(taskScope ?? null);
+		const payload = await trpc.workspace.getRepositoryRefs.query(taskScope ?? null);
 		if (!payload.ok) {
-			throw new Error(payload.error ?? "Could not load git refs.");
+			throw new Error(payload.error ?? "Could not load repository refs.");
 		}
 		return payload;
 	}, [taskScope, workspaceId]);
@@ -140,7 +140,7 @@ export function useGitHistoryData({
 		(refsQuery.isLoading && refs.length === 0);
 	const refsErrorMessage =
 		!isScopeTransitioning && refsQuery.isError && refs.length === 0
-			? (refsQuery.error?.message ?? "Could not load git refs.")
+			? (refsQuery.error?.message ?? "Could not load repository refs.")
 			: null;
 	const headRef = refs.find((ref) => ref.isHead);
 
@@ -197,7 +197,7 @@ export function useGitHistoryData({
 
 			try {
 				const trpc = getRuntimeTrpcClient(workspaceId);
-				const payload = await trpc.workspace.getGitLog.query(
+				const payload = await trpc.workspace.getRepositoryLog.query(
 					{
 						ref: logRefs[0] ?? null,
 						refs: logRefs,
@@ -351,7 +351,7 @@ export function useGitHistoryData({
 			throw new Error("Missing scope.");
 		}
 		const trpc = getRuntimeTrpcClient(workspaceId);
-		return await trpc.workspace.getCommitDiff.query({
+		return await trpc.workspace.getRepositoryCommitDiff.query({
 			commitHash: selectedCommitHash,
 			taskScope: taskScope ?? null,
 		});

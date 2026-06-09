@@ -6,4 +6,6 @@ Changeyard remains the single source of truth. The UI reads and mutates existing
 
 The active frontend is built from `packages/kanban/web-ui/src/*` and served by `packages/kanban/src/server/index.js`. It uses the upstream Kanban visual system and a Changeyard-specific client/runtime bridge.
 
-Vendored upstream Kanban source is stored under `packages/kanban/upstream/cline-kanban/`. That snapshot remains partially inert: the active Changeyard build does not execute upstream telemetry, update, or release scripts, and it does not yet boot the vendored upstream runtime stack unchanged.
+`packages/kanban` is the canonical package root for the active server, runtime stack, and web UI.
+
+Upstream provenance is recorded in [docs/kanban-upstream.md](/Users/stevejuma/code/changeyard/docs/kanban-upstream.md). The active package no longer carries a vendored upstream source tree.

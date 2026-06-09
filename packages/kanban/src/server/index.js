@@ -26,6 +26,8 @@ import {
 } from "../runtime-stack/server/workspace-registry.js";
 import { resolveProjectInputPath } from "../projects/project-path.js";
 
+const WORKSPACE_RUNTIME_BRIDGE_MODULE_URL = new URL("../../../../dist/src/workspace/runtimeBridge.js", import.meta.url);
+
 async function assertPathIsDirectory(targetPath) {
 	const info = await stat(targetPath);
 	if (!info.isDirectory()) {
@@ -42,14 +44,43 @@ async function pathIsDirectory(targetPath) {
 	}
 }
 
-function hasGitRepository(targetPath) {
+function detectWorkspaceRepositoryKindFallback(targetPath) {
+	const jjResult = spawnSync("jj", ["workspace", "root"], {
+		cwd: targetPath,
+		encoding: "utf8",
+		stdio: ["ignore", "pipe", "ignore"],
+		env: process.env,
+	});
+	if (jjResult.status === 0) {
+		return "jj";
+	}
+
 	const result = spawnSync("git", ["rev-parse", "--is-inside-work-tree"], {
 		cwd: targetPath,
 		encoding: "utf8",
 		stdio: ["ignore", "pipe", "ignore"],
 		env: createGitProcessEnv(),
 	});
-	return result.status === 0 && result.stdout.trim() === "true";
+	if (result.status === 0 && result.stdout.trim() === "true") {
+		return "git";
+	}
+
+	return null;
+}
+
+function hasWorkspaceRepositoryFallback(targetPath) {
+	return detectWorkspaceRepositoryKindFallback(targetPath) !== null;
+}
+
+async function loadWorkspaceRuntimeBridge() {
+	try {
+		return await import(WORKSPACE_RUNTIME_BRIDGE_MODULE_URL.href);
+	} catch {
+		return {
+			detectWorkspaceRepositoryKind: detectWorkspaceRepositoryKindFallback,
+			hasWorkspaceRepository: hasWorkspaceRepositoryFallback,
+		};
+	}
 }
 
 async function isPortAvailable(port, host) {
@@ -157,12 +188,14 @@ export async function startChangeyardKanban(options) {
 		disablePasscode();
 	}
 
+	const { detectWorkspaceRepositoryKind, hasWorkspaceRepository } = await loadWorkspaceRuntimeBridge();
+
 	let runtimeStateHub;
 	const workspaceRegistry = await createWorkspaceRegistry({
 		cwd: options.repoRoot,
 		loadGlobalRuntimeConfig,
 		loadRuntimeConfig,
-		hasGitRepository,
+		hasWorkspaceRepository,
 		pathIsDirectory,
 		onTerminalManagerReady: (workspaceId, manager) => {
 			runtimeStateHub?.trackTerminalManager(workspaceId, manager);
@@ -195,7 +228,8 @@ export async function startChangeyardKanban(options) {
 		runCommand: runScopedCommand,
 		resolveProjectInputPath,
 		assertPathIsDirectory,
-		hasGitRepository,
+		hasWorkspaceRepository,
+		detectWorkspaceRepositoryKind,
 		disposeWorkspace: disposeTrackedWorkspace,
 		collectProjectWorktreeTaskIdsForRemoval,
 		pickDirectoryPathFromSystemDialog,

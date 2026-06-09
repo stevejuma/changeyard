@@ -45,6 +45,7 @@ function createWorkspaceState(taskId: string, revision: number): RuntimeWorkspac
 		repoPath: "/tmp/project-a",
 		statePath: "/tmp/project-a/.cline/kanban",
 		git: {
+			engine: "git",
 			currentBranch: "main",
 			defaultBranch: "main",
 			branches: ["main"],

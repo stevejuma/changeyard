@@ -342,11 +342,23 @@ export interface RuntimeTrpcContext {
 		) => Promise<RuntimeWorkspaceStateResponse>;
 		loadWorkspaceChanges: (scope: RuntimeTrpcWorkspaceScope) => Promise<RuntimeWorkspaceChangesResponse>;
 		loadGitLog: (scope: RuntimeTrpcWorkspaceScope, input: RuntimeGitLogRequest) => Promise<RuntimeGitLogResponse>;
+		loadRepositoryLog: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: RuntimeGitLogRequest,
+		) => Promise<RuntimeGitLogResponse>;
 		loadGitRefs: (
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeTaskWorkspaceInfoRequest | null,
 		) => Promise<RuntimeGitRefsResponse>;
+		loadRepositoryRefs: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: RuntimeTaskWorkspaceInfoRequest | null,
+		) => Promise<RuntimeGitRefsResponse>;
 		loadCommitDiff: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: RuntimeGitCommitDiffRequest,
+		) => Promise<RuntimeGitCommitDiffResponse>;
+		loadRepositoryCommitDiff: (
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeGitCommitDiffRequest,
 		) => Promise<RuntimeGitCommitDiffResponse>;
@@ -677,17 +689,35 @@ export const runtimeAppRouter = t.router({
 			.query(async ({ ctx, input }) => {
 				return await ctx.workspaceApi.loadGitLog(ctx.workspaceScope, input);
 			}),
+		getRepositoryLog: workspaceProcedure
+			.input(runtimeGitLogRequestSchema)
+			.output(runtimeGitLogResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.workspaceApi.loadRepositoryLog(ctx.workspaceScope, input);
+			}),
 		getGitRefs: workspaceProcedure
 			.input(optionalTaskWorkspaceInfoRequestSchema)
 			.output(runtimeGitRefsResponseSchema)
 			.query(async ({ ctx, input }) => {
 				return await ctx.workspaceApi.loadGitRefs(ctx.workspaceScope, input ?? null);
 			}),
+		getRepositoryRefs: workspaceProcedure
+			.input(optionalTaskWorkspaceInfoRequestSchema)
+			.output(runtimeGitRefsResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.workspaceApi.loadRepositoryRefs(ctx.workspaceScope, input ?? null);
+			}),
 		getCommitDiff: workspaceProcedure
 			.input(runtimeGitCommitDiffRequestSchema)
 			.output(runtimeGitCommitDiffResponseSchema)
 			.query(async ({ ctx, input }) => {
 				return await ctx.workspaceApi.loadCommitDiff(ctx.workspaceScope, input);
+			}),
+		getRepositoryCommitDiff: workspaceProcedure
+			.input(runtimeGitCommitDiffRequestSchema)
+			.output(runtimeGitCommitDiffResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.workspaceApi.loadRepositoryCommitDiff(ctx.workspaceScope, input);
 			}),
 	}),
 	projects: t.router({

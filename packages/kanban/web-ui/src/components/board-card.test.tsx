@@ -293,7 +293,7 @@ describe("BoardCard", () => {
 			);
 		});
 
-		expect(container.textContent).toContain("Cline");
+		expect(container.textContent).toContain("ChangeYard");
 		expect(container.textContent).toContain("GPT-5.5 (Low)");
 		expect(container.textContent).not.toContain("openai/gpt-5.5");
 	});

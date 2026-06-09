@@ -123,7 +123,7 @@ function isManagedOauthProviderId(providerId: string): providerId is ManagedClin
 
 function formatManagedProviderDisplayName(providerId: ManagedClineOauthProviderId): string {
 	if (providerId === "cline") {
-		return "Cline";
+		return "ChangeYard";
 	}
 	if (providerId === "oca") {
 		return "Oracle Code Assist";
@@ -214,7 +214,7 @@ function resolveManagedProviderLaunchApiKey(input: {
 	const envKeys = MANAGED_PROVIDER_ENV_KEYS[input.providerId];
 	const envHelp = envKeys.length > 0 ? ` or set ${envKeys.join(" or ")}` : "";
 	throw new Error(
-		`${formatManagedProviderDisplayName(input.providerId)} provider is selected but no ${formatManagedProviderDisplayName(input.providerId)} credentials are configured. Sign in from Settings${envHelp} before starting a native Cline task.`,
+		`${formatManagedProviderDisplayName(input.providerId)} provider is selected but no ${formatManagedProviderDisplayName(input.providerId)} credentials are configured. Sign in from Settings${envHelp} before starting a native ChangeYard task.`,
 	);
 }
 
@@ -598,13 +598,13 @@ export function createClineProviderService() {
 
 			const normalizedProviderId = selectedSettings.provider.trim().toLowerCase();
 			if (normalizedProviderId !== "cline") {
-				throw new Error("Featurebase token requires a Cline provider.");
+				throw new Error("Featurebase token requires a ChangeYard provider.");
 			}
 
 			const tryFetchToken = async (settings: SdkProviderSettings): Promise<{ featurebaseJwt: string }> => {
 				const rawAccessToken = settings.auth?.accessToken?.trim() ?? "";
 				if (!rawAccessToken) {
-					throw new Error("No access token configured for Cline provider.");
+					throw new Error("No access token configured for ChangeYard provider.");
 				}
 				return await fetchSdkFeaturebaseToken({
 					apiBaseUrl: settings.baseUrl?.trim() || DEFAULT_CLINE_API_BASE_URL,
@@ -750,7 +750,7 @@ export function createClineProviderService() {
 				}
 				const normalizedProviderId = selectedSettings.provider.trim().toLowerCase();
 				if (normalizedProviderId !== "cline") {
-					return { ok: false, error: "Account switching requires a Cline provider." };
+					return { ok: false, error: "Account switching requires a ChangeYard provider." };
 				}
 
 				const doSwitch = async (settings: SdkProviderSettings): Promise<RuntimeClineAccountSwitchResponse> => {
@@ -792,14 +792,14 @@ export function createClineProviderService() {
 				: getSelectedProviderSettings();
 			if (!selectedSettings) {
 				throw new Error(
-					"No native Cline provider is configured. Open Settings, choose a provider, and then start the task again.",
+					"No native ChangeYard provider is configured. Open Settings, choose a provider, and then start the task again.",
 				);
 			}
 
 			const normalizedProviderId = selectedSettings.provider.trim().toLowerCase();
 			if (!normalizedProviderId) {
 				throw new Error(
-					"No native Cline provider is configured. Open Settings, choose a provider, and then start the task again.",
+					"No native ChangeYard provider is configured. Open Settings, choose a provider, and then start the task again.",
 				);
 			}
 			const oauthResolution = await refreshManagedOauthSettings(selectedSettings);

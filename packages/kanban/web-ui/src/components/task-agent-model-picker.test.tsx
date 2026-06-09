@@ -15,7 +15,7 @@ const fetchClineProviderModelsMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@runtime-agent-catalog", () => ({
 	getRuntimeLaunchSupportedAgentCatalog: vi.fn(() => [
-		{ id: "cline", label: "Cline", binary: "cline" },
+		{ id: "cline", label: "ChangeYard", binary: "cline" },
 		{ id: "claude", label: "Claude Code", binary: "claude" },
 	]),
 }));
@@ -56,7 +56,7 @@ afterEach(() => {
 describe("useTaskAgentModelPicker – clineProviderOptions", () => {
 	it("shows all providers except the default, regardless of enabled flag", async () => {
 		const catalog: RuntimeClineProviderCatalogItem[] = [
-			createProvider("cline", "Cline", true),
+			createProvider("cline", "ChangeYard", true),
 			createProvider("openrouter", "OpenRouter", false),
 			createProvider("anthropic", "Anthropic", false),
 		];
@@ -89,7 +89,7 @@ describe("useTaskAgentModelPicker – clineProviderOptions", () => {
 
 		expect(snapshot).not.toBeNull();
 		const options = snapshot!.clineProviderOptions;
-		expect(options[0]).toEqual({ value: "", label: "Cline" });
+		expect(options[0]).toEqual({ value: "", label: "ChangeYard" });
 		const nonDefault = options.slice(1);
 		expect(nonDefault).toEqual([
 			{ value: "openrouter", label: "OpenRouter" },
@@ -98,7 +98,7 @@ describe("useTaskAgentModelPicker – clineProviderOptions", () => {
 	});
 	it("excludes the default provider from the explicit list", async () => {
 		const catalog: RuntimeClineProviderCatalogItem[] = [
-			createProvider("cline", "Cline", true),
+			createProvider("cline", "ChangeYard", true),
 			createProvider("anthropic", "Anthropic", true),
 		];
 		fetchClineProviderCatalogMock.mockResolvedValue(catalog);
@@ -214,7 +214,7 @@ describe("useTaskAgentModelPicker – providerDefaultModels", () => {
 describe("useTaskAgentModelPicker – provider-aware model default label", () => {
 	it("loads inherited models for managed OAuth providers and derives their catalog default model", async () => {
 		const catalog: RuntimeClineProviderCatalogItem[] = [
-			createProvider("cline", "Cline", true, "cline-sonnet"),
+			createProvider("cline", "ChangeYard", true, "cline-sonnet"),
 			createProvider("anthropic", "Anthropic", true, "claude-opus-4-20250514"),
 		];
 		const clineModels = [
@@ -399,7 +399,7 @@ describe("TaskAgentModelPicker – auto-reset invalid model selection", () => {
 						modelId: "claude-opus-4-20250514",
 					})}
 					onClineSettingsChange={onClineSettingsChange}
-					agentOptions={[{ value: "", label: "Cline" }]}
+					agentOptions={[{ value: "", label: "ChangeYard" }]}
 					clineProviderOptions={[{ value: "", label: "Anthropic" }]}
 					clineModelOptions={modelOptions}
 					isLoadingProviders={false}
@@ -437,7 +437,7 @@ describe("TaskAgentModelPicker – auto-reset invalid model selection", () => {
 						modelId: "llama-3.3-70b-versatile",
 					})}
 					onClineSettingsChange={onClineSettingsChange}
-					agentOptions={[{ value: "", label: "Cline" }]}
+					agentOptions={[{ value: "", label: "ChangeYard" }]}
 					clineProviderOptions={[{ value: "", label: "Groq" }]}
 					clineModelOptions={modelOptions}
 					isLoadingProviders={false}
@@ -467,7 +467,7 @@ describe("TaskAgentModelPicker – auto-reset invalid model selection", () => {
 						modelId: "claude-opus-4-20250514",
 					})}
 					onClineSettingsChange={onClineSettingsChange}
-					agentOptions={[{ value: "", label: "Cline" }]}
+					agentOptions={[{ value: "", label: "ChangeYard" }]}
 					clineProviderOptions={[{ value: "", label: "Anthropic" }]}
 					clineModelOptions={modelOptions}
 					isLoadingProviders={false}
@@ -498,7 +498,7 @@ describe("TaskAgentModelPicker – auto-reset invalid model selection", () => {
 						modelId: "mixtral-8x7b-32768",
 					})}
 					onClineSettingsChange={onClineSettingsChange}
-					agentOptions={[{ value: "", label: "Cline" }]}
+					agentOptions={[{ value: "", label: "ChangeYard" }]}
 					clineProviderOptions={[{ value: "", label: "Groq" }]}
 					clineModelOptions={modelOptions}
 					isLoadingProviders={false}
@@ -525,8 +525,8 @@ describe("TaskAgentModelPicker – inherited default reasoning effort", () => {
 					onAgentIdChange={() => {}}
 					clineSettings={undefined}
 					onClineSettingsChange={() => {}}
-					agentOptions={[{ value: "", label: "Cline" }]}
-					clineProviderOptions={[{ value: "", label: "Cline" }]}
+					agentOptions={[{ value: "", label: "ChangeYard" }]}
+					clineProviderOptions={[{ value: "", label: "ChangeYard" }]}
 					clineModelOptions={[
 						{ value: "", label: "GPT-5.4" },
 						{ value: "openai/gpt-5.3-codex", label: "GPT-5.3 Codex" },
@@ -575,8 +575,8 @@ describe("TaskAgentModelPicker – inherited default reasoning effort", () => {
 						onAgentIdChange={() => {}}
 						clineSettings={undefined}
 						onClineSettingsChange={() => {}}
-						agentOptions={[{ value: "", label: "Cline" }]}
-						clineProviderOptions={[{ value: "", label: "Cline" }]}
+						agentOptions={[{ value: "", label: "ChangeYard" }]}
+						clineProviderOptions={[{ value: "", label: "ChangeYard" }]}
 						clineModelOptions={[
 							{ value: "", label: "GPT-5.4" },
 							{ value: "openai/gpt-5.3-codex", label: "GPT-5.3 Codex" },
@@ -622,8 +622,8 @@ describe("TaskAgentModelPicker – inherited default reasoning effort", () => {
 					onAgentIdChange={() => {}}
 					clineSettings={undefined}
 					onClineSettingsChange={onClineSettingsChange}
-					agentOptions={[{ value: "", label: "Cline" }]}
-					clineProviderOptions={[{ value: "", label: "Cline" }]}
+					agentOptions={[{ value: "", label: "ChangeYard" }]}
+					clineProviderOptions={[{ value: "", label: "ChangeYard" }]}
 					clineModelOptions={[
 						{ value: "", label: "GPT-5.4" },
 						{ value: "openai/gpt-5.3-codex", label: "GPT-5.3 Codex" },
@@ -680,8 +680,8 @@ describe("TaskAgentModelPicker – inherited default reasoning effort", () => {
 					onAgentIdChange={() => {}}
 					clineSettings={undefined}
 					onClineSettingsChange={onClineSettingsChange}
-					agentOptions={[{ value: "", label: "Cline" }]}
-					clineProviderOptions={[{ value: "", label: "Cline" }]}
+					agentOptions={[{ value: "", label: "ChangeYard" }]}
+					clineProviderOptions={[{ value: "", label: "ChangeYard" }]}
 					clineModelOptions={[{ value: "", label: "GPT-5.4" }]}
 					effectiveDefaultModelId="openai/gpt-5.4"
 					providerModels={[{ id: "openai/gpt-5.4", name: "GPT-5.4", supportsReasoningEffort: true }]}
@@ -731,8 +731,8 @@ describe("TaskAgentModelPicker – inherited default reasoning effort", () => {
 						modelId: "openai/gpt-5.3-codex",
 					})}
 					onClineSettingsChange={() => {}}
-					agentOptions={[{ value: "", label: "Cline" }]}
-					clineProviderOptions={[{ value: "", label: "Cline" }]}
+					agentOptions={[{ value: "", label: "ChangeYard" }]}
+					clineProviderOptions={[{ value: "", label: "ChangeYard" }]}
 					clineModelOptions={[
 						{ value: "", label: "GPT-5.4" },
 						{ value: "openai/gpt-5.3-codex", label: "GPT-5.3 Codex" },

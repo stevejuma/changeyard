@@ -6,11 +6,22 @@ import type {
 	RuntimeGitRefsResponse,
 } from "../core/api-contract.js";
 import { runGit } from "./git-utils.js";
+import { detectWorkspaceEngine } from "./git-sync.js";
+import { parseGitStylePatchEntries } from "./git-style-patch.js";
+import { getJjCurrentBookmark, getJjStdout, runJj } from "./jj-utils.js";
 
 const LOG_FIELD_SEPARATOR = "\x1f";
 const LOG_RECORD_SEPARATOR = "\x1e";
 
 const LOG_FORMAT = ["%H", "%h", "%an", "%ae", "%aI", "%s", "%P"].join(LOG_FIELD_SEPARATOR);
+const JJ_LOG_TEMPLATE = [
+	"commit_id",
+	"author.name()",
+	"author.email()",
+	'author.timestamp().format("%Y-%m-%dT%H:%M:%SZ")',
+	"description.first_line()",
+	'parents.map(|c| c.commit_id()).join(" ")',
+].join(` ++ "${LOG_FIELD_SEPARATOR}" ++ `) + ` ++ "${LOG_RECORD_SEPARATOR}"`;
 
 type CommitRelation = NonNullable<RuntimeGitCommit["relation"]>;
 
@@ -41,6 +52,10 @@ export async function getGitLog(options: {
 	maxCount?: number;
 	skip?: number;
 }): Promise<RuntimeGitLogResponse> {
+	const engine = await detectWorkspaceEngine(options.cwd);
+	if (engine === "jj") {
+		return await getJjLog(options);
+	}
 	const { cwd, ref, refs, maxCount = 200, skip = 0 } = options;
 
 	const repoRootResult = await runGit(cwd, ["rev-parse", "--show-toplevel"]);
@@ -116,6 +131,10 @@ function parseTrackCounts(trackDescriptor: string | null): { ahead?: number; beh
 }
 
 export async function getGitRefs(cwd: string): Promise<RuntimeGitRefsResponse> {
+	const engine = await detectWorkspaceEngine(cwd);
+	if (engine === "jj") {
+		return await getJjRefs(cwd);
+	}
 	const repoRootResult = await runGit(cwd, ["rev-parse", "--show-toplevel"]);
 	if (!repoRootResult.ok || !repoRootResult.stdout) {
 		return { ok: false, refs: [], error: "No git repository detected." };
@@ -361,43 +380,14 @@ function parseCommitNumstatEntries(output: string): CommitDiffStatEntry[] {
 	return entries;
 }
 
-function parseCommitPatchEntries(output: string): Array<{
-	path: string;
-	previousPath?: string;
-	patch: string;
-}> {
-	const patchSegments = output.split(/^diff --git /m);
-	const entries: Array<{
-		path: string;
-		previousPath?: string;
-		patch: string;
-	}> = [];
-
-	for (const segment of patchSegments) {
-		if (!segment.trim()) {
-			continue;
-		}
-		const fullPatch = `diff --git ${segment}`;
-		const headerMatch = fullPatch.match(/^diff --git a\/(.+) b\/(.+)$/m);
-		if (!headerMatch?.[1] || !headerMatch[2]) {
-			continue;
-		}
-		const previousPath = headerMatch[1];
-		const path = headerMatch[2];
-		entries.push({
-			path,
-			previousPath: previousPath !== path ? previousPath : undefined,
-			patch: fullPatch,
-		});
-	}
-
-	return entries;
-}
-
 export async function getCommitDiff(options: {
 	cwd: string;
 	commitHash: string;
 }): Promise<RuntimeGitCommitDiffResponse> {
+	const engine = await detectWorkspaceEngine(options.cwd);
+	if (engine === "jj") {
+		return await getJjCommitDiff(options);
+	}
 	const { cwd, commitHash } = options;
 
 	const repoRootResult = await runGit(cwd, ["rev-parse", "--show-toplevel"]);
@@ -449,7 +439,7 @@ export async function getCommitDiff(options: {
 		});
 	}
 
-	const patchEntries = diffResult.ok ? parseCommitPatchEntries(diffResult.stdout) : [];
+	const patchEntries = diffResult.ok ? parseGitStylePatchEntries(diffResult.stdout) : [];
 	for (const entry of patchEntries) {
 		const key = getEntryKey(entry.path, entry.previousPath);
 		const existing = filesByKey.get(key);
@@ -475,4 +465,145 @@ export async function getCommitDiff(options: {
 	files.sort((a, b) => a.path.localeCompare(b.path));
 
 	return { ok: true, commitHash, files };
+}
+
+async function getJjLog(options: {
+	cwd: string;
+	ref?: string | null;
+	refs?: string[] | null;
+	maxCount?: number;
+	skip?: number;
+}): Promise<RuntimeGitLogResponse> {
+	const { cwd, ref, refs, maxCount = 200, skip = 0 } = options;
+	const repoRoot = await getJjStdout(["workspace", "root"], cwd).catch(() => null);
+	if (!repoRoot) {
+		return { ok: false, commits: [], totalCount: 0, error: "No jj repository detected." };
+	}
+	const requestedRefs = normalizeRequestedRefs(refs, ref);
+	const revset =
+		requestedRefs.length > 0 ? requestedRefs.map((candidate) => `::${candidate}`).join("|") : "::@";
+
+	const [logResult, countResult] = await Promise.all([
+		runJj(repoRoot, ["log", "-r", revset, "--no-graph", "-T", JJ_LOG_TEMPLATE], { trimStdout: false }),
+		runJj(repoRoot, ["log", "-r", revset, "--count"]),
+	]);
+	if (!logResult.ok) {
+		return { ok: false, commits: [], totalCount: 0, error: logResult.error ?? "Failed to read jj log." };
+	}
+
+	const commits: RuntimeGitCommit[] = [];
+	for (const record of logResult.stdout.split(LOG_RECORD_SEPARATOR)) {
+		const trimmedRecord = record.trim();
+		if (!trimmedRecord) {
+			continue;
+		}
+		const fields = trimmedRecord.split(LOG_FIELD_SEPARATOR);
+		if (fields.length < 6) {
+			continue;
+		}
+		const [hash, authorName, authorEmail, dateIso, subject, parentHashes] = fields;
+		if (!hash || !authorName || !dateIso) {
+			continue;
+		}
+		commits.push({
+			hash,
+			shortHash: hash.slice(0, 8),
+			authorName,
+			authorEmail: authorEmail ?? "",
+			date: dateIso,
+			message: subject?.trim() || "(no description)",
+			parentHashes: (parentHashes ?? "").split(" ").filter(Boolean),
+			relation: "shared",
+		});
+	}
+
+	const totalCount = countResult.ok ? Number.parseInt(countResult.stdout, 10) || commits.length : commits.length;
+	return {
+		ok: true,
+		commits: commits.slice(skip, skip + maxCount),
+		totalCount,
+	};
+}
+
+async function getJjRefs(cwd: string): Promise<RuntimeGitRefsResponse> {
+	const repoRoot = await getJjStdout(["workspace", "root"], cwd).catch(() => null);
+	if (!repoRoot) {
+		return { ok: false, refs: [], error: "No jj repository detected." };
+	}
+
+	const [headCommit, currentBranch, bookmarkListResult] = await Promise.all([
+		getJjStdout(["log", "-r", "@", "--no-graph", "-T", "commit_id"], repoRoot).catch(() => null),
+		getJjCurrentBookmark(repoRoot),
+		runJj(repoRoot, ["bookmark", "list"]),
+	]);
+	const refs: RuntimeGitRef[] = [];
+	const bookmarkNames = (bookmarkListResult.ok ? bookmarkListResult.stdout : "")
+		.split("\n")
+		.map((line) => line.trim())
+		.filter(Boolean)
+		.map((line) => line.split(":", 1)[0]?.trim() ?? "")
+		.filter(Boolean);
+
+	const bookmarkEntries = await Promise.all(
+		bookmarkNames.map(async (name) => {
+			const hash = await getJjStdout(["log", "-r", name, "--no-graph", "-T", "commit_id"], repoRoot).catch(() => null);
+			return hash
+				? ({
+						name,
+						type: "branch" as const,
+						hash,
+						isHead: name === currentBranch,
+					} satisfies RuntimeGitRef)
+				: null;
+		}),
+	);
+	for (const entry of bookmarkEntries) {
+		if (entry) {
+			refs.push(entry);
+		}
+	}
+
+	if (refs.length === 0 && headCommit) {
+		refs.push({
+			name: headCommit.slice(0, 8),
+			type: "detached",
+			hash: headCommit,
+			isHead: true,
+		});
+	}
+
+	return { ok: true, refs };
+}
+
+async function getJjCommitDiff(options: {
+	cwd: string;
+	commitHash: string;
+}): Promise<RuntimeGitCommitDiffResponse> {
+	const repoRoot = await getJjStdout(["workspace", "root"], options.cwd).catch(() => null);
+	if (!repoRoot) {
+		return { ok: false, commitHash: options.commitHash, files: [], error: "No jj repository detected." };
+	}
+
+	const diffResult = await runJj(repoRoot, ["diff", "-r", options.commitHash, "--git"], { trimStdout: false });
+	if (!diffResult.ok) {
+		return {
+			ok: false,
+			commitHash: options.commitHash,
+			files: [],
+			error: diffResult.error ?? "Failed to read jj commit diff.",
+		};
+	}
+
+	const files = parseGitStylePatchEntries(diffResult.stdout)
+		.map((entry) => ({
+			path: entry.path,
+			previousPath: entry.previousPath,
+			status: entry.status,
+			additions: entry.additions,
+			deletions: entry.deletions,
+			patch: entry.patch,
+		}))
+		.sort((left, right) => left.path.localeCompare(right.path));
+
+	return { ok: true, commitHash: options.commitHash, files };
 }
