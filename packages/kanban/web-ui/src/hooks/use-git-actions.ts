@@ -130,6 +130,7 @@ export function useGitActions({
 		}
 		return {
 			currentBranch: selectedTaskWorkspaceSnapshot.branch,
+			jjChangeId: selectedTaskWorkspaceSnapshot.jjChangeId,
 			upstreamBranch: null,
 			changedFiles: selectedTaskWorkspaceSnapshot.changedFiles ?? 0,
 			additions: selectedTaskWorkspaceSnapshot.additions ?? 0,
@@ -255,6 +256,7 @@ export function useGitActions({
 							exists: true,
 							baseRef: selection.card.baseRef,
 							branch: snapshot.branch,
+							jjChangeId: snapshot.jjChangeId,
 							isDetached: snapshot.isDetached,
 							headCommit: snapshot.headCommit,
 						}

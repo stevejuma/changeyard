@@ -18,6 +18,7 @@ export interface TaskWorkspaceDeleteResult {
 
 export interface TaskWorkspaceHeadInfo {
   branch: string | null;
+  jjChangeId: string | null;
   headCommit: string | null;
   isDetached: boolean;
 }
@@ -218,6 +219,7 @@ export function readTaskWorkspaceHead(options: {
 }): TaskWorkspaceHeadInfo {
   if (options.repositoryKind === "jj") {
     const headResult = runCommand("jj", ["log", "-r", "@", "--no-graph", "-T", "commit_id"], options.cwd);
+    const changeIdResult = runCommand("jj", ["log", "-r", "@", "--no-graph", "-T", "change_id.short()"], options.cwd);
     const bookmarkResult = runCommand("jj", ["bookmark", "list", "-r", "@"], options.cwd);
     let branch: string | null = null;
     if (bookmarkResult.ok) {
@@ -231,6 +233,7 @@ export function readTaskWorkspaceHead(options: {
     }
     return {
       branch,
+      jjChangeId: changeIdResult.ok ? changeIdResult.stdout : null,
       headCommit: headResult.ok ? headResult.stdout : null,
       isDetached: false,
     };
@@ -240,6 +243,7 @@ export function readTaskWorkspaceHead(options: {
   const branchResult = runCommand("git", ["symbolic-ref", "--quiet", "--short", "HEAD"], options.cwd);
   return {
     branch: branchResult.ok ? branchResult.stdout : null,
+    jjChangeId: null,
     headCommit: headResult.ok ? headResult.stdout : null,
     isDetached: headResult.ok && !branchResult.ok,
   };

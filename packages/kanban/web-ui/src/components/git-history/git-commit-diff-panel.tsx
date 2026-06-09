@@ -1,6 +1,7 @@
-import { AlertCircle, ChevronDown, ChevronRight, GitCommit, GitCompare } from "lucide-react";
+import { AlertCircle, ChevronDown, ChevronLeft, ChevronRight, GitCommit, GitCompare } from "lucide-react";
 import { type MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileTreePanel } from "@/components/detail-panels/file-tree-panel";
+import { CollapsedHistoryRail } from "@/components/git-history/collapsed-history-rail";
 import {
 	buildUnifiedDiffRows,
 	parsePatchToRows,
@@ -8,11 +9,17 @@ import {
 	truncatePathMiddle,
 	type UnifiedDiffRow,
 } from "@/components/shared/diff-renderer";
+import { Button } from "@/components/ui/button";
 import { ResizeHandle } from "@/resize/resize-handle";
-import { useGitCommitDiffLayout } from "@/resize/use-git-commit-diff-layout";
+import {
+	MIN_GIT_FILE_TREE_PANEL_WIDTH,
+	useGitCommitDiffLayout,
+} from "@/resize/use-git-commit-diff-layout";
+import { clampAtLeast } from "@/resize/resize-persistence";
 import { useResizeDrag } from "@/resize/use-resize-drag";
 import type { RuntimeGitCommitDiffFile, RuntimeWorkspaceFileChange } from "@/runtime/types";
 import { isBinaryFilePath } from "@/utils/is-binary-file-path";
+import { MIN_GIT_DIFF_CONTENT_PANEL_WIDTH } from "@/resize/use-git-history-layout";
 
 export type GitCommitDiffSource =
 	| { type: "commit"; files: RuntimeGitCommitDiffFile[] }
@@ -89,7 +96,8 @@ export function GitCommitDiffPanel({
 	headerContent?: React.ReactNode;
 }): React.ReactElement {
 	const [expandedPaths, setExpandedPaths] = useState<Record<string, boolean>>({});
-	const { fileTreePanelRatio, setFileTreePanelRatio } = useGitCommitDiffLayout();
+	const { fileTreePanelWidth, isFileTreePanelCollapsed, setFileTreePanelWidth, setFileTreePanelCollapsed } =
+		useGitCommitDiffLayout();
 	const scrollContainerRef = useRef<HTMLDivElement>(null);
 	const sectionElementsRef = useRef<Record<string, HTMLElement | null>>({});
 	const diffLayoutRef = useRef<HTMLDivElement | null>(null);
@@ -115,27 +123,20 @@ export function GitCommitDiffPanel({
 
 	const handleDiffSplitSeparatorMouseDown = useCallback(
 		(event: ReactMouseEvent<HTMLDivElement>) => {
-			const container = diffLayoutRef.current;
-			if (!container) {
-				return;
-			}
-			const containerWidth = Math.max(container.offsetWidth, 1);
 			const startX = event.clientX;
-			const startRatio = fileTreePanelRatio;
+			const startWidth = fileTreePanelWidth;
 			startDiffSplitResize(event, {
 				axis: "x",
 				cursor: "ew-resize",
 				onMove: (pointerX) => {
-					const deltaRatio = (pointerX - startX) / containerWidth;
-					setFileTreePanelRatio(startRatio - deltaRatio);
+					setFileTreePanelWidth(clampAtLeast(startWidth - (pointerX - startX), MIN_GIT_FILE_TREE_PANEL_WIDTH, true));
 				},
 				onEnd: (pointerX) => {
-					const deltaRatio = (pointerX - startX) / containerWidth;
-					setFileTreePanelRatio(startRatio - deltaRatio);
+					setFileTreePanelWidth(clampAtLeast(startWidth - (pointerX - startX), MIN_GIT_FILE_TREE_PANEL_WIDTH, true));
 				},
 			});
 		},
-		[fileTreePanelRatio, setFileTreePanelRatio, startDiffSplitResize],
+		[fileTreePanelWidth, setFileTreePanelWidth, startDiffSplitResize],
 	);
 
 	useEffect(() => {
@@ -311,19 +312,27 @@ export function GitCommitDiffPanel({
 		);
 	}
 
-	const fileTreePanelPercent = `${(fileTreePanelRatio * 100).toFixed(1)}%`;
-	const diffContentPanelPercent = `${((1 - fileTreePanelRatio) * 100).toFixed(1)}%`;
+	const diffPanelMinWidth =
+		MIN_GIT_DIFF_CONTENT_PANEL_WIDTH +
+		(isFileTreePanelCollapsed ? 36 : fileTreePanelWidth) +
+		(isFileTreePanelCollapsed ? 0 : 1);
 
 	return (
 		<div
 			ref={diffLayoutRef}
-			style={{ display: "flex", flex: "1.6 1 0", minWidth: 0, minHeight: 0, background: "var(--color-surface-0)" }}
+			style={{
+				display: "flex",
+				flex: "1 1 auto",
+				minWidth: diffPanelMinWidth,
+				minHeight: 0,
+				background: "var(--color-surface-0)",
+			}}
 		>
 			<div
 				style={{
 					display: "flex",
-					flex: `0 0 ${diffContentPanelPercent}`,
-					minWidth: 0,
+					flex: "1 1 auto",
+					minWidth: MIN_GIT_DIFF_CONTENT_PANEL_WIDTH,
 					minHeight: 0,
 					flexDirection: "column",
 				}}
@@ -433,27 +442,77 @@ export function GitCommitDiffPanel({
 					})}
 				</div>
 			</div>
-			<ResizeHandle
-				orientation="vertical"
-				ariaLabel="Resize repository diff panels"
-				onMouseDown={handleDiffSplitSeparatorMouseDown}
-				className="z-10"
-			/>
-			<div
-				style={{
-					display: "flex",
-					flex: `0 0 ${fileTreePanelPercent}`,
-					minWidth: 0,
-					minHeight: 0,
-				}}
-			>
-				<FileTreePanel
-					workspaceFiles={workspaceFilesForTree}
-					selectedPath={selectedPath}
-					onSelectPath={onSelectPath}
-					panelFlex="1 1 0"
+			{isFileTreePanelCollapsed ? null : (
+				<ResizeHandle
+					orientation="vertical"
+					ariaLabel="Resize repository diff panels"
+					onMouseDown={handleDiffSplitSeparatorMouseDown}
+					className="z-10"
 				/>
-			</div>
+			)}
+			{isFileTreePanelCollapsed ? (
+				<CollapsedHistoryRail
+					label="Files"
+					count={files.length}
+					icon={<ChevronLeft size={14} />}
+					ariaLabel="Expand files panel"
+					onExpand={() => setFileTreePanelCollapsed(false)}
+				/>
+			) : (
+				<div
+					style={{
+						display: "flex",
+						width: fileTreePanelWidth,
+						minWidth: fileTreePanelWidth,
+						flexShrink: 0,
+						minHeight: 0,
+						flexDirection: "column",
+						background: "var(--color-surface-0)",
+					}}
+				>
+					<div
+						style={{
+							display: "flex",
+							alignItems: "center",
+							gap: 8,
+							padding: "10px 8px 6px 12px",
+							borderBottom: "1px solid var(--color-divider)",
+							background: "var(--color-surface-1)",
+						}}
+					>
+						<div
+							style={{
+								flex: 1,
+								fontSize: 10,
+								fontWeight: 600,
+								textTransform: "uppercase",
+								letterSpacing: "0.05em",
+								color: "var(--color-text-tertiary)",
+							}}
+						>
+							Files
+							{files.length > 0 ? (
+								<span style={{ fontWeight: 400, marginLeft: 6, textTransform: "none", letterSpacing: 0 }}>
+									({files.length})
+								</span>
+							) : null}
+						</div>
+						<Button
+							variant="ghost"
+							size="sm"
+							icon={<ChevronRight size={14} />}
+							aria-label="Collapse files panel"
+							onClick={() => setFileTreePanelCollapsed(true)}
+						/>
+					</div>
+					<FileTreePanel
+						workspaceFiles={workspaceFilesForTree}
+						selectedPath={selectedPath}
+						onSelectPath={onSelectPath}
+						panelFlex="1 1 0"
+					/>
+				</div>
+			)}
 		</div>
 	);
 }

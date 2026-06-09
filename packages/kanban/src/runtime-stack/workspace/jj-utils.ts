@@ -102,19 +102,26 @@ export async function getJjCurrentBookmark(cwd: string): Promise<string | null> 
 	return null;
 }
 
+export async function getJjCurrentChangeId(cwd: string): Promise<string | null> {
+	return await getJjStdout(["log", "-r", "@", "--no-graph", "-T", "change_id.short()"], cwd).catch(() => null);
+}
+
 export interface JjHeadInfo {
 	branch: string | null;
+	jjChangeId: string | null;
 	headCommit: string | null;
 	isDetached: boolean;
 }
 
 export async function readJjHeadInfo(cwd: string): Promise<JjHeadInfo> {
-	const [headCommit, branch] = await Promise.all([
+	const [headCommit, branch, jjChangeId] = await Promise.all([
 		getJjStdout(["log", "-r", "@", "--no-graph", "-T", "commit_id"], cwd).catch(() => null),
 		getJjCurrentBookmark(cwd),
+		getJjCurrentChangeId(cwd),
 	]);
 	return {
 		branch,
+		jjChangeId,
 		headCommit,
 		isDetached: false,
 	};

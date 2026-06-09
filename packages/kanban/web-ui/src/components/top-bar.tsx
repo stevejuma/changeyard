@@ -166,6 +166,15 @@ function GitBranchStatusControl({
 	);
 }
 
+function resolveRepositoryLabel(input: {
+	currentBranch?: string | null;
+	jjChangeId?: string | null;
+	headCommit?: string | null;
+	fallback: string;
+}): string {
+	return input.currentBranch ?? input.jjChangeId ?? input.headCommit?.slice(0, 8) ?? input.fallback;
+}
+
 function TopBarGitStatusSection({
 	showHomeGitSummary,
 	selectedTaskId,
@@ -192,7 +201,11 @@ function TopBarGitStatusSection({
 	const taskWorkspaceSnapshot = useTaskWorkspaceSnapshotValue(selectedTaskId);
 
 	if (showHomeGitSummary && homeGitSummary) {
-		const branchLabel = homeGitSummary.currentBranch ?? "detached HEAD";
+		const branchLabel = resolveRepositoryLabel({
+			currentBranch: homeGitSummary.currentBranch,
+			jjChangeId: homeGitSummary.jjChangeId,
+			fallback: "detached HEAD",
+		});
 		const pullCount = homeGitSummary.behindCount ?? 0;
 		const pushCount = homeGitSummary.aheadCount ?? 0;
 		const pullTooltip =
@@ -262,9 +275,12 @@ function TopBarGitStatusSection({
 			<>
 				<div className="w-px h-5 bg-border mx-1" />
 				<GitBranchStatusControl
-					branchLabel={
-						taskWorkspaceInfo?.branch ?? taskWorkspaceSnapshot?.headCommit?.slice(0, 8) ?? "initializing"
-					}
+					branchLabel={resolveRepositoryLabel({
+						currentBranch: taskWorkspaceInfo?.branch ?? taskWorkspaceSnapshot?.branch,
+						jjChangeId: taskWorkspaceInfo?.jjChangeId ?? taskWorkspaceSnapshot?.jjChangeId,
+						headCommit: taskWorkspaceInfo?.headCommit ?? taskWorkspaceSnapshot?.headCommit,
+						fallback: "initializing",
+					})}
 					changedFiles={taskWorkspaceSnapshot?.changedFiles ?? 0}
 					additions={taskWorkspaceSnapshot?.additions ?? 0}
 					deletions={taskWorkspaceSnapshot?.deletions ?? 0}

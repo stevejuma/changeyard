@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Cloud, GitBranch, Locate } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronLeft, Cloud, GitBranch, Locate } from "lucide-react";
 import { useMemo, useRef } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { Virtuoso } from "react-virtuoso";
@@ -273,6 +273,7 @@ export function GitCommitListPanel({
 	panelWidth,
 	onSelectCommit,
 	onLoadMore,
+	onCollapse,
 }: {
 	commits: RuntimeGitCommit[];
 	totalCount: number;
@@ -285,6 +286,7 @@ export function GitCommitListPanel({
 	panelWidth: number;
 	onSelectCommit: (commit: RuntimeGitCommit) => void;
 	onLoadMore?: () => void;
+	onCollapse?: () => void;
 }): React.ReactElement {
 	const refsByHash = useMemo(() => {
 		const map = new Map<string, RuntimeGitRef[]>();
@@ -350,20 +352,38 @@ export function GitCommitListPanel({
 		>
 			<div
 				style={{
-					padding: "10px 12px 6px",
-					fontSize: 10,
-					fontWeight: 600,
-					textTransform: "uppercase",
-					letterSpacing: "0.05em",
-					color: "var(--color-text-tertiary)",
+					display: "flex",
+					alignItems: "center",
+					gap: 8,
+					padding: "10px 8px 6px 12px",
 				}}
 			>
-				Commits
-				{totalCount > 0 ? (
-					<span style={{ fontWeight: 400, marginLeft: 6, textTransform: "none", letterSpacing: 0 }}>
-						({commits.length}
-						{totalCount > commits.length ? ` of ${totalCount}` : ""})
-					</span>
+				<div
+					style={{
+						flex: 1,
+						fontSize: 10,
+						fontWeight: 600,
+						textTransform: "uppercase",
+						letterSpacing: "0.05em",
+						color: "var(--color-text-tertiary)",
+					}}
+				>
+					Commits
+					{totalCount > 0 ? (
+						<span style={{ fontWeight: 400, marginLeft: 6, textTransform: "none", letterSpacing: 0 }}>
+							({commits.length}
+							{totalCount > commits.length ? ` of ${totalCount}` : ""})
+						</span>
+					) : null}
+				</div>
+				{onCollapse ? (
+					<Button
+						variant="ghost"
+						size="sm"
+						icon={<ChevronLeft size={14} />}
+						aria-label="Collapse commits panel"
+						onClick={onCollapse}
+					/>
 				) : null}
 			</div>
 

@@ -122,6 +122,7 @@ function createEmptyGitSummaryErrorResponse(error: unknown): RuntimeGitSummaryRe
 		ok: false,
 		summary: {
 			currentBranch: null,
+			jjChangeId: null,
 			upstreamBranch: null,
 			changedFiles: 0,
 			additions: 0,
@@ -140,6 +141,7 @@ function createEmptyGitSyncErrorResponse(action: RuntimeGitSyncAction, error: un
 		action,
 		summary: {
 			currentBranch: null,
+			jjChangeId: null,
 			upstreamBranch: null,
 			changedFiles: 0,
 			additions: 0,
@@ -159,6 +161,7 @@ function createEmptyGitCheckoutErrorResponse(error: unknown): RuntimeGitCheckout
 		branch: "",
 		summary: {
 			currentBranch: null,
+			jjChangeId: null,
 			upstreamBranch: null,
 			changedFiles: 0,
 			additions: 0,
@@ -177,6 +180,7 @@ function createEmptyGitDiscardErrorResponse(error: unknown): RuntimeGitDiscardRe
 		ok: false,
 		summary: {
 			currentBranch: null,
+			jjChangeId: null,
 			upstreamBranch: null,
 			changedFiles: 0,
 			additions: 0,

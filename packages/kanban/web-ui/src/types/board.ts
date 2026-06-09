@@ -73,6 +73,7 @@ export interface ReviewTaskWorkspaceSnapshot {
 	taskId: string;
 	path: string;
 	branch: string | null;
+	jjChangeId: string | null;
 	isDetached: boolean;
 	headCommit: string | null;
 	changedFiles: number | null;

@@ -47,6 +47,7 @@ function createWorkspaceState(taskId: string, revision: number): RuntimeWorkspac
 		git: {
 			engine: "git",
 			currentBranch: "main",
+			jjChangeId: null,
 			defaultBranch: "main",
 			branches: ["main"],
 		},

@@ -416,7 +416,11 @@ export function BoardCard({
 		: isTrashCard
 			? reconstructTaskWorktreeDisplayPath(card.id, workspacePath)
 			: null;
-	const reviewRefLabel = reviewWorkspaceSnapshot?.branch ?? reviewWorkspaceSnapshot?.headCommit?.slice(0, 8) ?? "HEAD";
+	const reviewRefLabel =
+		reviewWorkspaceSnapshot?.branch ??
+		reviewWorkspaceSnapshot?.jjChangeId ??
+		reviewWorkspaceSnapshot?.headCommit?.slice(0, 8) ??
+		"HEAD";
 	const reviewChangeSummary = reviewWorkspaceSnapshot
 		? reviewWorkspaceSnapshot.changedFiles == null
 			? null

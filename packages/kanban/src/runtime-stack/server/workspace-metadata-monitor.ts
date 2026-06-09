@@ -83,6 +83,7 @@ function areGitSummariesEqual(a: RuntimeGitSyncSummary | null, b: RuntimeGitSync
 	}
 	return (
 		a.currentBranch === b.currentBranch &&
+		a.jjChangeId === b.jjChangeId &&
 		a.upstreamBranch === b.upstreamBranch &&
 		a.changedFiles === b.changedFiles &&
 		a.additions === b.additions &&
@@ -99,6 +100,7 @@ function areTaskMetadataEqual(a: RuntimeTaskWorkspaceMetadata, b: RuntimeTaskWor
 		a.exists === b.exists &&
 		a.baseRef === b.baseRef &&
 		a.branch === b.branch &&
+		a.jjChangeId === b.jjChangeId &&
 		a.isDetached === b.isDetached &&
 		a.headCommit === b.headCommit &&
 		a.changedFiles === b.changedFiles &&
@@ -206,6 +208,7 @@ async function loadTaskWorkspaceMetadata(
 				exists: false,
 				baseRef: pathInfo.baseRef,
 				branch: null,
+				jjChangeId: null,
 				isDetached: false,
 				headCommit: null,
 				changedFiles: null,
@@ -235,6 +238,7 @@ async function loadTaskWorkspaceMetadata(
 				exists: true,
 				baseRef: pathInfo.baseRef,
 				branch: probe.currentBranch,
+				jjChangeId: probe.jjChangeId,
 				isDetached: probe.headCommit !== null && probe.currentBranch === null,
 				headCommit: probe.headCommit,
 				changedFiles: summary.changedFiles,
@@ -255,6 +259,7 @@ async function loadTaskWorkspaceMetadata(
 				exists: true,
 				baseRef: pathInfo.baseRef,
 				branch: null,
+				jjChangeId: null,
 				isDetached: false,
 				headCommit: null,
 				changedFiles: null,

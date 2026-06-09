@@ -98,7 +98,7 @@ describe("GitHistoryView", () => {
 		}
 	});
 
-	it("clamps displayed widths without overwriting persisted preferences on viewport resize", async () => {
+	it("uses persisted widths without clamping them to the viewport", async () => {
 		window.localStorage.setItem(LocalStorageKey.GitHistoryRefsPanelWidth, "400");
 		window.localStorage.setItem(LocalStorageKey.GitHistoryCommitsPanelWidth, "500");
 
@@ -108,16 +108,6 @@ describe("GitHistoryView", () => {
 
 		expect(mockGitRefsPanel).toHaveBeenCalled();
 		expect(mockGitCommitListPanel).toHaveBeenCalled();
-		expect(mockGitRefsPanel.mock.calls.at(-1)?.[0]).toMatchObject({ panelWidth: 298 });
-		expect(mockGitCommitListPanel.mock.calls.at(-1)?.[0]).toMatchObject({ panelWidth: 260 });
-		expect(window.localStorage.getItem(LocalStorageKey.GitHistoryRefsPanelWidth)).toBe("400");
-		expect(window.localStorage.getItem(LocalStorageKey.GitHistoryCommitsPanelWidth)).toBe("500");
-
-		currentOffsetWidth = 1400;
-		await act(async () => {
-			window.dispatchEvent(new Event("resize"));
-		});
-
 		expect(mockGitRefsPanel.mock.calls.at(-1)?.[0]).toMatchObject({ panelWidth: 400 });
 		expect(mockGitCommitListPanel.mock.calls.at(-1)?.[0]).toMatchObject({ panelWidth: 500 });
 		expect(window.localStorage.getItem(LocalStorageKey.GitHistoryRefsPanelWidth)).toBe("400");

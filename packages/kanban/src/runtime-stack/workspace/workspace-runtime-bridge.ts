@@ -2,7 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import { runGit } from "./git-utils.js";
-import { getJjCurrentBookmark, getJjStdout, runJj } from "./jj-utils.js";
+import { getJjStdout, readJjHeadInfo, runJj } from "./jj-utils.js";
 
 const ROOT_WORKSPACE_RUNTIME_BRIDGE_MODULE_URL = new URL(
 	"../../../../../dist/src/workspace/runtimeBridge.js",
@@ -24,6 +24,7 @@ export interface TaskWorkspaceDeleteResult {
 
 export interface TaskWorkspaceHeadInfo {
 	branch: string | null;
+	jjChangeId: string | null;
 	headCommit: string | null;
 	isDetached: boolean;
 }
@@ -197,15 +198,7 @@ export async function readTaskWorkspaceHeadViaBridge(options: {
 	}
 
 	if (options.repositoryKind === "jj") {
-		const [headCommit, branch] = await Promise.all([
-			getJjStdout(["log", "-r", "@", "--no-graph", "-T", "commit_id"], options.cwd).catch(() => null),
-			getJjCurrentBookmark(options.cwd),
-		]);
-		return {
-			branch,
-			headCommit,
-			isDetached: false,
-		};
+		return await readJjHeadInfo(options.cwd);
 	}
 
 	const [headResult, branchResult] = await Promise.all([
@@ -214,6 +207,7 @@ export async function readTaskWorkspaceHeadViaBridge(options: {
 	]);
 	return {
 		branch: branchResult.ok ? branchResult.stdout : null,
+		jjChangeId: null,
 		headCommit: headResult.ok ? headResult.stdout : null,
 		isDetached: headResult.ok && !branchResult.ok,
 	};

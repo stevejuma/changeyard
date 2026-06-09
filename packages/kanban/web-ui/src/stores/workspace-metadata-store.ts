@@ -56,6 +56,7 @@ function toTaskWorkspaceInfo(metadata: RuntimeTaskWorkspaceMetadata): RuntimeTas
 		exists: metadata.exists,
 		baseRef: metadata.baseRef,
 		branch: metadata.branch,
+		jjChangeId: metadata.jjChangeId,
 		isDetached: metadata.isDetached,
 		headCommit: metadata.headCommit,
 	};
@@ -66,6 +67,7 @@ function toTaskWorkspaceSnapshot(metadata: RuntimeTaskWorkspaceMetadata): Review
 		taskId: metadata.taskId,
 		path: metadata.path,
 		branch: metadata.branch,
+		jjChangeId: metadata.jjChangeId,
 		isDetached: metadata.isDetached,
 		headCommit: metadata.headCommit,
 		changedFiles: metadata.changedFiles,
@@ -99,6 +101,7 @@ function areGitSummariesEqual(a: RuntimeGitSyncSummary | null, b: RuntimeGitSync
 	}
 	return (
 		a.currentBranch === b.currentBranch &&
+		a.jjChangeId === b.jjChangeId &&
 		a.upstreamBranch === b.upstreamBranch &&
 		a.changedFiles === b.changedFiles &&
 		a.additions === b.additions &&
@@ -124,6 +127,7 @@ function areTaskWorkspaceInfosEqual(
 		a.exists === b.exists &&
 		a.baseRef === b.baseRef &&
 		a.branch === b.branch &&
+		a.jjChangeId === b.jjChangeId &&
 		a.isDetached === b.isDetached &&
 		a.headCommit === b.headCommit
 	);
@@ -143,6 +147,7 @@ function areTaskWorkspaceSnapshotsEqual(
 		a.taskId === b.taskId &&
 		a.path === b.path &&
 		a.branch === b.branch &&
+		a.jjChangeId === b.jjChangeId &&
 		a.isDetached === b.isDetached &&
 		a.headCommit === b.headCommit &&
 		a.changedFiles === b.changedFiles &&
