@@ -1,7 +1,7 @@
 import { existsSync, realpathSync } from "node:fs";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
-import { pathInside } from "./patterns.js";
+import { pathInsideComparable } from "./patterns.js";
 import { shellCommandRunner, type CommandRunner } from "./commandRunner.js";
 import type { CreateWorkspaceInput, VerifyWorkspaceInput, PublishWorkspaceInput, PublishWorkspaceResult, VerifyWorkspaceResult, WorkspaceEngine } from "./WorkspaceEngine.js";
 
@@ -22,7 +22,7 @@ export class GitWorktreeEngine implements WorkspaceEngine {
     const expectedPath = path.resolve(input.metadata.path);
     const cwd = path.resolve(input.cwd);
     if (!existsSync(expectedPath)) errors.push(`Workspace path does not exist: ${expectedPath}`);
-    if (!pathInside(cwd, expectedPath)) errors.push(`Current directory is not inside expected workspace: ${expectedPath}`);
+    if (!pathInsideComparable(cwd, expectedPath)) errors.push(`Current directory is not inside expected workspace: ${expectedPath}`);
     try {
       const root = this.run("git", ["rev-parse", "--show-toplevel"], cwd);
       const resolvedExpected = existsSync(expectedPath) ? realpathSync(expectedPath) : expectedPath;

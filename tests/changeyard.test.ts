@@ -756,6 +756,26 @@ test("start creates a plain-copy workspace and verify enforces the workspace dir
   }
 });
 
+test("cy launcher preserves caller cwd for verify inside a workspace", () => {
+  const repo = tempRepo();
+  const launcher = path.resolve(process.cwd(), "scripts", "cy.mjs");
+  try {
+    runInit(repo);
+    runCreate({ template: "agent-task", title: "Launcher verify cwd" }, repo);
+    runStart("CY-0001", repo);
+    const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
+    const result = spawnSync(nodeBinary(), [launcher, "verify", "CY-0001"], {
+      cwd: workspacePath,
+      encoding: "utf8",
+      env: { ...process.env, CHANGEYARD_USE_DIST: "1" },
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(result.stdout, /Verified CY-0001/);
+  } finally {
+    cleanup(repo);
+  }
+});
+
 test("quick start succeeds without planned sections", () => {
   const repo = tempRepo();
   try {

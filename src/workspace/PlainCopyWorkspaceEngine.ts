@@ -1,6 +1,6 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
-import { isDenied, pathInside } from "./patterns.js";
+import { isDenied, pathInside, pathInsideComparable } from "./patterns.js";
 import type { CreateWorkspaceInput, VerifyWorkspaceInput, PublishWorkspaceInput, PublishWorkspaceResult, VerifyWorkspaceResult, WorkspaceEngine } from "./WorkspaceEngine.js";
 
 function copyDirectory(sourceRoot: string, targetRoot: string, shouldCopy: (source: string) => boolean): void {
@@ -46,7 +46,7 @@ export class PlainCopyWorkspaceEngine implements WorkspaceEngine {
     const expectedPath = path.resolve(input.metadata.path);
     const cwd = path.resolve(input.cwd);
     if (!existsSync(expectedPath)) errors.push(`Workspace path does not exist: ${expectedPath}`);
-    if (!pathInside(cwd, expectedPath)) errors.push(`Current directory is not inside expected workspace: ${expectedPath}`);
+    if (!pathInsideComparable(cwd, expectedPath)) errors.push(`Current directory is not inside expected workspace: ${expectedPath}`);
     return { valid: errors.length === 0, errors };
   }
 
