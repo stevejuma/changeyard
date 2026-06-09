@@ -1,5 +1,5 @@
 import { ArrowDown, ArrowUp, ChevronLeft, Cloud, GitBranch, Locate } from "lucide-react";
-import { useMemo, useRef } from "react";
+import { type WheelEvent as ReactWheelEvent, useMemo, useRef } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { Virtuoso } from "react-virtuoso";
 
@@ -274,6 +274,7 @@ export function GitCommitListPanel({
 	onSelectCommit,
 	onLoadMore,
 	onCollapse,
+	onBodyWheelCapture,
 }: {
 	commits: RuntimeGitCommit[];
 	totalCount: number;
@@ -287,6 +288,7 @@ export function GitCommitListPanel({
 	onSelectCommit: (commit: RuntimeGitCommit) => void;
 	onLoadMore?: () => void;
 	onCollapse?: () => void;
+	onBodyWheelCapture?: (event: ReactWheelEvent<HTMLElement>) => void;
 }): React.ReactElement {
 	const refsByHash = useMemo(() => {
 		const map = new Map<string, RuntimeGitRef[]>();
@@ -390,6 +392,7 @@ export function GitCommitListPanel({
 			<div
 				ref={commitListRef}
 				tabIndex={0}
+				onWheelCapture={onBodyWheelCapture}
 				style={{
 					flex: "1 1 0",
 					overflowY: "auto",
