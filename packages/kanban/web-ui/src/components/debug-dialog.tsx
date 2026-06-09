@@ -62,8 +62,9 @@ export function DebugDialog({
 					<div className="rounded-md border border-border bg-surface-2 p-3">
 						<p className="text-sm font-medium text-text-primary">Reset all state</p>
 						<p className="mt-1 text-xs text-text-secondary">
-							Clears browser local storage and removes <code>~/.cline/data</code>, <code>~/.cline/kanban</code>,
-							and <code>~/.cline/worktrees</code>. ChangeYard reloads after completion.
+							Clears browser local storage and removes <code>~/.changeyard/data</code>,{" "}
+							<code>~/.changeyard/kanban</code>, and <code>~/.changeyard/worktrees</code>. ChangeYard reloads
+							after completion.
 						</p>
 						<Button
 							variant="danger"
@@ -90,8 +91,8 @@ export function DebugDialog({
 				</AlertDialogHeader>
 				<AlertDialogBody>
 					<AlertDialogDescription>
-						This removes local browser storage and deletes <code>~/.cline/data</code>,{" "}
-						<code>~/.cline/kanban</code>, and <code>~/.cline/worktrees</code>.
+						This removes local browser storage and deletes <code>~/.changeyard/data</code>,{" "}
+						<code>~/.changeyard/kanban</code>, and <code>~/.changeyard/worktrees</code>.
 					</AlertDialogDescription>
 					<p className="text-text-primary">This action cannot be undone.</p>
 				</AlertDialogBody>
