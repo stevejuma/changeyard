@@ -20,7 +20,30 @@ describe("runtime agent catalog", () => {
 			installUrl: "https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference",
 		});
 		expect(isRuntimeAgentLaunchSupported("copilot")).toBe(true);
-		expect(RUNTIME_LAUNCH_SUPPORTED_AGENT_IDS).toEqual(["cline", "claude", "codex", "copilot", "droid", "kiro"]);
+		expect(RUNTIME_LAUNCH_SUPPORTED_AGENT_IDS).toEqual([
+			"cline",
+			"cursor",
+			"claude",
+			"codex",
+			"copilot",
+			"droid",
+			"kiro",
+		]);
 		expect(RUNTIME_AGENT_CATALOG.map((agent) => agent.id)).toContain("copilot");
+	});
+
+	it("exposes Cursor Agent CLI as a launch-supported terminal agent", () => {
+		const cursor = getRuntimeAgentCatalogEntry("cursor");
+
+		expect(cursor).toEqual({
+			id: "cursor",
+			label: "Cursor Agent",
+			binary: "agent",
+			baseArgs: [],
+			autonomousArgs: ["--force"],
+			installUrl: "https://cursor.com/cli",
+		});
+		expect(isRuntimeAgentLaunchSupported("cursor")).toBe(true);
+		expect(RUNTIME_AGENT_CATALOG.map((agent) => agent.id)).toContain("cursor");
 	});
 });
