@@ -1196,6 +1196,7 @@ export type RuntimeTerminalWsServerMessage = z.infer<typeof runtimeTerminalWsSer
 export const runtimeGitCommitSchema = z.object({
 	hash: z.string(),
 	shortHash: z.string(),
+	changeId: z.string().optional(),
 	authorName: z.string(),
 	authorEmail: z.string(),
 	date: z.string(),
@@ -1209,6 +1210,7 @@ export const runtimeGitRefSchema = z.object({
 	name: z.string(),
 	type: z.enum(["branch", "remote", "detached"]),
 	hash: z.string(),
+	changeId: z.string().optional(),
 	isHead: z.boolean(),
 	upstreamName: z.string().optional(),
 	ahead: z.number().optional(),

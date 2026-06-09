@@ -29,6 +29,10 @@ import { clampAtLeast } from "@/resize/resize-persistence";
 import { useResizeDrag } from "@/resize/use-resize-drag";
 import type { RuntimeGitCommit } from "@/runtime/types";
 
+function getPrimaryCommitId(commit: RuntimeGitCommit): string {
+	return commit.changeId ?? commit.shortHash;
+}
+
 function CommitDiffHeader({ commit }: { commit: RuntimeGitCommit }): React.ReactElement {
 	return (
 		<div
@@ -65,7 +69,8 @@ function CommitDiffHeader({ commit }: { commit: RuntimeGitCommit }): React.React
 						day: "numeric",
 					})}
 				</span>
-				<code className="font-mono">{commit.shortHash}</code>
+				<code className="font-mono">{getPrimaryCommitId(commit)}</code>
+				{commit.changeId ? <code className="font-mono">{commit.shortHash}</code> : null}
 			</div>
 		</div>
 	);

@@ -135,4 +135,40 @@ describe("GitHistoryView", () => {
 		expect(window.localStorage.getItem(LocalStorageKey.GitHistoryDiffContentPanelWidth)).toBe("720");
 		expect(window.localStorage.getItem(LocalStorageKey.GitDiffFileTreePanelWidth)).toBe("280");
 	});
+
+	it("passes JJ change ids through the commit diff header", async () => {
+		const gitHistory = createGitHistory();
+		gitHistory.viewMode = "commit";
+		gitHistory.selectedCommitHash = "headhash1";
+		gitHistory.selectedCommit = {
+			hash: "headhash1",
+			shortHash: "ad775e3f",
+			changeId: "sqxqrtuorxzn",
+			authorName: "Steve Juma",
+			authorEmail: "steve@ju.ma",
+			date: "2026-06-09T15:50:58Z",
+			message: "Current change",
+			parentHashes: [],
+		};
+
+		await act(async () => {
+			root.render(<GitHistoryView workspaceId="workspace-1" gitHistory={gitHistory} />);
+		});
+
+		const diffProps = mockGitCommitDiffPanel.mock.calls.at(-1)?.[0] as { headerContent?: React.ReactElement } | undefined;
+		expect(diffProps?.headerContent).toBeTruthy();
+
+		const headerContainer = document.createElement("div");
+		const headerRoot = createRoot(headerContainer);
+		await act(async () => {
+			headerRoot.render(diffProps?.headerContent ?? null);
+		});
+
+		expect(headerContainer.textContent).toContain("sqxqrtuorxzn");
+		expect(headerContainer.textContent).toContain("ad775e3f");
+
+		act(() => {
+			headerRoot.unmount();
+		});
+	});
 });

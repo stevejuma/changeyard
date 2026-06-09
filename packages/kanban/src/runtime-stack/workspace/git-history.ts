@@ -8,13 +8,14 @@ import type {
 import { runGit } from "./git-utils.js";
 import { detectWorkspaceEngine } from "./git-sync.js";
 import { parseGitStylePatchEntries } from "./git-style-patch.js";
-import { getJjCurrentBookmark, getJjStdout, runJj } from "./jj-utils.js";
+import { getJjCurrentChangeId, getJjStdout, runJj } from "./jj-utils.js";
 
 const LOG_FIELD_SEPARATOR = "\x1f";
 const LOG_RECORD_SEPARATOR = "\x1e";
 
 const LOG_FORMAT = ["%H", "%h", "%an", "%ae", "%aI", "%s", "%P"].join(LOG_FIELD_SEPARATOR);
 const JJ_LOG_TEMPLATE = [
+	"change_id.short()",
 	"commit_id",
 	"author.name()",
 	"author.email()",
@@ -498,16 +499,17 @@ async function getJjLog(options: {
 			continue;
 		}
 		const fields = trimmedRecord.split(LOG_FIELD_SEPARATOR);
-		if (fields.length < 6) {
+		if (fields.length < 7) {
 			continue;
 		}
-		const [hash, authorName, authorEmail, dateIso, subject, parentHashes] = fields;
-		if (!hash || !authorName || !dateIso) {
+		const [changeId, hash, authorName, authorEmail, dateIso, subject, parentHashes] = fields;
+		if (!changeId || !hash || !authorName || !dateIso) {
 			continue;
 		}
 		commits.push({
 			hash,
 			shortHash: hash.slice(0, 8),
+			changeId,
 			authorName,
 			authorEmail: authorEmail ?? "",
 			date: dateIso,
@@ -531,12 +533,25 @@ async function getJjRefs(cwd: string): Promise<RuntimeGitRefsResponse> {
 		return { ok: false, refs: [], error: "No jj repository detected." };
 	}
 
-	const [headCommit, currentBranch, bookmarkListResult] = await Promise.all([
+	const [headCommit, headChangeId, bookmarkListResult] = await Promise.all([
 		getJjStdout(["log", "-r", "@", "--no-graph", "-T", "commit_id"], repoRoot).catch(() => null),
-		getJjCurrentBookmark(repoRoot),
+		getJjCurrentChangeId(repoRoot),
 		runJj(repoRoot, ["bookmark", "list"]),
 	]);
 	const refs: RuntimeGitRef[] = [];
+
+	// Always surface the current working-copy change in JJ so unbookmarked
+	// intermediary changes remain visible in the history UI.
+	if (headCommit) {
+		refs.push({
+			name: headChangeId ?? headCommit.slice(0, 8),
+			type: "detached",
+			hash: headCommit,
+			changeId: headChangeId ?? undefined,
+			isHead: true,
+		});
+	}
+
 	const bookmarkNames = (bookmarkListResult.ok ? bookmarkListResult.stdout : "")
 		.split("\n")
 		.map((line) => line.trim())
@@ -552,7 +567,7 @@ async function getJjRefs(cwd: string): Promise<RuntimeGitRefsResponse> {
 						name,
 						type: "branch" as const,
 						hash,
-						isHead: name === currentBranch,
+						isHead: false,
 					} satisfies RuntimeGitRef)
 				: null;
 		}),
@@ -561,15 +576,6 @@ async function getJjRefs(cwd: string): Promise<RuntimeGitRefsResponse> {
 		if (entry) {
 			refs.push(entry);
 		}
-	}
-
-	if (refs.length === 0 && headCommit) {
-		refs.push({
-			name: headCommit.slice(0, 8),
-			type: "detached",
-			hash: headCommit,
-			isHead: true,
-		});
 	}
 
 	return { ok: true, refs };
