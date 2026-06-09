@@ -98,8 +98,13 @@ import type {
 } from "../core/api-contract.js";
 import {
 	runtimeChangeyardChangeCreateRequestSchema,
+	runtimeChangeyardChangeActionResponseSchema,
+	runtimeChangeyardCompleteRequestSchema,
 	runtimeChangeyardChangeDetailSchema,
 	runtimeChangeyardChangeGetRequestSchema,
+	runtimeChangeyardPlanningPromptRequestSchema,
+	runtimeChangeyardPlanningPromptResponseSchema,
+	runtimeChangeyardReviewCompleteRequestSchema,
 	runtimeChangeyardChangeUpdatePlanningSectionRequestSchema,
 	runtimeChangeyardChangesListResponseSchema,
 	runtimeClineAccountBalanceResponseSchema,
@@ -770,6 +775,36 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeChangeyardChangeDetailSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.changesApi.startChange(ctx.workspaceScope.workspacePath, input);
+			}),
+		verify: workspaceProcedure
+			.input(runtimeChangeyardChangeGetRequestSchema)
+			.output(runtimeChangeyardChangeActionResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.changesApi.verifyChange(ctx.workspaceScope.workspacePath, input);
+			}),
+		complete: workspaceProcedure
+			.input(runtimeChangeyardCompleteRequestSchema)
+			.output(runtimeChangeyardChangeActionResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.changesApi.completeChange(ctx.workspaceScope.workspacePath, input);
+			}),
+		reviewStart: workspaceProcedure
+			.input(runtimeChangeyardChangeGetRequestSchema)
+			.output(runtimeChangeyardChangeActionResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.changesApi.reviewStart(ctx.workspaceScope.workspacePath, input);
+			}),
+		reviewComplete: workspaceProcedure
+			.input(runtimeChangeyardReviewCompleteRequestSchema)
+			.output(runtimeChangeyardChangeActionResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.changesApi.reviewComplete(ctx.workspaceScope.workspacePath, input);
+			}),
+		planningPrompt: workspaceProcedure
+			.input(runtimeChangeyardPlanningPromptRequestSchema)
+			.output(runtimeChangeyardPlanningPromptResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.changesApi.planningPrompt(ctx.workspaceScope.workspacePath, input);
 			}),
 		updatePlanningSection: workspaceProcedure
 			.input(runtimeChangeyardChangeUpdatePlanningSectionRequestSchema)

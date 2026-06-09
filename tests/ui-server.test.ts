@@ -16,7 +16,7 @@ import { findChangeFile } from "../src/state/id.js";
 import { runInit } from "../src/commands/init.js";
 import { createChangeyardUiApi } from "../src/commands/ui.js";
 
-const { startChangeyardKanban } = await import(pathToFileURL(path.join(process.cwd(), "packages/kanban/dist/server/index.js")).href);
+const { startChangeyardKanban, startChangeyardRuntime } = await import(pathToFileURL(path.join(process.cwd(), "packages/kanban/dist/server/index.js")).href);
 
 function tempRepo(): string {
   return mkdtempSync(path.join(os.tmpdir(), "changeyard-ui-server-"));
@@ -183,6 +183,68 @@ test("ui server exposes the current project through the projects.list tRPC route
     } finally {
       await server.close();
     }
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("headless runtime serves API health without browser assets", async () => {
+  const repo = tempRepo();
+  try {
+    runCommand("git", ["init", "-b", "main"], repo);
+    runInit(repo);
+    const server = await startChangeyardRuntime({
+      repoRoot: repo,
+      openBrowser: false,
+      port: "auto",
+      mode: "headless",
+      serveWebAssets: false,
+      changeyardApi: createChangeyardUiApi(),
+    });
+    const origin = new URL(server.url).origin;
+
+    try {
+      const healthResponse = await fetch(`${origin}/api/health`);
+      assert.equal(healthResponse.status, 200);
+      assert.deepEqual(await healthResponse.json(), { ok: true });
+
+      const manifestResponse = await fetch(`${origin}/manifest.json`);
+      assert.equal(manifestResponse.status, 404);
+
+      const projects = await trpcQuery<{
+        currentProjectId: string | null;
+        projects: Array<{ id: string; name: string }>;
+      }>(origin, "projects.list");
+      assert.equal(typeof projects.currentProjectId, "string");
+      assert.ok(projects.projects.some((project) => project.name === path.basename(repo)));
+    } finally {
+      await server.close();
+    }
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("cy tui reports missing Bun without requiring runtime startup", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    const result = spawnSync(process.execPath, [
+      path.join(process.cwd(), "dist/src/cli.js"),
+      "tui",
+      "--project",
+      repo,
+    ], {
+      cwd: repo,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PATH: "",
+      },
+    });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /cy tui requires Bun/);
+    assert.match(result.stderr, /Node-only commands/);
   } finally {
     cleanup(repo);
   }

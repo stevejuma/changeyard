@@ -59,14 +59,20 @@ function createTempRepo(): string {
   return tempRepo();
 }
 
+function configureTestGitIdentity(repo: string): void {
+  runCommand("git", ["config", "user.name", "Changeyard Test"], repo);
+  runCommand("git", ["config", "user.email", "changeyard-test@example.test"], repo);
+  runCommand("git", ["config", "commit.gpgsign", "false"], repo);
+  runCommand("git", ["config", "tag.gpgSign", "false"], repo);
+}
+
 test("git-worktree engine publishes branches to a local bare remote", () => {
   if (!hasCommand("git")) return;
   const repo = createTempRepo();
   const remote = path.join(repo, "origin.git");
   try {
     runCommand("git", ["init", "-b", "main"], repo);
-    runCommand("git", ["config", "user.name", "Changeyard Test"], repo);
-    runCommand("git", ["config", "user.email", "changeyard-test@example.test"], repo);
+    configureTestGitIdentity(repo);
     writeFileSync(path.join(repo, "README.md"), "# changeyard\n");
     runCommand("git", ["add", "README.md"], repo);
     runCommand("git", ["commit", "-m", "initial"], repo);
@@ -106,8 +112,7 @@ test("jj engine publishes bookmarks to a local bare remote", () => {
   const remote = path.join(repo, "origin.git");
   try {
     runCommand("git", ["init", "-b", "main"], repo);
-    runCommand("git", ["config", "user.name", "Changeyard Test"], repo);
-    runCommand("git", ["config", "user.email", "changeyard-test@example.test"], repo);
+    configureTestGitIdentity(repo);
     writeFileSync(path.join(repo, "README.md"), "# changeyard\n");
     runCommand("git", ["add", "README.md"], repo);
     runCommand("git", ["commit", "-m", "initial"], repo);
