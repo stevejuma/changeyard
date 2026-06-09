@@ -1,5 +1,5 @@
 import { GitBranch, ListTree, Rows3, Trash2 } from "lucide-react";
-import { type MouseEvent as ReactMouseEvent, useCallback, useState } from "react";
+import { type MouseEvent as ReactMouseEvent, type WheelEvent as ReactWheelEvent, useCallback, useRef, useState } from "react";
 
 import { CollapsedHistoryRail } from "@/components/git-history/collapsed-history-rail";
 import { GitCommitDiffPanel } from "@/components/git-history/git-commit-diff-panel";
@@ -28,6 +28,7 @@ import {
 import { clampAtLeast } from "@/resize/resize-persistence";
 import { useResizeDrag } from "@/resize/use-resize-drag";
 import type { RuntimeGitCommit } from "@/runtime/types";
+import { relayReactHorizontalWheelScroll } from "@/utils/horizontal-wheel-scroll";
 
 function CommitDiffHeader({ commit }: { commit: RuntimeGitCommit }): React.ReactElement {
 	return (
@@ -87,6 +88,7 @@ export function GitHistoryView({
 	isDiscardWorkingChangesPending = false,
 }: GitHistoryViewProps): React.ReactElement {
 	const [isDiscardAlertOpen, setIsDiscardAlertOpen] = useState(false);
+	const historyScrollContainerRef = useRef<HTMLDivElement | null>(null);
 	const { startDrag: startRefsPanelResize } = useResizeDrag();
 	const { startDrag: startCommitsPanelResize } = useResizeDrag();
 	const {
@@ -145,6 +147,10 @@ export function GitHistoryView({
 		[commitsPanelWidth, setCommitsPanelWidth, startCommitsPanelResize],
 	);
 
+	const handleHistoryColumnWheelCapture = useCallback((event: ReactWheelEvent<HTMLElement>) => {
+		relayReactHorizontalWheelScroll(event, historyScrollContainerRef.current);
+	}, []);
+
 	const refsColumnWidth = isRefsPanelCollapsed ? COLLAPSED_GIT_HISTORY_PANEL_WIDTH : refsPanelWidth;
 	const commitsColumnWidth = isCommitsPanelCollapsed ? COLLAPSED_GIT_HISTORY_PANEL_WIDTH : commitsPanelWidth;
 	const filesColumnWidth = isFileTreePanelCollapsed ? COLLAPSED_GIT_HISTORY_PANEL_WIDTH : fileTreePanelWidth;
@@ -172,6 +178,7 @@ export function GitHistoryView({
 
 	return (
 		<div
+			ref={historyScrollContainerRef}
 			style={{
 				flex: "1 1 0",
 				minHeight: 0,
@@ -211,6 +218,7 @@ export function GitHistoryView({
 						onSelectWorkingCopy={gitHistory.hasWorkingCopy ? gitHistory.selectWorkingCopy : undefined}
 						onCheckoutRef={onCheckoutBranch}
 						onCollapse={() => setRefsPanelCollapsed(true)}
+						onBodyWheelCapture={handleHistoryColumnWheelCapture}
 					/>
 				)}
 				{!isRefsPanelCollapsed && !isCommitsPanelCollapsed ? (
@@ -243,6 +251,7 @@ export function GitHistoryView({
 						onSelectCommit={gitHistory.selectCommit}
 						onLoadMore={gitHistory.loadMoreCommits}
 						onCollapse={() => setCommitsPanelCollapsed(true)}
+						onBodyWheelCapture={handleHistoryColumnWheelCapture}
 					/>
 				)}
 				{!isCommitsPanelCollapsed ? (
@@ -264,6 +273,7 @@ export function GitHistoryView({
 					isFileTreePanelCollapsed={isFileTreePanelCollapsed}
 					setDiffContentPanelWidth={setDiffContentPanelWidth}
 					setFileTreePanelCollapsed={setFileTreePanelCollapsed}
+					onBodyWheelCapture={handleHistoryColumnWheelCapture}
 					headerContent={
 						gitHistory.viewMode === "commit" && gitHistory.selectedCommit ? (
 							<CommitDiffHeader commit={gitHistory.selectedCommit} />
