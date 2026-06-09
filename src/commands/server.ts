@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { findRepoRoot, loadConfig } from "../config/loadConfig.js";
-import { createChangeyardUiApi, resolveUiServerModuleUrl } from "./ui.js";
+import { createChangeyardUiApi, importKanbanServerModule, resolveUiServerModuleUrl } from "./ui.js";
 
 export type ServerOptions = {
   host?: string;
@@ -23,20 +23,10 @@ export async function startRuntimeServer(options: ServerOptions = {}, cwd = proc
   const config = loadConfig(repoRoot);
   const moduleUrl = resolveUiServerModuleUrl();
   if (!existsSync(fileURLToPath(moduleUrl))) {
-    throw new Error("Changeyard runtime was not found. Run npm run build before launching cy server.");
+    throw new Error("Changeyard runtime was not found. Run npm run build or set CHANGEYARD_DEV=1.");
   }
 
-  const loaded = await import(moduleUrl.href) as {
-    startChangeyardRuntime: (input: {
-      repoRoot: string;
-      host?: string;
-      port?: number | "auto";
-      mode?: "web" | "tui" | "headless";
-      openBrowser?: boolean;
-      serveWebAssets?: boolean;
-      changeyardApi?: ReturnType<typeof createChangeyardUiApi>;
-    }) => Promise<{ url: string; close: () => Promise<void> }>;
-  };
+  const loaded = await importKanbanServerModule();
 
   return await loaded.startChangeyardRuntime({
     repoRoot,

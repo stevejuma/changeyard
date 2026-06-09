@@ -513,6 +513,39 @@ export const runtimeChangeyardChangeActionResponseSchema = z.object({
 });
 export type RuntimeChangeyardChangeActionResponse = z.infer<typeof runtimeChangeyardChangeActionResponseSchema>;
 
+export const runtimeChangeyardProjectConfigSchema = z.object({
+	initialized: z.boolean(),
+	providerType: z.string(),
+	vcsEngine: z.string(),
+	vcsFallback: z.string(),
+	planningDefaultProfile: z.string().optional(),
+});
+export type RuntimeChangeyardProjectConfig = z.infer<typeof runtimeChangeyardProjectConfigSchema>;
+
+export const runtimeChangeyardInitResponseSchema = z.object({
+	message: z.string(),
+});
+export type RuntimeChangeyardInitResponse = z.infer<typeof runtimeChangeyardInitResponseSchema>;
+
+export const runtimeChangeyardUpdateResponseSchema = runtimeChangeyardInitResponseSchema;
+export type RuntimeChangeyardUpdateResponse = z.infer<typeof runtimeChangeyardUpdateResponseSchema>;
+
+export const runtimeChangeyardUpdateProjectConfigRequestSchema = z.object({
+	providerType: z.enum(["noop", "local-folder", "forgejo", "github", "gitlab"]).optional(),
+	vcsEngine: z.enum(["plain-copy", "jj", "git-worktree"]).optional(),
+	vcsFallback: z.enum(["plain-copy", "jj", "git-worktree"]).optional(),
+});
+export type RuntimeChangeyardUpdateProjectConfigRequest = z.infer<
+	typeof runtimeChangeyardUpdateProjectConfigRequestSchema
+>;
+
+export const runtimeChangeyardDoctorResponseSchema = z.object({
+	ok: z.array(z.string()),
+	warnings: z.array(z.string()),
+	notes: z.array(z.string()),
+});
+export type RuntimeChangeyardDoctorResponse = z.infer<typeof runtimeChangeyardDoctorResponseSchema>;
+
 export const runtimeTaskWorkspaceMetadataSchema = z.object({
 	taskId: z.string(),
 	path: z.string(),

@@ -36,7 +36,7 @@ const cases: TestCase[] = [
     name: "renders home screen with composer",
     async run({ captureCharFrame }) {
       const frame = captureCharFrame();
-      assert(frame.includes("Type /help"), "expected composer placeholder");
+      assert(frame.includes("Type a change title"), "expected composer placeholder");
       assert(frame.includes("ctrl+p"), "expected command palette hint");
     },
   },
@@ -106,7 +106,41 @@ const cases: TestCase[] = [
       mockInput.pressEnter();
       await waitForFrame((text) => !text.includes("esc/enter"), { maxPasses: 40 });
       const frame = captureCharFrame();
-      assert(frame.includes("Type /help"), "expected composer after closing help");
+      assert(frame.includes("Type a change title"), "expected composer after closing help");
+    },
+  },
+  {
+    name: "shows composer status bar with profile and agent",
+    async run({ waitForFrame }) {
+      const frame = await waitForFrame((text) => text.includes("profiles") && text.includes(" · "), {
+        maxPasses: 40,
+      });
+      assert(/Quick change|Planned feature|Strict planned feature|Legacy unplanned task/.test(frame), "expected profile label");
+    },
+  },
+  {
+    name: "creates change from plain title using selected profile",
+    async run({ mockInput, waitForFrame, flush }) {
+      await mockInput.typeText("Fix onboarding copy");
+      mockInput.pressEnter();
+      await flush();
+      const frame = await waitForFrame((text) => text.includes("Fix onboarding copy") || text.includes("Created chg-mock-001"), {
+        maxPasses: 40,
+      });
+      assert(frame.includes("Fix onboarding copy"), "expected created change title in sidebar");
+    },
+  },
+  {
+    name: "opens agents dialog via /agents slash command",
+    async run({ mockInput, waitForFrame, flush }) {
+      await mockInput.typeText("/agents");
+      mockInput.pressEnter();
+      await flush();
+      mockInput.pressEnter();
+      const frame = await waitForFrame((text) => text.includes("Agents") && text.includes("Claude"), {
+        maxPasses: 40,
+      });
+      assert(frame.includes("Codex"), "expected agent options");
     },
   },
   {

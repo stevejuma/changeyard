@@ -16,6 +16,7 @@ import { runCreate } from "./commands/create.js";
 import { runHooks } from "./commands/hooks.js";
 import { runHydrate } from "./commands/hydrate.js";
 import { runInit } from "./commands/init.js";
+import { runUpdate } from "./commands/update.js";
 import { listChanges, runList } from "./commands/list.js";
 import { runRecover } from "./commands/recover.js";
 import { runReviewComplete, runReviewStart } from "./commands/review.js";
@@ -27,12 +28,13 @@ import { runTui } from "./commands/tui.js";
 import { runUi } from "./commands/ui.js";
 import { runValidate } from "./commands/validate.js";
 import { runVerify } from "./commands/verify.js";
+import { runInstallCli, runUninstallCli } from "./commands/install-cli.js";
 import { findRepoRoot } from "./config/loadConfig.js";
 import { errorCode, errorExitCode } from "./errors.js";
 import type { PlanningModel } from "./planning/types.js";
 import type { CreateOptions } from "./commands/create.js";
 
-type CommandName = "init" | "create" | "quick" | "validate" | "sync" | "start" | "verify" | "hydrate" | "complete" | "review" | "doctor" | "completions" | "recover" | "list" | "status" | "plan" | "ui" | "server" | "tui" | "hooks" | "help";
+type CommandName = "init" | "update" | "create" | "quick" | "validate" | "sync" | "start" | "verify" | "hydrate" | "complete" | "review" | "doctor" | "completions" | "recover" | "list" | "status" | "plan" | "ui" | "server" | "tui" | "hooks" | "install" | "uninstall" | "help";
 
 type ParsedArgs = {
   command: string;
@@ -121,7 +123,8 @@ function usage(): string {
   return `Changeyard: markdown-first local change workflow manager
 
 Usage:
-  cy init [--dry-run]
+  cy init [--dry-run] [--tools all|none|<tool-id>[,<tool-id>...]]
+  cy update [--dry-run] [--tools all|none|<tool-id>[,<tool-id>...]]
   cy create --template <name> --title <title> [--priority <priority>] [--label <label>...] [--author <name>] [--plan-file <path>] [--planning <none|openspec-lite>] [--strict] [--no-planning] [--dry-run]
   cy create --quick --title <title> [--priority <priority>] [--label <label>...] [--author <name>] [--dry-run]
   cy quick --title <title> [--priority <priority>] [--label <label>...] [--author <name>] [--dry-run]
@@ -148,6 +151,8 @@ Usage:
   cy server [--host <host>] [--port <port|auto>] [--project <path>] [--json]
   cy tui [--connect <url>] [--host <host>] [--port <port|auto>] [--project <path>] [--debug]
   cy hooks ingest --event to_review|to_in_progress|activity
+  cy install [--dir <path>] [--dry-run]
+  cy uninstall [--dir <path>] [--dry-run]
 
 Global options:
   --json         print machine-readable output
@@ -166,9 +171,15 @@ Aliases:
 
 function commandUsage(command: string): string {
   const lines: Record<string, string> = {
-    init: `${"init".padEnd(12)}create .changeyard and initial template files.\n\nExamples:\n${commandExamples([
+    init: `${"init".padEnd(12)}create .changeyard, templates, and agent skills/commands for detected tools.\n\nExamples:\n${commandExamples([
       "cy init",
-      "cy init --dry-run",
+      "cy init --tools cursor,claude",
+      "cy init --tools all --dry-run",
+    ])}`,
+    update: `${"update".padEnd(12)}refresh bundled templates, skills, and agent slash commands.\n\nExamples:\n${commandExamples([
+      "cy update",
+      "cy update --tools cursor",
+      "cy update --dry-run",
     ])}`,
     create: `${"create".padEnd(12)}create a new change from a template.\n\nExamples:\n${commandExamples([
       "cy create --template agent-task --title \"Add workspace verification\"",
@@ -209,6 +220,14 @@ function commandUsage(command: string): string {
     server: `${"server".padEnd(12)}start the local Changeyard runtime API without opening the browser UI.\n\nExamples:\n${commandExamples(["cy server", "cy server --host 127.0.0.1 --port auto", "cy server --project /path/to/repo --json"])}`,
     tui: `${"tui".padEnd(12)}start the OpenTUI terminal interface. Requires Bun.\n\nExamples:\n${commandExamples(["cy tui", "cy tui --connect http://127.0.0.1:4310", "cy tui --project /path/to/repo --debug"])}`,
     hooks: `${"hooks".padEnd(12)}forward terminal-agent hook events to the local Changeyard runtime.\n\nExamples:\n${commandExamples(["cy hooks ingest --event to_review", "cy hooks notify --event activity --activity-text \"Waiting for input\""])}`,
+    install: `${"install".padEnd(12)}symlink cy and changeyard into a local bin directory (default: ~/.local/bin).\n\nExamples:\n${commandExamples([
+      "cy install",
+      "cy install --dir ~/.local/bin --dry-run",
+    ])}`,
+    uninstall: `${"uninstall".padEnd(12)}remove Changeyard symlinks installed by cy install.\n\nExamples:\n${commandExamples([
+      "cy uninstall",
+      "cy uninstall --dir ~/.local/bin",
+    ])}`,
     help: usage(),
   };
   return lines[command] ?? usage();
@@ -258,7 +277,10 @@ async function main(): Promise<void> {
   try {
     switch (command) {
       case "init":
-        output = runInit(repoRoot, { dryRun });
+        output = runInit(repoRoot, { dryRun, tools: stringFlag(args.flags, "tools") });
+        break;
+      case "update":
+        output = runUpdate(repoRoot, { dryRun, tools: stringFlag(args.flags, "tools") });
         break;
       case "create": {
         output = runCreate(createOptionsFromFlags(args.flags), repoRoot, { dryRun });
@@ -378,6 +400,18 @@ async function main(): Promise<void> {
       }
       case "hooks":
         output = await runHooks(args.positional, args.flags);
+        break;
+      case "install":
+        output = runInstallCli({
+          dir: stringFlag(args.flags, "dir"),
+          dryRun,
+        });
+        break;
+      case "uninstall":
+        output = runUninstallCli({
+          dir: stringFlag(args.flags, "dir"),
+          dryRun,
+        });
         break;
       case "help":
       default:

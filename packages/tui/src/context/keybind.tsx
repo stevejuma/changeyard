@@ -1,11 +1,13 @@
 import type { ParsedKey } from "@opentui/core";
 import { createSimpleContext } from "./helper";
 
-export type KeybindKey = "command_list" | "sidebar_toggle";
+export type KeybindKey = "command_list" | "sidebar_toggle" | "profile_cycle" | "profile_cycle_reverse";
 
 const KEYBINDS: Record<KeybindKey, string> = {
   command_list: "ctrl+p",
   sidebar_toggle: "ctrl+b",
+  profile_cycle: "tab",
+  profile_cycle_reverse: "shift+tab",
 };
 
 function parseKeybind(value: string) {

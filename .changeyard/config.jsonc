@@ -14,8 +14,8 @@
     "type": "noop"
   },
   "vcs": {
-    "engine": "plain-copy",
-    "fallback": "plain-copy"
+    "engine": "jj",
+    "fallback": "jj"
   },
   "workspace": {
     "pathPattern": "{id}/repo",

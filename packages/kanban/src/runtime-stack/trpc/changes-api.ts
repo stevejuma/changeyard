@@ -9,6 +9,11 @@ import type {
 	RuntimeChangeyardReviewCompleteRequest,
 	RuntimeChangeyardChangeUpdatePlanningSectionRequest,
 	RuntimeChangeyardChangesListResponse,
+	RuntimeChangeyardDoctorResponse,
+	RuntimeChangeyardInitResponse,
+	RuntimeChangeyardUpdateResponse,
+	RuntimeChangeyardProjectConfig,
+	RuntimeChangeyardUpdateProjectConfigRequest,
 } from "../core/api-contract.js";
 
 export interface RuntimeChangeyardApiAdapter {
@@ -57,6 +62,14 @@ export interface RuntimeChangeyardApiAdapter {
 		repoRoot: string,
 		input: RuntimeChangeyardChangeUpdatePlanningSectionRequest,
 	) => Promise<RuntimeChangeyardChangeDetail> | RuntimeChangeyardChangeDetail;
+	initProject: (repoRoot: string) => Promise<RuntimeChangeyardInitResponse> | RuntimeChangeyardInitResponse;
+	updateProject: (repoRoot: string) => Promise<RuntimeChangeyardUpdateResponse> | RuntimeChangeyardUpdateResponse;
+	getProjectConfig: (repoRoot: string) => Promise<RuntimeChangeyardProjectConfig> | RuntimeChangeyardProjectConfig;
+	updateProjectConfig: (
+		repoRoot: string,
+		input: RuntimeChangeyardUpdateProjectConfigRequest,
+	) => Promise<RuntimeChangeyardProjectConfig> | RuntimeChangeyardProjectConfig;
+	doctorProject: (repoRoot: string) => Promise<RuntimeChangeyardDoctorResponse> | RuntimeChangeyardDoctorResponse;
 }
 
 export interface RuntimeTrpcChangesApi {
@@ -81,6 +94,14 @@ export interface RuntimeTrpcChangesApi {
 		workspacePath: string,
 		input: RuntimeChangeyardChangeUpdatePlanningSectionRequest,
 	) => Promise<RuntimeChangeyardChangeDetail>;
+	initProject: (workspacePath: string) => Promise<RuntimeChangeyardInitResponse>;
+	updateProject: (workspacePath: string) => Promise<RuntimeChangeyardUpdateResponse>;
+	getProjectConfig: (workspacePath: string) => Promise<RuntimeChangeyardProjectConfig>;
+	updateProjectConfig: (
+		workspacePath: string,
+		input: RuntimeChangeyardUpdateProjectConfigRequest,
+	) => Promise<RuntimeChangeyardProjectConfig>;
+	doctorProject: (workspacePath: string) => Promise<RuntimeChangeyardDoctorResponse>;
 }
 
 export function createChangesApi(deps: {
@@ -160,6 +181,36 @@ export function createChangesApi(deps: {
 				throw new Error("Changeyard planning updates are not available in this runtime.");
 			}
 			return await deps.changeyardApi.updatePlanningSection(workspacePath, input);
+		},
+		initProject: async (workspacePath) => {
+			if (!deps.changeyardApi) {
+				throw new Error("Changeyard init is not available in this runtime.");
+			}
+			return await deps.changeyardApi.initProject(workspacePath);
+		},
+		updateProject: async (workspacePath) => {
+			if (!deps.changeyardApi) {
+				throw new Error("Changeyard update is not available in this runtime.");
+			}
+			return await deps.changeyardApi.updateProject(workspacePath);
+		},
+		getProjectConfig: async (workspacePath) => {
+			if (!deps.changeyardApi) {
+				throw new Error("Changeyard project config is not available in this runtime.");
+			}
+			return await deps.changeyardApi.getProjectConfig(workspacePath);
+		},
+		updateProjectConfig: async (workspacePath, input) => {
+			if (!deps.changeyardApi) {
+				throw new Error("Changeyard project config updates are not available in this runtime.");
+			}
+			return await deps.changeyardApi.updateProjectConfig(workspacePath, input);
+		},
+		doctorProject: async (workspacePath) => {
+			if (!deps.changeyardApi) {
+				throw new Error("Changeyard doctor is not available in this runtime.");
+			}
+			return await deps.changeyardApi.doctorProject(workspacePath);
 		},
 	};
 }

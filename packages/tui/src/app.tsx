@@ -2,6 +2,7 @@ import { render, useKeyboard, useRenderer, useTerminalDimensions } from "@opentu
 import { Match, Switch, onMount } from "solid-js";
 import { ThemeProvider, useTheme } from "./context/theme";
 import { KVProvider } from "./context/kv";
+import { ComposerSettingsProvider } from "./context/composer-settings";
 import { KeybindProvider } from "./context/keybind";
 import { RouteProvider, useRoute } from "./context/route";
 import { RuntimeProvider } from "./context/runtime";
@@ -123,7 +124,8 @@ export function App(props: AppArgs) {
         <KeybindProvider>
           <ToastProvider>
             <RouteProvider>
-              <RuntimeProvider client={props.client}>
+            <RuntimeProvider client={props.client}>
+              <ComposerSettingsProvider>
                 <AppStateProvider>
                   <DialogProvider>
                     <CommandProvider>
@@ -131,7 +133,8 @@ export function App(props: AppArgs) {
                     </CommandProvider>
                   </DialogProvider>
                 </AppStateProvider>
-              </RuntimeProvider>
+              </ComposerSettingsProvider>
+            </RuntimeProvider>
             </RouteProvider>
           </ToastProvider>
         </KeybindProvider>

@@ -1,6 +1,8 @@
 import { spawn, spawnSync } from "node:child_process";
 import { stat } from "node:fs/promises";
 import { createServer as createNetServer } from "node:net";
+import { existsSync } from "node:fs";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import packageJson from "../../package.json" with { type: "json" };
 import { loadGlobalRuntimeConfig, loadRuntimeConfig } from "../runtime-stack/config/runtime-config.js";
@@ -26,7 +28,24 @@ import {
 } from "../runtime-stack/server/workspace-registry.js";
 import { resolveProjectInputPath } from "../projects/project-path.js";
 
-const WORKSPACE_RUNTIME_BRIDGE_MODULE_URL = new URL("../../../../dist/src/workspace/runtimeBridge.js", import.meta.url);
+function resolveWorkspaceBridgeModuleUrl() {
+	const fromEnv = process.env.CHANGEYARD_WORKSPACE_BRIDGE;
+	if (fromEnv) {
+		return fromEnv.startsWith("file:") ? fromEnv : pathToFileURL(fromEnv).href;
+	}
+	const candidates = [
+		new URL("../../../../src/workspace/runtimeBridge.ts", import.meta.url),
+		new URL("../../../../dist/src/workspace/runtimeBridge.js", import.meta.url),
+	];
+	for (const url of candidates) {
+		if (existsSync(fileURLToPath(url))) {
+			return url.href;
+		}
+	}
+	return candidates[1].href;
+}
+
+const WORKSPACE_RUNTIME_BRIDGE_MODULE_URL = resolveWorkspaceBridgeModuleUrl();
 
 async function assertPathIsDirectory(targetPath) {
 	const info = await stat(targetPath);
