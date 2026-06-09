@@ -7,6 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import type { RuntimeGitCommit, RuntimeGitRef } from "@/runtime/types";
 
+function getPrimaryCommitId(commit: RuntimeGitCommit): string {
+	return commit.changeId ?? commit.shortHash;
+}
+
 function formatRelativeDate(isoDate: string): string {
 	const date = new Date(isoDate);
 	const now = Date.now();
@@ -610,8 +614,19 @@ export function GitCommitListPanel({
 													flexShrink: 0,
 												}}
 											>
-												{commit.shortHash}
+												{getPrimaryCommitId(commit)}
 											</code>
+											{commit.changeId ? (
+												<code
+													className="kb-git-commit-row-meta font-mono"
+													style={{
+														flexShrink: 0,
+														opacity: 0.72,
+													}}
+												>
+													{commit.shortHash}
+												</code>
+											) : null}
 											<span
 												className="kb-line-clamp-1 kb-git-commit-row-message"
 												style={{

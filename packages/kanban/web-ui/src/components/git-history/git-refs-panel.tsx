@@ -226,7 +226,7 @@ export function GitRefsPanel({
 							>
 								<Locate size={12} />
 								<span className="kb-line-clamp-1" style={{ flex: 1 }}>
-									HEAD ({detachedRef.name})
+									HEAD ({detachedRef.changeId ?? detachedRef.name})
 								</span>
 							</RefRow>
 						) : null}

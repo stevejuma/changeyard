@@ -62,6 +62,19 @@ function createGitSummary(branch: string): RuntimeGitSyncSummary {
 	};
 }
 
+function createJjSummary(branch: string | null, changeId: string): RuntimeGitSyncSummary {
+	return {
+		currentBranch: branch,
+		jjChangeId: changeId,
+		upstreamBranch: null,
+		changedFiles: 0,
+		additions: 0,
+		deletions: 0,
+		aheadCount: 0,
+		behindCount: 0,
+	};
+}
+
 function createRefsResponse(
 	branch: string,
 	hash: string,
@@ -94,7 +107,14 @@ function createRefsResponse(
 }
 
 function createLogResponse(
-	hashOrCommits: string | Array<{ hash: string; message: string; relation?: "selected" | "upstream" | "shared" }>,
+	hashOrCommits:
+		| string
+		| Array<{
+				hash: string;
+				message: string;
+				changeId?: string;
+				relation?: "selected" | "upstream" | "shared";
+		  }>,
 	message?: string,
 ): RuntimeGitLogResponse {
 	const commits =
@@ -113,6 +133,7 @@ function createLogResponse(
 		commits: commits.map((commit) => ({
 			hash: commit.hash,
 			shortHash: commit.hash.slice(0, 8),
+			changeId: commit.changeId,
 			authorName: "Test User",
 			authorEmail: "test@example.com",
 			date: "2026-03-12T00:00:00.000Z",
@@ -148,16 +169,18 @@ async function flushPromises(): Promise<void> {
 function HookHarness({
 	taskScope,
 	enabled = true,
+	gitSummary,
 	onRender,
 }: {
 	taskScope: { taskId: string; baseRef: string } | null;
 	enabled?: boolean;
+	gitSummary?: RuntimeGitSyncSummary;
 	onRender: (snapshot: HookSnapshot) => void;
 }): null {
 	const gitHistory = useGitHistoryData({
 		workspaceId: "project-1",
 		taskScope,
-		gitSummary: createGitSummary(taskScope ? "task-branch" : "main"),
+		gitSummary: gitSummary ?? createGitSummary(taskScope ? "task-branch" : "main"),
 		enabled,
 	});
 
@@ -409,6 +432,62 @@ describe("useGitHistoryData", () => {
 			activeRefName: "main",
 			commits: ["remotehash1", "homehash1", "basehash1"],
 			selectedCommitHash: "homehash1",
+		});
+	});
+
+	it("defaults JJ history to the current head change when bookmarks lag behind it", async () => {
+		const snapshots: HookSnapshot[] = [];
+
+		getRepositoryRefsQueryMock.mockResolvedValue({
+			ok: true,
+			refs: [
+				{
+					name: "sqxqrtuorxzn",
+					type: "detached",
+					hash: "headhash1",
+					changeId: "sqxqrtuorxzn",
+					isHead: true,
+				},
+				{
+					name: "main",
+					type: "branch",
+					hash: "bookmarkhash1",
+					isHead: false,
+				},
+			],
+		});
+		getRepositoryLogQueryMock.mockResolvedValue(
+			createLogResponse([
+				{ hash: "headhash1", changeId: "sqxqrtuorxzn", message: "Current change" },
+				{ hash: "bookmarkhash1", changeId: "kwkovtzrtvkl", message: "Bookmarked change" },
+			]),
+		);
+
+		await act(async () => {
+			root.render(
+				<HookHarness
+					taskScope={null}
+					gitSummary={createJjSummary("main", "sqxqrtuorxzn")}
+					onRender={(snapshot) => {
+						snapshots.push(snapshot);
+					}}
+				/>,
+			);
+			await flushPromises();
+		});
+
+		expect(getRepositoryLogQueryMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				ref: "headhash1",
+				refs: ["headhash1"],
+			}),
+			expect.anything(),
+		);
+		expect(snapshots.at(-1)).toMatchObject({
+			refs: ["sqxqrtuorxzn", "main"],
+			activeRefName: "sqxqrtuorxzn",
+			commits: ["headhash1", "bookmarkhash1"],
+			selectedCommitHash: "headhash1",
 		});
 	});
 });
