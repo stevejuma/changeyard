@@ -13,8 +13,13 @@ import { changesRoot, storageRoot } from "../paths.js";
 import { parseMarkedSections } from "../planning/sections.js";
 import type { ValidationGate } from "../planning/validation.js";
 import { findRepoRoot, loadConfig } from "../config/loadConfig.js";
+import { isChangeyardInitialized, updateLocalConfig } from "../config/localConfig.js";
+import { runInit } from "./init.js";
+import { runUpdate } from "./update.js";
+import { doctorReport } from "./doctor.js";
 import { DEFAULT_PLANNING_SECTION_ORDER, STRICT_PLANNING_SECTION_ORDER, type PlanningSectionId } from "../planning/types.js";
 import { findChangeFile } from "../state/id.js";
+import { importKanbanServer, resolveUiServerModuleUrl as resolveRuntimeUrl } from "../dev/runtime.js";
 
 export type UiOptions = {
   host?: string;
@@ -209,6 +214,52 @@ export function createChangeyardUiApi() {
         expectedUpdatedAt: input.expectedUpdatedAt,
       }));
     },
+    initProject(repoRoot: string) {
+      return { message: runInit(repoRoot) };
+    },
+    updateProject(repoRoot: string) {
+      return { message: runUpdate(repoRoot) };
+    },
+    getProjectConfig(repoRoot: string) {
+      const config = loadConfig(repoRoot);
+      return {
+        initialized: isChangeyardInitialized(repoRoot),
+        providerType: config.provider.type,
+        vcsEngine: config.vcs.engine,
+        vcsFallback: config.vcs.fallback,
+        planningDefaultProfile: config.planning?.defaultProfile,
+      };
+    },
+    updateProjectConfig(repoRoot: string, input: {
+      providerType?: "noop" | "local-folder" | "forgejo" | "github" | "gitlab";
+      vcsEngine?: "plain-copy" | "jj" | "git-worktree";
+      vcsFallback?: "plain-copy" | "jj" | "git-worktree";
+    }) {
+      const patch: Parameters<typeof updateLocalConfig>[1] = {};
+      if (input.providerType) patch.provider = { type: input.providerType };
+      if (input.vcsEngine || input.vcsFallback) {
+        patch.vcs = {
+          engine: input.vcsEngine ?? loadConfig(repoRoot).vcs.engine,
+          fallback: input.vcsFallback ?? input.vcsEngine ?? loadConfig(repoRoot).vcs.fallback,
+        };
+      }
+      const config = updateLocalConfig(repoRoot, patch);
+      return {
+        initialized: isChangeyardInitialized(repoRoot),
+        providerType: config.provider.type,
+        vcsEngine: config.vcs.engine,
+        vcsFallback: config.vcs.fallback,
+        planningDefaultProfile: config.planning?.defaultProfile,
+      };
+    },
+    doctorProject(repoRoot: string) {
+      const report = doctorReport(repoRoot);
+      return {
+        ok: report.ok,
+        warnings: report.warnings,
+        notes: report.notes,
+      };
+    },
   };
 }
 
@@ -218,7 +269,11 @@ export function assertUiNodeVersion(): void {
 }
 
 export function resolveUiServerModuleUrl(): URL {
-  return new URL("../../../packages/kanban/dist/server/index.js", import.meta.url);
+  return resolveRuntimeUrl(import.meta.url);
+}
+
+export function importKanbanServerModule() {
+  return importKanbanServer(import.meta.url);
 }
 
 export async function runUi(options: UiOptions = {}, cwd = process.cwd()): Promise<string> {
@@ -227,18 +282,10 @@ export async function runUi(options: UiOptions = {}, cwd = process.cwd()): Promi
   const config = loadConfig(repoRoot);
   const moduleUrl = resolveUiServerModuleUrl();
   if (!existsSync(fileURLToPath(moduleUrl))) {
-    throw new Error("Changeyard UI assets were not found. Run npm run build before launching cy ui.");
+    throw new Error("Changeyard UI runtime was not found. Run npm run build or set CHANGEYARD_DEV=1.");
   }
 
-  const loaded = await import(moduleUrl.href) as {
-    startChangeyardKanban: (input: {
-      repoRoot: string;
-      host?: string;
-      port?: number | "auto";
-      open?: boolean;
-      changeyardApi?: ReturnType<typeof createChangeyardUiApi>;
-    }) => Promise<{ url: string; close: () => Promise<void> }>;
-  };
+  const loaded = await importKanbanServer(import.meta.url);
   const server = await loaded.startChangeyardKanban({
     repoRoot,
     host: options.host ?? config.ui?.host ?? "127.0.0.1",

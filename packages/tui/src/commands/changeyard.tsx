@@ -10,7 +10,12 @@ import { useToast } from "../ui/toast";
 import { CreateDialog } from "../dialogs/create";
 import { PlanningPromptDialog } from "../dialogs/planning-prompt";
 import { DialogThemeList } from "../component/dialog-theme-list";
+import { DialogAgentList } from "../component/dialog-agent-list";
+import { DialogProviderList } from "../component/dialog-provider-list";
+import { DialogVcsList } from "../component/dialog-vcs-list";
+import { DialogMessage } from "../ui/dialog-message";
 import { useTheme } from "../context/theme";
+import { useComposerSettings } from "../context/composer-settings";
 import { firstPromptSection } from "../context/app-state";
 
 export function useChangeyardActions() {
@@ -19,6 +24,7 @@ export function useChangeyardActions() {
   const { client } = useRuntime();
   const dialog = useDialog();
   const toast = useToast();
+  const composerSettings = useComposerSettings();
 
   async function refresh(nextSelectedId = state.selected?.id) {
     state.setError(null);
@@ -180,6 +186,39 @@ export function useChangeyardActions() {
       "review-view": () => setPreviewTab("review"),
       reviewview: () => setPreviewTab("review"),
       themes: () => dialog.replace(() => <DialogThemeList />),
+      agents: () => dialog.replace(() => <DialogAgentList />),
+      provider: () => dialog.replace(() => <DialogProviderList />),
+      vcs: () => dialog.replace(() => <DialogVcsList />),
+      init: () => {
+        void composerSettings.initProject().then((result) => {
+          void composerSettings.refreshProjectConfig();
+          state.setStatus(result.message);
+          dialog.replace(() => <DialogMessage title="Init" lines={result.message.split("\n")} />);
+        }).catch((caught) => {
+          toast.error(caught);
+        });
+      },
+      update: () => {
+        void composerSettings.updateProject().then((result) => {
+          void composerSettings.refreshProjectConfig();
+          state.setStatus(result.message);
+          dialog.replace(() => <DialogMessage title="Update" lines={result.message.split("\n")} />);
+        }).catch((caught) => {
+          toast.error(caught);
+        });
+      },
+      doctor: () => {
+        void composerSettings.doctorProject().then((report) => {
+          const lines = [
+            ...(report.ok.length > 0 ? [`ok: ${report.ok.join(", ")}`] : []),
+            ...report.warnings.map((warning) => `warning: ${warning}`),
+            ...report.notes.map((note) => `note: ${note}`),
+          ];
+          dialog.replace(() => <DialogMessage title="Doctor" lines={lines.length > 0 ? lines : ["No issues found."]} />);
+        }).catch((caught) => {
+          toast.error(caught);
+        });
+      },
     };
 
     const handler = commandMap[parsed.commandName];
@@ -209,6 +248,7 @@ export function RegisterChangeyardCommands() {
   const route = useRoute();
   const dialog = useDialog();
   const theme = useTheme();
+  const composerSettings = useComposerSettings();
   const actions = useChangeyardActions();
 
   onMount(() => {
@@ -245,6 +285,64 @@ export function RegisterChangeyardCommands() {
       category: "System",
       slash: { name: "themes" },
       onSelect: () => dialog.replace(() => <DialogThemeList />),
+    },
+    {
+      title: "Select agent",
+      value: "agents.select",
+      category: "System",
+      slash: { name: "agents" },
+      onSelect: () => dialog.replace(() => <DialogAgentList />),
+    },
+    {
+      title: "Initialize Changeyard",
+      value: "project.init",
+      category: "Setup",
+      slash: { name: "init" },
+      onSelect: () => actions.executeSlash("/init"),
+    },
+    {
+      title: "Update Changeyard scaffold",
+      value: "project.update",
+      category: "Setup",
+      slash: { name: "update" },
+      onSelect: () => actions.executeSlash("/update"),
+    },
+    {
+      title: "Configure provider",
+      value: "project.provider",
+      category: "Setup",
+      slash: { name: "provider" },
+      onSelect: () => dialog.replace(() => <DialogProviderList />),
+    },
+    {
+      title: "Configure VCS",
+      value: "project.vcs",
+      category: "Setup",
+      slash: { name: "vcs" },
+      onSelect: () => dialog.replace(() => <DialogVcsList />),
+    },
+    {
+      title: "Run doctor",
+      value: "project.doctor",
+      category: "Setup",
+      slash: { name: "doctor" },
+      onSelect: () => actions.executeSlash("/doctor"),
+    },
+    {
+      title: "Cycle profile",
+      value: "profile.cycle",
+      category: "Change",
+      keybind: "profile_cycle",
+      hidden: true,
+      onSelect: () => composerSettings.cyclePreset(1),
+    },
+    {
+      title: "Cycle profile reverse",
+      value: "profile.cycle.reverse",
+      category: "Change",
+      keybind: "profile_cycle_reverse",
+      hidden: true,
+      onSelect: () => composerSettings.cyclePreset(-1),
     },
     {
       title: "Toggle appearance",

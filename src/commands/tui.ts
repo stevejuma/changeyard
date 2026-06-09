@@ -3,7 +3,8 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { findRepoRoot } from "../config/loadConfig.js";
-import { createChangeyardUiApi, resolveUiServerModuleUrl } from "./ui.js";
+import { createChangeyardUiApi, importKanbanServerModule } from "./ui.js";
+import { repoFileUrl } from "../dev/paths.js";
 
 export type TuiOptions = {
   connect?: string;
@@ -17,8 +18,8 @@ export type TuiOptions = {
 
 function resolveTuiEntrypoint(): string {
   const candidates = [
-    new URL("../../../packages/tui/src/index.tsx", import.meta.url),
-    new URL("../../../packages/tui/dist/index.js", import.meta.url),
+    repoFileUrl(import.meta.url, "packages/tui/src/index.tsx"),
+    repoFileUrl(import.meta.url, "packages/tui/dist/index.js"),
   ].map((url) => fileURLToPath(url));
   const found = candidates.find((candidate) => existsSync(candidate));
   if (!found) {
@@ -45,22 +46,7 @@ async function startEmbeddedRuntime(options: TuiOptions, repoRoot: string): Prom
   url: string;
   close: () => Promise<void>;
 }> {
-  const moduleUrl = resolveUiServerModuleUrl();
-  if (!existsSync(fileURLToPath(moduleUrl))) {
-    throw new Error("Changeyard runtime was not found. Run npm run build before launching cy tui.");
-  }
-
-  const loaded = await import(moduleUrl.href) as {
-    startChangeyardRuntime: (input: {
-      repoRoot: string;
-      host?: string;
-      port?: number | "auto";
-      mode?: "web" | "tui" | "headless";
-      openBrowser?: boolean;
-      serveWebAssets?: boolean;
-      changeyardApi?: ReturnType<typeof createChangeyardUiApi>;
-    }) => Promise<{ url: string; close: () => Promise<void> }>;
-  };
+  const loaded = await importKanbanServerModule();
 
   return await loaded.startChangeyardRuntime({
     repoRoot,

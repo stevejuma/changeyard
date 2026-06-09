@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, chmodSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
@@ -20,6 +20,11 @@ import {
 import { runCreate } from "../src/commands/create.js";
 import { runHydrate } from "../src/commands/hydrate.js";
 import { runInit } from "../src/commands/init.js";
+import { runUpdate } from "../src/commands/update.js";
+import { formatCommandPreview } from "../src/scaffold/command-generation/generator.js";
+import { cursorAdapter } from "../src/scaffold/command-generation/adapters/cursor.js";
+import { getCommandContents } from "../src/scaffold/templates/commands.js";
+import { CANONICAL_SKILL_RELATIVE_PATH } from "../src/scaffold/skill-generation.js";
 import { listChanges, runList } from "../src/commands/list.js";
 import { runRecover } from "../src/commands/recover.js";
 import { runReviewComplete, runReviewStart } from "../src/commands/review.js";
@@ -28,6 +33,13 @@ import { getStatus, runStatus } from "../src/commands/status.js";
 import { runSync } from "../src/commands/sync.js";
 import { runValidate } from "../src/commands/validate.js";
 import { runVerify } from "../src/commands/verify.js";
+import {
+  cliBinNames,
+  ensureExecutable,
+  runInstallCli,
+  runUninstallCli,
+} from "../src/commands/install-cli.js";
+import { repoRootFromModule } from "../src/dev/paths.js";
 import { checkProfile, isQuickChange, planningModel, workflowMode } from "../src/change/changeMetadata.js";
 import { loadConfig } from "../src/config/loadConfig.js";
 import { parseFrontmatter, writeFrontmatter } from "../src/documents/frontmatter.js";
@@ -102,9 +114,124 @@ test("init creates config, templates, and storage directories", () => {
     assert.equal(config.planning.quickChangeEscalation, "warn");
     assert.doesNotThrow(() => readFileSync(path.join(repo, ".changeyard", "templates", "agent-task.md"), "utf8"));
     assert.doesNotThrow(() => readFileSync(path.join(repo, ".changeyard", "templates", "quick.md"), "utf8"));
+    assert.doesNotThrow(() => readFileSync(path.join(repo, CANONICAL_SKILL_RELATIVE_PATH), "utf8"));
   } finally {
     cleanup(repo);
   }
+});
+
+test("init installs cursor agent artifacts when .cursor exists", () => {
+  const repo = tempRepo();
+  try {
+    mkdirSync(path.join(repo, ".cursor"), { recursive: true });
+    runInit(repo);
+    assert.doesNotThrow(() => readFileSync(path.join(repo, ".cursor", "skills", "changeyard", "SKILL.md"), "utf8"));
+    assert.doesNotThrow(() => readFileSync(path.join(repo, ".cursor", "commands", "cy-create.md"), "utf8"));
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("init with explicit tools creates agent paths even when absent", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo, { tools: "cursor" });
+    assert.doesNotThrow(() => readFileSync(path.join(repo, ".cursor", "skills", "changeyard", "SKILL.md"), "utf8"));
+    assert.doesNotThrow(() => readFileSync(path.join(repo, ".cursor", "commands", "cy-doctor.md"), "utf8"));
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("init skips existing agent artifacts on second run", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo, { tools: "cursor" });
+    const skillPath = path.join(repo, ".cursor", "skills", "changeyard", "SKILL.md");
+    writeFileSync(skillPath, "# custom\n");
+    const output = runInit(repo, { tools: "cursor" });
+    assert.match(output, /Skipped existing/);
+    assert.match(readFileSync(skillPath, "utf8"), /# custom/);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("update refreshes bundled templates and agent artifacts", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo, { tools: "cursor" });
+    const skillPath = path.join(repo, ".cursor", "skills", "changeyard", "SKILL.md");
+    writeFileSync(skillPath, "# custom\n");
+    const output = runUpdate(repo, { tools: "cursor" });
+    assert.match(output, /Updated Changeyard scaffold/);
+    assert.match(readFileSync(skillPath, "utf8"), /Changeyard Agent Protocol/);
+    const config = readFileSync(path.join(repo, ".changeyard", "config.jsonc"), "utf8");
+    assert.doesNotThrow(() => JSON.parse(config));
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("init detects git-worktree when .git exists", () => {
+  const repo = tempRepo();
+  try {
+    mkdirSync(path.join(repo, ".git"), { recursive: true });
+    runInit(repo);
+    const config = JSON.parse(readFileSync(path.join(repo, ".changeyard", "config.jsonc"), "utf8"));
+    assert.equal(config.vcs.engine, "git-worktree");
+    assert.equal(config.vcs.fallback, "git-worktree");
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("init detects jj when .jj exists", () => {
+  const repo = tempRepo();
+  try {
+    mkdirSync(path.join(repo, ".jj"), { recursive: true });
+    runInit(repo);
+    const config = JSON.parse(readFileSync(path.join(repo, ".changeyard", "config.jsonc"), "utf8"));
+    assert.equal(config.vcs.engine, "jj");
+    assert.equal(config.vcs.fallback, "jj");
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("init prefers jj over git when both markers exist", () => {
+  const repo = tempRepo();
+  try {
+    mkdirSync(path.join(repo, ".git"), { recursive: true });
+    mkdirSync(path.join(repo, ".jj"), { recursive: true });
+    runInit(repo);
+    const config = JSON.parse(readFileSync(path.join(repo, ".changeyard", "config.jsonc"), "utf8"));
+    assert.equal(config.vcs.engine, "jj");
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("update refreshes detected vcs engine in existing config", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    mkdirSync(path.join(repo, ".jj"), { recursive: true });
+    runUpdate(repo);
+    const config = JSON.parse(readFileSync(path.join(repo, ".changeyard", "config.jsonc"), "utf8"));
+    assert.equal(config.vcs.engine, "jj");
+    assert.equal(config.vcs.fallback, "jj");
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("cursor command adapter formats slash command frontmatter", () => {
+  const create = getCommandContents().find((entry) => entry.id === "create");
+  assert.ok(create);
+  const formatted = formatCommandPreview(create!, cursorAdapter);
+  assert.match(formatted, /name: \/cy-create/);
+  assert.match(formatted, /Create a new Changeyard change/);
 });
 
 test("create allocates a valid markdown change", () => {
@@ -1401,11 +1528,11 @@ test("HTTP provider helper surfaces remote status and JSON errors", () => {
 test("package metadata includes release smoke scripts", () => {
   const packageJson = JSON.parse(readFileSync(path.join(process.cwd(), "package.json"), "utf8"));
   assert.equal(packageJson.scripts.prepack, "npm run build");
-  assert.equal(packageJson.scripts.cli, "node dist/src/cli.js");
+  assert.equal(packageJson.scripts.cli, "node scripts/cy.mjs");
   assert.equal(packageJson.scripts.test, "npm run build && node --test --test-force-exit dist/tests/*.test.js");
   assert.equal(packageJson.scripts["build:kanban"], "npm --workspace @changeyard/kanban run build");
   assert.equal(packageJson.scripts["pack:check"], "npm run build && npm pack --dry-run");
-  assert.equal(packageJson.bin.cy, "./dist/src/cli.js");
+  assert.equal(packageJson.bin.cy, "./scripts/cy.mjs");
   assert.equal(packageJson.engines.node, ">=22.0.0");
   assert.deepEqual(packageJson.files, [
     "dist/src",
@@ -1500,5 +1627,102 @@ test("jj workspace engine can verify a real jj workspace when jj is installed", 
     assert.deepEqual(engine.verify({ cwd: workspacePath, metadata: created }), { valid: true, errors: [] });
   } finally {
     cleanup(repo);
+  }
+});
+
+test("install symlinks package bin names into a local directory", () => {
+  const installDir = tempRepo();
+  const repoRoot = repoRootFromModule(new URL("../src/commands/install-cli.ts", import.meta.url));
+  const launcher = path.resolve(repoRoot, "scripts", "cy.mjs");
+  const names = cliBinNames(repoRoot);
+  try {
+    assert.ok(existsSync(launcher));
+    assert.deepEqual(names, ["changeyard", "cy"]);
+
+    const output = runInstallCli({ dir: installDir });
+    assert.match(output, /Linked/);
+    for (const name of names) {
+      const linkPath = path.join(installDir, name);
+      assert.ok(existsSync(linkPath));
+      assert.ok(lstatSync(linkPath).isSymbolicLink());
+      assert.equal(path.resolve(path.dirname(linkPath), readlinkSync(linkPath)), launcher);
+    }
+
+    const again = runInstallCli({ dir: installDir });
+    assert.match(again, /Already linked/);
+
+    const removed = runUninstallCli({ dir: installDir });
+    assert.match(removed, /Removed/);
+    for (const name of names) {
+      assert.equal(existsSync(path.join(installDir, name)), false);
+    }
+  } finally {
+    cleanup(installDir);
+  }
+});
+
+test("install refuses to overwrite an unrelated binary", () => {
+  const installDir = tempRepo();
+  try {
+    mkdirSync(installDir, { recursive: true });
+    writeFileSync(path.join(installDir, "cy"), "#!/bin/sh\n");
+    assert.throws(() => runInstallCli({ dir: installDir }), /Refusing to overwrite/);
+  } finally {
+    cleanup(installDir);
+  }
+});
+
+test("install makes the launcher executable", () => {
+  const installDir = tempRepo();
+  const repoRoot = repoRootFromModule(new URL("../src/commands/install-cli.ts", import.meta.url));
+  const launcher = path.resolve(repoRoot, "scripts", "cy.mjs");
+  const originalMode = statSync(launcher).mode;
+  try {
+    chmodSync(launcher, 0o644);
+    const output = runInstallCli({ dir: installDir });
+    assert.match(output, /Made executable/);
+    assert.notEqual(statSync(launcher).mode & 0o111, 0);
+  } finally {
+    chmodSync(launcher, originalMode);
+    runUninstallCli({ dir: installDir });
+    cleanup(installDir);
+  }
+});
+
+test("ensureExecutable is a no-op when the launcher is already executable", () => {
+  const repoRoot = repoRootFromModule(new URL("../src/commands/install-cli.ts", import.meta.url));
+  const launcher = path.resolve(repoRoot, "scripts", "cy.mjs");
+  const originalMode = statSync(launcher).mode;
+  try {
+    chmodSync(launcher, 0o755);
+    assert.equal(ensureExecutable(launcher), false);
+    assert.equal(statSync(launcher).mode & 0o777, 0o755);
+  } finally {
+    chmodSync(launcher, originalMode);
+  }
+});
+
+test("cy install and uninstall work through the CLI", () => {
+  const installDir = tempRepo();
+  const repoRoot = repoRootFromModule(new URL("../src/commands/install-cli.ts", import.meta.url));
+  const launcher = path.resolve(repoRoot, "scripts", "cy.mjs");
+  try {
+    const install = spawnSync(nodeBinary(), [cliBinPath(), "install", "--dir", installDir], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+    });
+    assert.equal(install.status, 0, install.stderr || install.stdout);
+    assert.match(install.stdout, /Linked/);
+    assert.equal(path.resolve(path.dirname(path.join(installDir, "cy")), readlinkSync(path.join(installDir, "cy"))), launcher);
+
+    const uninstall = spawnSync(nodeBinary(), [cliBinPath(), "uninstall", "--dir", installDir], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+    });
+    assert.equal(uninstall.status, 0, uninstall.stderr || uninstall.stdout);
+    assert.match(uninstall.stdout, /Removed/);
+    assert.equal(existsSync(path.join(installDir, "cy")), false);
+  } finally {
+    cleanup(installDir);
   }
 });

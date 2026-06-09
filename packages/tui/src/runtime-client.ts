@@ -62,6 +62,35 @@ export type PlanningPromptResponse = {
   prompt: string;
 };
 
+export type RuntimeAgentDefinition = {
+  id: string;
+  label: string;
+  binary: string;
+  command: string;
+  defaultArgs: string[];
+  installed: boolean;
+  configured: boolean;
+};
+
+export type RuntimeConfigResponse = {
+  selectedAgentId: string;
+  agents: RuntimeAgentDefinition[];
+};
+
+export type ProjectConfigResponse = {
+  initialized: boolean;
+  providerType: string;
+  vcsEngine: string;
+  vcsFallback: string;
+  planningDefaultProfile?: string;
+};
+
+export type DoctorResponse = {
+  ok: string[];
+  warnings: string[];
+  notes: string[];
+};
+
 type ProjectsResponse = {
   currentProjectId: string | null;
   projects: Array<{ id: string; path: string; name: string }>;
@@ -156,6 +185,53 @@ export class RuntimeClient {
   async planningPrompt(id: string, sectionId: PlanningSectionId): Promise<PlanningPromptResponse> {
     await this.ensureWorkspace();
     return await this.query<PlanningPromptResponse>("changes.planningPrompt", { id, sectionId });
+  }
+
+  async getRuntimeConfig(): Promise<RuntimeConfigResponse> {
+    await this.ensureWorkspace();
+    const config = await this.query<RuntimeConfigResponse>("runtime.getConfig");
+    return {
+      selectedAgentId: config.selectedAgentId,
+      agents: config.agents,
+    };
+  }
+
+  async saveRuntimeConfig(input: { selectedAgentId: string }): Promise<RuntimeConfigResponse> {
+    await this.ensureWorkspace();
+    const config = await this.mutation<RuntimeConfigResponse>("runtime.saveConfig", input);
+    return {
+      selectedAgentId: config.selectedAgentId,
+      agents: config.agents,
+    };
+  }
+
+  async getProjectConfig(): Promise<ProjectConfigResponse> {
+    await this.ensureWorkspace();
+    return await this.query<ProjectConfigResponse>("changes.getProjectConfig");
+  }
+
+  async initProject(): Promise<{ message: string }> {
+    await this.ensureWorkspace();
+    return await this.mutation<{ message: string }>("changes.init", {});
+  }
+
+  async updateProject(): Promise<{ message: string }> {
+    await this.ensureWorkspace();
+    return await this.mutation<{ message: string }>("changes.update", {});
+  }
+
+  async updateProjectConfig(input: {
+    providerType?: ProjectConfigResponse["providerType"];
+    vcsEngine?: string;
+    vcsFallback?: string;
+  }): Promise<ProjectConfigResponse> {
+    await this.ensureWorkspace();
+    return await this.mutation<ProjectConfigResponse>("changes.updateProjectConfig", input);
+  }
+
+  async doctorProject(): Promise<DoctorResponse> {
+    await this.ensureWorkspace();
+    return await this.query<DoctorResponse>("changes.doctor");
   }
 
   private async ensureWorkspace(): Promise<void> {

@@ -107,6 +107,11 @@ import {
 	runtimeChangeyardReviewCompleteRequestSchema,
 	runtimeChangeyardChangeUpdatePlanningSectionRequestSchema,
 	runtimeChangeyardChangesListResponseSchema,
+	runtimeChangeyardDoctorResponseSchema,
+	runtimeChangeyardInitResponseSchema,
+	runtimeChangeyardUpdateResponseSchema,
+	runtimeChangeyardProjectConfigSchema,
+	runtimeChangeyardUpdateProjectConfigRequestSchema,
 	runtimeClineAccountBalanceResponseSchema,
 	runtimeClineAccountOrganizationsResponseSchema,
 	runtimeClineAccountProfileResponseSchema,
@@ -825,6 +830,24 @@ export const runtimeAppRouter = t.router({
 					throw error;
 				}
 			}),
+		init: workspaceProcedure.output(runtimeChangeyardInitResponseSchema).mutation(async ({ ctx }) => {
+			return await ctx.changesApi.initProject(ctx.workspaceScope.workspacePath);
+		}),
+		update: workspaceProcedure.output(runtimeChangeyardUpdateResponseSchema).mutation(async ({ ctx }) => {
+			return await ctx.changesApi.updateProject(ctx.workspaceScope.workspacePath);
+		}),
+		getProjectConfig: workspaceProcedure.output(runtimeChangeyardProjectConfigSchema).query(async ({ ctx }) => {
+			return await ctx.changesApi.getProjectConfig(ctx.workspaceScope.workspacePath);
+		}),
+		updateProjectConfig: workspaceProcedure
+			.input(runtimeChangeyardUpdateProjectConfigRequestSchema)
+			.output(runtimeChangeyardProjectConfigSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.changesApi.updateProjectConfig(ctx.workspaceScope.workspacePath, input);
+			}),
+		doctor: workspaceProcedure.output(runtimeChangeyardDoctorResponseSchema).query(async ({ ctx }) => {
+			return await ctx.changesApi.doctorProject(ctx.workspaceScope.workspacePath);
+		}),
 	}),
 	projects: t.router({
 		list: t.procedure.output(runtimeProjectsResponseSchema).query(async ({ ctx }) => {

@@ -4,10 +4,10 @@ import { useTheme } from "../../context/theme";
 import { EmptyBorder } from "../border";
 import { useKeybind } from "../../context/keybind";
 import { Autocomplete, type AutocompleteRef } from "./autocomplete";
-import { useToast } from "../../ui/toast";
 import { useDialog } from "../../ui/dialog";
 import { parseSlashCommand } from "../../context/app-state";
 import { useChangeyardActions } from "../../commands/changeyard";
+import { useComposerSettings } from "../../context/composer-settings";
 import { usePromptGlobalShortcuts } from "./global-shortcuts";
 
 export type PromptRef = {
@@ -32,9 +32,9 @@ export function Prompt(props: PromptProps) {
 
   const { theme, syntax } = useTheme();
   const keybind = useKeybind();
-  const toast = useToast();
   const dialog = useDialog();
   const actions = useChangeyardActions();
+  const composerSettings = useComposerSettings();
   const handleGlobalShortcut = usePromptGlobalShortcuts();
 
   const [value, setValue] = createSignal("");
@@ -87,10 +87,10 @@ export function Prompt(props: PromptProps) {
       return;
     }
 
-    toast.show({
-      variant: "info",
-      message: "Type / for commands. Example: /create quick",
-      duration: 2500,
+    const preset = composerSettings.preset();
+    void actions.createChangeFromPreset(preset.id, text).then(() => {
+      ref.clear();
+      props.onSubmit?.();
     });
   }
 
@@ -120,7 +120,7 @@ export function Prompt(props: PromptProps) {
         >
           <box paddingLeft={2} paddingRight={2} paddingTop={1} flexShrink={0} backgroundColor={theme.backgroundElement} flexGrow={1}>
             <textarea
-              placeholder="Type /help, /create quick, /validate..."
+              placeholder="Type a change title, /help, or /create quick..."
               textColor={theme.text}
               minHeight={1}
               maxHeight={6}
@@ -139,6 +139,18 @@ export function Prompt(props: PromptProps) {
                 }
                 if (handleGlobalShortcut(e, Boolean(autocomplete?.visible))) return;
                 if (autocomplete?.onKeyDown(e)) return;
+                if (!autocomplete?.visible) {
+                  if (keybind.match("profile_cycle", e)) {
+                    e.preventDefault();
+                    composerSettings.cyclePreset(1);
+                    return;
+                  }
+                  if (keybind.match("profile_cycle_reverse", e)) {
+                    e.preventDefault();
+                    composerSettings.cyclePreset(-1);
+                    return;
+                  }
+                }
                 if (e.name === "return" && !e.shift) {
                   e.preventDefault();
                   handleSubmit();
@@ -157,6 +169,15 @@ export function Prompt(props: PromptProps) {
               cursorColor={theme.text}
               syntaxStyle={syntax()}
             />
+            <box paddingTop={1}>
+              <text fg={theme.text}>
+                <span style={{ fg: theme.primary }}>{composerSettings.preset().label}</span>
+                <span style={{ fg: theme.textMuted }}>
+                  {" "}
+                  · {composerSettings.selectedAgent()?.label ?? "agent"}
+                </span>
+              </text>
+            </box>
           </box>
         </box>
         <box
@@ -179,9 +200,15 @@ export function Prompt(props: PromptProps) {
             }
           />
         </box>
-        <box flexDirection="row" justifyContent="space-between" paddingTop={1}>
-          <text />
+        <box flexDirection="row" justifyContent="space-between" paddingTop={1} paddingLeft={2} paddingRight={2}>
+          <text fg={theme.textMuted}>
+            {composerSettings.project.config?.providerType ?? "provider"} ·{" "}
+            {composerSettings.project.config?.vcsEngine ?? "vcs"}
+          </text>
           <box gap={2} flexDirection="row">
+            <text fg={theme.text}>
+              {keybind.print("profile_cycle")} <span style={{ fg: theme.textMuted }}>profiles</span>
+            </text>
             <text fg={theme.text}>
               {keybind.print("command_list")} <span style={{ fg: theme.textMuted }}>commands</span>
             </text>

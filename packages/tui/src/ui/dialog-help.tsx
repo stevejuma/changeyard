@@ -33,8 +33,9 @@ export function DialogHelp() {
       <box flexDirection="row" gap={2} paddingBottom={1}>
         <text fg={theme.textMuted}>{keybind.print("command_list")} commands</text>
         <text fg={theme.textMuted}>{keybind.print("sidebar_toggle")} sidebar</text>
-        <text fg={theme.textMuted}>Enter run slash command</text>
+        <text fg={theme.textMuted}>Enter create change from title</text>
         <text fg={theme.textMuted}>/themes switch theme</text>
+        <text fg={theme.textMuted}>/agents /provider /vcs /init /doctor</text>
       </box>
       <box flexDirection="row" justifyContent="flex-end" paddingBottom={1}>
         <box paddingLeft={3} paddingRight={3} backgroundColor={theme.primary} onMouseUp={() => dialog.clear()}>
