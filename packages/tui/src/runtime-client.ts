@@ -1,0 +1,209 @@
+export type PlanningSectionId =
+  | "proposal"
+  | "spec-deltas"
+  | "design"
+  | "tasks"
+  | "verification"
+  | "clarifications"
+  | "requirements-checklist"
+  | "analysis";
+
+export type ChangeListItem = {
+  id: string;
+  title: string;
+  type: string;
+  status: string;
+  path: string;
+  labels: string[];
+  updatedAt?: string;
+  planning: null | {
+    model: "openspec-lite";
+    strictness: "normal" | "strict";
+    phase: string;
+    gateSummary: {
+      pass: number;
+      pending: number;
+      fail: number;
+      skipped: number;
+      warning: number;
+    };
+    nextAction: string | null;
+  };
+  remote?: {
+    provider?: string;
+    issueUrl?: string;
+    pullRequestUrl?: string;
+  };
+  workspace?: {
+    engine?: string;
+    name?: string;
+    path?: string;
+    branch?: string;
+  };
+};
+
+export type ChangeDetail = ChangeListItem & {
+  body: string;
+  sections: Array<{
+    id: PlanningSectionId;
+    title: string;
+    content: string;
+  }>;
+};
+
+export type ChangeActionResponse = {
+  message: string;
+  change: ChangeDetail;
+};
+
+export type PlanningPromptResponse = {
+  section: PlanningSectionId;
+  path: string;
+  prompt: string;
+};
+
+type ProjectsResponse = {
+  currentProjectId: string | null;
+  projects: Array<{ id: string; path: string; name: string }>;
+};
+
+export class RuntimeClientError extends Error {
+  constructor(message: string, readonly status?: number) {
+    super(message);
+    this.name = "RuntimeClientError";
+  }
+}
+
+export class RuntimeClient {
+  private readonly origin: string;
+  private workspaceId: string | null = null;
+
+  constructor(runtimeUrl: string) {
+    this.origin = new URL(runtimeUrl).origin;
+  }
+
+  async health(): Promise<void> {
+    const response = await fetch(`${this.origin}/api/health`);
+    if (!response.ok) {
+      throw new RuntimeClientError(`Runtime health check failed: ${response.status}`, response.status);
+    }
+  }
+
+  async selectCurrentWorkspace(): Promise<string> {
+    const projects = await this.query<ProjectsResponse>("projects.list");
+    if (!projects.currentProjectId) {
+      throw new RuntimeClientError("Runtime has no active Changeyard project.");
+    }
+    this.workspaceId = projects.currentProjectId;
+    return projects.currentProjectId;
+  }
+
+  async listChanges(): Promise<ChangeListItem[]> {
+    await this.ensureWorkspace();
+    return (await this.query<{ changes: ChangeListItem[] }>("changes.list")).changes;
+  }
+
+  async getChange(id: string): Promise<ChangeDetail | null> {
+    await this.ensureWorkspace();
+    return await this.query<ChangeDetail | null>("changes.get", { id });
+  }
+
+  async createChange(input: {
+    template: "feature" | "bug" | "refactor" | "agent-task" | "quick";
+    title: string;
+    planning?: "none" | "openspec-lite";
+    strict?: boolean;
+  }): Promise<ChangeDetail> {
+    await this.ensureWorkspace();
+    return await this.mutation<ChangeDetail>("changes.create", input);
+  }
+
+  async validate(id: string): Promise<ChangeDetail> {
+    await this.ensureWorkspace();
+    return await this.mutation<ChangeDetail>("changes.validate", { id });
+  }
+
+  async sync(id: string): Promise<ChangeDetail> {
+    await this.ensureWorkspace();
+    return await this.mutation<ChangeDetail>("changes.sync", { id });
+  }
+
+  async start(id: string): Promise<ChangeDetail> {
+    await this.ensureWorkspace();
+    return await this.mutation<ChangeDetail>("changes.start", { id });
+  }
+
+  async verify(id: string): Promise<ChangeActionResponse> {
+    await this.ensureWorkspace();
+    return await this.mutation<ChangeActionResponse>("changes.verify", { id });
+  }
+
+  async complete(id: string): Promise<ChangeActionResponse> {
+    await this.ensureWorkspace();
+    return await this.mutation<ChangeActionResponse>("changes.complete", { id, noPr: true });
+  }
+
+  async reviewStart(id: string): Promise<ChangeActionResponse> {
+    await this.ensureWorkspace();
+    return await this.mutation<ChangeActionResponse>("changes.reviewStart", { id });
+  }
+
+  async reviewComplete(id: string, decision: "approve" | "request-changes" | "reject"): Promise<ChangeActionResponse> {
+    await this.ensureWorkspace();
+    return await this.mutation<ChangeActionResponse>("changes.reviewComplete", { id, decision });
+  }
+
+  async planningPrompt(id: string, sectionId: PlanningSectionId): Promise<PlanningPromptResponse> {
+    await this.ensureWorkspace();
+    return await this.query<PlanningPromptResponse>("changes.planningPrompt", { id, sectionId });
+  }
+
+  private async ensureWorkspace(): Promise<void> {
+    if (!this.workspaceId) {
+      await this.selectCurrentWorkspace();
+    }
+  }
+
+  private headers(): HeadersInit {
+    return {
+      ...(this.workspaceId ? { "x-kanban-workspace-id": this.workspaceId } : {}),
+    };
+  }
+
+  private async query<T>(procedurePath: string, input?: unknown): Promise<T> {
+    const searchParams = new URLSearchParams();
+    if (input === undefined) {
+      searchParams.set("batch", "1");
+      searchParams.set("input", "{}");
+    } else {
+      searchParams.set("input", JSON.stringify(input));
+    }
+    const response = await fetch(`${this.origin}/api/trpc/${procedurePath}?${searchParams.toString()}`, {
+      headers: this.headers(),
+    });
+    return await readTrpcPayload<T>(response);
+  }
+
+  private async mutation<T>(procedurePath: string, input: unknown): Promise<T> {
+    const response = await fetch(`${this.origin}/api/trpc/${procedurePath}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...this.headers(),
+      },
+      body: JSON.stringify(input),
+    });
+    return await readTrpcPayload<T>(response);
+  }
+}
+
+async function readTrpcPayload<T>(response: Response): Promise<T> {
+  const payload = await response.json() as
+    | { result?: { data?: T }; error?: { message?: string } }
+    | Array<{ result?: { data?: T }; error?: { message?: string } }>;
+  const item = Array.isArray(payload) ? payload[0] : payload;
+  if (!response.ok || item?.error) {
+    throw new RuntimeClientError(item?.error?.message ?? `Runtime request failed: ${response.status}`, response.status);
+  }
+  return item?.result?.data as T;
+}

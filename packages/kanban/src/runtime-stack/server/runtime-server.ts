@@ -59,6 +59,7 @@ export interface CreateRuntimeServerDependencies {
 	workspaceRegistry: WorkspaceRegistry;
 	runtimeStateHub: RuntimeStateHub;
 	changeyardApi?: RuntimeChangeyardApiAdapter | null;
+	serveWebAssets?: boolean;
 	warn: (message: string) => void;
 	ensureTerminalManagerForWorkspace: (workspaceId: string, repoPath: string) => Promise<TerminalSessionManager>;
 	resolveInteractiveShellCommand: () => { binary: string; args: string[] };
@@ -104,12 +105,15 @@ function readWorkspaceIdFromRequest(request: IncomingMessage, requestUrl: URL): 
 }
 
 export async function createRuntimeServer(deps: CreateRuntimeServerDependencies): Promise<RuntimeServer> {
-	const webUiDir = getWebUiDir();
+	const serveWebAssets = deps.serveWebAssets ?? true;
+	const webUiDir = serveWebAssets ? getWebUiDir() : null;
 
-	try {
-		await readFile(join(webUiDir, "index.html"));
-	} catch {
-		throw new Error("Could not find web UI assets. Run `npm run build` to generate and package the web UI.");
+	if (webUiDir) {
+		try {
+			await readFile(join(webUiDir, "index.html"));
+		} catch {
+			throw new Error("Could not find web UI assets. Run `npm run build` to generate and package the web UI.");
+		}
 	}
 
 	const resolveWorkspaceScopeFromRequest = async (
@@ -417,6 +421,12 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 			if (pathname.startsWith("/api/")) {
 				res.writeHead(404, { "Content-Type": "application/json; charset=utf-8" });
 				res.end('{"error":"Not found"}');
+				return;
+			}
+
+			if (!webUiDir) {
+				res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" });
+				res.end("Not Found");
 				return;
 			}
 

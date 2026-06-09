@@ -170,7 +170,7 @@ function warn(message) {
 	console.warn(`[changeyard] ${message}`);
 }
 
-export async function startChangeyardKanban(options) {
+export async function startChangeyardRuntime(options) {
 	const host = options.host ?? DEFAULT_KANBAN_RUNTIME_HOST;
 	const port =
 		options.port === undefined || options.port === "auto"
@@ -223,6 +223,7 @@ export async function startChangeyardKanban(options) {
 		workspaceRegistry,
 		runtimeStateHub,
 		changeyardApi: options.changeyardApi ?? null,
+		serveWebAssets: options.serveWebAssets ?? options.mode === "web",
 		warn,
 		ensureTerminalManagerForWorkspace: workspaceRegistry.ensureTerminalManagerForWorkspace,
 		resolveInteractiveShellCommand,
@@ -261,7 +262,7 @@ export async function startChangeyardKanban(options) {
 		return await shutdownPromise;
 	};
 
-	if (options.open) {
+	if (options.openBrowser) {
 		openInBrowser(runtimeServer.url, { warn });
 	}
 
@@ -269,4 +270,13 @@ export async function startChangeyardKanban(options) {
 		url: runtimeServer.url,
 		close,
 	};
+}
+
+export async function startChangeyardKanban(options) {
+	return await startChangeyardRuntime({
+		...options,
+		mode: "web",
+		serveWebAssets: true,
+		openBrowser: options.open ?? true,
+	});
 }

@@ -1402,11 +1402,23 @@ test("package metadata includes release smoke scripts", () => {
   const packageJson = JSON.parse(readFileSync(path.join(process.cwd(), "package.json"), "utf8"));
   assert.equal(packageJson.scripts.prepack, "npm run build");
   assert.equal(packageJson.scripts.cli, "node dist/src/cli.js");
+  assert.equal(packageJson.scripts.test, "npm run build && node --test --test-force-exit dist/tests/*.test.js");
   assert.equal(packageJson.scripts["build:kanban"], "npm --workspace @changeyard/kanban run build");
   assert.equal(packageJson.scripts["pack:check"], "npm run build && npm pack --dry-run");
   assert.equal(packageJson.bin.cy, "./dist/src/cli.js");
   assert.equal(packageJson.engines.node, ">=22.0.0");
-  assert.deepEqual(packageJson.files, ["dist/src", "packages/kanban/dist", "packages/kanban/package.json", "packages/kanban/README.md", "README.md", "docs", "scripts"]);
+  assert.deepEqual(packageJson.files, [
+    "dist/src",
+    "packages/kanban/dist",
+    "packages/kanban/package.json",
+    "packages/kanban/README.md",
+    "packages/tui/src",
+    "packages/tui/package.json",
+    "packages/tui/tsconfig.json",
+    "README.md",
+    "docs",
+    "scripts",
+  ]);
 });
 
 

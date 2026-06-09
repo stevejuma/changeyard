@@ -19,9 +19,11 @@ import { runInit } from "./commands/init.js";
 import { listChanges, runList } from "./commands/list.js";
 import { runRecover } from "./commands/recover.js";
 import { runReviewComplete, runReviewStart } from "./commands/review.js";
+import { runServer } from "./commands/server.js";
 import { runStart } from "./commands/start.js";
 import { getStatus, runStatus } from "./commands/status.js";
 import { runSync } from "./commands/sync.js";
+import { runTui } from "./commands/tui.js";
 import { runUi } from "./commands/ui.js";
 import { runValidate } from "./commands/validate.js";
 import { runVerify } from "./commands/verify.js";
@@ -30,7 +32,7 @@ import { errorCode, errorExitCode } from "./errors.js";
 import type { PlanningModel } from "./planning/types.js";
 import type { CreateOptions } from "./commands/create.js";
 
-type CommandName = "init" | "create" | "quick" | "validate" | "sync" | "start" | "verify" | "hydrate" | "complete" | "review" | "doctor" | "completions" | "recover" | "list" | "status" | "plan" | "ui" | "hooks" | "help";
+type CommandName = "init" | "create" | "quick" | "validate" | "sync" | "start" | "verify" | "hydrate" | "complete" | "review" | "doctor" | "completions" | "recover" | "list" | "status" | "plan" | "ui" | "server" | "tui" | "hooks" | "help";
 
 type ParsedArgs = {
   command: string;
@@ -143,6 +145,8 @@ Usage:
   cy plan export CY-0001 --format openspec [--dry-run]
   cy plan import CY-0001 --format speckit [--dry-run]
   cy ui [--host <host>] [--port <port|auto>] [--open|--no-open]
+  cy server [--host <host>] [--port <port|auto>] [--project <path>] [--json]
+  cy tui [--connect <url>] [--host <host>] [--port <port|auto>] [--project <path>] [--debug]
   cy hooks ingest --event to_review|to_in_progress|activity
 
 Global options:
@@ -202,6 +206,8 @@ function commandUsage(command: string): string {
     status: `${"status".padEnd(12)}print one change summary.\n\nExample:\n${commandExamples(["cy status CY-0001"])}`,
     plan: `${"plan".padEnd(12)}inspect planning status, generate planning prompts, toggle strict mode, or manage adapter mirrors.\n\nExamples:\n${commandExamples(["cy plan status CY-0001", "cy plan status CY-0001 --json", "cy plan prompt CY-0001 proposal", "cy plan strict enable CY-0001", "cy plan export CY-0001 --format openspec", "cy plan import CY-0001 --format speckit --dry-run"])}`,
     ui: `${"ui".padEnd(12)}start the local Changeyard board UI.\n\nExamples:\n${commandExamples(["cy ui --no-open", "cy ui --host 127.0.0.1 --port 4310"])}`,
+    server: `${"server".padEnd(12)}start the local Changeyard runtime API without opening the browser UI.\n\nExamples:\n${commandExamples(["cy server", "cy server --host 127.0.0.1 --port auto", "cy server --project /path/to/repo --json"])}`,
+    tui: `${"tui".padEnd(12)}start the OpenTUI terminal interface. Requires Bun.\n\nExamples:\n${commandExamples(["cy tui", "cy tui --connect http://127.0.0.1:4310", "cy tui --project /path/to/repo --debug"])}`,
     hooks: `${"hooks".padEnd(12)}forward terminal-agent hook events to the local Changeyard runtime.\n\nExamples:\n${commandExamples(["cy hooks ingest --event to_review", "cy hooks notify --event activity --activity-text \"Waiting for input\""])}`,
     help: usage(),
   };
@@ -214,6 +220,7 @@ function commandBaseName(command: string): CommandName {
   if (command === "check") return "verify";
   if (command === "done") return "complete";
   if (command === "kanban") return "ui";
+  if (command === "view" || command === "menu") return "tui";
   return command as CommandName;
 }
 
@@ -230,7 +237,6 @@ function jsonPayload(command: string, output: unknown): { command: string; messa
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const command = commandBaseName(args.command);
-  const repoRoot = findRepoRoot();
   const json = asBooleanFlag(args.flags, "json");
   const quiet = asBooleanFlag(args.flags, "quiet");
   const verbose = asBooleanFlag(args.flags, "verbose");
@@ -238,6 +244,8 @@ async function main(): Promise<void> {
   const fix = asBooleanFlag(args.flags, "fix");
   const shouldShowText = !(quiet && !json);
   const mutationOptions: MutationOptions = { dryRun, fix, verbose };
+  const projectRoot = stringFlag(args.flags, "project");
+  const repoRoot = command === "help" ? process.cwd() : findRepoRoot(projectRoot ?? process.cwd());
 
   if (asBooleanFlag(args.flags, "help") || asBooleanFlag(args.flags, "h")) {
     const output = commandUsage(command);
@@ -343,6 +351,28 @@ async function main(): Promise<void> {
           open: args.flags["no-open"] === true ? false : args.flags.open === true ? true : undefined,
           host: stringFlag(args.flags, "host"),
           port: rawPort === "auto" ? "auto" : rawPort ? Number(rawPort) : undefined,
+        }, process.cwd());
+        break;
+      }
+      case "server": {
+        const rawPort = stringFlag(args.flags, "port");
+        output = await runServer({
+          host: stringFlag(args.flags, "host"),
+          port: rawPort === "auto" ? "auto" : rawPort ? Number(rawPort) : undefined,
+          project: projectRoot,
+        }, process.cwd());
+        break;
+      }
+      case "tui": {
+        const rawPort = stringFlag(args.flags, "port");
+        output = await runTui({
+          connect: stringFlag(args.flags, "connect"),
+          debug: asBooleanFlag(args.flags, "debug"),
+          host: stringFlag(args.flags, "host"),
+          port: rawPort === "auto" ? "auto" : rawPort ? Number(rawPort) : undefined,
+          project: projectRoot,
+          smokeTest: asBooleanFlag(args.flags, "smoke-test"),
+          smokeCreateAll: asBooleanFlag(args.flags, "smoke-create-all"),
         }, process.cwd());
         break;
       }

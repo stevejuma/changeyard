@@ -1,8 +1,13 @@
 import { existsSync } from "node:fs";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ChangeyardCard, ChangeyardCardDetail } from "../board/boardTypes.js";
 import { createChangeyardBoardService } from "../board/boardService.js";
+import { runComplete } from "./complete.js";
 import { createChange } from "./create.js";
+import { getPlanPrompt } from "./plan.js";
+import { runReviewComplete, runReviewStart, type ReviewDecision } from "./review.js";
+import { runVerify } from "./verify.js";
 import { validateChangeFile } from "../documents/validateDocument.js";
 import { changesRoot, storageRoot } from "../paths.js";
 import { parseMarkedSections } from "../planning/sections.js";
@@ -113,7 +118,7 @@ export function createChangeyardUiApi() {
       return board.columns.flatMap((column) => column.cards).map((card) => toChangeSummary(card));
     },
     createChange(repoRoot: string, input: {
-      template: "feature" | "bug" | "refactor" | "agent-task";
+      template: "feature" | "bug" | "refactor" | "agent-task" | "quick";
       title: string;
       priority?: string;
       labels?: string[];
@@ -148,6 +153,50 @@ export function createChangeyardUiApi() {
     startChange(repoRoot: string, input: { id: string }) {
       return toChangeDetail(createChangeyardBoardService(repoRoot).startCard(input.id));
     },
+    verifyChange(repoRoot: string, input: { id: string }) {
+      const current = toChangeDetail(createChangeyardBoardService(repoRoot).getCard(input.id));
+      const workspacePath = current.workspace?.path;
+      if (!workspacePath) {
+        throw new Error(`Change ${input.id} has no workspace to verify.`);
+      }
+      const message = runVerify(input.id, path.resolve(repoRoot, workspacePath));
+      return {
+        message,
+        change: toChangeDetail(createChangeyardBoardService(repoRoot).getCard(input.id)),
+      };
+    },
+    completeChange(repoRoot: string, input: { id: string; noPr?: boolean; profile?: string }) {
+      const current = toChangeDetail(createChangeyardBoardService(repoRoot).getCard(input.id));
+      const workspacePath = current.workspace?.path;
+      if (!workspacePath) {
+        throw new Error(`Change ${input.id} has no workspace to complete.`);
+      }
+      const message = runComplete(input.id, {
+        noPr: input.noPr ?? true,
+        profile: input.profile,
+      }, path.resolve(repoRoot, workspacePath));
+      return {
+        message,
+        change: toChangeDetail(createChangeyardBoardService(repoRoot).getCard(input.id)),
+      };
+    },
+    reviewStart(repoRoot: string, input: { id: string }) {
+      const message = runReviewStart(input.id, repoRoot);
+      return {
+        message,
+        change: toChangeDetail(createChangeyardBoardService(repoRoot).getCard(input.id)),
+      };
+    },
+    reviewComplete(repoRoot: string, input: { id: string; decision: ReviewDecision }) {
+      const message = runReviewComplete(input.id, input.decision, repoRoot);
+      return {
+        message,
+        change: toChangeDetail(createChangeyardBoardService(repoRoot).getCard(input.id)),
+      };
+    },
+    planningPrompt(repoRoot: string, input: { id: string; sectionId: PlanningSectionId }) {
+      return getPlanPrompt(input.id, input.sectionId, repoRoot);
+    },
     updatePlanningSection(repoRoot: string, input: {
       id: string;
       sectionId: PlanningSectionId;
@@ -168,7 +217,7 @@ export function assertUiNodeVersion(): void {
   if (major < 22) throw new Error("cy ui requires Node.js 22 or newer.");
 }
 
-function resolveUiServerModuleUrl(): URL {
+export function resolveUiServerModuleUrl(): URL {
   return new URL("../../../packages/kanban/dist/server/index.js", import.meta.url);
 }
 

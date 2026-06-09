@@ -1,7 +1,12 @@
 import type {
 	RuntimeChangeyardChangeDetail,
+	RuntimeChangeyardChangeActionResponse,
+	RuntimeChangeyardCompleteRequest,
 	RuntimeChangeyardChangeCreateRequest,
 	RuntimeChangeyardChangeGetRequest,
+	RuntimeChangeyardPlanningPromptRequest,
+	RuntimeChangeyardPlanningPromptResponse,
+	RuntimeChangeyardReviewCompleteRequest,
 	RuntimeChangeyardChangeUpdatePlanningSectionRequest,
 	RuntimeChangeyardChangesListResponse,
 } from "../core/api-contract.js";
@@ -28,6 +33,26 @@ export interface RuntimeChangeyardApiAdapter {
 		repoRoot: string,
 		input: RuntimeChangeyardChangeGetRequest,
 	) => Promise<RuntimeChangeyardChangeDetail> | RuntimeChangeyardChangeDetail;
+	verifyChange: (
+		repoRoot: string,
+		input: RuntimeChangeyardChangeGetRequest,
+	) => Promise<RuntimeChangeyardChangeActionResponse> | RuntimeChangeyardChangeActionResponse;
+	completeChange: (
+		repoRoot: string,
+		input: RuntimeChangeyardCompleteRequest,
+	) => Promise<RuntimeChangeyardChangeActionResponse> | RuntimeChangeyardChangeActionResponse;
+	reviewStart: (
+		repoRoot: string,
+		input: RuntimeChangeyardChangeGetRequest,
+	) => Promise<RuntimeChangeyardChangeActionResponse> | RuntimeChangeyardChangeActionResponse;
+	reviewComplete: (
+		repoRoot: string,
+		input: RuntimeChangeyardReviewCompleteRequest,
+	) => Promise<RuntimeChangeyardChangeActionResponse> | RuntimeChangeyardChangeActionResponse;
+	planningPrompt: (
+		repoRoot: string,
+		input: RuntimeChangeyardPlanningPromptRequest,
+	) => Promise<RuntimeChangeyardPlanningPromptResponse> | RuntimeChangeyardPlanningPromptResponse;
 	updatePlanningSection: (
 		repoRoot: string,
 		input: RuntimeChangeyardChangeUpdatePlanningSectionRequest,
@@ -41,6 +66,17 @@ export interface RuntimeTrpcChangesApi {
 	validateChange: (workspacePath: string, input: RuntimeChangeyardChangeGetRequest) => Promise<RuntimeChangeyardChangeDetail>;
 	syncChange: (workspacePath: string, input: RuntimeChangeyardChangeGetRequest) => Promise<RuntimeChangeyardChangeDetail>;
 	startChange: (workspacePath: string, input: RuntimeChangeyardChangeGetRequest) => Promise<RuntimeChangeyardChangeDetail>;
+	verifyChange: (workspacePath: string, input: RuntimeChangeyardChangeGetRequest) => Promise<RuntimeChangeyardChangeActionResponse>;
+	completeChange: (workspacePath: string, input: RuntimeChangeyardCompleteRequest) => Promise<RuntimeChangeyardChangeActionResponse>;
+	reviewStart: (workspacePath: string, input: RuntimeChangeyardChangeGetRequest) => Promise<RuntimeChangeyardChangeActionResponse>;
+	reviewComplete: (
+		workspacePath: string,
+		input: RuntimeChangeyardReviewCompleteRequest,
+	) => Promise<RuntimeChangeyardChangeActionResponse>;
+	planningPrompt: (
+		workspacePath: string,
+		input: RuntimeChangeyardPlanningPromptRequest,
+	) => Promise<RuntimeChangeyardPlanningPromptResponse>;
 	updatePlanningSection: (
 		workspacePath: string,
 		input: RuntimeChangeyardChangeUpdatePlanningSectionRequest,
@@ -88,6 +124,36 @@ export function createChangesApi(deps: {
 				throw new Error("Changeyard start is not available in this runtime.");
 			}
 			return await deps.changeyardApi.startChange(workspacePath, input);
+		},
+		verifyChange: async (workspacePath, input) => {
+			if (!deps.changeyardApi) {
+				throw new Error("Changeyard verify is not available in this runtime.");
+			}
+			return await deps.changeyardApi.verifyChange(workspacePath, input);
+		},
+		completeChange: async (workspacePath, input) => {
+			if (!deps.changeyardApi) {
+				throw new Error("Changeyard completion is not available in this runtime.");
+			}
+			return await deps.changeyardApi.completeChange(workspacePath, input);
+		},
+		reviewStart: async (workspacePath, input) => {
+			if (!deps.changeyardApi) {
+				throw new Error("Changeyard review is not available in this runtime.");
+			}
+			return await deps.changeyardApi.reviewStart(workspacePath, input);
+		},
+		reviewComplete: async (workspacePath, input) => {
+			if (!deps.changeyardApi) {
+				throw new Error("Changeyard review completion is not available in this runtime.");
+			}
+			return await deps.changeyardApi.reviewComplete(workspacePath, input);
+		},
+		planningPrompt: async (workspacePath, input) => {
+			if (!deps.changeyardApi) {
+				throw new Error("Changeyard planning prompts are not available in this runtime.");
+			}
+			return await deps.changeyardApi.planningPrompt(workspacePath, input);
 		},
 		updatePlanningSection: async (workspacePath, input) => {
 			if (!deps.changeyardApi) {
