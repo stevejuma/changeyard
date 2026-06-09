@@ -7,6 +7,11 @@ import { LocalStorageKey } from "@/storage/local-storage-store";
 
 const mockGitRefsPanel = vi.fn((_props: { panelWidth: number }) => <div data-testid="git-refs-panel" />);
 const mockGitCommitListPanel = vi.fn((_props: { panelWidth: number }) => <div data-testid="git-commit-list-panel" />);
+const mockGitCommitDiffPanel = vi.fn(
+	(_props: { diffContentPanelWidth: number; fileTreePanelWidth: number; isFileTreePanelCollapsed: boolean }) => (
+		<div data-testid="git-commit-diff-panel" />
+	),
+);
 
 vi.mock("@/components/git-history/git-refs-panel", () => ({
 	GitRefsPanel: (props: { panelWidth: number }) => mockGitRefsPanel(props),
@@ -17,7 +22,9 @@ vi.mock("@/components/git-history/git-commit-list-panel", () => ({
 }));
 
 vi.mock("@/components/git-history/git-commit-diff-panel", () => ({
-	GitCommitDiffPanel: () => <div data-testid="git-commit-diff-panel" />,
+	GitCommitDiffPanel: (
+		props: { diffContentPanelWidth: number; fileTreePanelWidth: number; isFileTreePanelCollapsed: boolean },
+	) => mockGitCommitDiffPanel(props),
 }));
 
 vi.mock("@/resize/layout-customizations", () => ({
@@ -79,6 +86,7 @@ describe("GitHistoryView", () => {
 		window.localStorage.clear();
 		mockGitRefsPanel.mockClear();
 		mockGitCommitListPanel.mockClear();
+		mockGitCommitDiffPanel.mockClear();
 	});
 
 	afterEach(() => {
@@ -90,6 +98,7 @@ describe("GitHistoryView", () => {
 		window.localStorage.clear();
 		mockGitRefsPanel.mockClear();
 		mockGitCommitListPanel.mockClear();
+		mockGitCommitDiffPanel.mockClear();
 		if (previousActEnvironment === undefined) {
 			delete (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
 		} else {
@@ -101,16 +110,29 @@ describe("GitHistoryView", () => {
 	it("uses persisted widths without clamping them to the viewport", async () => {
 		window.localStorage.setItem(LocalStorageKey.GitHistoryRefsPanelWidth, "400");
 		window.localStorage.setItem(LocalStorageKey.GitHistoryCommitsPanelWidth, "500");
+		window.localStorage.setItem(LocalStorageKey.GitHistoryDiffContentPanelWidth, "720");
+		window.localStorage.setItem(LocalStorageKey.GitDiffFileTreePanelWidth, "280");
 
 		await act(async () => {
 			root.render(<GitHistoryView workspaceId="workspace-1" gitHistory={createGitHistory()} />);
 		});
 
+		const historyCanvas = container.querySelector('[data-testid="git-history-canvas"]');
+		expect(historyCanvas).toBeInstanceOf(HTMLDivElement);
 		expect(mockGitRefsPanel).toHaveBeenCalled();
 		expect(mockGitCommitListPanel).toHaveBeenCalled();
+		expect(mockGitCommitDiffPanel).toHaveBeenCalled();
 		expect(mockGitRefsPanel.mock.calls.at(-1)?.[0]).toMatchObject({ panelWidth: 400 });
 		expect(mockGitCommitListPanel.mock.calls.at(-1)?.[0]).toMatchObject({ panelWidth: 500 });
+		expect(mockGitCommitDiffPanel.mock.calls.at(-1)?.[0]).toMatchObject({
+			diffContentPanelWidth: 720,
+			fileTreePanelWidth: 280,
+			isFileTreePanelCollapsed: false,
+		});
+		expect((historyCanvas as HTMLDivElement).style.width).toBe("1903px");
 		expect(window.localStorage.getItem(LocalStorageKey.GitHistoryRefsPanelWidth)).toBe("400");
 		expect(window.localStorage.getItem(LocalStorageKey.GitHistoryCommitsPanelWidth)).toBe("500");
+		expect(window.localStorage.getItem(LocalStorageKey.GitHistoryDiffContentPanelWidth)).toBe("720");
+		expect(window.localStorage.getItem(LocalStorageKey.GitDiffFileTreePanelWidth)).toBe("280");
 	});
 });

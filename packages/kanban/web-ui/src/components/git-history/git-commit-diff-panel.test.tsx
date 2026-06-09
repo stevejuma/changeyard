@@ -78,6 +78,11 @@ describe("GitCommitDiffPanel", () => {
 					errorMessage={null}
 					selectedPath={null}
 					onSelectPath={() => {}}
+					diffContentPanelWidth={620}
+					fileTreePanelWidth={260}
+					isFileTreePanelCollapsed={false}
+					setDiffContentPanelWidth={() => {}}
+					setFileTreePanelCollapsed={() => {}}
 					headerContent={<div style={{ height: 28 }}>Header</div>}
 				/>,
 			);
@@ -126,6 +131,11 @@ describe("GitCommitDiffPanel", () => {
 					errorMessage={null}
 					selectedPath="src/b.ts"
 					onSelectPath={() => {}}
+					diffContentPanelWidth={620}
+					fileTreePanelWidth={260}
+					isFileTreePanelCollapsed={false}
+					setDiffContentPanelWidth={() => {}}
+					setFileTreePanelCollapsed={() => {}}
 					headerContent={<div style={{ height: 28 }}>Header</div>}
 				/>,
 			);
@@ -156,6 +166,11 @@ describe("GitCommitDiffPanel", () => {
 					errorMessage={null}
 					selectedPath={null}
 					onSelectPath={() => {}}
+					diffContentPanelWidth={620}
+					fileTreePanelWidth={260}
+					isFileTreePanelCollapsed={false}
+					setDiffContentPanelWidth={() => {}}
+					setFileTreePanelCollapsed={() => {}}
 				/>,
 			);
 		});
@@ -164,5 +179,50 @@ describe("GitCommitDiffPanel", () => {
 		expect(container.textContent).toContain("Binary");
 		expect(container.textContent).not.toContain("No textual diff available.");
 		expect(container.querySelector(".kb-diff-row")).toBeNull();
+	});
+
+	it("resizes the diff content width from the diff/files separator", async () => {
+		const setDiffContentPanelWidth = vi.fn();
+		const diffSource: GitCommitDiffSource = {
+			type: "commit",
+			files: [
+				{
+					path: "src/a.ts",
+					status: "modified",
+					additions: 1,
+					deletions: 0,
+					patch: "@@ -1 +1 @@\n-const a = 1;\n+const a = 2;\n",
+				},
+			],
+		};
+
+		await act(async () => {
+			root.render(
+				<GitCommitDiffPanel
+					diffSource={diffSource}
+					isLoading={false}
+					errorMessage={null}
+					selectedPath={null}
+					onSelectPath={() => {}}
+					diffContentPanelWidth={620}
+					fileTreePanelWidth={260}
+					isFileTreePanelCollapsed={false}
+					setDiffContentPanelWidth={setDiffContentPanelWidth}
+					setFileTreePanelCollapsed={() => {}}
+				/>,
+			);
+		});
+
+		const separators = Array.from(container.querySelectorAll('[role="separator"]'));
+		expect(separators).toHaveLength(1);
+
+		await act(async () => {
+			separators[0]!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, clientX: 100 }));
+			window.dispatchEvent(new MouseEvent("mousemove", { clientX: 180 }));
+			window.dispatchEvent(new MouseEvent("mouseup", { clientX: 180 }));
+		});
+
+		expect(setDiffContentPanelWidth).toHaveBeenNthCalledWith(1, 700);
+		expect(setDiffContentPanelWidth).toHaveBeenNthCalledWith(2, 700);
 	});
 });
