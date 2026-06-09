@@ -445,7 +445,7 @@ export function doctorReport(repoRoot = process.cwd(), options: MutationOptions 
   if (existsSync(changesPath)) {
     for (const file of readdirSync(changesPath).filter((entry) => entry.endsWith(".md")).sort()) {
       const filePath = path.join(changesPath, file);
-      const validation = validateChangeFile(filePath, root);
+      const validation = validateChangeFile(filePath, root, { config });
       const parsed = readMarkdown(filePath);
       if (!validation.valid) {
         warnings.push(`${file}: ${validation.errors.join("; ")}`);

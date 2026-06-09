@@ -49,7 +49,7 @@ export function createChangeyardUiApi() {
       { gate: "complete", label: "Complete Gate" },
     ];
     const failures = gates
-      .map(({ gate, label }) => ({ label, result: validateChangeFile(filePath, root, { gate }) }))
+      .map(({ gate, label }) => ({ label, result: validateChangeFile(filePath, root, { gate, config }) }))
       .filter(({ result }) => !result.valid);
     if (failures.length === 0) {
       return;

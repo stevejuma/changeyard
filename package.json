@@ -14,7 +14,7 @@
     "build:cli": "tsc -p tsconfig.json && mkdir -p dist/src/templates dist/src/planning/templates/prompts && cp src/templates/*.md dist/src/templates/ && cp src/planning/templates/prompts/*.md dist/src/planning/templates/prompts/",
     "build:kanban": "npm --workspace @changeyard/kanban run build",
     "build": "npm run build:cli && npm run build:kanban",
-    "cli": "node dist/src/cli.js",
+    "cy": "node dist/src/cli.js",
     "test": "npm run build && node --test dist/tests/*.test.js",
     "check": "npm run build:cli && npm --workspace @changeyard/kanban run typecheck",
     "pack:check": "npm run build && npm pack --dry-run",

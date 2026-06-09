@@ -18,6 +18,8 @@ type InitOptions = {
   dryRun?: boolean;
 };
 
+const TEMPLATE_NAMES = ["agent-task", "feature", "bug", "refactor", "review", "quick"] as const;
+
 export function runInit(repoRoot = process.cwd(), options: InitOptions = {}): string {
   const root = path.join(repoRoot, defaultConfig.storage.root);
   const target = options.dryRun ? path.relative(repoRoot, root) || root : `Initialized Changeyard in ${path.relative(repoRoot, root) || root}`;
@@ -38,7 +40,7 @@ export function runInit(repoRoot = process.cwd(), options: InitOptions = {}): st
     writeFileSync(schemaPath, JSON.stringify(configSchema, null, 2) + "\n");
   }
 
-  for (const name of ["agent-task", "feature", "bug", "refactor", "review"]) {
+  for (const name of TEMPLATE_NAMES) {
     const target = path.join(templatesDir, `${name}.md`);
     if (!existsSync(target)) copyFileSync(path.join(templateSourceDir(), `${name}.md`), target);
   }

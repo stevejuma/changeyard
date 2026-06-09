@@ -1,3 +1,4 @@
+import { checkProfile, isQuickChange, planningModel, workflowMetadata } from "../change/changeMetadata.js";
 import { parseSections } from "../documents/sections.js";
 import { getPlanningStatusSummary } from "../planning/status.js";
 import { parseMarkedSections } from "../planning/sections.js";
@@ -57,11 +58,36 @@ function planningSections(body: string): Map<string, string> {
   }
 }
 
+function renderQuickWorkflowSummary(input: {
+  canonicalPath: string;
+  frontmatter: Frontmatter;
+  body: string;
+}): string {
+  const workflow = workflowMetadata(input.frontmatter);
+  const lines = [
+    input.body.trim(),
+    "",
+    "# Workflow Summary",
+    "",
+    `- Mode: ${workflow?.mode ?? "quick"}`,
+    `- Planning: ${planningModel(input.frontmatter)}`,
+    `- Risk: ${workflow?.risk ?? "low"}`,
+    `- Checks profile: ${checkProfile(input.frontmatter)}`,
+    `- Canonical local file: \`${input.canonicalPath}\``,
+    "- The local markdown change remains the canonical source of truth.",
+  ];
+  return `${lines.join("\n").trim()}\n`;
+}
+
 export function renderProviderIssueBody(input: {
   canonicalPath: string;
   frontmatter: Frontmatter;
   body: string;
 }): string {
+  if (isQuickChange(input.frontmatter)) {
+    return renderQuickWorkflowSummary(input);
+  }
+
   const planning = getPlanningStatusSummary(input.frontmatter, input.body);
   if (!planning) return input.body;
 
@@ -108,6 +134,19 @@ export function renderPlanningContextForReview(input: {
   frontmatter: Frontmatter;
   body: string;
 }): string {
+  if (isQuickChange(input.frontmatter)) {
+    const workflow = workflowMetadata(input.frontmatter);
+    return [
+      "# Quick Change Context",
+      "",
+      `- Mode: ${workflow?.mode ?? "quick"}`,
+      `- Planning: ${planningModel(input.frontmatter)}`,
+      `- Risk: ${workflow?.risk ?? "low"}`,
+      `- Checks profile: ${checkProfile(input.frontmatter)}`,
+      `- Canonical local file: \`${input.canonicalPath}\``,
+    ].join("\n") + "\n";
+  }
+
   const planning = getPlanningStatusSummary(input.frontmatter, input.body);
   if (!planning) return "";
 
@@ -131,6 +170,32 @@ export function renderProviderReviewBody(input: {
   body: string;
   reviewBody: string;
 }): string {
+  if (isQuickChange(input.frontmatter)) {
+    const workflow = workflowMetadata(input.frontmatter);
+    const completionNotes = parseSections(input.body).get("Completion Notes") ?? "Not recorded.";
+    const acceptanceCriteria = parseSections(input.body).get("Acceptance Criteria") ?? "Not recorded.";
+    const lines = [
+      input.reviewBody.trim(),
+      "",
+      "# Workflow Summary",
+      "",
+      `- Mode: ${workflow?.mode ?? "quick"}`,
+      `- Planning: ${planningModel(input.frontmatter)}`,
+      `- Risk: ${workflow?.risk ?? "low"}`,
+      `- Checks profile: ${checkProfile(input.frontmatter)}`,
+      `- Canonical local file: \`${input.canonicalPath}\``,
+      "",
+      "## Acceptance Criteria",
+      "",
+      acceptanceCriteria,
+      "",
+      "## Completion Notes",
+      "",
+      completionNotes,
+    ];
+    return `${lines.join("\n").trim()}\n`;
+  }
+
   const planning = getPlanningStatusSummary(input.frontmatter, input.body);
   if (!planning) return input.reviewBody;
 

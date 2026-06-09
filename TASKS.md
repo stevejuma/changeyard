@@ -1,25 +1,332 @@
-# TASKS: Planning Profile Adoption
+# TASKS: Quick Mode Implementation
 
 Date: 2026-06-09
 
-Objective: Implement the native inline planning profile described in `PLAN.md` without breaking the existing markdown-first change workflow.
+Objective: Implement the quick-mode proposal described in `PLAN.md` without weakening the completed markdown-first planned-change workflow.
 
 ## Tracker Rules
 
-- `TASKS.md` is the live execution tracker for this initiative.
+- `TASKS.md` is the live execution tracker for quick mode.
 - Update stage status and verification notes as implementation lands.
 - Keep completed work checked off and leave pending work explicit.
+- Use the quick-mode stages below for active work.
 - `PENDING.md` reflects the previous kanban migration effort and is not the active tracker for this feature.
 
 ## Current Status
 
-- [x] Proposal reviewed and translated into a repo-specific plan
-- [x] `PLAN.md` rewritten for planning-profile adoption
-- [x] `TASKS.md` created as the live tracker
-- [x] Implementation started
-- [x] End-to-end planning profile adoption complete
+- [x] Quick-mode proposal reviewed and translated into a repo-specific plan
+- [x] `PLAN.md` updated with the quick-mode roadmap
+- [x] `TASKS.md` updated as the active quick-mode tracker
+- [x] Quick-mode implementation started
+- [ ] End-to-end quick-mode implementation complete
 
-Current focus: Complete. Remaining verification noise is a pre-existing `git-worktree` signing issue outside the planning-profile scope.
+Current focus: Close out Stage Q4 verification cleanly, then move into Stage Q5 quick-to-planned conversion.
+
+## Stage Q1: Data Model And Template
+
+Status: `completed`
+
+- [x] Add `src/templates/quick.md`
+- [x] Define quick template metadata with required frontmatter and required sections
+- [x] Add quick template body with Summary, Scope, Acceptance Criteria, and Completion Notes
+- [x] Update `src/commands/init.ts` so `cy init` installs `.changeyard/templates/quick.md`
+- [x] Ensure `cy init` does not overwrite an existing user-customized quick template
+- [x] Update `src/commands/create.ts` so `--template quick` emits `planning.model: none`
+- [x] Update quick create generation so `workflow.mode: quick`, `workflow.risk: low`, and `workflow.requiresWorkspace: true`
+- [x] Update quick create generation so `checks.profile: minimal`, `checks.lastRun: null`, and `checks.lastStatus: null`
+- [x] Default quick changes to `priority: low` unless overridden
+- [x] Default quick labels to include `quick` and `low-risk` with de-duplication
+- [x] Add or extend typed planning/workflow/check metadata types in `src/types.ts`
+- [x] Add `src/change/changeMetadata.ts` helpers for `isQuickChange`, `planningModel`, `workflowMode`, and `checkProfile`
+- [x] Add tests for quick template installation
+- [x] Add tests for `cy create --template quick --title "Fix typo"`
+- [x] Run `npm run check`
+- [x] Run `npm test`
+
+Acceptance checks:
+
+- [x] `cy init` installs `quick.md`
+- [x] `cy create --template quick --title "Fix typo"` creates a valid quick change
+- [x] Generated quick changes include `planning.model: none`
+- [x] Generated quick changes include `workflow.mode: quick`
+- [x] Generated quick changes default to `priority: low`
+- [x] Generated quick changes default to `checks.profile: minimal`
+- [x] Existing templates and tests continue to pass
+
+## Stage Q2: CLI Ergonomics
+
+Status: `completed`
+
+- [x] Add `quick` to the CLI command union and dispatcher in `src/cli.ts`
+- [x] Implement `cy quick --title "Fix typo in README"`
+- [x] Route `cy quick` internally through the same create logic as `--template quick`
+- [x] Support `--priority`, `--label`, `--author`, `--dry-run`, and `--json` for `cy quick`
+- [x] Add `cy create --quick --title "Fix typo"` sugar
+- [x] Ensure `cy create --quick` is equivalent to `cy create --template quick`
+- [x] Update top-level usage text with quick examples
+- [x] Update `commandUsage("create")` with quick examples
+- [x] Add `cy quick --help` usage and examples
+- [x] Preserve existing aliases `new`, `begin`, `check`, and `done`
+- [x] Add CLI parsing tests for `cy quick`
+- [x] Add dry-run test that confirms no change file is written
+- [x] Add JSON-output test consistent with current create conventions
+- [x] Run `npm run check`
+- [x] Run `npm test`
+
+Acceptance checks:
+
+- [x] `cy quick --title "Fix typo"` creates a quick change
+- [x] `cy quick --dry-run --title "Fix typo"` writes nothing and reports the intended path
+- [x] `cy create --quick --title "Fix typo"` works
+- [x] `cy quick --help` shows examples
+- [x] Invalid quick command input returns the existing CLI error envelope
+- [x] JSON output remains consistent with existing CLI conventions
+
+## Stage Q3: Quick Validation And Risk Guardrails
+
+Status: `completed`
+
+- [x] Add quick-change validation in `src/documents/validateDocument.ts` or a shared validation module
+- [x] Require quick changes to have `planning.model: none`
+- [x] Require quick changes to have `workflow.mode: quick`
+- [x] Require Summary, Scope, Acceptance Criteria, and Completion Notes sections
+- [x] Require Scope to include quick-risk checklist items
+- [x] Require Acceptance Criteria to include at least one checkbox before completion
+- [x] Reject OpenSpec-lite required planning markers for quick changes unless the change was converted
+- [x] Add warning support to `ValidationResult` or an equivalent non-blocking warning path
+- [x] Add config defaults for `planning.allowQuickChanges`
+- [x] Add config defaults for `planning.quickChangeCheckProfile`
+- [x] Add config defaults for `planning.quickChangeRequiresWorkspace`
+- [x] Add config defaults for `planning.quickChangeEscalation: off | warn | block`
+- [x] Update config schema without requiring planning fields in existing configs
+- [x] Add tests for valid quick change validation
+- [x] Add tests for malformed quick metadata
+- [x] Add tests for warning escalation
+- [x] Add tests for blocking escalation
+- [x] Run `npm run check`
+- [x] Run `npm test`
+
+Acceptance checks:
+
+- [x] Quick changes validate when required metadata, sections, and checkboxes are present
+- [x] Quick changes fail validation when `planning.model` is not `none`
+- [x] Quick changes fail validation when `workflow.mode` is not `quick`
+- [x] Existing configs without `planning` continue to load
+- [x] `quickChangeEscalation: warn` reports warnings without blocking
+- [x] `quickChangeEscalation: block` blocks risky quick changes
+
+## Stage Q4: Lifecycle Gate Integration
+
+Status: `in_progress`
+
+- [x] Update `cy sync` behavior so quick changes sync without planned-change gates
+- [x] Ensure sync output/provider body identifies Mode: quick, Planning: none, and Risk: low
+- [x] Add quick start gate helper
+- [x] Update `cy start` so quick changes validate but do not require OpenSpec-lite sections
+- [x] Block `cy start` when `planning.allowQuickChanges === false`
+- [x] Block `cy start` when `quickChangeEscalation === "block"` and scope risk is unresolved
+- [x] Add quick completion gate helper
+- [x] Make quick completion default to the minimal check profile
+- [x] Require workspace verification for quick completion when a workspace was started
+- [x] Require non-placeholder Completion Notes for quick completion
+- [x] Require Acceptance Criteria to be checked or explicitly deferred at completion
+- [x] Require Completion Notes to mention checks run or a not-run rationale
+- [x] Update `cy review start` so review artifacts clearly label quick mode
+- [x] Add tests for quick sync/start/complete/review
+- [x] Add regression tests proving planned and legacy changes are unaffected
+- [x] Run `npm run check`
+- [ ] Run `npm test`
+
+Acceptance checks:
+
+- [x] `cy sync` works for quick changes
+- [x] `cy start` works for quick changes without OpenSpec-lite sections
+- [x] `cy start` blocks quick changes when config disables quick changes
+- [x] `cy complete --no-pr --profile minimal` works for quick changes after verification and completion notes
+- [x] `cy complete` uses the minimal check profile by default for quick changes
+- [x] `cy review start` creates a review that clearly labels quick mode
+
+## Stage Q5: Convert Quick Change To Planned Change
+
+Status: `pending`
+
+- [ ] Add `cy plan convert <id> --model openspec-lite`
+- [ ] Preserve id, title, remote metadata, workspace metadata, branch, checks, and status during conversion
+- [ ] Update converted frontmatter to `planning.model: openspec-lite`
+- [ ] Update converted frontmatter to `planning.storage: inline`
+- [ ] Update converted frontmatter to `planning.schema: changeyard-openspec-lite@1`
+- [ ] Update converted frontmatter to `workflow.mode: planned`
+- [ ] Insert OpenSpec-lite Proposal marker section
+- [ ] Insert OpenSpec-lite Specification Deltas marker section
+- [ ] Insert OpenSpec-lite Design marker section
+- [ ] Insert OpenSpec-lite Tasks marker section
+- [ ] Insert OpenSpec-lite Verification marker section
+- [ ] Preserve the original quick Scope section as historical context
+- [ ] Allow conversion for `ready`, `synced`, and `blocked`
+- [ ] Block conversion for implementation/review/closed states unless `--force`
+- [ ] Add tests for conversion from `ready`
+- [ ] Add tests for refusal from `in_progress`
+- [ ] Add tests that converted changes fail `cy start` until planning sections are complete
+- [ ] Run `npm run check`
+- [ ] Run `npm test`
+
+Acceptance checks:
+
+- [ ] Quick changes can be converted to planned changes before start
+- [ ] Conversion preserves the change file path unless a deliberate rename behavior is added
+- [ ] Conversion preserves remote and workspace frontmatter
+- [ ] Converted changes use planned-change gates
+- [ ] Conversion refuses in-progress changes unless `--force` is provided
+
+## Stage Q6: UI Support
+
+Status: `pending`
+
+- [ ] Add backend/runtime API for creating quick changes
+- [ ] Add backend/runtime API for reading quick change details from markdown
+- [ ] Add backend/runtime API for editing quick sections
+- [ ] Add backend/runtime API for validating quick changes
+- [ ] Add backend/runtime API for syncing quick changes
+- [ ] Add backend/runtime API for starting quick changes
+- [ ] Add backend/runtime API for converting quick changes to planned mode
+- [ ] Add create dialog option for Quick change
+- [ ] Add create dialog options for Planned and Strict planned change if not already exposed in the same flow
+- [ ] Show quick-mode explanatory copy in the create dialog
+- [ ] Show Quick, Planning: none, and Risk: low badges on cards
+- [ ] Add quick detail view with Summary, Scope, Acceptance Criteria, Completion Notes, Provider, Workspace, and Checks
+- [ ] Add quick section editing backed by `.changeyard/changes/*.md`
+- [ ] Show validation errors and warnings for quick changes
+- [ ] Wire quick sync/start actions through shared backend logic
+- [ ] Add Convert to planned change action
+- [ ] Add filters for quick/planned and planning-none/openspec-lite
+- [ ] Add UI/runtime tests for quick create, detail, edit, validate, sync, start, and convert
+- [ ] Run UI typecheck
+- [ ] Run UI build
+
+Acceptance checks:
+
+- [ ] UI can create a quick change
+- [ ] UI can display quick change badges
+- [ ] UI can open quick change detail view
+- [ ] UI can edit Summary, Scope, Acceptance Criteria, and Completion Notes
+- [ ] UI can validate quick changes and show errors/warnings
+- [ ] UI can sync and start quick changes using the same backend logic as CLI
+- [ ] UI can convert a quick change to planned mode
+- [ ] UI does not write separate Kanban state for quick changes
+
+## Stage Q7: Provider Sync And Review Rendering
+
+Status: `pending`
+
+- [ ] Add or extend provider body rendering for workflow-aware quick issue bodies
+- [ ] Render quick Summary in provider issue bodies
+- [ ] Render quick Workflow metadata in provider issue bodies
+- [ ] Render quick Scope in provider issue bodies
+- [ ] Render quick Acceptance Criteria in provider issue bodies
+- [ ] Render local source-of-truth path in provider issue bodies
+- [ ] Omit OpenSpec-lite-only sections from quick provider bodies
+- [ ] Add review projection for quick workflow metadata
+- [ ] Add review projection for quick Completion Notes
+- [ ] Add review projection for check summary, workspace metadata, and remote metadata
+- [ ] Add local-folder provider tests for quick sync
+- [ ] Add review rendering tests for quick changes
+- [ ] Run `npm run check`
+- [ ] Run `npm test`
+
+Acceptance checks:
+
+- [ ] Synced provider issues label quick changes clearly
+- [ ] Provider bodies omit OpenSpec-lite sections for quick changes
+- [ ] Review artifacts include quick metadata and completion notes
+- [ ] Existing provider tests pass
+- [ ] New tests cover noop/local-folder quick sync and review rendering
+
+## Stage Q8: Optional No-Workspace Quick Completion
+
+Status: `deferred`
+
+- [ ] Confirm workspace-backed quick workflow is stable before starting this stage
+- [ ] Add `cy quick --title "Fix typo" --no-workspace`
+- [ ] Set `workflow.requiresWorkspace: false`
+- [ ] Set `workflow.completionPath: local`
+- [ ] Add `cy complete <id> --no-workspace --no-pr --profile minimal`
+- [ ] Refuse no-workspace completion unless frontmatter or flag explicitly allows it
+- [ ] Run checks in the repo root
+- [ ] Base detected changes on VCS diff when available
+- [ ] Add no-VCS fallback behavior
+- [ ] Clearly report when workspace verification was skipped
+- [ ] Add review artifact output for local/no-workspace completion
+- [ ] Add git and no-VCS fallback tests
+- [ ] Run `npm run check`
+- [ ] Run `npm test`
+
+Acceptance checks:
+
+- [ ] No-workspace mode is opt-in
+- [ ] `cy complete` refuses no-workspace completion unless explicitly allowed
+- [ ] Checks run in repo root
+- [ ] Completion notes are still required
+- [ ] Command output and review artifact identify local/no-workspace completion
+
+## Stage Q9: Documentation And Examples
+
+Status: `pending`
+
+- [ ] Update README with direct edit, quick change, planned change, and strict planned change lanes
+- [ ] Document when quick mode is appropriate
+- [ ] Document when quick mode must not be used
+- [ ] Add examples for `cy quick --title "Fix README typo"`
+- [ ] Add examples for `cy create --template quick --title "Update docs wording"`
+- [ ] Add examples for `cy create --quick --title "Fix broken link"`
+- [ ] Add examples for `cy plan convert <id> --model openspec-lite`
+- [ ] Add agent instructions for quick-mode escalation
+- [ ] Align CLI help examples with README examples
+- [ ] Align UI create-dialog copy with README policy
+- [ ] Run docs-related checks included in `npm run check`
+
+Acceptance checks:
+
+- [ ] README explains quick mode
+- [ ] README explains when not to use quick mode
+- [ ] CLI help examples match documentation
+- [ ] UI create dialog language matches documentation
+- [ ] Agent protocol section mentions quick mode and escalation
+
+## Stage Q10: Final Test Plan And Release Checks
+
+Status: `pending`
+
+- [ ] Add unit tests for `quick.md` template validation
+- [ ] Add unit tests for `createChange({ template: "quick" })` or equivalent command path
+- [ ] Add unit tests for quick metadata helpers
+- [ ] Add unit tests for quick validation failures and warnings
+- [ ] Add unit tests for quick completion gate helper
+- [ ] Add unit tests for convert quick to planned
+- [ ] Add unit tests for provider body rendering
+- [ ] Add integration test for `cy init`
+- [ ] Add integration test for `cy quick --title "Fix typo"`
+- [ ] Add integration test for `cy validate <id>`
+- [ ] Add integration test for `cy sync <id>`
+- [ ] Add integration test for `cy start <id>`
+- [ ] Add integration test for `cy verify <id>`
+- [ ] Add integration test for `cy complete <id> --no-pr --profile minimal`
+- [ ] Add integration test for `cy review start <id>`
+- [ ] Add UI tests for create quick change dialog
+- [ ] Add UI tests for quick badge rendering
+- [ ] Add UI tests for quick detail view
+- [ ] Add UI tests for Scope checklist editing
+- [ ] Add UI tests for validation warning display
+- [ ] Add UI tests for convert to planned action
+- [ ] Run `npm run check`
+- [ ] Run `npm test`
+- [ ] Run `npm run pack:check`
+- [ ] Record final verification notes in this file
+
+## Completed Baseline: Planning Profile Adoption
+
+Status: `completed`
+
+Remaining verification noise from that baseline: pre-existing `git-worktree` signing issue outside the planning-profile scope.
 
 ## Stage 0: Architecture Decision And Docs
 
@@ -173,6 +480,16 @@ Status: `completed`
 
 ## Verification Log
 
+- 2026-06-09: Completed Stage Q3 by adding `src/documents/validateQuick.ts`, wiring quick validation and warnings through `src/documents/validateDocument.ts`, extending planning config defaults/schema for quick mode, and adding quick validation coverage for valid, malformed, warn, and block cases in `tests/changeyard.test.ts`.
+- 2026-06-09: Advanced Stage Q4 by adding `src/change/quickLifecycle.ts`, enforcing quick start and completion gates in `src/commands/start.ts` and `src/commands/complete.ts`, defaulting quick completion to the minimal check profile, and making sync/review rendering explicitly label quick workflow metadata in `src/commands/sync.ts` and `src/providers/renderIssueBody.ts`.
+- 2026-06-09: Added Stage Q4 coverage in `tests/changeyard.test.ts` for quick sync rendering, quick start success and config blocking, quick completion profile and gate enforcement, and quick review context generation.
+- 2026-06-09: `npm run check` passed after the Stage Q4 lifecycle slice. `npm test` printed the full pass set including the new quick lifecycle tests, but the command still leaves lingering `node --test` processes after the UI-server cleanup warnings, so the tracker keeps that verification step open until the suite exits cleanly.
+- 2026-06-09: Added `cy quick` plus `cy create --quick` in `src/cli.ts`, routed both through shared create-option parsing, and updated top-level and command-specific help text with quick-mode examples.
+- 2026-06-09: Added CLI coverage in `tests/changeyard.test.ts` for `cy quick --dry-run`, `cy create --quick --json`, and `cy quick --help`, and re-ran `npm run check`, `node --test dist/tests/changeyard.test.js`, and `npm test` successfully after the Stage Q2 slice.
+- 2026-06-09: Added `src/templates/quick.md`, taught `cy init` to install it, and updated `src/commands/create.ts` so quick changes now emit `planning.model: none`, `workflow.mode: quick`, `priority: low`, quick labels, and the minimal check profile by default.
+- 2026-06-09: Added `src/change/changeMetadata.ts` plus typed quick/planning/workflow/check metadata helpers in `src/types.ts`, and covered quick template installation, quick-change creation, and helper behavior in `tests/changeyard.test.ts`.
+- 2026-06-09: `npm run check`, `node --test dist/tests/changeyard.test.js`, and `npm test` all passed after the Stage Q1 quick-mode implementation slice.
+- 2026-06-09: Reviewed the attached quick-mode proposal, updated `PLAN.md` with the active quick-mode roadmap, and replaced the active `TASKS.md` tracker with concrete quick-mode stages while preserving the completed planning-profile baseline.
 - 2026-06-09: Reviewed the attached planning-profile proposal and mapped it onto the current repo seams.
 - 2026-06-09: Replaced the old active `PLAN.md` with the planning-profile adoption roadmap.
 - 2026-06-09: Added `TASKS.md` as the live tracker for this implementation effort.
