@@ -1,5 +1,5 @@
 import { GitBranch, ListTree, Rows3, Trash2 } from "lucide-react";
-import { type MouseEvent as ReactMouseEvent, useCallback, useRef, useState } from "react";
+import { type MouseEvent as ReactMouseEvent, useCallback, useState } from "react";
 
 import { CollapsedHistoryRail } from "@/components/git-history/collapsed-history-rail";
 import { GitCommitDiffPanel } from "@/components/git-history/git-commit-diff-panel";
@@ -20,6 +20,7 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { ResizeHandle } from "@/resize/resize-handle";
 import {
+	COLLAPSED_GIT_HISTORY_PANEL_WIDTH,
 	MIN_GIT_COMMITS_PANEL_WIDTH,
 	MIN_GIT_REFS_PANEL_WIDTH,
 	useGitHistoryLayout,
@@ -86,18 +87,22 @@ export function GitHistoryView({
 	isDiscardWorkingChangesPending = false,
 }: GitHistoryViewProps): React.ReactElement {
 	const [isDiscardAlertOpen, setIsDiscardAlertOpen] = useState(false);
-	const historyLayoutRef = useRef<HTMLDivElement | null>(null);
 	const { startDrag: startRefsPanelResize } = useResizeDrag();
 	const { startDrag: startCommitsPanelResize } = useResizeDrag();
 	const {
 		refsPanelWidth,
 		commitsPanelWidth,
+		diffContentPanelWidth,
+		fileTreePanelWidth,
 		isRefsPanelCollapsed,
 		isCommitsPanelCollapsed,
+		isFileTreePanelCollapsed,
 		setRefsPanelWidth,
 		setCommitsPanelWidth,
+		setDiffContentPanelWidth,
 		setRefsPanelCollapsed,
 		setCommitsPanelCollapsed,
+		setFileTreePanelCollapsed,
 	} = useGitHistoryLayout();
 
 	const handleRefsSeparatorMouseDown = useCallback(
@@ -140,6 +145,19 @@ export function GitHistoryView({
 		[commitsPanelWidth, setCommitsPanelWidth, startCommitsPanelResize],
 	);
 
+	const refsColumnWidth = isRefsPanelCollapsed ? COLLAPSED_GIT_HISTORY_PANEL_WIDTH : refsPanelWidth;
+	const commitsColumnWidth = isCommitsPanelCollapsed ? COLLAPSED_GIT_HISTORY_PANEL_WIDTH : commitsPanelWidth;
+	const filesColumnWidth = isFileTreePanelCollapsed ? COLLAPSED_GIT_HISTORY_PANEL_WIDTH : fileTreePanelWidth;
+	const diffResizeHandleWidth = isFileTreePanelCollapsed ? 0 : 1;
+	const historyCanvasWidth =
+		refsColumnWidth +
+		commitsColumnWidth +
+		diffContentPanelWidth +
+		filesColumnWidth +
+		diffResizeHandleWidth +
+		(isRefsPanelCollapsed || isCommitsPanelCollapsed ? 0 : 1) +
+		(isCommitsPanelCollapsed ? 0 : 1);
+
 	if (!workspaceId) {
 		return (
 			<div
@@ -154,7 +172,6 @@ export function GitHistoryView({
 
 	return (
 		<div
-			ref={historyLayoutRef}
 			style={{
 				flex: "1 1 0",
 				minHeight: 0,
@@ -164,10 +181,13 @@ export function GitHistoryView({
 			}}
 		>
 			<div
+				data-testid="git-history-canvas"
 				style={{
 					display: "flex",
+					width: historyCanvasWidth,
+					minWidth: historyCanvasWidth,
+					flex: "0 0 auto",
 					minHeight: "100%",
-					minWidth: 0,
 				}}
 			>
 				{isRefsPanelCollapsed ? (
@@ -239,6 +259,11 @@ export function GitHistoryView({
 					errorMessage={gitHistory.diffErrorMessage}
 					selectedPath={gitHistory.selectedDiffPath}
 					onSelectPath={gitHistory.selectDiffPath}
+					diffContentPanelWidth={diffContentPanelWidth}
+					fileTreePanelWidth={fileTreePanelWidth}
+					isFileTreePanelCollapsed={isFileTreePanelCollapsed}
+					setDiffContentPanelWidth={setDiffContentPanelWidth}
+					setFileTreePanelCollapsed={setFileTreePanelCollapsed}
 					headerContent={
 						gitHistory.viewMode === "commit" && gitHistory.selectedCommit ? (
 							<CommitDiffHeader commit={gitHistory.selectedCommit} />

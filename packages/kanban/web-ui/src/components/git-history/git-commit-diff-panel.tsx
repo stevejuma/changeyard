@@ -1,5 +1,5 @@
 import { AlertCircle, ChevronDown, ChevronLeft, ChevronRight, GitCommit, GitCompare } from "lucide-react";
-import { type MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileTreePanel } from "@/components/detail-panels/file-tree-panel";
 import { CollapsedHistoryRail } from "@/components/git-history/collapsed-history-rail";
 import {
@@ -12,14 +12,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { ResizeHandle } from "@/resize/resize-handle";
 import {
-	MIN_GIT_FILE_TREE_PANEL_WIDTH,
-	useGitCommitDiffLayout,
-} from "@/resize/use-git-commit-diff-layout";
+	COLLAPSED_GIT_HISTORY_PANEL_WIDTH,
+	MIN_GIT_DIFF_CONTENT_PANEL_WIDTH,
+} from "@/resize/use-git-history-layout";
 import { clampAtLeast } from "@/resize/resize-persistence";
 import { useResizeDrag } from "@/resize/use-resize-drag";
 import type { RuntimeGitCommitDiffFile, RuntimeWorkspaceFileChange } from "@/runtime/types";
 import { isBinaryFilePath } from "@/utils/is-binary-file-path";
-import { MIN_GIT_DIFF_CONTENT_PANEL_WIDTH } from "@/resize/use-git-history-layout";
 
 export type GitCommitDiffSource =
 	| { type: "commit"; files: RuntimeGitCommitDiffFile[] }
@@ -86,6 +85,11 @@ export function GitCommitDiffPanel({
 	errorMessage,
 	selectedPath,
 	onSelectPath,
+	diffContentPanelWidth,
+	fileTreePanelWidth,
+	isFileTreePanelCollapsed,
+	setDiffContentPanelWidth,
+	setFileTreePanelCollapsed,
 	headerContent,
 }: {
 	diffSource: GitCommitDiffSource | null;
@@ -93,14 +97,16 @@ export function GitCommitDiffPanel({
 	errorMessage?: string | null;
 	selectedPath: string | null;
 	onSelectPath: (path: string | null) => void;
+	diffContentPanelWidth: number;
+	fileTreePanelWidth: number;
+	isFileTreePanelCollapsed: boolean;
+	setDiffContentPanelWidth: (width: number) => void;
+	setFileTreePanelCollapsed: (collapsed: boolean) => void;
 	headerContent?: React.ReactNode;
 }): React.ReactElement {
 	const [expandedPaths, setExpandedPaths] = useState<Record<string, boolean>>({});
-	const { fileTreePanelWidth, isFileTreePanelCollapsed, setFileTreePanelWidth, setFileTreePanelCollapsed } =
-		useGitCommitDiffLayout();
 	const scrollContainerRef = useRef<HTMLDivElement>(null);
 	const sectionElementsRef = useRef<Record<string, HTMLElement | null>>({});
-	const diffLayoutRef = useRef<HTMLDivElement | null>(null);
 	const programmaticScrollUntilRef = useRef(0);
 	const suppressScrollSyncUntilRef = useRef(0);
 	const scrollSyncSelectionRef = useRef<{ path: string; at: number } | null>(null);
@@ -124,19 +130,23 @@ export function GitCommitDiffPanel({
 	const handleDiffSplitSeparatorMouseDown = useCallback(
 		(event: ReactMouseEvent<HTMLDivElement>) => {
 			const startX = event.clientX;
-			const startWidth = fileTreePanelWidth;
+			const startWidth = diffContentPanelWidth;
 			startDiffSplitResize(event, {
 				axis: "x",
 				cursor: "ew-resize",
 				onMove: (pointerX) => {
-					setFileTreePanelWidth(clampAtLeast(startWidth - (pointerX - startX), MIN_GIT_FILE_TREE_PANEL_WIDTH, true));
+					setDiffContentPanelWidth(
+						clampAtLeast(startWidth + (pointerX - startX), MIN_GIT_DIFF_CONTENT_PANEL_WIDTH, true),
+					);
 				},
 				onEnd: (pointerX) => {
-					setFileTreePanelWidth(clampAtLeast(startWidth - (pointerX - startX), MIN_GIT_FILE_TREE_PANEL_WIDTH, true));
+					setDiffContentPanelWidth(
+						clampAtLeast(startWidth + (pointerX - startX), MIN_GIT_DIFF_CONTENT_PANEL_WIDTH, true),
+					);
 				},
 			});
 		},
-		[fileTreePanelWidth, setFileTreePanelWidth, startDiffSplitResize],
+		[diffContentPanelWidth, setDiffContentPanelWidth, startDiffSplitResize],
 	);
 
 	useEffect(() => {
@@ -212,20 +222,32 @@ export function GitCommitDiffPanel({
 		scrollToPath(selectedPath);
 	}, [scrollToPath, selectedPath]);
 
+	const visibleFilesColumnWidth = isFileTreePanelCollapsed ? COLLAPSED_GIT_HISTORY_PANEL_WIDTH : fileTreePanelWidth;
+	const diffResizeHandleWidth = isFileTreePanelCollapsed ? 0 : 1;
+	const diffPanelWidth = diffContentPanelWidth + visibleFilesColumnWidth + diffResizeHandleWidth;
+	const diffPanelOuterStyle = {
+		display: "flex",
+		width: diffPanelWidth,
+		minWidth: diffPanelWidth,
+		flex: "0 0 auto",
+		minHeight: 0,
+		background: "var(--color-surface-0)",
+	} satisfies CSSProperties;
+	const diffContentStyle = {
+		display: "flex",
+		width: diffContentPanelWidth,
+		minWidth: diffContentPanelWidth,
+		flex: "0 0 auto",
+		minHeight: 0,
+		flexDirection: "column",
+	} satisfies CSSProperties;
+
 	if (!diffSource && !isLoading) {
 		return (
-			<div
-				style={{
-					display: "flex",
-					flex: "1.6 1 0",
-					minWidth: 0,
-					minHeight: 0,
-					background: "var(--color-surface-0)",
-				}}
-			>
+			<div data-testid="git-commit-diff-panel" style={diffPanelOuterStyle}>
 				<div
 					className="flex flex-col items-center justify-center gap-3 py-12 text-text-tertiary"
-					style={{ flex: 1 }}
+					style={{ width: diffPanelWidth }}
 				>
 					{errorMessage ? <AlertCircle size={48} /> : <GitCommit size={48} />}
 					<h3 className="font-semibold text-text-primary">
@@ -239,19 +261,13 @@ export function GitCommitDiffPanel({
 
 	if (isLoading) {
 		return (
-			<div
-				style={{
-					display: "flex",
-					flex: "1.6 1 0",
-					minWidth: 0,
-					minHeight: 0,
-					background: "var(--color-surface-0)",
-				}}
-			>
+			<div data-testid="git-commit-diff-panel" style={diffPanelOuterStyle}>
 				<div
 					style={{
 						display: "flex",
-						flex: "1 1 0",
+						width: diffContentPanelWidth,
+						minWidth: diffContentPanelWidth,
+						flex: "0 0 auto",
 						flexDirection: "column",
 						borderRight: "1px solid var(--color-divider)",
 					}}
@@ -272,7 +288,16 @@ export function GitCommitDiffPanel({
 						))}
 					</div>
 				</div>
-				<div style={{ display: "flex", flex: "0.6 1 0", flexDirection: "column", padding: "10px 8px" }}>
+				<div
+					style={{
+						display: "flex",
+						width: visibleFilesColumnWidth,
+						minWidth: visibleFilesColumnWidth,
+						flex: "0 0 auto",
+						flexDirection: "column",
+						padding: "10px 8px",
+					}}
+				>
 					{Array.from({ length: 3 }, (_, i) => (
 						<div
 							key={i}
@@ -292,18 +317,10 @@ export function GitCommitDiffPanel({
 
 	if (files.length === 0) {
 		return (
-			<div
-				style={{
-					display: "flex",
-					flex: "1.6 1 0",
-					minWidth: 0,
-					minHeight: 0,
-					background: "var(--color-surface-0)",
-				}}
-			>
+			<div data-testid="git-commit-diff-panel" style={diffPanelOuterStyle}>
 				<div
 					className="flex flex-col items-center justify-center gap-3 py-12 text-text-tertiary"
-					style={{ flex: 1 }}
+					style={{ width: diffPanelWidth }}
 				>
 					<GitCompare size={48} />
 					<h3 className="font-semibold text-text-primary">No changes</h3>
@@ -312,31 +329,9 @@ export function GitCommitDiffPanel({
 		);
 	}
 
-	const diffPanelMinWidth =
-		MIN_GIT_DIFF_CONTENT_PANEL_WIDTH +
-		(isFileTreePanelCollapsed ? 36 : fileTreePanelWidth) +
-		(isFileTreePanelCollapsed ? 0 : 1);
-
 	return (
-		<div
-			ref={diffLayoutRef}
-			style={{
-				display: "flex",
-				flex: "1 1 auto",
-				minWidth: diffPanelMinWidth,
-				minHeight: 0,
-				background: "var(--color-surface-0)",
-			}}
-		>
-			<div
-				style={{
-					display: "flex",
-					flex: "1 1 auto",
-					minWidth: MIN_GIT_DIFF_CONTENT_PANEL_WIDTH,
-					minHeight: 0,
-					flexDirection: "column",
-				}}
-			>
+		<div data-testid="git-commit-diff-panel" style={diffPanelOuterStyle}>
+			<div data-testid="git-diff-content-panel" style={diffContentStyle}>
 				{headerContent ? headerContent : null}
 				<div
 					ref={scrollContainerRef}
@@ -460,6 +455,7 @@ export function GitCommitDiffPanel({
 				/>
 			) : (
 				<div
+					data-testid="git-files-panel"
 					style={{
 						display: "flex",
 						width: fileTreePanelWidth,
