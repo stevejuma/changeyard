@@ -29,7 +29,7 @@ export function runStart(id: string, repoRoot = process.cwd(), mutationOptions: 
   const filePath = findChangeFile(changesRoot(repoRoot, config), id);
   if (!filePath) throw new Error(`Change not found: ${id}`);
 
-  const validation = validateChangeFile(filePath, root);
+  const validation = validateChangeFile(filePath, root, { gate: "start" });
   if (!validation.valid) throw new Error(validation.errors.join("\n"));
 
   const parsed = parseFrontmatter(readFileSync(filePath, "utf8"));

@@ -1,3 +1,6 @@
+import type { PlanningModel, PlanningStrictness } from "./planning/types.js";
+import type { PlanningPhase, PlanningSectionId, PlanningGateStatus } from "./planning/types.js";
+
 export type ChangeStatus =
   | "draft"
   | "ready"
@@ -80,6 +83,19 @@ export type ChangeyardConfig = {
     requirePasscode?: boolean;
     theme?: "light" | "dark" | "system" | string;
   };
+  planning?: {
+    defaultProfile?: PlanningModel;
+    defaultStrictness?: PlanningStrictness;
+    requireBeforeStart?: boolean;
+    requireBeforeComplete?: boolean;
+    syncSummaryToProvider?: boolean;
+    adapterCacheDir?: string;
+    ui?: {
+      enabled?: boolean;
+      showBadges?: boolean;
+      allowInlineEditing?: boolean;
+    };
+  };
 };
 
 export type TemplateDefinition = {
@@ -104,6 +120,23 @@ export type ChangeSummary = {
   status: string;
   type: string;
   path: string;
+  planning?: {
+    model: PlanningModel;
+    strictness: PlanningStrictness;
+    phase: PlanningPhase;
+    gates: Record<string, PlanningGateStatus>;
+    gateSummary: {
+      pass: number;
+      pending: number;
+      fail: number;
+      skipped: number;
+      warning: number;
+    };
+    presentSections: PlanningSectionId[];
+    missingSections: PlanningSectionId[];
+    nextAction: string | null;
+    errors: string[];
+  } | null;
 };
 
 export type WorkspaceReference = {

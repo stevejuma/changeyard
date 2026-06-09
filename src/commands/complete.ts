@@ -4,6 +4,7 @@ import { loadConfig } from "../config/loadConfig.js";
 import { parseFrontmatter, writeFrontmatter } from "../documents/frontmatter.js";
 import { parseSections } from "../documents/sections.js";
 import { changesRoot, workspacesRoot } from "../paths.js";
+import { validatePlanningForGate } from "../planning/validation.js";
 import { findChangeFile } from "../state/id.js";
 import type { Frontmatter } from "../types.js";
 import { readWorkspaceMetadata } from "../workspace/marker.js";
@@ -67,6 +68,8 @@ export function runComplete(id: string, options: CompleteOptions = {}, cwd = pro
   const changePath = findChangeFile(changesRoot(metadata.repoRoot, config), id) ?? metadata.changePath;
   const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
   assertTransition(String(parsed.frontmatter.status ?? ""), "ready_for_pr", `Complete ${id}`);
+  const planningValidation = validatePlanningForGate(parsed.frontmatter, parsed.body, "complete");
+  if (!planningValidation.valid) throw new Error(planningValidation.errors.join("\n"));
   if (!completionNotesPresent(parsed.body)) throw new Error("Completion Notes must be filled before completing a change");
   if (!options.noCodeChange && !hasWorkspaceChanges(metadata.repoRoot, metadata.path, config.workspace.hydrate.neverCopy)) {
     throw new Error("No workspace changes detected; use --no-code-change to complete metadata-only work");

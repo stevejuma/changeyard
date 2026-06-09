@@ -346,6 +346,132 @@ export const runtimeProjectSummarySchema = z.object({
 });
 export type RuntimeProjectSummary = z.infer<typeof runtimeProjectSummarySchema>;
 
+export const runtimeChangeyardPlanningGateStatusSchema = z.enum(["pending", "pass", "fail", "skipped", "warning"]);
+export type RuntimeChangeyardPlanningGateStatus = z.infer<typeof runtimeChangeyardPlanningGateStatusSchema>;
+
+export const runtimeChangeyardPlanningModelSchema = z.enum(["none", "openspec-lite"]);
+export type RuntimeChangeyardPlanningModel = z.infer<typeof runtimeChangeyardPlanningModelSchema>;
+
+export const runtimeChangeyardPlanningPhaseSchema = z.enum([
+	"none",
+	"draft",
+	"proposal_ready",
+	"spec_ready",
+	"design_ready",
+	"tasks_ready",
+	"ready_to_start",
+	"in_progress",
+	"verified",
+	"complete",
+]);
+export type RuntimeChangeyardPlanningPhase = z.infer<typeof runtimeChangeyardPlanningPhaseSchema>;
+
+export const runtimeChangeyardPlanningSectionIdSchema = z.enum([
+	"proposal",
+	"spec-deltas",
+	"design",
+	"tasks",
+	"verification",
+	"clarifications",
+	"requirements-checklist",
+	"analysis",
+]);
+export type RuntimeChangeyardPlanningSectionId = z.infer<typeof runtimeChangeyardPlanningSectionIdSchema>;
+
+export const runtimeChangeyardPlanningSectionSchema = z.object({
+	id: runtimeChangeyardPlanningSectionIdSchema,
+	title: z.string(),
+	content: z.string(),
+});
+export type RuntimeChangeyardPlanningSection = z.infer<typeof runtimeChangeyardPlanningSectionSchema>;
+
+export const runtimeChangeyardPlanningGateSummarySchema = z.object({
+	pass: z.number(),
+	pending: z.number(),
+	fail: z.number(),
+	skipped: z.number(),
+	warning: z.number(),
+});
+export type RuntimeChangeyardPlanningGateSummary = z.infer<typeof runtimeChangeyardPlanningGateSummarySchema>;
+
+export const runtimeChangeyardPlanningSummarySchema = z.object({
+	model: z.literal("openspec-lite"),
+	strictness: z.enum(["normal", "strict"]),
+	phase: runtimeChangeyardPlanningPhaseSchema,
+	gates: z.record(z.string(), runtimeChangeyardPlanningGateStatusSchema),
+	gateSummary: runtimeChangeyardPlanningGateSummarySchema,
+	presentSections: z.array(runtimeChangeyardPlanningSectionIdSchema),
+	missingSections: z.array(runtimeChangeyardPlanningSectionIdSchema),
+	nextAction: z.string().nullable(),
+	errors: z.array(z.string()),
+});
+export type RuntimeChangeyardPlanningSummary = z.infer<typeof runtimeChangeyardPlanningSummarySchema>;
+
+export const runtimeChangeyardWorkspaceSummarySchema = z.object({
+	engine: z.string().optional(),
+	name: z.string().optional(),
+	path: z.string().optional(),
+	branch: z.string().optional(),
+});
+export type RuntimeChangeyardWorkspaceSummary = z.infer<typeof runtimeChangeyardWorkspaceSummarySchema>;
+
+export const runtimeChangeyardRemoteSummarySchema = z.object({
+	provider: z.string().optional(),
+	issueUrl: z.string().optional(),
+	pullRequestUrl: z.string().optional(),
+});
+export type RuntimeChangeyardRemoteSummary = z.infer<typeof runtimeChangeyardRemoteSummarySchema>;
+
+export const runtimeChangeyardChangeListItemSchema = z.object({
+	id: z.string(),
+	title: z.string(),
+	type: z.string(),
+	status: z.string(),
+	path: z.string(),
+	labels: z.array(z.string()).default([]),
+	updatedAt: z.string().optional(),
+	planning: runtimeChangeyardPlanningSummarySchema.nullable(),
+	remote: runtimeChangeyardRemoteSummarySchema.optional(),
+	workspace: runtimeChangeyardWorkspaceSummarySchema.optional(),
+});
+export type RuntimeChangeyardChangeListItem = z.infer<typeof runtimeChangeyardChangeListItemSchema>;
+
+export const runtimeChangeyardChangesListResponseSchema = z.object({
+	changes: z.array(runtimeChangeyardChangeListItemSchema),
+});
+export type RuntimeChangeyardChangesListResponse = z.infer<typeof runtimeChangeyardChangesListResponseSchema>;
+
+export const runtimeChangeyardChangeGetRequestSchema = z.object({
+	id: z.string(),
+});
+export type RuntimeChangeyardChangeGetRequest = z.infer<typeof runtimeChangeyardChangeGetRequestSchema>;
+
+export const runtimeChangeyardChangeCreateRequestSchema = z.object({
+	template: z.enum(["feature", "bug", "refactor", "agent-task"]),
+	title: z.string().min(1),
+	priority: z.string().optional(),
+	labels: z.array(z.string()).optional(),
+	planning: runtimeChangeyardPlanningModelSchema.optional(),
+	strict: z.boolean().optional(),
+});
+export type RuntimeChangeyardChangeCreateRequest = z.infer<typeof runtimeChangeyardChangeCreateRequestSchema>;
+
+export const runtimeChangeyardChangeUpdatePlanningSectionRequestSchema = z.object({
+	id: z.string(),
+	sectionId: runtimeChangeyardPlanningSectionIdSchema,
+	content: z.string(),
+	expectedUpdatedAt: z.string().nullable().optional(),
+});
+export type RuntimeChangeyardChangeUpdatePlanningSectionRequest = z.infer<
+	typeof runtimeChangeyardChangeUpdatePlanningSectionRequestSchema
+>;
+
+export const runtimeChangeyardChangeDetailSchema = runtimeChangeyardChangeListItemSchema.extend({
+	body: z.string(),
+	sections: z.array(runtimeChangeyardPlanningSectionSchema),
+});
+export type RuntimeChangeyardChangeDetail = z.infer<typeof runtimeChangeyardChangeDetailSchema>;
+
 export const runtimeTaskWorkspaceMetadataSchema = z.object({
 	taskId: z.string(),
 	path: z.string(),

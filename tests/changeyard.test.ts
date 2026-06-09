@@ -7,6 +7,16 @@ import test from "node:test";
 import { runCompletions } from "../src/commands/completions.js";
 import { runComplete } from "../src/commands/complete.js";
 import { doctorReport, runDoctor } from "../src/commands/doctor.js";
+import {
+  getPlanPrompt,
+  getPlanStatus,
+  runPlanExport,
+  runPlanImport,
+  runPlanPrompt,
+  runPlanStatus,
+  runPlanStrictDisable,
+  runPlanStrictEnable,
+} from "../src/commands/plan.js";
 import { runCreate } from "../src/commands/create.js";
 import { runHydrate } from "../src/commands/hydrate.js";
 import { runInit } from "../src/commands/init.js";
@@ -19,8 +29,10 @@ import { runSync } from "../src/commands/sync.js";
 import { runValidate } from "../src/commands/validate.js";
 import { runVerify } from "../src/commands/verify.js";
 import { loadConfig } from "../src/config/loadConfig.js";
-import { parseFrontmatter } from "../src/documents/frontmatter.js";
+import { parseFrontmatter, writeFrontmatter } from "../src/documents/frontmatter.js";
 import { validateChangeFile } from "../src/documents/validateDocument.js";
+import { replaceMarkedSection } from "../src/planning/sections.js";
+import { renderProviderIssueBody } from "../src/providers/renderIssueBody.js";
 import { createProvider } from "../src/providers/index.js";
 import { ForgejoProvider } from "../src/providers/ForgejoProvider.js";
 import { GitHubProvider } from "../src/providers/GitHubProvider.js";
@@ -37,6 +49,21 @@ function cleanup(dir: string): void {
   rmSync(dir, { recursive: true, force: true });
 }
 
+function updatePlannedSection(changePath: string, sectionId: "proposal" | "spec-deltas" | "design" | "tasks" | "verification" | "clarifications" | "requirements-checklist" | "analysis", content: string): void {
+  const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
+  writeFileSync(changePath, writeFrontmatter(parsed.frontmatter, replaceMarkedSection(parsed.body, sectionId, content)));
+}
+
+function updateAdapterMirrorContent(filePath: string, content: string): void {
+  const marker = "<!-- changeyard-adapter-content:start -->";
+  const raw = readFileSync(filePath, "utf8").replace(/\r\n/g, "\n");
+  const markerIndex = raw.indexOf(marker);
+  if (markerIndex === -1) {
+    throw new Error(`Adapter content marker missing in ${filePath}`);
+  }
+  writeFileSync(filePath, `${raw.slice(0, markerIndex + marker.length)}\n${content.trim()}\n`);
+}
+
 test("init creates config, templates, and storage directories", () => {
   const repo = tempRepo();
   try {
@@ -48,6 +75,11 @@ test("init creates config, templates, and storage directories", () => {
     assert.deepEqual(schema.properties.provider.properties.type.enum, ["noop", "local-folder", "forgejo", "github", "gitlab"]);
     assert.deepEqual(schema.properties.vcs.properties.engine.enum, ["plain-copy", "jj", "git-worktree"]);
     assert.equal(schema.properties.workspace.properties.hydrate.properties.warmupCommand.type, "string");
+    assert.deepEqual(schema.properties.planning.properties.defaultProfile.enum, ["none", "openspec-lite"]);
+    assert.deepEqual(schema.properties.planning.properties.defaultStrictness.enum, ["normal", "strict"]);
+    const config = JSON.parse(readFileSync(path.join(repo, ".changeyard", "config.jsonc"), "utf8"));
+    assert.equal(config.planning.defaultProfile, "none");
+    assert.equal(config.planning.defaultStrictness, "normal");
     assert.doesNotThrow(() => readFileSync(path.join(repo, ".changeyard", "templates", "agent-task.md"), "utf8"));
   } finally {
     cleanup(repo);
@@ -72,6 +104,144 @@ test("create allocates a valid markdown change", () => {
   }
 });
 
+test("create keeps the existing simple format when planning is not enabled", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "feature", title: "Simple feature change" }, repo);
+    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-simple-feature-change.md");
+    const change = readFileSync(changePath, "utf8");
+    assert.doesNotMatch(change, /cy:proposal:start/);
+    assert.doesNotMatch(change, /planning:/);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("create can generate an openspec-lite planned change", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    const output = runCreate({ template: "feature", title: "Planned feature change", planning: "openspec-lite" }, repo);
+    assert.match(output, /with openspec-lite planning/);
+
+    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-planned-feature-change.md");
+    const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
+    assert.deepEqual(parsed.frontmatter.planning, {
+      model: "openspec-lite",
+      storage: "inline",
+      schema: "changeyard-openspec-lite@1",
+      strictness: "normal",
+      phase: "draft",
+      gates: {
+        proposal: "pending",
+        specDeltas: "pending",
+        design: "pending",
+        tasks: "pending",
+        verification: "pending",
+        strictClarifications: "skipped",
+        strictChecklist: "skipped",
+        strictAnalysis: "skipped",
+      },
+    });
+    assert.match(parsed.body, /<!-- cy:proposal:start -->/);
+    assert.match(parsed.body, /<!-- cy:spec-deltas:start -->/);
+    assert.match(parsed.body, /<!-- cy:design:start -->/);
+    assert.match(parsed.body, /<!-- cy:tasks:start -->/);
+    assert.match(parsed.body, /<!-- cy:verification:start -->/);
+    assert.equal(runValidate("CY-0001", repo), "Valid change: .changeyard/changes/CY-0001-planned-feature-change.md");
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("create can generate a strict planned change", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "agent-task", title: "Strict planned change", planning: "openspec-lite", strict: true }, repo);
+    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-strict-planned-change.md");
+    const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
+    assert.equal((parsed.frontmatter.planning as { strictness?: string }).strictness, "strict");
+    assert.match(parsed.body, /<!-- cy:clarifications:start -->/);
+    assert.match(parsed.body, /<!-- cy:requirements-checklist:start -->/);
+    assert.match(parsed.body, /<!-- cy:analysis:start -->/);
+    assert.equal(runValidate("CY-0001", repo), "Valid change: .changeyard/changes/CY-0001-strict-planned-change.md");
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("create dry-run reports planned section creation", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    const output = runCreate({
+      template: "feature",
+      title: "Dry-run planned change",
+      planning: "openspec-lite",
+      strict: true,
+    }, repo, { dryRun: true });
+    assert.match(output, /Dry-run: would create CY-0001/);
+    assert.match(output, /with openspec-lite strict planning/);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("plan strict enable adds missing strict sections without duplicating markers", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "feature", title: "Enable strict planning", planning: "openspec-lite" }, repo);
+    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-enable-strict-planning.md");
+    const before = readFileSync(changePath, "utf8");
+    assert.doesNotMatch(before, /<!-- cy:clarifications:start -->/);
+
+    assert.equal(runPlanStrictEnable("CY-0001", repo), "Enabled strict planning for CY-0001");
+    const enabled = readFileSync(changePath, "utf8");
+    assert.equal((enabled.match(/<!-- cy:clarifications:start -->/g) ?? []).length, 1);
+    assert.equal((enabled.match(/<!-- cy:requirements-checklist:start -->/g) ?? []).length, 1);
+    assert.equal((enabled.match(/<!-- cy:analysis:start -->/g) ?? []).length, 1);
+    assert.match(runStatus("CY-0001", repo), /planning: openspec-lite strict/);
+    assert.match(runPlanStatus("CY-0001", repo), /planning: openspec-lite strict/);
+
+    assert.equal(runPlanStrictEnable("CY-0001", repo), "Strict planning already enabled for CY-0001");
+    const enabledAgain = readFileSync(changePath, "utf8");
+    assert.equal((enabledAgain.match(/<!-- cy:clarifications:start -->/g) ?? []).length, 1);
+    assert.equal((enabledAgain.match(/<!-- cy:requirements-checklist:start -->/g) ?? []).length, 1);
+    assert.equal((enabledAgain.match(/<!-- cy:analysis:start -->/g) ?? []).length, 1);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("plan strict disable relaxes strict lifecycle gates without deleting strict sections", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "feature", title: "Disable strict planning", planning: "openspec-lite", strict: true }, repo);
+    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-disable-strict-planning.md");
+    updatePlannedSection(changePath, "proposal", "# Proposal\n\n## Intent\n\nFilled proposal.\n");
+    updatePlannedSection(changePath, "spec-deltas", "# Specification Deltas\n\nNo behavior change\n");
+    updatePlannedSection(changePath, "design", "# Design\n\n## Technical Approach\n\nFilled design.\n");
+    updatePlannedSection(changePath, "tasks", "# Tasks\n\n- [ ] Ready to start the work\n");
+
+    assert.throws(
+      () => runStart("CY-0001", repo),
+      /Update <!-- cy:clarifications:start --> section: clarifications must be completed or explicitly state `No clarifications required` before start\/complete\./,
+    );
+
+    assert.equal(runPlanStrictDisable("CY-0001", repo), "Disabled strict planning for CY-0001");
+    const disabled = readFileSync(changePath, "utf8");
+    assert.match(disabled, /<!-- cy:clarifications:start -->/);
+    assert.match(runStatus("CY-0001", repo), /planning: openspec-lite normal/);
+    assert.match(runStart("CY-0001", repo), /Started CY-0001 in \.changeyard\/workspaces\/CY-0001\/repo/);
+  } finally {
+    cleanup(repo);
+  }
+});
+
 test("validate reports missing sections and invalid status", () => {
   const repo = tempRepo();
   try {
@@ -82,6 +252,21 @@ test("validate reports missing sections and invalid status", () => {
     assert.equal(result.valid, false);
     assert.ok(result.errors.includes("Unknown status value: nope"));
     assert.ok(result.errors.includes("Missing required section: Motivation"));
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("validate reports malformed planning markers for planned changes", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "feature", title: "Broken planned markers", planning: "openspec-lite" }, repo);
+    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-broken-planned-markers.md");
+    writeFileSync(changePath, readFileSync(changePath, "utf8").replace("<!-- cy:design:end -->", ""));
+    const result = validateChangeFile(changePath, path.join(repo, ".changeyard"));
+    assert.equal(result.valid, false);
+    assert.ok(result.errors.includes("Missing end marker for planning section: design"));
   } finally {
     cleanup(repo);
   }
@@ -105,6 +290,20 @@ test("sync with noop updates local change status and remote provider", () => {
       pullRequestNumber: null,
       pullRequestUrl: null,
     });
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("planned sync fails until proposal is filled", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "feature", title: "Planned sync gate", planning: "openspec-lite" }, repo);
+    assert.throws(
+      () => runSync("CY-0001", repo),
+      /Update <!-- cy:proposal:start --> section: proposal must be filled before sync\/start\/complete\./,
+    );
   } finally {
     cleanup(repo);
   }
@@ -145,6 +344,30 @@ test("sync with local-folder writes a remote-like issue and provider cache", () 
   }
 });
 
+test("planned local-folder sync writes a projected planning summary while keeping local markdown canonical", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    writeFileSync(path.join(repo, ".changeyard", "config.local.jsonc"), `{"provider":{"type":"local-folder"}}\n`);
+    runCreate({ template: "feature", title: "Projected planning sync", planning: "openspec-lite" }, repo);
+    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-projected-planning-sync.md");
+    updatePlannedSection(changePath, "proposal", "# Proposal\n\n## Intent\n\nProjected proposal.\n");
+    const localBeforeSync = readFileSync(changePath, "utf8");
+
+    runSync("CY-0001", repo);
+
+    const issue = readFileSync(path.join(repo, ".changeyard", "cache", "local-folder", "issues", "0001-CY-0001.md"), "utf8");
+    assert.match(issue, /# Planning Summary/);
+    assert.match(issue, /Canonical local file: `.changeyard\/changes\/CY-0001-projected-planning-sync.md`/);
+    assert.match(issue, /The local markdown change remains the canonical source of truth\./);
+    assert.equal(readFileSync(changePath, "utf8").includes("# Planning Summary"), false);
+    assert.match(readFileSync(changePath, "utf8"), /Projected proposal\./);
+    assert.equal(localBeforeSync.includes("# Planning Summary"), false);
+  } finally {
+    cleanup(repo);
+  }
+});
+
 test("start creates a plain-copy workspace and verify enforces the workspace directory", () => {
   const repo = tempRepo();
   try {
@@ -168,6 +391,44 @@ test("start creates a plain-copy workspace and verify enforces the workspace dir
     assert.match(readFileSync(path.join(workspacePath, ".changeyard-workspace.json"), "utf8"), /metadataPath/);
     assert.equal(runVerify("CY-0001", workspacePath), "Verified CY-0001 in .changeyard/workspaces/CY-0001/repo");
     assert.throws(() => runVerify("CY-0001", repo), /not inside a Changeyard workspace/);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("planned start fails when design and tasks are not ready", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "feature", title: "Planned start gate", planning: "openspec-lite" }, repo);
+    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-planned-start-gate.md");
+    updatePlannedSection(changePath, "proposal", "# Proposal\n\n## Intent\n\nFilled proposal.\n");
+    updatePlannedSection(changePath, "spec-deltas", "# Specification Deltas\n\nNo behavior change\n");
+    updatePlannedSection(changePath, "tasks", "# Tasks\n\nNo checkbox tasks yet.\n");
+    assert.throws(
+      () => runStart("CY-0001", repo),
+      /Update <!-- cy:design:start --> section: design must be filled before start\/complete\.\nUpdate <!-- cy:tasks:start --> section: tasks must include at least one checkbox item before start\/complete\./,
+    );
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("strict planned start fails when checklist items remain unchecked", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "feature", title: "Strict start gate", planning: "openspec-lite", strict: true }, repo);
+    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-strict-start-gate.md");
+    updatePlannedSection(changePath, "proposal", "# Proposal\n\n## Intent\n\nFilled proposal.\n");
+    updatePlannedSection(changePath, "spec-deltas", "# Specification Deltas\n\nNo behavior change\n");
+    updatePlannedSection(changePath, "design", "# Design\n\n## Technical Approach\n\nFilled design.\n");
+    updatePlannedSection(changePath, "clarifications", "# Clarifications\n\nNo clarifications required.\n");
+    updatePlannedSection(changePath, "analysis", "# Consistency Analysis\n\n## Findings\n\n| ID | Severity | Summary | Recommendation | Status |\n|----|----------|---------|----------------|--------|\n\n## Gate Result\n\nPass\n");
+    assert.throws(
+      () => runStart("CY-0001", repo),
+      /Update <!-- cy:requirements-checklist:start --> section: requirements checklist cannot contain unchecked items unless marked `ACCEPTED EXCEPTION:` before start\/complete\./,
+    );
   } finally {
     cleanup(repo);
   }
@@ -206,6 +467,54 @@ test("complete runs checks and updates ready_for_pr", () => {
     const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
     assert.equal(parsed.frontmatter.status, "ready_for_pr");
     assert.match(readFileSync(path.join(repo, ".changeyard", "workspaces", "CY-0001", "logs", "checks.log"), "utf8"), /node -v/);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("planned complete fails when tasks remain incomplete", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    writeFileSync(path.join(repo, ".changeyard", "config.local.jsonc"), `{"checks":{"standard":["node -v"]}}\n`);
+    writeFileSync(path.join(repo, ".env.example"), "SAFE=1\n");
+    runCreate({ template: "agent-task", title: "Planned complete gate", planning: "openspec-lite" }, repo);
+    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-planned-complete-gate.md");
+    updatePlannedSection(changePath, "proposal", "# Proposal\n\n## Intent\n\nFilled proposal.\n");
+    updatePlannedSection(changePath, "spec-deltas", "# Specification Deltas\n\nNo behavior change\n");
+    updatePlannedSection(changePath, "design", "# Design\n\n## Technical Approach\n\nFilled design.\n");
+    updatePlannedSection(changePath, "verification", "# Verification\n\n## Result\n\nManual verification complete.\n");
+    writeFileSync(changePath, readFileSync(changePath, "utf8").replace("Summarize what changed, what checks ran, and what risks remain.", "Completed the planned work."));
+    runStart("CY-0001", repo);
+    const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
+    writeFileSync(path.join(workspacePath, "implementation.txt"), "done\n");
+    assert.throws(
+      () => runComplete("CY-0001", { noPr: true }, workspacePath),
+      /Update <!-- cy:tasks:start --> section: all tasks must be completed or marked `Deferred: <reason>` before complete\./,
+    );
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("planned complete succeeds when tasks and verification are reconciled", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    writeFileSync(path.join(repo, ".changeyard", "config.local.jsonc"), `{"checks":{"standard":["node -v"]}}\n`);
+    writeFileSync(path.join(repo, ".env.example"), "SAFE=1\n");
+    runCreate({ template: "agent-task", title: "Planned complete success", planning: "openspec-lite" }, repo);
+    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-planned-complete-success.md");
+    updatePlannedSection(changePath, "proposal", "# Proposal\n\n## Intent\n\nFilled proposal.\n");
+    updatePlannedSection(changePath, "spec-deltas", "# Specification Deltas\n\nNo behavior change\n");
+    updatePlannedSection(changePath, "design", "# Design\n\n## Technical Approach\n\nFilled design.\n");
+    updatePlannedSection(changePath, "tasks", "# Tasks\n\n- [x] Planning complete\n- [x] Implementation complete\n- [ ] Deferred: follow-up polish handled separately\n");
+    updatePlannedSection(changePath, "verification", "# Verification\n\n## Result\n\nManual verification complete.\n");
+    writeFileSync(changePath, readFileSync(changePath, "utf8").replace("Summarize what changed, what checks ran, and what risks remain.", "Completed the planned work."));
+    runStart("CY-0001", repo);
+    const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
+    writeFileSync(path.join(workspacePath, "implementation.txt"), "done\n");
+    assert.match(runComplete("CY-0001", { noPr: true }, workspacePath), /Completed CY-0001: 1 checks passed; status ready_for_pr/);
   } finally {
     cleanup(repo);
   }
@@ -263,6 +572,30 @@ test("review start and complete update review and change status", () => {
     assert.match(review, /status: approved/);
     const change = parseFrontmatter(readFileSync(path.join(repo, ".changeyard", "changes", "CY-0001-review-workflow.md"), "utf8"));
     assert.equal(change.frontmatter.status, "approved");
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("planned local-folder review includes planning context in the review file and published review summary", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    writeFileSync(path.join(repo, ".changeyard", "config.local.jsonc"), `{"provider":{"type":"local-folder"}}\n`);
+    runCreate({ template: "agent-task", title: "Projected planning review", planning: "openspec-lite" }, repo);
+    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-projected-planning-review.md");
+    updatePlannedSection(changePath, "proposal", "# Proposal\n\n## Intent\n\nProjected review proposal.\n");
+
+    assert.match(runReviewStart("CY-0001", repo), /Started review 1/);
+    const reviewPath = path.join(repo, ".changeyard", "reviews", "CY-0001", "review-001.md");
+    const reviewFile = readFileSync(reviewPath, "utf8");
+    assert.match(reviewFile, /# Planning Context/);
+    assert.match(reviewFile, /Canonical local file: `.changeyard\/changes\/CY-0001-projected-planning-review.md`/);
+
+    assert.match(runReviewComplete("CY-0001", "approve", repo), /Completed review for CY-0001: approved/);
+    const publishedReview = readFileSync(path.join(repo, ".changeyard", "cache", "local-folder", "reviews", "0001-CY-0001.md"), "utf8");
+    assert.match(publishedReview, /# Planning Summary/);
+    assert.match(publishedReview, /Canonical local file: `.changeyard\/changes\/CY-0001-projected-planning-review.md`/);
   } finally {
     cleanup(repo);
   }
@@ -376,6 +709,113 @@ test("list and status summarize local changes", () => {
   }
 });
 
+test("status, list, and plan status expose planning summaries for planned changes", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "feature", title: "Planned status change", planning: "openspec-lite", strict: true }, repo);
+
+    const status = getStatus("CY-0001", repo);
+    assert.equal(status.planning?.model, "openspec-lite");
+    assert.equal(status.planning?.strictness, "strict");
+    assert.equal(status.planning?.phase, "draft");
+    assert.equal(status.planning?.gateSummary.pending, 8);
+    assert.deepEqual(status.planning?.missingSections, []);
+
+    assert.match(runStatus("CY-0001", repo), /planning: openspec-lite strict/);
+    assert.match(runStatus("CY-0001", repo), /planningPhase: draft/);
+    assert.match(runStatus("CY-0001", repo), /planningGates:/);
+
+    const listed = listChanges(repo);
+    assert.equal(listed[0].planning?.phase, "draft");
+    assert.match(runList(repo, { planning: true }), /CY-0001\tready\tfeature\tdraft\tPlanned status change/);
+
+    const planStatus = getPlanStatus("CY-0001", repo);
+    assert.equal(planStatus.planning?.nextAction, "Complete pending planning gate: proposal");
+    assert.match(runPlanStatus("CY-0001", repo), /planningGateSummary: pass=0, pending=8, fail=0, skipped=0, warning=0/);
+    assert.match(runPlanStatus("CY-0001", repo), /presentPlanningSections: proposal, spec-deltas, design, tasks, verification, clarifications, requirements-checklist, analysis/);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("plan prompt returns the canonical file path, target markers, and current section content", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "feature", title: "Prompted change", planning: "openspec-lite" }, repo);
+    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-prompted-change.md");
+    updatePlannedSection(changePath, "proposal", "# Proposal\n\n## Intent\n\nPrompt-ready content.\n");
+
+    const promptResult = getPlanPrompt("CY-0001", "proposal", repo);
+    assert.equal(promptResult.section, "proposal");
+    assert.equal(promptResult.path, ".changeyard/changes/CY-0001-prompted-change.md");
+    assert.match(promptResult.prompt, /Canonical file: \.changeyard\/changes\/CY-0001-prompted-change\.md/);
+    assert.match(promptResult.prompt, /Target markers: <!-- cy:proposal:start --> \.\.\. <!-- cy:proposal:end -->/);
+    assert.match(promptResult.prompt, /Prompt-ready content\./);
+    assert.match(promptResult.prompt, /Do not create openspec\/, specs\/, checklists\/, or other external planning folders/);
+    assert.equal(runPlanPrompt("CY-0001", "proposal", repo), promptResult.prompt);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("plan export and import round-trip planning sections through non-canonical adapter mirrors", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "feature", title: "Adapter round trip", planning: "openspec-lite", strict: true }, repo);
+    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-adapter-round-trip.md");
+    updatePlannedSection(changePath, "proposal", "# Proposal\n\n## Intent\n\nOriginal proposal.\n");
+    updatePlannedSection(changePath, "spec-deltas", "# Specification Deltas\n\nNo behavior change\n");
+    updatePlannedSection(changePath, "design", "# Design\n\n## Technical Approach\n\nOriginal design.\n");
+    updatePlannedSection(changePath, "tasks", "# Tasks\n\n- [x] Original task\n");
+    updatePlannedSection(changePath, "verification", "# Verification\n\n## Result\n\nOriginal verification.\n");
+    updatePlannedSection(changePath, "clarifications", "# Clarifications\n\nNo clarifications required.\n");
+    updatePlannedSection(changePath, "requirements-checklist", "# Requirements Checklist\n\n- [x] Original checklist\n");
+    updatePlannedSection(changePath, "analysis", "# Consistency Analysis\n\n## Findings\n\n| ID | Severity | Summary | Recommendation | Status |\n|----|----------|---------|----------------|--------|\n\n## Gate Result\n\nPass\n");
+
+    assert.match(
+      runPlanExport("CY-0001", "openspec", repo),
+      /Exported CY-0001 openspec planning mirror to \.changeyard\/cache\/planning\/CY-0001\/openspec/,
+    );
+    const openspecDir = path.join(repo, ".changeyard", "cache", "planning", "CY-0001", "openspec");
+    assert.match(readFileSync(path.join(openspecDir, "README.md"), "utf8"), /non-canonical mirrors/i);
+    assert.match(readFileSync(path.join(openspecDir, "proposal.md"), "utf8"), /Non-canonical/);
+    updateAdapterMirrorContent(path.join(openspecDir, "proposal.md"), "# Proposal\n\n## Intent\n\nImported from OpenSpec.\n");
+    updateAdapterMirrorContent(path.join(openspecDir, "requirements-checklist.md"), "# Requirements Checklist\n\n- [x] Imported OpenSpec checklist\n");
+    assert.match(
+      runPlanImport("CY-0001", "openspec", repo),
+      /Imported CY-0001 openspec planning mirror from \.changeyard\/cache\/planning\/CY-0001\/openspec/,
+    );
+    const afterOpenSpecImport = readFileSync(changePath, "utf8");
+    assert.match(afterOpenSpecImport, /Imported from OpenSpec\./);
+    assert.match(afterOpenSpecImport, /Imported OpenSpec checklist/);
+    assert.doesNotMatch(afterOpenSpecImport, /Non-canonical/);
+
+    assert.match(
+      runPlanExport("CY-0001", "speckit", repo),
+      /Exported CY-0001 speckit planning mirror to \.changeyard\/cache\/planning\/CY-0001\/speckit/,
+    );
+    const speckitDir = path.join(repo, ".changeyard", "cache", "planning", "CY-0001", "speckit");
+    assert.match(readFileSync(path.join(speckitDir, "README.md"), "utf8"), /Canonical source/);
+    assert.match(readFileSync(path.join(speckitDir, "plan.md"), "utf8"), /Non-canonical/);
+    updateAdapterMirrorContent(path.join(speckitDir, "plan.md"), "# Design\n\n## Technical Approach\n\nImported from Spec Kit.\n");
+    updateAdapterMirrorContent(path.join(speckitDir, "analysis.md"), "# Consistency Analysis\n\n## Findings\n\n| ID | Severity | Summary | Recommendation | Status |\n|----|----------|---------|----------------|--------|\n\n## Gate Result\n\nPass\n");
+    assert.match(
+      runPlanImport("CY-0001", "speckit", repo),
+      /Imported CY-0001 speckit planning mirror from \.changeyard\/cache\/planning\/CY-0001\/speckit/,
+    );
+    const afterSpecKitImport = readFileSync(changePath, "utf8");
+    assert.match(afterSpecKitImport, /Imported from Spec Kit\./);
+    assert.match(afterSpecKitImport, /Imported OpenSpec checklist/);
+    assert.doesNotMatch(afterSpecKitImport, /Non-canonical/);
+    assert.match(runPlanStatus("CY-0001", repo), /planning: openspec-lite strict/);
+  } finally {
+    cleanup(repo);
+  }
+});
+
 type ProviderRequest = HttpRequest & { payload: Record<string, unknown> };
 
 function providerConfig(type: string, tokenEnv: string): any {
@@ -403,6 +843,81 @@ function providerSyncInput(remote: Record<string, unknown> = {}): any {
       remote,
     },
     body: "# Summary\n\nProvider body.\n",
+  };
+}
+
+function plannedProviderSyncInput(): any {
+  const frontmatter = {
+    id: "CY-0001",
+    title: "Provider sync",
+    status: "synced",
+    type: "agent-task",
+    labels: ["agent-ready", "provider"],
+    planning: {
+      model: "openspec-lite",
+      storage: "inline",
+      schema: "changeyard-openspec-lite@1",
+      strictness: "normal",
+      phase: "draft",
+      gates: {
+        proposal: "pass",
+        specDeltas: "pending",
+        design: "pending",
+        tasks: "pending",
+        verification: "pending",
+      },
+    },
+  };
+  const body = [
+    "# Summary",
+    "",
+    "Provider body.",
+    "",
+    "<!-- cy:proposal:start -->",
+    "# Proposal",
+    "",
+    "## Intent",
+    "",
+    "Projected provider body.",
+    "<!-- cy:proposal:end -->",
+    "",
+    "<!-- cy:spec-deltas:start -->",
+    "# Specification Deltas",
+    "",
+    "No behavior change",
+    "<!-- cy:spec-deltas:end -->",
+    "",
+    "<!-- cy:design:start -->",
+    "# Design",
+    "",
+    "Pending design.",
+    "<!-- cy:design:end -->",
+    "",
+    "<!-- cy:tasks:start -->",
+    "# Tasks",
+    "",
+    "- [ ] Pending task",
+    "<!-- cy:tasks:end -->",
+    "",
+    "<!-- cy:verification:start -->",
+    "# Verification",
+    "",
+    "## Result",
+    "",
+    "_Not run yet._",
+    "<!-- cy:verification:end -->",
+  ].join("\n");
+
+  return {
+    repoRoot: "/repo",
+    storageRoot: "/repo/.changeyard",
+    changePath: "/repo/.changeyard/changes/CY-0001-provider.md",
+    frontmatter,
+    body: renderProviderIssueBody({
+      canonicalPath: ".changeyard/changes/CY-0001-provider.md",
+      frontmatter,
+      body,
+    }),
   };
 }
 
@@ -475,6 +990,46 @@ test("remote providers send expected issue, PR, and review HTTP requests", () =>
     if (previousForgeToken === undefined) delete process.env.CHANGEYARD_TEST_FORGE_TOKEN; else process.env.CHANGEYARD_TEST_FORGE_TOKEN = previousForgeToken;
     if (previousGitHubToken === undefined) delete process.env.CHANGEYARD_TEST_GITHUB_TOKEN; else process.env.CHANGEYARD_TEST_GITHUB_TOKEN = previousGitHubToken;
     if (previousGitLabToken === undefined) delete process.env.CHANGEYARD_TEST_GITLAB_TOKEN; else process.env.CHANGEYARD_TEST_GITLAB_TOKEN = previousGitLabToken;
+  }
+});
+
+test("remote provider issue sync payloads include the rendered planning projection for planned changes", () => {
+  const previousForgeToken = process.env.CHANGEYARD_TEST_FORGE_TOKEN;
+  const previousGitHubToken = process.env.CHANGEYARD_TEST_GITHUB_TOKEN;
+  const previousGitLabToken = process.env.CHANGEYARD_TEST_GITLAB_TOKEN;
+  process.env.CHANGEYARD_TEST_FORGE_TOKEN = "forge-token";
+  process.env.CHANGEYARD_TEST_GITHUB_TOKEN = "github-token";
+  process.env.CHANGEYARD_TEST_GITLAB_TOKEN = "gitlab-token";
+  const requests: ProviderRequest[] = [];
+  setHttpTransportForTests((request) => {
+    requests.push(request as ProviderRequest);
+    return { status: request.method === "POST" ? 201 : 200, body: JSON.stringify({ number: 41, iid: 41, html_url: "https://example.test/issues/41", web_url: "https://example.test/issues/41" }) };
+  });
+
+  try {
+    const forgejo = new ForgejoProvider(providerConfig("forgejo", "CHANGEYARD_TEST_FORGE_TOKEN"));
+    const github = new GitHubProvider(providerConfig("github", "CHANGEYARD_TEST_GITHUB_TOKEN"));
+    const gitlab = new GitLabProvider(providerConfig("gitlab", "CHANGEYARD_TEST_GITLAB_TOKEN"));
+
+    forgejo.syncIssue(plannedProviderSyncInput());
+    github.syncIssue(plannedProviderSyncInput());
+    gitlab.syncIssue(plannedProviderSyncInput());
+
+    const renderedBodies = requests
+      .filter((request) => /issues/.test(request.url))
+      .map((request) => String(request.payload.body ?? request.payload.description ?? ""));
+
+    assert.equal(renderedBodies.length, 3);
+    for (const body of renderedBodies) {
+      assert.match(body, /# Planning Summary/);
+      assert.match(body, /Canonical local file: `.changeyard\/changes\/CY-0001-provider.md`/);
+      assert.match(body, /The local markdown change remains the canonical source of truth\./);
+    }
+  } finally {
+    setHttpTransportForTests(undefined);
+    process.env.CHANGEYARD_TEST_FORGE_TOKEN = previousForgeToken;
+    process.env.CHANGEYARD_TEST_GITHUB_TOKEN = previousGitHubToken;
+    process.env.CHANGEYARD_TEST_GITLAB_TOKEN = previousGitLabToken;
   }
 });
 

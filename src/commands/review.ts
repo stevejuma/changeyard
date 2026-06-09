@@ -4,6 +4,7 @@ import { loadConfig } from "../config/loadConfig.js";
 import { parseFrontmatter, writeFrontmatter } from "../documents/frontmatter.js";
 import { changesRoot, reviewsRoot, storageRoot } from "../paths.js";
 import { findChangeFile } from "../state/id.js";
+import { renderPlanningContextForReview, renderProviderReviewBody } from "../providers/renderIssueBody.js";
 import type { Frontmatter, ChangeStatus } from "../types.js";
 import { assertTransition } from "../state/transitions.js";
 import { createProvider } from "../providers/index.js";
@@ -97,7 +98,13 @@ export function runReviewStart(id: string, repoRoot = process.cwd(), mutationOpt
     createdAt: new Date().toISOString(),
     commitBased: false,
   };
-  const body = `# Summary\n\nReview the change here.\n\n# Required Changes\n\n- [ ] Add any required changes, or leave this checklist as a record.\n\n# Inline Comments\n\nAdd inline comments as bullets: - path/to/file.ts:42: Comment text.\n`;
+  const reviewBody = `# Summary\n\nReview the change here.\n\n# Required Changes\n\n- [ ] Add any required changes, or leave this checklist as a record.\n\n# Inline Comments\n\nAdd inline comments as bullets: - path/to/file.ts:42: Comment text.\n`;
+  const planningContext = renderPlanningContextForReview({
+    canonicalPath: path.relative(repoRoot, changePath),
+    frontmatter: parsedChange.frontmatter,
+    body: parsedChange.body,
+  });
+  const body = planningContext ? `${reviewBody.trim()}\n\n${planningContext}` : reviewBody;
   if (mutationOptions.dryRun) {
     return `Dry-run: would start review ${review} for ${id}: ${path.relative(repoRoot, reviewPath)}`;
   }
@@ -134,6 +141,12 @@ export function runReviewComplete(id: string, decision: ReviewDecision, repoRoot
   const provider = createProvider(config.provider.type, config);
   let reviewFrontmatter: Frontmatter = { ...parsedReview.frontmatter, status, completedAt: new Date().toISOString() };
   if (provider.publishReview && (provider.name === "local-folder" || hasRemoteThread(parsedChange.frontmatter))) {
+    const renderedReviewBody = renderProviderReviewBody({
+      canonicalPath: path.relative(repoRoot, changePath),
+      frontmatter: parsedChange.frontmatter,
+      body: parsedChange.body,
+      reviewBody: parsedReview.body,
+    });
     const remoteReview = provider.publishReview({
       repoRoot,
       storageRoot: storageRoot(repoRoot, config),
@@ -142,7 +155,7 @@ export function runReviewComplete(id: string, decision: ReviewDecision, repoRoot
       body: parsedChange.body,
       reviewPath,
       reviewFrontmatter,
-      reviewBody: parsedReview.body,
+      reviewBody: renderedReviewBody,
       decision: status,
       inlineComments,
     });

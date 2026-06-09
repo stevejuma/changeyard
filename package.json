@@ -11,7 +11,7 @@
     "cy": "./dist/src/cli.js"
   },
   "scripts": {
-    "build:cli": "tsc -p tsconfig.json && mkdir -p dist/src/templates && cp src/templates/*.md dist/src/templates/",
+    "build:cli": "tsc -p tsconfig.json && mkdir -p dist/src/templates dist/src/planning/templates/prompts && cp src/templates/*.md dist/src/templates/ && cp src/planning/templates/prompts/*.md dist/src/planning/templates/prompts/",
     "build:kanban": "npm --workspace @changeyard/kanban run build",
     "build": "npm run build:cli && npm run build:kanban",
     "cli": "node dist/src/cli.js",

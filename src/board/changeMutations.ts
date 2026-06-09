@@ -4,6 +4,8 @@ import { loadConfig } from "../config/loadConfig.js";
 import { parseFrontmatter, writeFrontmatter } from "../documents/frontmatter.js";
 import { replaceSection } from "../documents/sections.js";
 import { changesRoot, storageRoot } from "../paths.js";
+import { replaceMarkedSection } from "../planning/sections.js";
+import type { PlanningSectionId } from "../planning/types.js";
 import { findChangeFile } from "../state/id.js";
 import { assertTransition } from "../state/transitions.js";
 import type { ChangeStatus, Frontmatter } from "../types.js";
@@ -18,6 +20,22 @@ export type UpdateCardMetadataInput = {
   priority?: string | null;
   labels?: string[];
 };
+
+export type UpdatePlanningSectionInput = {
+  sectionId: PlanningSectionId;
+  content: string;
+  expectedUpdatedAt?: string | null;
+};
+
+export class ChangeMutationConflictError extends Error {
+  readonly currentUpdatedAt: string | null;
+
+  constructor(message: string, currentUpdatedAt: string | null) {
+    super(message);
+    this.name = "ChangeMutationConflictError";
+    this.currentUpdatedAt = currentUpdatedAt;
+  }
+}
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -128,6 +146,28 @@ export function updateCardSection(repoRoot: string, id: string, sectionName: str
     },
     body: replaceSection(body, sectionName, content),
   }));
+
+  return result.filePath;
+}
+
+export function updatePlanningSection(repoRoot: string, id: string, input: UpdatePlanningSectionInput): string {
+  const result = mutateChangeFrontmatter(repoRoot, id, ({ frontmatter, body }) => {
+    const currentUpdatedAt = typeof frontmatter.updatedAt === "string" ? frontmatter.updatedAt : null;
+    if (input.expectedUpdatedAt !== undefined && input.expectedUpdatedAt !== currentUpdatedAt) {
+      throw new ChangeMutationConflictError(
+        `Change ${id} was updated elsewhere. Reload the latest planning content and retry your edit.`,
+        currentUpdatedAt,
+      );
+    }
+
+    return {
+      frontmatter: {
+        ...frontmatter,
+        updatedAt: nowIso(),
+      },
+      body: replaceMarkedSection(body, input.sectionId, input.content),
+    };
+  });
 
   return result.filePath;
 }

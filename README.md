@@ -34,6 +34,24 @@ This repository currently implements a local-first end-to-end prototype slice:
 
 The provider layer now has a mockable HTTP transport with automated coverage for Forgejo, GitHub, and GitLab issue sync, PR/MR creation, and review-comment publication. Live forge smoke tests, richer inline review APIs, and release packaging are intentionally left for later milestones.
 
+## Planning profiles
+
+Changeyard now supports two workflow shapes over the same canonical markdown change file:
+
+- unplanned changes for lightweight local work
+- planned changes with inline `openspec-lite` sections and lifecycle gates
+
+Planning stays in `.changeyard/changes/*.md`. The UI, CLI, and provider projection paths all read and write that same markdown file.
+
+Key planning capabilities:
+
+- `openspec-lite` is the default planning profile
+- strict planning is optional and can be enabled at create time or later on an existing planned change
+- the UI can create planned changes, edit planning sections inline, validate planning gates, and run `sync` / `start`
+- OpenSpec and Spec Kit exports live under `.changeyard/cache/planning/` as non-canonical mirrors only
+
+See [docs/planning-profiles.md](docs/planning-profiles.md) for the current planning model and [docs/adr-inline-planning.md](docs/adr-inline-planning.md) for the architecture decision.
+
 ## Install for local development
 
 ```bash
@@ -66,6 +84,13 @@ Create a change:
 cy create --template agent-task --title "Add workspace verification command"
 ```
 
+Create a planned change:
+
+```bash
+cy create --template feature --title "Add plugin permissions UI" --planning openspec-lite
+cy create --template feature --title "Tighten spec flow" --planning openspec-lite --strict
+```
+
 Validate, list, and inspect changes:
 
 ```bash
@@ -83,6 +108,17 @@ cy doctor
 cy list
 cy status CY-0001
 cy ui --no-open
+```
+
+Planning-specific commands:
+
+```bash
+cy plan status CY-0001
+cy plan prompt CY-0001 proposal
+cy plan strict enable CY-0001
+cy plan strict disable CY-0001
+cy plan export CY-0001 --format openspec
+cy plan import CY-0001 --format speckit
 ```
 
 ## Default repository layout
@@ -119,7 +155,7 @@ The default provider is `noop`, which updates the local change metadata without 
 
 The default workspace engine is `plain-copy`. `cy start <id>` copies the repository into `.changeyard/workspaces/<id>/repo`, excluding VCS data, Changeyard runtime state, and configured `neverCopy` patterns. Changeyard also includes `jj` and `git-worktree` engines: set `vcs.engine` to `jj` to run `jj workspace add --name <workspace> <path>`, or `git-worktree` to run `git worktree add -b <branch> <path>`. Start writes workspace metadata next to the checkout, hydrates explicitly allowlisted files, updates the change to `in_progress`, and prints the next `cd` and `cy verify` commands. `cy verify <id>` must be run from inside that workspace and checks both the workspace marker and the engine-specific workspace status before allowing work to proceed.
 
-`cy ui` starts a local board UI backed by the same markdown and workspace metadata. The current UI reads all changes, shows provider/workspace details, and can trigger `sync` and `start` actions without creating any separate Kanban state files.
+`cy ui` starts a local board UI backed by the same markdown and workspace metadata. The current UI reads all changes, shows provider/workspace details, creates planned changes, edits planning sections inline with conflict-safe writes, validates planning gates, and can trigger `sync` and `start` actions without creating any separate Kanban state files.
 
 ## Doctor, recovery, JSON, and errors
 
@@ -144,6 +180,8 @@ For any non-trivial future code change, agents should eventually follow this pro
 7. Update completion notes.
 8. Run `cy complete <id> --no-pr`.
 9. Start and complete a markdown review if needed.
+
+For planned changes, the workflow extends this with inline planning sections and planning gate checks before `sync`, `start`, and `complete`. Existing planned changes can opt into or out of strict mode with `cy plan strict enable <id>` and `cy plan strict disable <id>`. Existing unplanned changes remain supported as-is; planning opt-in for those changes is still a create-time choice today. See [docs/planning-profiles.md](docs/planning-profiles.md) for the current model and adapter flow, and [docs/adr-inline-planning.md](docs/adr-inline-planning.md) for the architecture decision.
 
 ## Development
 

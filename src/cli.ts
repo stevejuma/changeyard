@@ -2,6 +2,16 @@
 import { runCompletions } from "./commands/completions.js";
 import { runComplete } from "./commands/complete.js";
 import { doctorReport, runDoctor } from "./commands/doctor.js";
+import {
+  getPlanPrompt,
+  getPlanStatus,
+  runPlanExport,
+  runPlanImport,
+  runPlanPrompt,
+  runPlanStatus,
+  runPlanStrictDisable,
+  runPlanStrictEnable,
+} from "./commands/plan.js";
 import { runCreate } from "./commands/create.js";
 import { runHydrate } from "./commands/hydrate.js";
 import { runInit } from "./commands/init.js";
@@ -16,8 +26,9 @@ import { runValidate } from "./commands/validate.js";
 import { runVerify } from "./commands/verify.js";
 import { findRepoRoot } from "./config/loadConfig.js";
 import { errorCode, errorExitCode } from "./errors.js";
+import type { PlanningModel } from "./planning/types.js";
 
-type CommandName = "init" | "create" | "validate" | "sync" | "start" | "verify" | "hydrate" | "complete" | "review" | "doctor" | "completions" | "recover" | "list" | "status" | "ui" | "help";
+type CommandName = "init" | "create" | "validate" | "sync" | "start" | "verify" | "hydrate" | "complete" | "review" | "doctor" | "completions" | "recover" | "list" | "status" | "plan" | "ui" | "help";
 
 type ParsedArgs = {
   command: string;
@@ -82,7 +93,7 @@ function usage(): string {
 
 Usage:
   cy init [--dry-run]
-  cy create --template <name> --title <title> [--priority <priority>] [--label <label>...] [--author <name>] [--plan-file <path>] [--dry-run]
+  cy create --template <name> --title <title> [--priority <priority>] [--label <label>...] [--author <name>] [--plan-file <path>] [--planning <none|openspec-lite>] [--strict] [--no-planning] [--dry-run]
   cy validate CY-0001
   cy sync CY-0001 [--dry-run]
   cy start CY-0001 [--dry-run]
@@ -96,6 +107,12 @@ Usage:
   cy completions
   cy list [--json]
   cy status CY-0001 [--json]
+  cy plan status CY-0001 [--json]
+  cy plan prompt CY-0001 proposal [--json]
+  cy plan strict enable CY-0001 [--dry-run]
+  cy plan strict disable CY-0001 [--dry-run]
+  cy plan export CY-0001 --format openspec [--dry-run]
+  cy plan import CY-0001 --format speckit [--dry-run]
   cy ui [--host <host>] [--port <port|auto>] [--open|--no-open]
 
 Global options:
@@ -122,6 +139,7 @@ function commandUsage(command: string): string {
     create: `${"create".padEnd(12)}create a new change from a template.\n\nExamples:\n${commandExamples([
       "cy create --template agent-task --title \"Add workspace verification\"",
       "cy create --template feature --title \"Add export command\" --label api --priority high",
+      "cy create --template feature --title \"Add plugin permissions UI\" --planning openspec-lite --strict",
     ])}`,
     validate: `${"validate".padEnd(12)}validate one change against templates and schema.\n\nExample:\n${commandExamples(["cy validate CY-0001"])}`,
     sync: `${"sync".padEnd(12)}sync change metadata to remote provider.\n\nExample:\n${commandExamples(["cy sync CY-0001", "cy sync CY-0001 --dry-run"])}`,
@@ -146,6 +164,7 @@ function commandUsage(command: string): string {
     completions: `${"completions".padEnd(12)}install shell completion helper.\n\nExample:\n${commandExamples(["cy completions"])}`,
     list: `${"list".padEnd(12)}list all local changes.\n\nExample:\n${commandExamples(["cy list"])}`,
     status: `${"status".padEnd(12)}print one change summary.\n\nExample:\n${commandExamples(["cy status CY-0001"])}`,
+    plan: `${"plan".padEnd(12)}inspect planning status, generate planning prompts, toggle strict mode, or manage adapter mirrors.\n\nExamples:\n${commandExamples(["cy plan status CY-0001", "cy plan status CY-0001 --json", "cy plan prompt CY-0001 proposal", "cy plan strict enable CY-0001", "cy plan export CY-0001 --format openspec", "cy plan import CY-0001 --format speckit --dry-run"])}`,
     ui: `${"ui".padEnd(12)}start the local Changeyard board UI.\n\nExamples:\n${commandExamples(["cy ui --no-open", "cy ui --host 127.0.0.1 --port 4310"])}`,
     help: usage(),
   };
@@ -205,6 +224,9 @@ async function main(): Promise<void> {
           labels: Array.isArray(labels) ? labels : typeof labels === "string" ? [labels] : undefined,
           author: stringFlag(args.flags, "author"),
           planFile: stringFlag(args.flags, "plan-file"),
+          planning: stringFlag(args.flags, "planning") as PlanningModel | undefined,
+          strict: asBooleanFlag(args.flags, "strict"),
+          noPlanning: asBooleanFlag(args.flags, "no-planning"),
         }, repoRoot, { dryRun });
         break;
       }
@@ -251,11 +273,40 @@ async function main(): Promise<void> {
         break;
       }
       case "list":
-        output = json ? listChanges(repoRoot) : runList(repoRoot);
+        output = json ? listChanges(repoRoot) : runList(repoRoot, { planning: asBooleanFlag(args.flags, "planning") });
         break;
       case "status":
         output = json ? getStatus(args.positional[0] ?? "", repoRoot) : runStatus(args.positional[0] ?? "", repoRoot);
         break;
+      case "plan": {
+        const subcommand = args.positional[0] ?? "";
+        const id = args.positional[1] ?? "";
+        if (subcommand === "status") output = json ? getPlanStatus(id, repoRoot) : runPlanStatus(id, repoRoot);
+        else if (subcommand === "prompt") {
+          const section = args.positional[2] as import("./planning/types.js").PlanningSectionId | undefined;
+          if (!section) throw new Error("Missing planning section. Expected: cy plan prompt <id> <section>");
+          output = json ? getPlanPrompt(id, section, repoRoot) : runPlanPrompt(id, section, repoRoot);
+        }
+        else if (subcommand === "export") {
+          const format = stringFlag(args.flags, "format") as import("./planning/adapters.js").PlanningAdapterFormat | undefined;
+          if (!format) throw new Error("Missing adapter format. Expected: cy plan export <id> --format <openspec|speckit>");
+          output = runPlanExport(id, format, repoRoot, { dryRun });
+        }
+        else if (subcommand === "import") {
+          const format = stringFlag(args.flags, "format") as import("./planning/adapters.js").PlanningAdapterFormat | undefined;
+          if (!format) throw new Error("Missing adapter format. Expected: cy plan import <id> --format <openspec|speckit>");
+          output = runPlanImport(id, format, repoRoot, { dryRun });
+        }
+        else if (subcommand === "strict") {
+          const strictAction = args.positional[1] ?? "";
+          const strictId = args.positional[2] ?? "";
+          if (strictAction === "enable") output = runPlanStrictEnable(strictId, repoRoot, { dryRun });
+          else if (strictAction === "disable") output = runPlanStrictDisable(strictId, repoRoot, { dryRun });
+          else throw new Error("Unknown strict plan command. Expected: cy plan strict <enable|disable> <id>");
+        }
+        else throw new Error("Unknown plan command. Expected: cy plan status <id>, cy plan prompt <id> <section>, cy plan strict <enable|disable> <id>, cy plan export <id> --format <openspec|speckit>, or cy plan import <id> --format <openspec|speckit>");
+        break;
+      }
       case "ui": {
         const rawPort = stringFlag(args.flags, "port");
         output = await runUi({

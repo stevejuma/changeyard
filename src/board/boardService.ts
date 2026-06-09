@@ -9,10 +9,17 @@ import { loadConfig } from "../config/loadConfig.js";
 import { parseFrontmatter } from "../documents/frontmatter.js";
 import { parseSections } from "../documents/sections.js";
 import { changesRoot, workspacesRoot } from "../paths.js";
+import { getPlanningStatusSummary } from "../planning/status.js";
 import { findChangeFile } from "../state/id.js";
 import type { Frontmatter, WorkspaceMetadata } from "../types.js";
 import { createWorkspaceEngine } from "../workspace/index.js";
-import { updateCardMetadata, updateCardSection, type UpdateCardMetadataInput } from "./changeMutations.js";
+import {
+  updateCardMetadata,
+  updateCardSection,
+  updatePlanningSection,
+  type UpdateCardMetadataInput,
+  type UpdatePlanningSectionInput,
+} from "./changeMutations.js";
 import { readWorkspaceTerminalView, type WorkspaceTerminalView } from "./workspaceView.js";
 import type { ChangeyardBoard, ChangeyardBoardColumn, ChangeyardCardDetail } from "./boardTypes.js";
 import { COLUMN_STATUS_MAP, COLUMN_TITLES, columnForStatus } from "./statusColumns.js";
@@ -80,6 +87,7 @@ function toCard(repoRoot: string, filePath: string): ChangeyardCardDetail {
       pullRequestUrl: remoteFrontmatter.pullRequestUrl === undefined || remoteFrontmatter.pullRequestUrl === null ? undefined : String(remoteFrontmatter.pullRequestUrl),
       pullRequestNumber: remoteFrontmatter.pullRequestNumber === undefined ? null : remoteFrontmatter.pullRequestNumber as number | string | null,
     },
+    planning: getPlanningStatusSummary(frontmatter, parsed.body),
     body: parsed.body,
     frontmatter,
     sections: Object.fromEntries(parseSections(parsed.body).entries()),
@@ -152,6 +160,11 @@ export class ChangeyardBoardService {
 
   updateCardSection(id: string, sectionName: string, content: string): ChangeyardCardDetail {
     updateCardSection(this.repoRoot, id, sectionName, content);
+    return this.getCard(id);
+  }
+
+  updatePlanningSection(id: string, input: UpdatePlanningSectionInput): ChangeyardCardDetail {
+    updatePlanningSection(this.repoRoot, id, input);
     return this.getCard(id);
   }
 

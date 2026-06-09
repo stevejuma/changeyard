@@ -108,6 +108,27 @@ export const configSchema = {
         theme: { type: "string", enum: ["light", "dark", "system"] },
       },
     },
+    planning: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        defaultProfile: { type: "string", enum: ["none", "openspec-lite"] },
+        defaultStrictness: { type: "string", enum: ["normal", "strict"] },
+        requireBeforeStart: { type: "boolean" },
+        requireBeforeComplete: { type: "boolean" },
+        syncSummaryToProvider: { type: "boolean" },
+        adapterCacheDir: { type: "string", minLength: 1 },
+        ui: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            enabled: { type: "boolean" },
+            showBadges: { type: "boolean" },
+            allowInlineEditing: { type: "boolean" },
+          },
+        },
+      },
+    },
     pullRequests: {
       type: "object",
       additionalProperties: false,

@@ -1,6 +1,16 @@
 export { listChanges } from "./commands/list.js";
 export { getStatus } from "./commands/status.js";
 export { runCreate, createChange } from "./commands/create.js";
+export {
+  getPlanPrompt,
+  getPlanStatus,
+  runPlanExport,
+  runPlanImport,
+  runPlanPrompt,
+  runPlanStatus,
+  runPlanStrictDisable,
+  runPlanStrictEnable,
+} from "./commands/plan.js";
 export { runSync } from "./commands/sync.js";
 export { runStart } from "./commands/start.js";
 export { runVerify } from "./commands/verify.js";
@@ -11,12 +21,19 @@ export { runUi } from "./commands/ui.js";
 export { loadConfig, findRepoRoot } from "./config/loadConfig.js";
 export { parseFrontmatter, writeFrontmatter } from "./documents/frontmatter.js";
 export { assertTransition } from "./state/transitions.js";
-export { mutateChangeFrontmatter, updateCardMetadata, updateCardSection } from "./board/changeMutations.js";
+export {
+  ChangeMutationConflictError,
+  mutateChangeFrontmatter,
+  updateCardMetadata,
+  updateCardSection,
+  updatePlanningSection,
+} from "./board/changeMutations.js";
 export { ChangeyardBoardService, createChangeyardBoardService } from "./board/boardService.js";
 export { COLUMN_STATUS_MAP, COLUMN_TITLES, columnForStatus } from "./board/statusColumns.js";
 export {
   createWorkspaceEngine,
 } from "./workspace/index.js";
+export { getPlanningStatusSummary } from "./planning/status.js";
 export {
   detectWorkspaceEngineName,
   detectWorkspaceRepositoryKind,
@@ -37,6 +54,7 @@ export type {
 } from "./types.js";
 export type {
   UpdateCardMetadataInput,
+  UpdatePlanningSectionInput,
 } from "./board/changeMutations.js";
 export type {
   WorkspaceTerminalView,

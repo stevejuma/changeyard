@@ -97,6 +97,11 @@ import type {
 	RuntimeWorktreeEnsureResponse,
 } from "../core/api-contract.js";
 import {
+	runtimeChangeyardChangeCreateRequestSchema,
+	runtimeChangeyardChangeDetailSchema,
+	runtimeChangeyardChangeGetRequestSchema,
+	runtimeChangeyardChangeUpdatePlanningSectionRequestSchema,
+	runtimeChangeyardChangesListResponseSchema,
 	runtimeClineAccountBalanceResponseSchema,
 	runtimeClineAccountOrganizationsResponseSchema,
 	runtimeClineAccountProfileResponseSchema,
@@ -187,6 +192,7 @@ import {
 	runtimeWorktreeEnsureRequestSchema,
 	runtimeWorktreeEnsureResponseSchema,
 } from "../core/api-contract.js";
+import type { RuntimeTrpcChangesApi } from "./changes-api.js";
 
 export interface RuntimeTrpcWorkspaceScope {
 	workspaceId: string;
@@ -382,6 +388,7 @@ export interface RuntimeTrpcContext {
 	hooksApi: {
 		ingest: (input: RuntimeHookIngestRequest) => Promise<RuntimeHookIngestResponse>;
 	};
+	changesApi: RuntimeTrpcChangesApi;
 }
 
 interface RuntimeTrpcContextWithWorkspaceScope extends RuntimeTrpcContext {
@@ -399,14 +406,24 @@ function readConflictRevision(cause: unknown): number | null {
 	return Number.isFinite(revision) ? revision : null;
 }
 
+function readConflictUpdatedAt(cause: unknown): string | null {
+	if (!cause || typeof cause !== "object" || !("currentUpdatedAt" in cause)) {
+		return null;
+	}
+	const updatedAt = (cause as { currentUpdatedAt?: unknown }).currentUpdatedAt;
+	return typeof updatedAt === "string" ? updatedAt : null;
+}
+
 const t = initTRPC.context<RuntimeTrpcContext>().create({
 	errorFormatter({ shape, error }) {
 		const conflictRevision = error.code === "CONFLICT" ? readConflictRevision(error.cause) : null;
+		const conflictUpdatedAt = error.code === "CONFLICT" ? readConflictUpdatedAt(error.cause) : null;
 		return {
 			...shape,
 			data: {
 				...shape.data,
 				conflictRevision,
+				conflictUpdatedAt,
 			},
 		};
 	},
@@ -718,6 +735,60 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeGitCommitDiffResponseSchema)
 			.query(async ({ ctx, input }) => {
 				return await ctx.workspaceApi.loadRepositoryCommitDiff(ctx.workspaceScope, input);
+			}),
+	}),
+	changes: t.router({
+		list: workspaceProcedure.output(runtimeChangeyardChangesListResponseSchema).query(async ({ ctx }) => {
+			return await ctx.changesApi.listChanges(ctx.workspaceScope.workspacePath);
+		}),
+		create: workspaceProcedure
+			.input(runtimeChangeyardChangeCreateRequestSchema)
+			.output(runtimeChangeyardChangeDetailSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.changesApi.createChange(ctx.workspaceScope.workspacePath, input);
+			}),
+		get: workspaceProcedure
+			.input(runtimeChangeyardChangeGetRequestSchema)
+			.output(runtimeChangeyardChangeDetailSchema.nullable())
+			.query(async ({ ctx, input }) => {
+				return await ctx.changesApi.getChange(ctx.workspaceScope.workspacePath, input);
+			}),
+		validate: workspaceProcedure
+			.input(runtimeChangeyardChangeGetRequestSchema)
+			.output(runtimeChangeyardChangeDetailSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.changesApi.validateChange(ctx.workspaceScope.workspacePath, input);
+			}),
+		sync: workspaceProcedure
+			.input(runtimeChangeyardChangeGetRequestSchema)
+			.output(runtimeChangeyardChangeDetailSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.changesApi.syncChange(ctx.workspaceScope.workspacePath, input);
+			}),
+		start: workspaceProcedure
+			.input(runtimeChangeyardChangeGetRequestSchema)
+			.output(runtimeChangeyardChangeDetailSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.changesApi.startChange(ctx.workspaceScope.workspacePath, input);
+			}),
+		updatePlanningSection: workspaceProcedure
+			.input(runtimeChangeyardChangeUpdatePlanningSectionRequestSchema)
+			.output(runtimeChangeyardChangeDetailSchema)
+			.mutation(async ({ ctx, input }) => {
+				try {
+					return await ctx.changesApi.updatePlanningSection(ctx.workspaceScope.workspacePath, input);
+				} catch (error) {
+					if (error instanceof Error && error.name === "ChangeMutationConflictError") {
+						throw new TRPCError({
+							code: "CONFLICT",
+							message: error.message,
+							cause: {
+								currentUpdatedAt: readConflictUpdatedAt(error),
+							},
+						});
+					}
+					throw error;
+				}
 			}),
 	}),
 	projects: t.router({
