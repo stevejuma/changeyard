@@ -3,6 +3,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TopBar } from "@/components/top-bar";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { clearHomeGitSummary, setHomeGitSummary } from "@/stores/workspace-metadata-store";
 
 function findButtonByText(container: HTMLElement, text: string): HTMLButtonElement | null {
 	return (Array.from(container.querySelectorAll("button")).find((button) => button.textContent?.trim() === text) ??
@@ -13,6 +15,10 @@ function setInputValue(input: HTMLInputElement, value: string): void {
 	const descriptor = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value");
 	descriptor?.set?.call(input, value);
 	input.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+function renderWithProviders(element: React.ReactNode): React.ReactElement {
+	return <TooltipProvider>{element}</TooltipProvider>;
 }
 
 describe("TopBar script shortcut onboarding", () => {
@@ -33,6 +39,7 @@ describe("TopBar script shortcut onboarding", () => {
 		act(() => {
 			root.unmount();
 		});
+		clearHomeGitSummary();
 		container.remove();
 		if (previousActEnvironment === undefined) {
 			delete (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
@@ -48,17 +55,19 @@ describe("TopBar script shortcut onboarding", () => {
 
 		await act(async () => {
 			root.render(
-				<TopBar
-					openTargetOptions={[]}
-					selectedOpenTargetId="vscode"
-					onSelectOpenTarget={() => {}}
-					onOpenWorkspace={() => {}}
-					canOpenWorkspace={false}
-					isOpeningWorkspace={false}
-					shortcuts={[]}
-					onRunShortcut={onRunShortcut}
-					onCreateFirstShortcut={onCreateFirstShortcut}
-				/>,
+				renderWithProviders(
+					<TopBar
+						openTargetOptions={[]}
+						selectedOpenTargetId="vscode"
+						onSelectOpenTarget={() => {}}
+						onOpenWorkspace={() => {}}
+						canOpenWorkspace={false}
+						isOpeningWorkspace={false}
+						shortcuts={[]}
+						onRunShortcut={onRunShortcut}
+						onCreateFirstShortcut={onCreateFirstShortcut}
+					/>,
+				),
 			);
 		});
 
@@ -108,16 +117,18 @@ describe("TopBar script shortcut onboarding", () => {
 
 		await act(async () => {
 			root.render(
-				<TopBar
-					openTargetOptions={[]}
-					selectedOpenTargetId="vscode"
-					onSelectOpenTarget={() => {}}
-					onOpenWorkspace={() => {}}
-					canOpenWorkspace={false}
-					isOpeningWorkspace={false}
-					runtimeHint="No agent configured"
-					onOpenSettings={onOpenSettings}
-				/>,
+				renderWithProviders(
+					<TopBar
+						openTargetOptions={[]}
+						selectedOpenTargetId="vscode"
+						onSelectOpenTarget={() => {}}
+						onOpenWorkspace={() => {}}
+						canOpenWorkspace={false}
+						isOpeningWorkspace={false}
+						runtimeHint="No agent configured"
+						onOpenSettings={onOpenSettings}
+					/>,
+				),
 			);
 		});
 
@@ -130,5 +141,37 @@ describe("TopBar script shortcut onboarding", () => {
 		});
 
 		expect(onOpenSettings).toHaveBeenCalledTimes(1);
+	});
+
+	it("shows the JJ change id when no branch is available", async () => {
+		setHomeGitSummary({
+			currentBranch: null,
+			jjChangeId: "qpvuntsm",
+			upstreamBranch: null,
+			changedFiles: 2,
+			additions: 5,
+			deletions: 1,
+			aheadCount: 0,
+			behindCount: 0,
+		});
+
+		await act(async () => {
+			root.render(
+				renderWithProviders(
+					<TopBar
+						openTargetOptions={[]}
+						selectedOpenTargetId="vscode"
+						onSelectOpenTarget={() => {}}
+						onOpenWorkspace={() => {}}
+						canOpenWorkspace={false}
+						isOpeningWorkspace={false}
+						showHomeGitSummary
+					/>,
+				),
+			);
+		});
+
+		expect(container.textContent).toContain("qpvuntsm");
+		expect(container.textContent).not.toContain("detached HEAD");
 	});
 });

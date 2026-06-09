@@ -1,19 +1,22 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 
 import { useLayoutResetEffect } from "@/resize/layout-customizations";
-import { clampAtLeast, clampWidthToContainer } from "@/resize/resize-persistence";
+import { clampAtLeast } from "@/resize/resize-persistence";
 import {
 	getResizePreferenceDefaultValue,
+	loadBooleanResizePreference,
 	loadResizePreference,
+	persistBooleanResizePreference,
 	persistResizePreference,
+	type ResizeBooleanPreference,
 	type ResizeNumberPreference,
 } from "@/resize/resize-preferences";
 import { LocalStorageKey } from "@/storage/local-storage-store";
 
 export const MIN_GIT_REFS_PANEL_WIDTH = 180;
 export const MIN_GIT_COMMITS_PANEL_WIDTH = 260;
-export const MIN_GIT_DIFF_PANEL_WIDTH = 340;
-export const GIT_HISTORY_SEPARATOR_COUNT = 2;
+export const MIN_GIT_DIFF_CONTENT_PANEL_WIDTH = 360;
+export const COLLAPSED_GIT_HISTORY_PANEL_WIDTH = 36;
 
 const REFS_PANEL_WIDTH_PREFERENCE: ResizeNumberPreference = {
 	key: LocalStorageKey.GitHistoryRefsPanelWidth,
@@ -27,35 +30,35 @@ const COMMITS_PANEL_WIDTH_PREFERENCE: ResizeNumberPreference = {
 	normalize: (value) => clampAtLeast(value, MIN_GIT_COMMITS_PANEL_WIDTH, true),
 };
 
-export function clampGitRefsPanelWidth(width: number, containerWidth: number, commitsPanelWidth: number): number {
-	return clampWidthToContainer({
-		width,
-		minWidth: MIN_GIT_REFS_PANEL_WIDTH,
-		containerWidth,
-		reservedWidth: commitsPanelWidth + MIN_GIT_DIFF_PANEL_WIDTH + GIT_HISTORY_SEPARATOR_COUNT,
-	});
-}
+const REFS_PANEL_COLLAPSED_PREFERENCE: ResizeBooleanPreference = {
+	key: LocalStorageKey.GitHistoryRefsPanelCollapsed,
+	defaultValue: false,
+};
 
-export function clampGitCommitsPanelWidth(width: number, containerWidth: number, refsPanelWidth: number): number {
-	return clampWidthToContainer({
-		width,
-		minWidth: MIN_GIT_COMMITS_PANEL_WIDTH,
-		containerWidth,
-		reservedWidth: refsPanelWidth + MIN_GIT_DIFF_PANEL_WIDTH + GIT_HISTORY_SEPARATOR_COUNT,
-	});
-}
+const COMMITS_PANEL_COLLAPSED_PREFERENCE: ResizeBooleanPreference = {
+	key: LocalStorageKey.GitHistoryCommitsPanelCollapsed,
+	defaultValue: false,
+};
 
-export function useGitHistoryLayout({ containerWidth }: { containerWidth: number | null }): {
+export function useGitHistoryLayout(): {
 	commitsPanelWidth: number;
-	displayCommitsPanelWidth: number;
-	displayRefsPanelWidth: number;
+	isCommitsPanelCollapsed: boolean;
+	isRefsPanelCollapsed: boolean;
 	refsPanelWidth: number;
+	setCommitsPanelCollapsed: (collapsed: boolean) => void;
 	setCommitsPanelWidth: (width: number) => void;
+	setRefsPanelCollapsed: (collapsed: boolean) => void;
 	setRefsPanelWidth: (width: number) => void;
 } {
 	const [refsPanelWidth, setRefsPanelWidthState] = useState(() => loadResizePreference(REFS_PANEL_WIDTH_PREFERENCE));
 	const [commitsPanelWidth, setCommitsPanelWidthState] = useState(() =>
 		loadResizePreference(COMMITS_PANEL_WIDTH_PREFERENCE),
+	);
+	const [isRefsPanelCollapsed, setRefsPanelCollapsedState] = useState(() =>
+		loadBooleanResizePreference(REFS_PANEL_COLLAPSED_PREFERENCE),
+	);
+	const [isCommitsPanelCollapsed, setCommitsPanelCollapsedState] = useState(() =>
+		loadBooleanResizePreference(COMMITS_PANEL_COLLAPSED_PREFERENCE),
 	);
 
 	const setRefsPanelWidth = useCallback((width: number) => {
@@ -66,34 +69,29 @@ export function useGitHistoryLayout({ containerWidth }: { containerWidth: number
 		setCommitsPanelWidthState(persistResizePreference(COMMITS_PANEL_WIDTH_PREFERENCE, width));
 	}, []);
 
+	const setRefsPanelCollapsed = useCallback((collapsed: boolean) => {
+		setRefsPanelCollapsedState(persistBooleanResizePreference(REFS_PANEL_COLLAPSED_PREFERENCE, collapsed));
+	}, []);
+
+	const setCommitsPanelCollapsed = useCallback((collapsed: boolean) => {
+		setCommitsPanelCollapsedState(persistBooleanResizePreference(COMMITS_PANEL_COLLAPSED_PREFERENCE, collapsed));
+	}, []);
+
 	useLayoutResetEffect(() => {
 		setRefsPanelWidthState(getResizePreferenceDefaultValue(REFS_PANEL_WIDTH_PREFERENCE));
 		setCommitsPanelWidthState(getResizePreferenceDefaultValue(COMMITS_PANEL_WIDTH_PREFERENCE));
+		setRefsPanelCollapsedState(REFS_PANEL_COLLAPSED_PREFERENCE.defaultValue);
+		setCommitsPanelCollapsedState(COMMITS_PANEL_COLLAPSED_PREFERENCE.defaultValue);
 	});
-
-	const { displayRefsPanelWidth, displayCommitsPanelWidth } = useMemo(() => {
-		if (containerWidth === null || !Number.isFinite(containerWidth)) {
-			return {
-				displayRefsPanelWidth: refsPanelWidth,
-				displayCommitsPanelWidth: commitsPanelWidth,
-			};
-		}
-
-		const clampedCommitsPanelWidth = clampGitCommitsPanelWidth(commitsPanelWidth, containerWidth, refsPanelWidth);
-		const clampedRefsPanelWidth = clampGitRefsPanelWidth(refsPanelWidth, containerWidth, clampedCommitsPanelWidth);
-
-		return {
-			displayRefsPanelWidth: clampedRefsPanelWidth,
-			displayCommitsPanelWidth: clampedCommitsPanelWidth,
-		};
-	}, [commitsPanelWidth, containerWidth, refsPanelWidth]);
 
 	return {
 		refsPanelWidth,
 		commitsPanelWidth,
-		displayRefsPanelWidth,
-		displayCommitsPanelWidth,
+		isRefsPanelCollapsed,
+		isCommitsPanelCollapsed,
 		setRefsPanelWidth,
 		setCommitsPanelWidth,
+		setRefsPanelCollapsed,
+		setCommitsPanelCollapsed,
 	};
 }

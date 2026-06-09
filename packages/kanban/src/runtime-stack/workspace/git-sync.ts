@@ -9,7 +9,7 @@ import type {
 	RuntimeGitSyncSummary,
 } from "../core/api-contract.js";
 import { runGit } from "./git-utils.js";
-import { getJjCurrentBookmark, getJjStdout, runJj } from "./jj-utils.js";
+import { getJjCurrentBookmark, getJjCurrentChangeId, getJjStdout, runJj } from "./jj-utils.js";
 
 interface GitPathFingerprint {
 	path: string;
@@ -23,6 +23,7 @@ export interface GitWorkspaceProbe {
 	repoRoot: string;
 	headCommit: string | null;
 	currentBranch: string | null;
+	jjChangeId: string | null;
 	upstreamBranch: string | null;
 	aheadCount: number;
 	behindCount: number;
@@ -148,11 +149,12 @@ function parseJjDiffStatTotals(output: string): { additions: number; deletions: 
 
 async function probeJjWorkspaceState(cwd: string): Promise<GitWorkspaceProbe> {
 	const repoRoot = await getJjStdout(["workspace", "root"], cwd);
-	const [summaryOutput, diffStatOutput, headCommit, currentBranch] = await Promise.all([
+	const [summaryOutput, diffStatOutput, headCommit, currentBranch, jjChangeId] = await Promise.all([
 		getJjStdout(["diff", "--summary"], repoRoot).catch(() => ""),
 		getJjStdout(["diff", "--stat"], repoRoot).catch(() => ""),
 		getJjStdout(["log", "-r", "@", "--no-graph", "-T", "commit_id"], repoRoot).catch(() => null),
 		getJjCurrentBookmark(repoRoot),
+		getJjCurrentChangeId(repoRoot),
 	]);
 	const changedPaths = parseJjSummaryPaths(summaryOutput);
 	const fingerprints = await buildPathFingerprints(repoRoot, changedPaths);
@@ -161,6 +163,7 @@ async function probeJjWorkspaceState(cwd: string): Promise<GitWorkspaceProbe> {
 		repoRoot,
 		headCommit,
 		currentBranch,
+		jjChangeId,
 		upstreamBranch: null,
 		aheadCount: 0,
 		behindCount: 0,
@@ -171,6 +174,7 @@ async function probeJjWorkspaceState(cwd: string): Promise<GitWorkspaceProbe> {
 			repoRoot,
 			headCommit ?? "no-head",
 			currentBranch ?? "no-bookmark",
+			jjChangeId ?? "no-change-id",
 			summaryOutput,
 			diffStatOutput,
 			buildFingerprintToken(fingerprints),
@@ -250,6 +254,7 @@ async function probeGitWorkspaceStateInternal(cwd: string): Promise<GitWorkspace
 		repoRoot,
 		headCommit,
 		currentBranch,
+		jjChangeId: null,
 		upstreamBranch,
 		aheadCount,
 		behindCount,
@@ -311,6 +316,7 @@ export async function getGitSyncSummary(
 		const totals = parseJjDiffStatTotals(diffStatOutput);
 		return {
 			currentBranch: probe.currentBranch,
+			jjChangeId: probe.jjChangeId,
 			upstreamBranch: probe.upstreamBranch,
 			changedFiles: probe.changedFiles,
 			additions: totals.additions,
@@ -325,6 +331,7 @@ export async function getGitSyncSummary(
 
 	return {
 		currentBranch: probe.currentBranch,
+		jjChangeId: null,
 		upstreamBranch: probe.upstreamBranch,
 		changedFiles: probe.changedFiles,
 		additions: trackedTotals.additions + untrackedAdditions,

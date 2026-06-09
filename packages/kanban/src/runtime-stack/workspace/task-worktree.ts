@@ -841,6 +841,7 @@ export async function getTaskWorkspaceInfo(options: {
 			exists: false,
 			baseRef: workspacePathInfo.baseRef,
 			branch: null,
+			jjChangeId: null,
 			isDetached: false,
 			headCommit: null,
 		};
@@ -857,6 +858,7 @@ export async function getTaskWorkspaceInfo(options: {
 		exists: true,
 		baseRef: workspacePathInfo.baseRef,
 		branch: headInfo.branch,
+		jjChangeId: headInfo.jjChangeId,
 		isDetached: headInfo.isDetached,
 		headCommit: headInfo.headCommit,
 	};

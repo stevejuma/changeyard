@@ -12,8 +12,12 @@ export enum LocalStorageKey {
 	ProjectNavigationPanelWidth = "kb-sidebar-width",
 	ProjectNavigationPanelCollapsed = "kanban.project-navigation-panel-collapsed",
 	GitHistoryRefsPanelWidth = "kanban.git-history-refs-panel-width",
+	GitHistoryRefsPanelCollapsed = "kanban.git-history-refs-panel-collapsed",
 	GitHistoryCommitsPanelWidth = "kanban.git-history-commits-panel-width",
+	GitHistoryCommitsPanelCollapsed = "kanban.git-history-commits-panel-collapsed",
 	GitDiffFileTreePanelRatio = "kanban.git-diff-file-tree-panel-ratio",
+	GitDiffFileTreePanelWidth = "kanban.git-diff-file-tree-panel-width",
+	GitDiffFileTreePanelCollapsed = "kanban.git-diff-file-tree-panel-collapsed",
 	OnboardingDialogShown = "kanban.onboarding.dialog.shown",
 	NotificationPermissionPrompted = "kanban.notifications.permission-prompted",
 	PreferredOpenTarget = "kanban.preferred-open-target",
@@ -31,8 +35,12 @@ export const LAYOUT_CUSTOMIZATION_LOCAL_STORAGE_KEYS = [
 	LocalStorageKey.ProjectNavigationPanelWidth,
 	LocalStorageKey.ProjectNavigationPanelCollapsed,
 	LocalStorageKey.GitHistoryRefsPanelWidth,
+	LocalStorageKey.GitHistoryRefsPanelCollapsed,
 	LocalStorageKey.GitHistoryCommitsPanelWidth,
+	LocalStorageKey.GitHistoryCommitsPanelCollapsed,
 	LocalStorageKey.GitDiffFileTreePanelRatio,
+	LocalStorageKey.GitDiffFileTreePanelWidth,
+	LocalStorageKey.GitDiffFileTreePanelCollapsed,
 ] as const;
 
 function getLocalStorage(): Storage | null {

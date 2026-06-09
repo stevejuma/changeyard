@@ -120,18 +120,18 @@ export function useGitHistoryData({
 	const prevScopeKeyRef = useRef(scopeKey);
 	const isScopeTransitioning = prevScopeKeyRef.current !== scopeKey;
 
-	const prevBranchRef = useRef(gitSummary?.currentBranch ?? null);
+	const prevRefKeyRef = useRef(`${gitSummary?.currentBranch ?? ""}:${gitSummary?.jjChangeId ?? ""}`);
 	useEffect(() => {
-		const current = gitSummary?.currentBranch ?? null;
-		if (current !== prevBranchRef.current) {
-			prevBranchRef.current = current;
+		const currentRefKey = `${gitSummary?.currentBranch ?? ""}:${gitSummary?.jjChangeId ?? ""}`;
+		if (currentRefKey !== prevRefKeyRef.current) {
+			prevRefKeyRef.current = currentRefKey;
 			setSelectedRefName(null);
 			setSelectedCommitHash(null);
 			if (enabled) {
 				void refsQuery.refetch();
 			}
 		}
-	}, [enabled, gitSummary?.currentBranch, refsQuery.refetch]);
+	}, [enabled, gitSummary?.currentBranch, gitSummary?.jjChangeId, refsQuery.refetch]);
 
 	const refs = isScopeTransitioning ? EMPTY_REFS : (refsQuery.data?.refs ?? EMPTY_REFS);
 	const isRefsLoadingVisible =

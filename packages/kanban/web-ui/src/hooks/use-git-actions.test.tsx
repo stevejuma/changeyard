@@ -123,6 +123,7 @@ function createWorkspaceInfo(): RuntimeTaskWorkspaceInfoResponse {
 		exists: true,
 		baseRef: "main",
 		branch: "task-1",
+		jjChangeId: null,
 		isDetached: false,
 		headCommit: "abc1234",
 	};

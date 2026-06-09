@@ -270,6 +270,7 @@ describe("BoardCard", () => {
 			taskId: "task-1",
 			path: "/tmp/worktrees/task-1",
 			branch: "feature/override",
+			jjChangeId: null,
 			isDetached: false,
 			headCommit: "1234567890abcdef",
 			changedFiles: 2,

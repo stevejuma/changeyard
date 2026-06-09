@@ -52,6 +52,7 @@ interface HookSnapshot {
 function createGitSummary(branch: string): RuntimeGitSyncSummary {
 	return {
 		currentBranch: branch,
+		jjChangeId: null,
 		upstreamBranch: `origin/${branch}`,
 		changedFiles: 0,
 		additions: 0,

@@ -321,6 +321,7 @@ export function useBoardInteractions({
 						exists: true,
 						baseRef: ensured.response.baseRef,
 						branch: null,
+						jjChangeId: null,
 						isDetached: true,
 						headCommit: ensured.response.baseCommit,
 					});

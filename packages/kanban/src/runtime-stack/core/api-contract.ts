@@ -193,6 +193,7 @@ export type RuntimeBoardData = z.infer<typeof runtimeBoardDataSchema>;
 export const runtimeGitRepositoryInfoSchema = z.object({
 	engine: z.enum(["git", "jj"]),
 	currentBranch: z.string().nullable(),
+	jjChangeId: z.string().nullable(),
 	defaultBranch: z.string().nullable(),
 	branches: z.array(z.string()),
 });
@@ -203,6 +204,7 @@ export type RuntimeGitSyncAction = z.infer<typeof runtimeGitSyncActionSchema>;
 
 export const runtimeGitSyncSummarySchema = z.object({
 	currentBranch: z.string().nullable(),
+	jjChangeId: z.string().nullable(),
 	upstreamBranch: z.string().nullable(),
 	changedFiles: z.number(),
 	additions: z.number(),
@@ -350,6 +352,7 @@ export const runtimeTaskWorkspaceMetadataSchema = z.object({
 	exists: z.boolean(),
 	baseRef: z.string(),
 	branch: z.string().nullable(),
+	jjChangeId: z.string().nullable(),
 	isDetached: z.boolean(),
 	headCommit: z.string().nullable(),
 	changedFiles: z.number().nullable(),
@@ -587,6 +590,7 @@ export const runtimeTaskWorkspaceInfoResponseSchema = z.object({
 	exists: z.boolean(),
 	baseRef: z.string(),
 	branch: z.string().nullable(),
+	jjChangeId: z.string().nullable(),
 	isDetached: z.boolean(),
 	headCommit: z.string().nullable(),
 });

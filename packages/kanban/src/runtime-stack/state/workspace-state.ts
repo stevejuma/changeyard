@@ -568,6 +568,10 @@ function detectJjCurrentBranch(repoPath: string, branches: string[]): string | n
 	return branches[0] ?? null;
 }
 
+function detectJjCurrentChangeId(repoPath: string): string | null {
+	return runJjCapture(repoPath, ["log", "-r", "@", "--no-graph", "-T", "change_id.short()"]);
+}
+
 function detectGitRepositoryInfo(repoPath: string): RuntimeGitRepositoryInfo {
 	const gitRoot = detectGitRoot(repoPath);
 	if (!gitRoot) {
@@ -582,6 +586,7 @@ function detectGitRepositoryInfo(repoPath: string): RuntimeGitRepositoryInfo {
 	return {
 		engine: "git",
 		currentBranch,
+		jjChangeId: null,
 		defaultBranch,
 		branches: orderedBranches,
 	};
@@ -595,12 +600,14 @@ function detectJjRepositoryInfo(repoPath: string): RuntimeGitRepositoryInfo {
 
 	const branches = detectJjBranches(repoPath);
 	const currentBranch = detectJjCurrentBranch(repoPath, branches);
+	const jjChangeId = detectJjCurrentChangeId(repoPath);
 	const orderedBranches = currentBranch && !branches.includes(currentBranch) ? [currentBranch, ...branches] : branches;
 	const defaultBranch = detectJjDefaultBranch(orderedBranches);
 
 	return {
 		engine: "jj",
 		currentBranch,
+		jjChangeId,
 		defaultBranch,
 		branches: orderedBranches,
 	};

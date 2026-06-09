@@ -126,6 +126,7 @@ function createLegacyRuntimeConfig(overrides: Partial<RuntimeConfigResponse> = {
 const DEFAULT_WORKSPACE_GIT: RuntimeGitRepositoryInfo = {
 	engine: "git",
 	currentBranch: "main",
+	jjChangeId: null,
 	defaultBranch: "main",
 	branches: ["main"],
 };

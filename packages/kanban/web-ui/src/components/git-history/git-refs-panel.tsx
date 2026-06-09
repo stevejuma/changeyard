@@ -1,5 +1,5 @@
 import { Fzf } from "fzf";
-import { AlertCircle, ArrowDown, ArrowUp, Cloud, FileText, GitBranch, Info, Locate, Search } from "lucide-react";
+import { AlertCircle, ArrowDown, ArrowUp, ChevronLeft, Cloud, FileText, GitBranch, Info, Locate, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { renderFuzzyHighlightedText } from "@/components/shared/render-fuzzy-highlighted-text";
@@ -72,6 +72,7 @@ export function GitRefsPanel({
 	onSelectRef,
 	onSelectWorkingCopy,
 	onCheckoutRef,
+	onCollapse,
 }: {
 	refs: RuntimeGitRef[];
 	selectedRefName: string | null;
@@ -83,6 +84,7 @@ export function GitRefsPanel({
 	onSelectRef: (ref: RuntimeGitRef) => void;
 	onSelectWorkingCopy?: () => void;
 	onCheckoutRef?: (branchName: string) => void;
+	onCollapse?: () => void;
 }): React.ReactElement {
 	const [searchQuery, setSearchQuery] = useState("");
 
@@ -163,6 +165,15 @@ export function GitRefsPanel({
 				>
 					<Button variant="ghost" size="sm" icon={<Info size={14} />} aria-label="Repository history help" />
 				</Tooltip>
+				{onCollapse ? (
+					<Button
+						variant="ghost"
+						size="sm"
+						icon={<ChevronLeft size={14} />}
+						aria-label="Collapse refs panel"
+						onClick={onCollapse}
+					/>
+				) : null}
 			</div>
 			<div style={{ overflowY: "auto", overscrollBehavior: "contain", padding: "8px 6px" }}>
 				{isLoading ? (
