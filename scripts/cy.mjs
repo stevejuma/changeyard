@@ -18,6 +18,7 @@ function wantsSourceMode() {
 }
 
 const useSource = wantsSourceMode();
+const invocationCwd = process.cwd();
 
 if (useSource) {
   if (!existsSync(srcCli)) {
@@ -26,7 +27,7 @@ if (useSource) {
   }
   const result = spawnSync(process.execPath, ["--import", "tsx", srcCli, ...args], {
     stdio: "inherit",
-    cwd: root,
+    cwd: invocationCwd,
     env: process.env,
   });
   process.exit(result.status ?? 1);
@@ -39,7 +40,7 @@ if (!existsSync(distCli)) {
 
 const result = spawnSync(process.execPath, [distCli, ...args], {
   stdio: "inherit",
-  cwd: root,
+  cwd: invocationCwd,
   env: process.env,
 });
 process.exit(result.status ?? 1);
