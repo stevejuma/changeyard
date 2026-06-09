@@ -22,7 +22,7 @@ vi.mock("@/runtime/task-session-geometry", () => ({
 	estimateTaskSessionGeometry: () => ({ cols: 120, rows: 40 }),
 }));
 
-vi.mock("@/telemetry/events", () => ({
+vi.mock("@/task-events", () => ({
 	trackTaskResumedFromTrash: trackTaskResumedFromTrashMock,
 }));
 

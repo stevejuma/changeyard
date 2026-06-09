@@ -10,7 +10,7 @@ import {
 	removeTaskDependency,
 	trashTaskAndGetReadyLinkedTaskIds,
 } from "@/state/board-state";
-import { trackTaskDependencyCreated, trackTasksAutoStartedFromDependency } from "@/telemetry/events";
+import { trackTaskDependencyCreated, trackTasksAutoStartedFromDependency } from "@/task-events";
 import type { BoardCard, BoardColumnId, BoardData } from "@/types";
 import { getNextDetailTaskIdAfterTrashMove } from "@/utils/detail-view-task-order";
 

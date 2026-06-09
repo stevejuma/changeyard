@@ -17,7 +17,7 @@ import type {
 	RuntimeWorktreeDeleteResponse,
 	RuntimeWorktreeEnsureResponse,
 } from "@/runtime/types";
-import { trackTaskResumedFromTrash } from "@/telemetry/events";
+import { trackTaskResumedFromTrash } from "@/task-events";
 import { getTerminalController } from "@/terminal/terminal-controller-registry";
 import { getTerminalGeometry } from "@/terminal/terminal-geometry-registry";
 import type { SendTerminalInputOptions } from "@/terminal/terminal-input";
