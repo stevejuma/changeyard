@@ -1,167 +1,120 @@
-# TASKS: OpenTUI TUI Implementation
+# TASKS: Composer-First TUI Redesign
 
 Date: 2026-06-09
 
-Objective: Implement the OpenTUI TUI described in `PLAN.md` while preserving Node CLI compatibility and the markdown-first Changeyard workflow.
+Objective: Implement the OpenCode-inspired, composer-first TUI described in `PLAN.md` while preserving Changeyard runtime semantics and Node CLI compatibility.
 
 ## Tracker Rules
 
-- `TASKS.md` is the live execution tracker for the OpenTUI TUI.
-- Update stage status and verification notes as implementation lands.
-- Keep completed work checked off and leave pending work explicit.
-- Bun is required only for `cy tui` and TUI verification.
+- `TASKS.md` is the live execution tracker for this redesign.
+- Keep stage status current as code lands.
+- Keep completed work checked off and pending work explicit.
+- Bun remains required only for `cy tui` and TUI verification.
 
 ## Current Status
 
-- [x] OpenTUI plan reviewed and translated into a repo-specific plan
-- [x] React selected as the v1 OpenTUI binding
-- [x] `PLAN.md` replaced with the OpenTUI implementation plan
-- [x] `TASKS.md` replaced with this OpenTUI tracker
-- [x] Runtime startup refactor implemented
-- [x] `cy server` implemented
-- [x] Runtime API expanded for TUI lifecycle actions
-- [x] Initial `packages/tui` OpenTUI React client implemented
-- [x] `cy tui` Bun launcher implemented
-- [x] End-to-end OpenTUI TUI implementation complete
+- [x] Redesign direction selected: composer-first, Changeyard-action scope
+- [x] New implementation plan drafted
+- [x] Tracker reset for redesign execution
+- [x] Composer-first shell implementation started
+- [x] First shared slash/command-list command registry landed
+- [x] Initial lifecycle/create command wiring landed
 
-Current focus: Completed. Tracker now reflects the delivered OpenTUI implementation and verification coverage.
+Current focus: Stage U4 dialogs and focused flow refinements.
 
-## Stage T1: Plan And Tracker Replacement
+## Stage U1: Tracker Realignment
 
 Status: `completed`
 
-- [x] Replace `PLAN.md` with the OpenTUI TUI plan
-- [x] Replace `TASKS.md` with this staged implementation tracker
-- [x] Preserve quick-mode status as historical context
-- [x] Document that Bun is required only for `cy tui`
+- [x] Replace `PLAN.md` with composer-first redesign plan
+- [x] Replace `TASKS.md` with redesign tracker
+- [x] Confirm scope excludes chat/session parity
 
 Acceptance checks:
 
-- [x] `PLAN.md` has OpenTUI as the active objective
-- [x] `TASKS.md` has OpenTUI as the active tracker
+- [x] `PLAN.md` reflects current redesign strategy
+- [x] `TASKS.md` tracks new staged implementation
 
-## Stage T2: Runtime Startup Refactor
+## Stage U2: Composer-First Shell
 
 Status: `completed`
 
-- [x] Add `startChangeyardRuntime()` to the kanban server package
-- [x] Support `mode: "web" | "tui" | "headless"`
-- [x] Support `openBrowser`
-- [x] Support `serveWebAssets`
-- [x] Keep `startChangeyardKanban()` as a compatibility wrapper
-- [x] Allow headless runtime startup without browser assets
-- [x] Add `cy server [--host <host>] [--port <port|auto>] [--json]`
-- [x] Add clean shutdown handling for `cy server`
-- [x] Add regression coverage for `cy ui`
-- [x] Add regression coverage for `cy server`
+- [x] Replace dashboard-first shell with centered composer-first shell
+- [x] Keep change detail preview visible in the new shell
+- [x] Add toggleable sidebar for grouped changes
+- [x] Add footer/status hints aligned to new key model
+- [x] Preserve existing runtime-backed workflows in new layout
 
 Acceptance checks:
 
-- [x] `cy ui --no-open` still starts the browser runtime
-- [x] `cy server --port auto` starts the runtime API without opening a browser
-- [x] `/api/health` responds for web and headless modes
-- [x] Runtime shutdown is clean on Ctrl+C
+- [x] Composer is visible and focused by default
+- [x] Sidebar can be toggled without breaking selection
+- [x] Change detail remains inspectable from the main shell
 
-## Stage T3: Runtime API And Client
+## Stage U3: Shared Command Registry
 
 Status: `completed`
 
-- [x] Extend runtime create schema to support quick changes
-- [x] Expose planning prompt operations
-- [x] Expose verify operation
-- [x] Expose complete operation
-- [x] Expose review start/complete operations
-- [x] Add a non-browser runtime client for absolute-url tRPC access
-- [x] Add runtime client health check
-- [x] Add runtime client error normalization
-- [x] Add tests for the new API operations
+- [x] Add shared command registry powering slash and command list
+- [x] Add slash autocomplete for `/` commands
+- [x] Add `ctrl+p` command list backed by same registry
+- [x] Implement initial commands:
+- [x] `/help`, `/refresh`, `/sidebar`
+- [x] `/create quick|planned|strict|legacy`
+- [x] `/validate`, `/sync`, `/start`, `/verify`, `/complete`, `/review`
+- [x] `/prompt`
 
 Acceptance checks:
 
-- [x] TUI can list and inspect changes through runtime APIs
-- [x] TUI can create quick/planned/strict changes through runtime APIs
-- [x] TUI lifecycle actions do not shell out to `cy`
-- [x] Browser UI remains compatible with the runtime API
+- [x] Slash and command list execute the same command handlers
+- [x] `ctrl+p` opens and closes command list reliably
+- [x] Lifecycle actions still call runtime APIs and refresh state
 
-## Stage T4: OpenTUI Package And Launcher
+## Stage U4: Dialogs And Focused Flows
 
-Status: `completed`
+Status: `pending`
 
-- [x] Add `packages/tui/package.json`
-- [x] Add `packages/tui/tsconfig.json`
-- [x] Add `packages/tui/src/index.tsx`
-- [x] Add OpenTUI React app shell
-- [x] Add TUI runtime connection handling
-- [x] Add root workspace entry for `packages/tui`
-- [x] Add root build/typecheck scripts for TUI
-- [x] Add `cy tui`
-- [x] Add `cy tui --connect <url>`
-- [x] Add `cy tui --project <path>`
-- [x] Add `cy tui --debug`
-- [x] Detect missing `bun` and print a concise prerequisite message
-- [x] Shut down embedded runtime when the TUI exits
+- [ ] Move create flow into focused dialog/panel experience
+- [ ] Present planning prompt in dialog/panel flow
+- [ ] Add lightweight key help dialog
+- [ ] Add confirmation for destructive or irreversible actions when needed
 
 Acceptance checks:
 
-- [x] Missing Bun produces a clear `cy tui` error without affecting other commands
-- [x] With Bun available, `cy tui` launches the OpenTUI client
-- [x] `cy tui --connect` does not start a second runtime
-- [x] `cy tui` exits cleanly
+- [ ] No required workflow depends on full-screen view rotation
+- [ ] Dialogs can be dismissed with `escape`
 
-## Stage T5: TUI Screens
+## Stage U5: Keyboard And UX Parity
 
-Status: `completed`
+Status: `pending`
 
-- [x] Dashboard screen with grouped changes
-- [x] Change detail screen
-- [x] Create change screen
-- [x] Planning screen
-- [x] Workspace screen
-- [x] Lifecycle actions panel
-- [x] Review panel
-- [x] Keyboard navigation
-- [x] Fallback message for OpenTUI startup failure
+- [ ] Align keyboard behavior: `ctrl+p`, `escape`, `up/down`, `ctrl+n/ctrl+p`, `enter`
+- [ ] Ensure composer input behavior is predictable for slash and non-slash text
+- [ ] Improve empty-state and error-state messaging for command-driven UX
 
 Acceptance checks:
 
-- [x] TUI lists changes grouped by status
-- [x] TUI shows planning and workspace badges
-- [x] TUI can create supported change types
-- [x] TUI can run validate, sync, start, verify, complete, and review actions
-- [x] TUI does not write separate canonical state
+- [ ] Primary actions are discoverable from key help and footer hints
+- [ ] No keybinding conflicts break text input editing
 
-## Stage T6: Verification And Packaging
+## Stage U6: Verification And Packaging
 
-Status: `completed`
+Status: `pending`
 
-- [x] Add Node regression tests for `cy server`
-- [x] Add Node regression tests for missing-Bun `cy tui`
-- [x] Add runtime-client tests
-- [x] Add TUI typecheck/build command
-- [x] Add OpenTUI render smoke test when Bun is available
-- [x] Update CI with a Bun TUI job
-- [x] Update package files to include TUI assets
-- [x] Run `npm run check`
-- [x] Run `npm run check:tui`
-- [x] Run `npm test`
-- [x] Run `node --test --test-timeout=30000 dist/tests/*.test.js`
-- [x] Run `npm run smoke:tui`
-- [x] Run `npm pack --dry-run`
+- [ ] Run `npm run check:tui`
+- [ ] Run `npm run build:tui`
+- [ ] Update and run `npm run smoke:tui` for slash/palette/sidebar/dialog coverage
+- [ ] Run Node-side tests for launcher/runtime behavior
+- [ ] Run `npm pack --dry-run`
 
 Acceptance checks:
 
-- [x] Node-only CLI commands still work without Bun
-- [x] TUI checks pass when Bun is available
-- [x] Packaged tarball contains required runtime, browser UI, and TUI files
+- [ ] TUI checks pass
+- [ ] Node launcher checks remain green
+- [ ] Packaged tarball still contains required TUI/runtime assets
 
 ## Verification Notes
 
-- `npm run check:node` passed.
 - `npm run check:tui` passed.
 - `npm run build:tui` passed.
-- `node --test --test-timeout=30000 dist/tests/*.test.js` passed: 85 tests.
-- `node --test --test-force-exit dist/tests/*.test.js` passed: 85 tests.
-- `npm test` passed after updating the script to use `--test-force-exit`.
-- `npm run smoke:tui` passed and exercised `cy tui --smoke-test --smoke-create-all` against a temporary repository.
-- `npm pack --dry-run` passed and includes `packages/tui/src`, `packages/tui/package.json`, and `packages/tui/tsconfig.json`.
-- Bun is installed locally, and the Bun-backed OpenTUI smoke path is now covered in CI.
+- `npm run smoke:tui` passed.

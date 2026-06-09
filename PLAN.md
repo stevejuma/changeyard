@@ -1,12 +1,24 @@
-# PLAN: OpenTUI TUI Implementation
+# PLAN: Composer-First OpenTUI Redesign
 
 Date: 2026-06-09
 
 ## Active Objective
 
-Implement `cy tui` as a rich, keyboard-first terminal application built with OpenTUI and backed by the same Changeyard runtime API used by the browser UI.
+Redesign `cy tui` to a composer-first terminal experience inspired by OpenCode's layout and interaction model while preserving Changeyard semantics.
 
-The TUI is a client layer. It must not create a second source of truth, a TUI-specific task database, or alternate lifecycle semantics. Canonical state remains `.changeyard/changes/*.md`, with all TUI workflows routed through shared runtime operations.
+The TUI remains a client layer. It must not introduce a second source of truth. Canonical state remains `.changeyard/changes/*.md`, and all workflows continue through shared runtime APIs.
+
+## Product Direction
+
+The target interaction model is:
+
+- centered composer as the primary interaction surface
+- slash commands (`/`) for actions and workflows
+- command list/palette (`ctrl+p`) powered by the same command registry
+- optional sidebar for grouped change navigation
+- dialogs/overlays for focused tasks and confirmations
+
+Scope is explicitly limited to Changeyard actions and workflows. This is not a chat/session clone of OpenCode.
 
 ## Runtime Strategy
 
@@ -41,85 +53,88 @@ Canonical state
 
 ## Implementation Stages
 
-### Stage T1: Plan and tracker replacement
+### Stage U1: Tracker Realignment
 
 Purpose:
-- make OpenTUI the active implementation objective
-- preserve quick-mode status only as historical context
-- document the Bun prerequisite clearly
+- replace the completed screen-first tracker with the new composer-first objective
+- define concrete acceptance checks around slash commands, palette, sidebar, and dialogs
 
 Deliverables:
-- `PLAN.md` describes the OpenTUI architecture, constraints, and stages
-- `TASKS.md` becomes the live OpenTUI implementation tracker
-- quick-mode work is no longer the active tracker
+- `PLAN.md` updated to this redesign plan
+- `TASKS.md` updated as the live redesign tracker
 
-### Stage T2: Runtime startup refactor
+### Stage U2: Composer-First Shell
 
 Purpose:
-- separate runtime startup from browser presentation
-- add an explicit headless server command
+- move from the current three-pane dashboard-first layout to a centered-composer shell
 
 Deliverables:
-- `startChangeyardRuntime()` supports `mode: "web" | "tui" | "headless"`, `openBrowser`, and `serveWebAssets`
-- `startChangeyardKanban()` remains as the compatibility wrapper for `cy ui`
-- `cy server` starts the same runtime API without opening a browser
-- `cy ui` behavior remains unchanged
+- centered composer panel becomes the default focus
+- optional sidebar is toggleable
+- detail preview remains available without rotating whole-screen views
+- base design tokens are applied consistently
 
-### Stage T3: Runtime API and client
+### Stage U3: Shared Command Registry
 
 Purpose:
-- give the TUI a stable API instead of direct filesystem or CLI shell-out access
+- unify slash command and `ctrl+p` command list behavior
 
 Deliverables:
-- runtime `changes` API supports quick creation and lifecycle operations needed by the TUI
-- planning prompt/status, verify, complete, and review operations are exposed where possible
-- a non-browser runtime client wraps absolute-url tRPC calls and runtime health checks
-- API responses remain schema validated
+- single command registry with id, aliases, description, and executor
+- slash autocomplete from the command registry
+- `ctrl+p` command list backed by the same entries
+- initial command coverage for existing Changeyard workflows
 
-### Stage T4: OpenTUI package and launcher
+### Stage U4: Dialogs And Focused Flows
 
 Purpose:
-- add the Bun/OpenTUI terminal client without making Bun required for normal CLI use
+- replace full-screen mode switching with focused overlays/dialog-like panels
 
 Deliverables:
-- `packages/tui` workspace with `@opentui/react`
-- `cy tui` command with `--connect`, `--project`, and `--debug`
-- missing-Bun failures print a concise prerequisite message
-- embedded mode starts a runtime and launches the TUI against it
+- create flow moves to a focused panel
+- planning prompt and key help surfaces presented as dialogs/panels
+- confirmation surfaces for state-advancing actions where appropriate
 
-### Stage T5: TUI screens
+### Stage U5: Keyboard And UX Parity
 
 Purpose:
-- implement the first usable terminal workflow surface
+- align interaction behavior with the intended model and improve discoverability
 
 Deliverables:
-- dashboard with grouped changes and quick/planned/strict/provider/workspace badges
-- detail view with overview, planning sections, raw markdown, provider, workspace, checks, and review panels
-- create flow for quick, planned, strict planned, and legacy unplanned changes
-- planning view with prompts, section editing, and gate status
-- workspace/lifecycle actions for validate, sync, start, verify, complete, and review
+- `ctrl+p` opens/closes command list
+- `escape` dismisses open overlay/palette before exiting
+- `up/down` and `ctrl+n/ctrl+p` navigate list selections
+- compact key help surface and footer hints
 
-### Stage T6: Verification and packaging
+### Stage U6: Verification And Packaging
 
 Purpose:
-- ensure the TUI path is tested without regressing Node-only users
+- keep redesign changes safe, testable, and releasable
 
 Deliverables:
-- Node checks cover `cy ui`, `cy server`, missing-Bun `cy tui`, and runtime shutdown
-- TUI checks cover typecheck/build and an OpenTUI render smoke path when Bun is available
-- CI installs Bun only for the TUI job
-- `npm pack --dry-run` includes runtime, browser UI assets, and TUI assets
+- TUI typecheck/build remains green
+- smoke checks cover slash command invocation, command list open/close, sidebar toggle, and at least one dialog-based action
+- Node-side launcher/runtime coverage remains green
 
 ## Design Rules
 
 1. `.changeyard/changes/*.md` remains the only canonical source for changes.
-2. The TUI uses runtime APIs, not direct markdown writes, except for opening files in an external editor if that feature is added later.
-3. `cy ui` stays browser-oriented and keeps its current behavior.
-4. `cy server` is the reusable headless runtime entrypoint.
+2. The TUI uses runtime APIs, not direct markdown writes.
+3. `cy ui` remains browser-oriented with unchanged behavior.
+4. `cy server` remains the reusable headless runtime entrypoint.
 5. `cy tui` requires Bun, but other commands do not.
-6. OpenTUI is only the renderer/client. Changeyard owns lifecycle, planning, provider, workspace, and review semantics.
-7. Workspace verification remains mandatory before implementation workflows.
+6. OpenTUI is renderer/client only. Changeyard owns lifecycle, planning, provider, workspace, and review semantics.
+7. First implementation slices should favor reliable command coverage over broad but shallow parity.
 
-## Historical Context
+## Current Milestone
 
-`PLAN.md` and `TASKS.md` previously tracked quick mode. Quick-mode implementation had reached lifecycle integration work and was not the active tracker after this plan replacement. Any unfinished quick-mode work should be picked up from git history or a dedicated follow-up plan if needed.
+Milestone M1 (completed):
+- land the composer-first shell
+- land the first command registry
+- wire slash commands and `ctrl+p` command list to existing lifecycle and create actions
+- keep runtime APIs unchanged
+
+Milestone M2 (in progress):
+- improve dialog behavior and focused workflows
+- refine keyboard parity and discoverability
+- expand smoke coverage to explicitly exercise slash, command list, sidebar toggle, and dialog flow
