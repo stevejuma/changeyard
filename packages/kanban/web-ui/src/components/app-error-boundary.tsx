@@ -1,6 +1,5 @@
-import * as Sentry from "@sentry/react";
 import { RefreshCw, RotateCcw, TriangleAlert } from "lucide-react";
-import type { ReactElement, ReactNode } from "react";
+import { Component, type ErrorInfo, type ReactElement, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 
@@ -44,15 +43,40 @@ function AppErrorFallback({ error, resetError }: { error: unknown; resetError: (
 	);
 }
 
+interface AppErrorBoundaryProps {
+	children: ReactNode;
+}
+
+interface AppErrorBoundaryState {
+	error: unknown;
+}
+
+class AppErrorBoundaryRoot extends Component<AppErrorBoundaryProps, AppErrorBoundaryState> {
+	override state: AppErrorBoundaryState = {
+		error: null,
+	};
+
+	static getDerivedStateFromError(error: unknown): AppErrorBoundaryState {
+		return { error };
+	}
+
+	override componentDidCatch(_error: unknown, _errorInfo: ErrorInfo): void {
+		// Keep the UI self-contained. Errors render locally and are not reported.
+	}
+
+	private readonly resetError = (): void => {
+		this.setState({ error: null });
+	};
+
+	override render(): ReactNode {
+		if (this.state.error !== null) {
+			return <AppErrorFallback error={this.state.error} resetError={this.resetError} />;
+		}
+
+		return this.props.children;
+	}
+}
+
 export function AppErrorBoundary({ children }: { children: ReactNode }): ReactElement {
-	return (
-		<Sentry.ErrorBoundary
-			beforeCapture={(scope) => {
-				scope.setTag("boundary", "root_app");
-			}}
-			fallback={({ error, resetError }) => <AppErrorFallback error={error} resetError={resetError} />}
-		>
-			{children}
-		</Sentry.ErrorBoundary>
-	);
+	return <AppErrorBoundaryRoot>{children}</AppErrorBoundaryRoot>;
 }

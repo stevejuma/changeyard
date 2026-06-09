@@ -10,7 +10,7 @@ import {
 } from "@/hooks/app-utils";
 import type { RuntimeAgentId, RuntimeTaskClineSettings } from "@/runtime/types";
 import { addTaskToColumnWithResult, findCardSelection, updateTask, updateTaskTitle } from "@/state/board-state";
-import { toTelemetrySelectedAgentId, trackTaskCreated } from "@/telemetry/events";
+import { toSelectedAgentId, trackTaskCreated } from "@/task-events";
 import type { BoardCard, BoardData, TaskAutoReviewMode, TaskImage } from "@/types";
 import { resolveTaskAutoReviewMode } from "@/types";
 import { useBooleanLocalStorageValue, useRawLocalStorageValue } from "@/utils/react-use";
@@ -356,7 +356,7 @@ export function useTaskEditor({
 			});
 			setBoard(created.board);
 			trackTaskCreated({
-				selected_agent_id: toTelemetrySelectedAgentId(newTaskAgentId ?? selectedAgentId),
+				selected_agent_id: toSelectedAgentId(newTaskAgentId ?? selectedAgentId),
 				start_in_plan_mode: newTaskStartInPlanMode,
 				...(newTaskAutoReviewEnabled ? { auto_review_mode: newTaskAutoReviewMode } : {}),
 				prompt_character_count: prompt.length,
@@ -426,7 +426,7 @@ export function useTaskEditor({
 			setBoard(updatedBoard);
 			for (const prompt of validPrompts) {
 				trackTaskCreated({
-					selected_agent_id: toTelemetrySelectedAgentId(newTaskAgentId ?? selectedAgentId),
+					selected_agent_id: toSelectedAgentId(newTaskAgentId ?? selectedAgentId),
 					start_in_plan_mode: newTaskStartInPlanMode,
 					...(newTaskAutoReviewEnabled ? { auto_review_mode: newTaskAutoReviewMode } : {}),
 					prompt_character_count: prompt.length,

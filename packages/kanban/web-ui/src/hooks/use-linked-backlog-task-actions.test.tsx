@@ -9,7 +9,7 @@ import type { BoardCard, BoardData, BoardDependency } from "@/types";
 const trackTaskDependencyCreatedMock = vi.hoisted(() => vi.fn());
 const trackTasksAutoStartedFromDependencyMock = vi.hoisted(() => vi.fn());
 
-vi.mock("@/telemetry/events", () => ({
+vi.mock("@/task-events", () => ({
 	trackTaskDependencyCreated: trackTaskDependencyCreatedMock,
 	trackTasksAutoStartedFromDependency: trackTasksAutoStartedFromDependencyMock,
 }));

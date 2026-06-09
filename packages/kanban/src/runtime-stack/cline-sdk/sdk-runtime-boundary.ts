@@ -23,9 +23,6 @@ import {
 	type UserInstructionConfigService,
 } from "@clinebot/core";
 import { CLINE_BUILTIN_SLASH_COMMANDS } from "./cline-slash-commands.js";
-import { getCliTelemetryService } from "./cline-telemetry-service.js";
-
-export { TelemetryLoggerSink, TelemetryService } from "@clinebot/core";
 
 export type ClineSdkSessionHost = ClineCore;
 export type ClineSdkBasicLogger = BasicLogger;
@@ -48,7 +45,6 @@ export type ClineSdkToolApprovalResult = ToolApprovalResult;
 export async function createClineSdkSessionHost(): Promise<ClineSdkSessionHost> {
 	return await ClineCore.create({
 		backendMode: "auto",
-		telemetry: getCliTelemetryService(),
 	});
 }
 
