@@ -43,6 +43,14 @@ export const RUNTIME_AGENT_CATALOG: RuntimeAgentCatalogEntry[] = [
 		installUrl: "https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference",
 	},
 	{
+		id: "cursor",
+		label: "Cursor Agent",
+		binary: "agent",
+		baseArgs: [],
+		autonomousArgs: ["--force"],
+		installUrl: "https://cursor.com/cli",
+	},
+	{
 		id: "opencode",
 		label: "OpenCode",
 		binary: "opencode",
@@ -80,6 +88,7 @@ export const RUNTIME_AGENT_CATALOG: RuntimeAgentCatalogEntry[] = [
 // Re-enable additional CLIs by uncommenting entries below when ready.
 export const RUNTIME_LAUNCH_SUPPORTED_AGENT_IDS: readonly RuntimeAgentId[] = [
 	"cline",
+	"cursor",
 	"claude",
 	"codex",
 	"copilot",

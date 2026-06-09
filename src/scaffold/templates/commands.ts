@@ -25,8 +25,8 @@ const CHANGEYARD_COMMANDS: CommandContent[] = [
 
 1. Identify the target change id from context or run \`cy list\`.
 2. Run \`cy validate <id>\`.
-3. If validation fails, fix the markdown/frontmatter issues and re-run validation.
-4. Do not start implementation until validation passes.`,
+3. If validation fails, **halt** — fix the markdown/frontmatter issues and re-run validation.
+4. Do not start implementation, sync, or workspace work until validation passes.`,
   },
   {
     id: "sync",
@@ -38,7 +38,8 @@ const CHANGEYARD_COMMANDS: CommandContent[] = [
 
 1. Ensure the change is validated with \`cy validate <id>\`.
 2. Run \`cy sync <id>\`.
-3. Report provider output and updated change status.`,
+3. If sync fails, **halt** — fix the reported issue and re-run sync before \`cy start\`.
+4. Report provider output and updated change status.`,
   },
   {
     id: "start",
@@ -51,7 +52,8 @@ const CHANGEYARD_COMMANDS: CommandContent[] = [
 1. Ensure the change is ready/synced as required by project config.
 2. Run \`cy start <id>\`.
 3. Follow the printed \`cd\` path into the workspace checkout.
-4. Run \`cy verify <id>\` before editing files.`,
+4. Run \`cy verify <id>\` from that checkout before editing files.
+5. If verify fails, **halt** — do not edit files in the main repo or workspace until verify passes.`,
   },
   {
     id: "verify",
@@ -62,8 +64,9 @@ const CHANGEYARD_COMMANDS: CommandContent[] = [
     body: `Verify workspace context before making code changes.
 
 1. Run \`cy verify <id>\` from inside the expected workspace checkout.
-2. If verification fails, return to the workspace path printed by \`cy start <id>\`.
-3. Only edit files inside the verified workspace.`,
+2. If verification fails, **halt all implementation work.** Do not edit files in the main repo or workspace.
+3. Diagnose with \`cy doctor\` or fix the workspace/CLI issue, then re-run verify from the path printed by \`cy start <id>\`.
+4. Only edit files inside the verified workspace after verify passes.`,
   },
   {
     id: "complete",

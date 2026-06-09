@@ -15,6 +15,25 @@ Changeyard is the markdown-first local change workflow for this repository. Cano
 9. Complete locally: \`cy complete <id> --no-pr\`
 10. Start and complete a markdown review when needed
 
+## Gate protocol (hard stops)
+
+Lifecycle commands are **gates**, not suggestions. If any gate fails, **halt all implementation work** until that gate passes.
+
+| Step | Gate | On failure |
+| --- | --- | --- |
+| 3 | \`cy validate <id>\` | Fix the change markdown; do not write product code |
+| 4 | \`cy sync <id>\` | Fix sync errors; do not start or edit in a workspace |
+| 5 | \`cy start <id>\` | Do not enter a workspace; use \`cy doctor\` |
+| 6 | \`cy verify <id>\` | **Stop.** Do not edit files until verify passes from the workspace checkout |
+| 9 | \`cy complete <id>\` | Fix reported blockers before completing |
+
+When a gate fails:
+
+- **Allowed:** diagnose and fix the gate itself, run \`cy doctor\`, report to the user and wait
+- **Forbidden:** implementing in the main repo, working around a failed \`cy verify\`, or continuing because tests pass elsewhere
+
+After \`cy start\`, all product edits belong **only** in the workspace checkout printed by start—not in the repository root where the change was created.
+
 ## Planning changes
 
 - Planned changes use inline OpenSpec-lite sections in the same markdown file
@@ -24,7 +43,8 @@ Changeyard is the markdown-first local change workflow for this repository. Cano
 ## Rules
 
 - Do not treat forge issues or PRs as canonical state
-- Do not bypass \`cy verify\` before editing in a workspace
+- **Do not bypass or ignore failed gates** — especially \`cy verify\`
+- Do not edit product code in the main repo after \`cy start\`; work only in the verified workspace checkout
 - Prefer \`cy doctor\` when local Changeyard state looks inconsistent
 - Use the \`/cy-*\` slash commands when available for the same workflows
 `;

@@ -29,6 +29,9 @@ interface CodexHookTrustEntry {
 export function hasCodexConfigOverride(args: string[], key: string): boolean {
 	for (let i = 0; i < args.length; i += 1) {
 		const arg = args[i];
+		if (arg === undefined) {
+			continue;
+		}
 		if (arg === "-c" || arg === "--config") {
 			const next = args[i + 1];
 			if (typeof next === "string" && next.startsWith(`${key}=`)) {
@@ -94,7 +97,10 @@ function canonicalizeJson(value: JsonValue): JsonValue {
 	if (value !== null && typeof value === "object") {
 		const sorted: JsonObject = {};
 		for (const key of Object.keys(value).sort()) {
-			sorted[key] = canonicalizeJson(value[key]);
+			const child = value[key];
+			if (child !== undefined) {
+				sorted[key] = canonicalizeJson(child);
+			}
 		}
 		return sorted;
 	}
