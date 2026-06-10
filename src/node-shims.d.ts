@@ -3,7 +3,11 @@ declare module "node:assert/strict" {
   export default assert;
 }
 declare module "node:child_process" {
-  export function spawnSync(command: string, argsOrOptions?: string[] | { cwd?: string; shell?: boolean; encoding?: string }, options?: { cwd?: string; shell?: boolean; encoding?: string }): { status: number | null; stdout?: string; stderr?: string };
+  export function spawn(command: string, args?: string[], options?: { cwd?: string; env?: Record<string, string | undefined>; shell?: boolean; stdio?: "inherit" | "ignore" | "pipe" | Array<unknown> }): {
+    on(event: "error", listener: (error: Error) => void): void;
+    on(event: "close", listener: (code: number | null) => void): void;
+  };
+  export function spawnSync(command: string, argsOrOptions?: string[] | { cwd?: string; shell?: boolean; encoding?: string; stdio?: unknown }, options?: { cwd?: string; shell?: boolean; encoding?: string; stdio?: unknown }): { status: number | null; stdout?: string; stderr?: string };
 }
 declare module "node:fs" {
   export function closeSync(fd: number): void;
@@ -48,6 +52,7 @@ declare const process: {
   cwd(): string;
   env: Record<string, string | undefined>;
   exitCode?: number;
+  execPath: string;
   pid: number;
   platform: string;
   stdout: {

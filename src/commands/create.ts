@@ -31,6 +31,8 @@ export type CreateChangeResult = ChangeSummary & {
   message: string;
 };
 
+const QUICK_LABELS = ["quick", "low-risk"] as const;
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -55,6 +57,17 @@ function injectPlanningSections(body: string, strictness: PlanningStrictness): s
   return `${body.trimEnd()}\n\n${planningBlock}`;
 }
 
+function uniqueLabels(labels: string[]): string[] {
+  const seen = new Set<string>();
+  const deduped: string[] = [];
+  for (const label of labels) {
+    if (!label || seen.has(label)) continue;
+    seen.add(label);
+    deduped.push(label);
+  }
+  return deduped;
+}
+
 export function createChange(options: CreateOptions, repoRoot = process.cwd(), mutationOptions: MutationOptions = {}): CreateChangeResult {
   if (!options.title) throw new Error("--title is required");
   const config = loadConfig(repoRoot);
@@ -64,11 +77,17 @@ export function createChange(options: CreateOptions, repoRoot = process.cwd(), m
 
   const template = loadTemplate(root, options.template);
   const parsedTemplate = parseFrontmatter(readFileSync(template.path, "utf8"));
+  const isQuickTemplate = template.definition.type === "quick";
   const id = allocateId(changes, config.project.idPrefix);
   const slug = slugifyTitle(options.title);
   const createdAt = nowIso();
-  const labels = options.labels?.length ? options.labels : ["agent-ready"];
   const requestedPlanning = resolvePlanningModel(options, config.planning?.defaultProfile);
+  if (isQuickTemplate && requestedPlanning !== "none") {
+    throw new Error("Quick changes cannot enable planning. Create the quick change first, then convert it to planned mode.");
+  }
+  const labels = isQuickTemplate
+    ? uniqueLabels([...(options.labels ?? []), ...QUICK_LABELS])
+    : (options.labels?.length ? options.labels : ["agent-ready"]);
   if (requestedPlanning !== "none" && requestedPlanning !== "openspec-lite") {
     throw new Error(`Unsupported planning model: ${requestedPlanning}`);
   }
@@ -83,7 +102,7 @@ export function createChange(options: CreateOptions, repoRoot = process.cwd(), m
     title: options.title,
     type: template.definition.type,
     status: "ready",
-    priority: options.priority ?? "medium",
+    priority: options.priority ?? (isQuickTemplate ? "low" : "medium"),
     labels,
     author: options.author ?? process.env.USER ?? "unknown",
     createdAt,
@@ -108,11 +127,22 @@ export function createChange(options: CreateOptions, repoRoot = process.cwd(), m
       pullRequestUrl: null,
     },
     checks: {
-      profile: "standard",
+      profile: isQuickTemplate ? "minimal" : "standard",
       lastRun: null,
       lastStatus: null,
     },
   };
+
+  if (isQuickTemplate) {
+    frontmatter.planning = {
+      model: "none",
+    };
+    frontmatter.workflow = {
+      mode: "quick",
+      risk: "low",
+      requiresWorkspace: true,
+    };
+  }
 
   if (requestedPlanning === "openspec-lite") {
     frontmatter.planning = createDefaultPlanningMetadata({
@@ -132,7 +162,15 @@ export function createChange(options: CreateOptions, repoRoot = process.cwd(), m
     });
   }
 
-  const validation = validateParsedChange(frontmatter, body, template.definition);
+  const validation = validateParsedChange(frontmatter, body, template.definition, {
+    config: {
+      ...config,
+      planning: {
+        ...config.planning,
+        quickChangeEscalation: "off",
+      },
+    },
+  });
   if (!validation.valid) throw new Error(`Generated change failed validation:\n${validation.errors.join("\n")}`);
 
   const filePath = path.join(changes, `${id}-${slug}.md`);

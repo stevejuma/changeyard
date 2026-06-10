@@ -55,6 +55,10 @@ export const defaultConfig: ChangeyardConfig = {
   planning: {
     defaultProfile: "none",
     defaultStrictness: "normal",
+    allowQuickChanges: true,
+    quickChangeCheckProfile: "minimal",
+    quickChangeRequiresWorkspace: true,
+    quickChangeEscalation: "warn",
     requireBeforeStart: true,
     requireBeforeComplete: true,
     syncSummaryToProvider: true,

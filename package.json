@@ -4,32 +4,45 @@
   "description": "Generic markdown-first local change workflow manager prototype.",
   "type": "module",
   "workspaces": [
-    "packages/kanban"
+    "packages/kanban",
+    "packages/tui"
   ],
   "bin": {
-    "changeyard": "./dist/src/cli.js",
-    "cy": "./dist/src/cli.js"
+    "changeyard": "./scripts/cy.mjs",
+    "cy": "./scripts/cy.mjs"
   },
   "scripts": {
     "build:cli": "tsc -p tsconfig.json && mkdir -p dist/src/templates dist/src/planning/templates/prompts && cp src/templates/*.md dist/src/templates/ && cp src/planning/templates/prompts/*.md dist/src/planning/templates/prompts/",
     "build:kanban": "npm --workspace @changeyard/kanban run build",
+    "build:tui": "npm --workspace @changeyard/tui run build",
     "build": "npm run build:cli && npm run build:kanban",
-    "cli": "node dist/src/cli.js",
-    "test": "npm run build && node --test dist/tests/*.test.js",
-    "check": "npm run build:cli && npm --workspace @changeyard/kanban run typecheck",
+    "cli": "node scripts/cy.mjs",
+    "cy": "node scripts/cy.mjs",
+    "cy:dev": "CHANGEYARD_DEV=1 node scripts/cy.mjs",
+    "test": "npm run build && node --test --test-force-exit dist/tests/*.test.js",
+    "check:node": "npm run build:cli && npm --workspace @changeyard/kanban run typecheck",
+    "check:tui": "npm --workspace @changeyard/tui run typecheck && node scripts/verify-tui-endpoints.mjs && npm --workspace @changeyard/tui run test",
+    "check": "npm run check:node",
     "pack:check": "npm run build && npm pack --dry-run",
     "prepack": "npm run build",
+    "smoke:tui": "node scripts/tui-smoke.mjs",
     "smoke:forge": "node scripts/live-forge-smoke.mjs",
     "smoke:install": "node scripts/smoke-install-from-tarball.mjs"
   },
   "engines": {
     "node": ">=22.0.0"
   },
+  "devDependencies": {
+    "tsx": "^4.21.0"
+  },
   "files": [
     "dist/src",
     "packages/kanban/dist",
     "packages/kanban/package.json",
     "packages/kanban/README.md",
+    "packages/tui/src",
+    "packages/tui/package.json",
+    "packages/tui/tsconfig.json",
     "README.md",
     "docs",
     "scripts"

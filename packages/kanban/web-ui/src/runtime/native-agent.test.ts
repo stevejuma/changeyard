@@ -20,7 +20,7 @@ function createRuntimeConfigResponse(
 		agentAutonomousModeEnabled: true,
 		effectiveCommand: selectedAgentId === "cline" ? null : selectedAgentId,
 		globalConfigPath: "/tmp/global-config.json",
-		projectConfigPath: "/tmp/project/.cline/kanban/config.json",
+		projectConfigPath: "/tmp/project/.changeyard/kanban/config.json",
 		readyForReviewNotificationsEnabled: true,
 		detectedCommands: ["claude", "codex"],
 		agents: [

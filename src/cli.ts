@@ -13,22 +13,28 @@ import {
   runPlanStrictEnable,
 } from "./commands/plan.js";
 import { runCreate } from "./commands/create.js";
+import { runHooks } from "./commands/hooks.js";
 import { runHydrate } from "./commands/hydrate.js";
 import { runInit } from "./commands/init.js";
+import { runUpdate } from "./commands/update.js";
 import { listChanges, runList } from "./commands/list.js";
 import { runRecover } from "./commands/recover.js";
 import { runReviewComplete, runReviewStart } from "./commands/review.js";
+import { runServer } from "./commands/server.js";
 import { runStart } from "./commands/start.js";
 import { getStatus, runStatus } from "./commands/status.js";
 import { runSync } from "./commands/sync.js";
+import { runTui } from "./commands/tui.js";
 import { runUi } from "./commands/ui.js";
 import { runValidate } from "./commands/validate.js";
 import { runVerify } from "./commands/verify.js";
+import { runInstallCli, runUninstallCli } from "./commands/install-cli.js";
 import { findRepoRoot } from "./config/loadConfig.js";
 import { errorCode, errorExitCode } from "./errors.js";
 import type { PlanningModel } from "./planning/types.js";
+import type { CreateOptions } from "./commands/create.js";
 
-type CommandName = "init" | "create" | "validate" | "sync" | "start" | "verify" | "hydrate" | "complete" | "review" | "doctor" | "completions" | "recover" | "list" | "status" | "plan" | "ui" | "help";
+type CommandName = "init" | "update" | "create" | "quick" | "validate" | "sync" | "start" | "verify" | "hydrate" | "complete" | "review" | "doctor" | "completions" | "recover" | "list" | "status" | "plan" | "ui" | "server" | "tui" | "hooks" | "install" | "uninstall" | "help";
 
 type ParsedArgs = {
   command: string;
@@ -84,6 +90,31 @@ function stringFlag(flags: Record<string, string | boolean | string[]>, name: st
   return typeof value === "string" ? value : undefined;
 }
 
+function labelsFlag(flags: Record<string, string | boolean | string[]>): string[] | undefined {
+  const labels = flags.label;
+  if (Array.isArray(labels)) return labels;
+  if (typeof labels === "string") return [labels];
+  return undefined;
+}
+
+function createOptionsFromFlags(
+  flags: Record<string, string | boolean | string[]>,
+  defaults: Partial<CreateOptions> = {},
+): CreateOptions {
+  const quickRequested = defaults.template === "quick" || asBooleanFlag(flags, "quick");
+  return {
+    template: defaults.template ?? (quickRequested ? "quick" : stringFlag(flags, "template") ?? "agent-task"),
+    title: stringFlag(flags, "title") ?? "",
+    priority: stringFlag(flags, "priority") ?? defaults.priority,
+    labels: labelsFlag(flags) ?? defaults.labels,
+    author: stringFlag(flags, "author") ?? defaults.author,
+    planFile: stringFlag(flags, "plan-file") ?? defaults.planFile,
+    planning: (stringFlag(flags, "planning") as PlanningModel | undefined) ?? defaults.planning,
+    strict: asBooleanFlag(flags, "strict") || defaults.strict === true,
+    noPlanning: asBooleanFlag(flags, "no-planning") || defaults.noPlanning === true,
+  };
+}
+
 function commandExamples(entries: string[]): string {
   return entries.map((entry) => `  $ ${entry}`).join("\n");
 }
@@ -92,8 +123,11 @@ function usage(): string {
   return `Changeyard: markdown-first local change workflow manager
 
 Usage:
-  cy init [--dry-run]
+  cy init [--dry-run] [--tools all|none|<tool-id>[,<tool-id>...]]
+  cy update [--dry-run] [--tools all|none|<tool-id>[,<tool-id>...]]
   cy create --template <name> --title <title> [--priority <priority>] [--label <label>...] [--author <name>] [--plan-file <path>] [--planning <none|openspec-lite>] [--strict] [--no-planning] [--dry-run]
+  cy create --quick --title <title> [--priority <priority>] [--label <label>...] [--author <name>] [--dry-run]
+  cy quick --title <title> [--priority <priority>] [--label <label>...] [--author <name>] [--dry-run]
   cy validate CY-0001
   cy sync CY-0001 [--dry-run]
   cy start CY-0001 [--dry-run]
@@ -114,6 +148,11 @@ Usage:
   cy plan export CY-0001 --format openspec [--dry-run]
   cy plan import CY-0001 --format speckit [--dry-run]
   cy ui [--host <host>] [--port <port|auto>] [--open|--no-open]
+  cy server [--host <host>] [--port <port|auto>] [--project <path>] [--json]
+  cy tui [--connect <url>] [--host <host>] [--port <port|auto>] [--project <path>] [--debug]
+  cy hooks ingest --event to_review|to_in_progress|activity
+  cy install [--dir <path>] [--dry-run]
+  cy uninstall [--dir <path>] [--dry-run]
 
 Global options:
   --json         print machine-readable output
@@ -132,14 +171,26 @@ Aliases:
 
 function commandUsage(command: string): string {
   const lines: Record<string, string> = {
-    init: `${"init".padEnd(12)}create .changeyard and initial template files.\n\nExamples:\n${commandExamples([
+    init: `${"init".padEnd(12)}create .changeyard, templates, and agent skills/commands for detected tools.\n\nExamples:\n${commandExamples([
       "cy init",
-      "cy init --dry-run",
+      "cy init --tools cursor,claude",
+      "cy init --tools all --dry-run",
+    ])}`,
+    update: `${"update".padEnd(12)}refresh bundled templates, skills, and agent slash commands.\n\nExamples:\n${commandExamples([
+      "cy update",
+      "cy update --tools cursor",
+      "cy update --dry-run",
     ])}`,
     create: `${"create".padEnd(12)}create a new change from a template.\n\nExamples:\n${commandExamples([
       "cy create --template agent-task --title \"Add workspace verification\"",
       "cy create --template feature --title \"Add export command\" --label api --priority high",
       "cy create --template feature --title \"Add plugin permissions UI\" --planning openspec-lite --strict",
+      "cy create --quick --title \"Fix broken link\"",
+    ])}`,
+    quick: `${"quick".padEnd(12)}create a low-risk quick change.\n\nExamples:\n${commandExamples([
+      "cy quick --title \"Fix typo in README\"",
+      "cy quick --title \"Update docs wording\" --label docs",
+      "cy quick --dry-run --title \"Tighten release note copy\"",
     ])}`,
     validate: `${"validate".padEnd(12)}validate one change against templates and schema.\n\nExample:\n${commandExamples(["cy validate CY-0001"])}`,
     sync: `${"sync".padEnd(12)}sync change metadata to remote provider.\n\nExample:\n${commandExamples(["cy sync CY-0001", "cy sync CY-0001 --dry-run"])}`,
@@ -166,6 +217,17 @@ function commandUsage(command: string): string {
     status: `${"status".padEnd(12)}print one change summary.\n\nExample:\n${commandExamples(["cy status CY-0001"])}`,
     plan: `${"plan".padEnd(12)}inspect planning status, generate planning prompts, toggle strict mode, or manage adapter mirrors.\n\nExamples:\n${commandExamples(["cy plan status CY-0001", "cy plan status CY-0001 --json", "cy plan prompt CY-0001 proposal", "cy plan strict enable CY-0001", "cy plan export CY-0001 --format openspec", "cy plan import CY-0001 --format speckit --dry-run"])}`,
     ui: `${"ui".padEnd(12)}start the local Changeyard board UI.\n\nExamples:\n${commandExamples(["cy ui --no-open", "cy ui --host 127.0.0.1 --port 4310"])}`,
+    server: `${"server".padEnd(12)}start the local Changeyard runtime API without opening the browser UI.\n\nExamples:\n${commandExamples(["cy server", "cy server --host 127.0.0.1 --port auto", "cy server --project /path/to/repo --json"])}`,
+    tui: `${"tui".padEnd(12)}start the OpenTUI terminal interface. Requires Bun.\n\nExamples:\n${commandExamples(["cy tui", "cy tui --connect http://127.0.0.1:4310", "cy tui --project /path/to/repo --debug"])}`,
+    hooks: `${"hooks".padEnd(12)}forward terminal-agent hook events to the local Changeyard runtime.\n\nExamples:\n${commandExamples(["cy hooks ingest --event to_review", "cy hooks notify --event activity --activity-text \"Waiting for input\""])}`,
+    install: `${"install".padEnd(12)}symlink cy and changeyard into a local bin directory (default: ~/.local/bin).\n\nExamples:\n${commandExamples([
+      "cy install",
+      "cy install --dir ~/.local/bin --dry-run",
+    ])}`,
+    uninstall: `${"uninstall".padEnd(12)}remove Changeyard symlinks installed by cy install.\n\nExamples:\n${commandExamples([
+      "cy uninstall",
+      "cy uninstall --dir ~/.local/bin",
+    ])}`,
     help: usage(),
   };
   return lines[command] ?? usage();
@@ -177,6 +239,7 @@ function commandBaseName(command: string): CommandName {
   if (command === "check") return "verify";
   if (command === "done") return "complete";
   if (command === "kanban") return "ui";
+  if (command === "view" || command === "menu") return "tui";
   return command as CommandName;
 }
 
@@ -193,7 +256,6 @@ function jsonPayload(command: string, output: unknown): { command: string; messa
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const command = commandBaseName(args.command);
-  const repoRoot = findRepoRoot();
   const json = asBooleanFlag(args.flags, "json");
   const quiet = asBooleanFlag(args.flags, "quiet");
   const verbose = asBooleanFlag(args.flags, "verbose");
@@ -201,6 +263,8 @@ async function main(): Promise<void> {
   const fix = asBooleanFlag(args.flags, "fix");
   const shouldShowText = !(quiet && !json);
   const mutationOptions: MutationOptions = { dryRun, fix, verbose };
+  const projectRoot = stringFlag(args.flags, "project");
+  const repoRoot = command === "help" ? process.cwd() : findRepoRoot(projectRoot ?? process.cwd());
 
   if (asBooleanFlag(args.flags, "help") || asBooleanFlag(args.flags, "h")) {
     const output = commandUsage(command);
@@ -213,21 +277,17 @@ async function main(): Promise<void> {
   try {
     switch (command) {
       case "init":
-        output = runInit(repoRoot, { dryRun });
+        output = runInit(repoRoot, { dryRun, tools: stringFlag(args.flags, "tools") });
+        break;
+      case "update":
+        output = runUpdate(repoRoot, { dryRun, tools: stringFlag(args.flags, "tools") });
         break;
       case "create": {
-        const labels = args.flags.label;
-        output = runCreate({
-          template: stringFlag(args.flags, "template") ?? "agent-task",
-          title: stringFlag(args.flags, "title") ?? "",
-          priority: stringFlag(args.flags, "priority"),
-          labels: Array.isArray(labels) ? labels : typeof labels === "string" ? [labels] : undefined,
-          author: stringFlag(args.flags, "author"),
-          planFile: stringFlag(args.flags, "plan-file"),
-          planning: stringFlag(args.flags, "planning") as PlanningModel | undefined,
-          strict: asBooleanFlag(args.flags, "strict"),
-          noPlanning: asBooleanFlag(args.flags, "no-planning"),
-        }, repoRoot, { dryRun });
+        output = runCreate(createOptionsFromFlags(args.flags), repoRoot, { dryRun });
+        break;
+      }
+      case "quick": {
+        output = runCreate(createOptionsFromFlags(args.flags, { template: "quick" }), repoRoot, { dryRun });
         break;
       }
       case "validate":
@@ -316,6 +376,43 @@ async function main(): Promise<void> {
         }, process.cwd());
         break;
       }
+      case "server": {
+        const rawPort = stringFlag(args.flags, "port");
+        output = await runServer({
+          host: stringFlag(args.flags, "host"),
+          port: rawPort === "auto" ? "auto" : rawPort ? Number(rawPort) : undefined,
+          project: projectRoot,
+        }, process.cwd());
+        break;
+      }
+      case "tui": {
+        const rawPort = stringFlag(args.flags, "port");
+        output = await runTui({
+          connect: stringFlag(args.flags, "connect"),
+          debug: asBooleanFlag(args.flags, "debug"),
+          host: stringFlag(args.flags, "host"),
+          port: rawPort === "auto" ? "auto" : rawPort ? Number(rawPort) : undefined,
+          project: projectRoot,
+          smokeTest: asBooleanFlag(args.flags, "smoke-test"),
+          smokeCreateAll: asBooleanFlag(args.flags, "smoke-create-all"),
+        }, process.cwd());
+        break;
+      }
+      case "hooks":
+        output = await runHooks(args.positional, args.flags);
+        break;
+      case "install":
+        output = runInstallCli({
+          dir: stringFlag(args.flags, "dir"),
+          dryRun,
+        });
+        break;
+      case "uninstall":
+        output = runUninstallCli({
+          dir: stringFlag(args.flags, "dir"),
+          dryRun,
+        });
+        break;
       case "help":
       default:
         if (command === "help") output = usage();
