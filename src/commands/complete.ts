@@ -1,9 +1,11 @@
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { quickCompletionProfile, validateQuickCompletion } from "../change/quickLifecycle.js";
 import { loadConfig } from "../config/loadConfig.js";
 import { parseFrontmatter, writeFrontmatter } from "../documents/frontmatter.js";
 import { parseSections } from "../documents/sections.js";
-import { changesRoot, workspacesRoot } from "../paths.js";
+import { validateChangeFile } from "../documents/validateDocument.js";
+import { changesRoot, storageRoot, workspacesRoot } from "../paths.js";
 import { validatePlanningForGate } from "../planning/validation.js";
 import { findChangeFile } from "../state/id.js";
 import type { Frontmatter } from "../types.js";
@@ -62,20 +64,26 @@ function asRecord(value: unknown): Frontmatter {
 
 export function runComplete(id: string, options: CompleteOptions = {}, cwd = process.cwd()): string {
   if (!id) throw new Error("change id is required");
-  runVerify(id, cwd);
   const metadata = readWorkspaceMetadata(id, cwd);
   const config = loadConfig(metadata.repoRoot);
   const changePath = findChangeFile(changesRoot(metadata.repoRoot, config), id) ?? metadata.changePath;
   const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
+  runVerify(id, cwd);
   assertTransition(String(parsed.frontmatter.status ?? ""), "ready_for_pr", `Complete ${id}`);
+  const validation = validateChangeFile(changePath, storageRoot(metadata.repoRoot, config), { gate: "complete", config });
+  if (!validation.valid) throw new Error(validation.errors.join("\n"));
   const planningValidation = validatePlanningForGate(parsed.frontmatter, parsed.body, "complete");
   if (!planningValidation.valid) throw new Error(planningValidation.errors.join("\n"));
+  const quickValidation = validateQuickCompletion(parsed.frontmatter, parsed.body);
+  if (!quickValidation.valid) throw new Error(quickValidation.errors.join("\n"));
   if (!completionNotesPresent(parsed.body)) throw new Error("Completion Notes must be filled before completing a change");
   if (!options.noCodeChange && !hasWorkspaceChanges(metadata.repoRoot, metadata.path, config.workspace.hydrate.neverCopy)) {
     throw new Error("No workspace changes detected; use --no-code-change to complete metadata-only work");
   }
 
-  const profile = options.profile ?? String(asRecord(parsed.frontmatter.checks).profile ?? "standard");
+  const profile = options.profile
+    ?? quickCompletionProfile(parsed.frontmatter, config)
+    ?? String(asRecord(parsed.frontmatter.checks).profile ?? "standard");
   const commands = config.checks[profile] ?? [];
   const logPath = path.join(workspacesRoot(metadata.repoRoot, config), id, "logs", "checks.log");
 

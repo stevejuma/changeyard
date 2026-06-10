@@ -1,3 +1,4 @@
+import { defaultConfig } from "../config/defaults.js";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { CHANGE_STATUSES, type Frontmatter, type TemplateDefinition } from "../types.js";
@@ -5,6 +6,8 @@ import { validatePlanningForGate, type ValidationGate } from "../planning/valida
 import { parseFrontmatter } from "./frontmatter.js";
 import { hasCheckboxTask, hasUncheckedCheckboxTask, parseSections } from "./sections.js";
 import { loadTemplate } from "./template.js";
+import { validateQuickChange } from "./validateQuick.js";
+import type { ChangeyardConfig } from "../types.js";
 
 export type ValidationResult = {
   valid: boolean;
@@ -17,7 +20,12 @@ function valueMissing(frontmatter: Frontmatter, key: string): boolean {
   return value === undefined || value === null || value === "" || (Array.isArray(value) && value.length === 0);
 }
 
-export function validateParsedChange(frontmatter: Frontmatter, body: string, template?: TemplateDefinition, options: { gate?: ValidationGate } = {}): ValidationResult {
+export function validateParsedChange(
+  frontmatter: Frontmatter,
+  body: string,
+  template?: TemplateDefinition,
+  options: { gate?: ValidationGate; config?: ChangeyardConfig } = {},
+): ValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];
   const required = new Set(["id", "title", "type", "status", ...(template?.requiredFrontmatter ?? [])]);
@@ -46,7 +54,7 @@ export function validateParsedChange(frontmatter: Frontmatter, body: string, tem
   }
 
   const acceptanceCriteria = sections.get("Acceptance Criteria") ?? "";
-  if (template?.validation.requireUncheckedAcceptanceCriteria && !hasUncheckedCheckboxTask(acceptanceCriteria)) {
+  if (template?.validation.requireUncheckedAcceptanceCriteria && options.gate !== "complete" && !hasUncheckedCheckboxTask(acceptanceCriteria)) {
     errors.push("Acceptance Criteria must include at least one unchecked task");
   }
 
@@ -54,10 +62,21 @@ export function validateParsedChange(frontmatter: Frontmatter, body: string, tem
   errors.push(...planningValidation.errors);
   warnings.push(...planningValidation.warnings);
 
+  const quickValidation = validateQuickChange(frontmatter, body, {
+    gate: options.gate ?? "document",
+    config: options.config ?? defaultConfig,
+  });
+  errors.push(...quickValidation.errors);
+  warnings.push(...quickValidation.warnings);
+
   return { valid: errors.length === 0, errors, warnings };
 }
 
-export function validateChangeFile(filePath: string, storageRoot: string, options: { gate?: ValidationGate } = {}): ValidationResult {
+export function validateChangeFile(
+  filePath: string,
+  storageRoot: string,
+  options: { gate?: ValidationGate; config?: ChangeyardConfig } = {},
+): ValidationResult {
   const parsed = parseFrontmatter(readFileSync(filePath, "utf8"));
   let template: TemplateDefinition | undefined;
   const type = typeof parsed.frontmatter.type === "string" ? parsed.frontmatter.type : undefined;

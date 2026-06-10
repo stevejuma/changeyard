@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { isQuickChange, planningModel, workflowMetadata } from "../change/changeMetadata.js";
 import { loadConfig } from "../config/loadConfig.js";
 import { parseFrontmatter, writeFrontmatter } from "../documents/frontmatter.js";
 import { validateChangeFile } from "../documents/validateDocument.js";
@@ -25,7 +26,7 @@ export function runSync(id: string, repoRoot = process.cwd(), mutationOptions: M
   const filePath = findChangeFile(changesRoot(repoRoot, config), id);
   if (!filePath) throw new Error(`Change not found: ${id}`);
 
-  const validation = validateChangeFile(filePath, root, { gate: "sync" });
+  const validation = validateChangeFile(filePath, root, { gate: "sync", config });
   if (!validation.valid) throw new Error(validation.errors.join("\n"));
 
   const parsed = parseFrontmatter(readFileSync(filePath, "utf8"));
@@ -69,5 +70,11 @@ export function runSync(id: string, repoRoot = process.cwd(), mutationOptions: M
 
   const relativeChangePath = path.relative(repoRoot, filePath);
   const target = remote.issueUrl ? ` -> ${remote.issueUrl}` : "";
-  return `Synced ${String(parsed.frontmatter.id ?? id)} with ${provider.name}${target}\nUpdated ${relativeChangePath}`;
+  const lines = [`Synced ${String(parsed.frontmatter.id ?? id)} with ${provider.name}${target}`];
+  if (isQuickChange(nextFrontmatter)) {
+    const workflow = workflowMetadata(nextFrontmatter);
+    lines.push(`Workflow: ${workflow?.mode ?? "quick"} | Planning: ${planningModel(nextFrontmatter)} | Risk: ${workflow?.risk ?? "low"}`);
+  }
+  lines.push(`Updated ${relativeChangePath}`);
+  return lines.join("\n");
 }

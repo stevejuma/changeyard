@@ -95,7 +95,7 @@ export function resolveMcpSettingsPath(): string {
 	if (configuredPath) {
 		return resolve(configuredPath);
 	}
-	return join(homedir(), ".cline", "data", "settings", "cline_mcp_settings.json");
+	return join(homedir(), ".changeyard", "data", "settings", "cline_mcp_settings.json");
 }
 
 function parseSettingsFile(filePath: string): RuntimeClineMcpServer[] {

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, chmodSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
@@ -20,6 +20,11 @@ import {
 import { runCreate } from "../src/commands/create.js";
 import { runHydrate } from "../src/commands/hydrate.js";
 import { runInit } from "../src/commands/init.js";
+import { runUpdate } from "../src/commands/update.js";
+import { formatCommandPreview } from "../src/scaffold/command-generation/generator.js";
+import { cursorAdapter } from "../src/scaffold/command-generation/adapters/cursor.js";
+import { getCommandContents } from "../src/scaffold/templates/commands.js";
+import { CANONICAL_SKILL_RELATIVE_PATH } from "../src/scaffold/skill-generation.js";
 import { listChanges, runList } from "../src/commands/list.js";
 import { runRecover } from "../src/commands/recover.js";
 import { runReviewComplete, runReviewStart } from "../src/commands/review.js";
@@ -28,8 +33,17 @@ import { getStatus, runStatus } from "../src/commands/status.js";
 import { runSync } from "../src/commands/sync.js";
 import { runValidate } from "../src/commands/validate.js";
 import { runVerify } from "../src/commands/verify.js";
+import {
+  cliBinNames,
+  ensureExecutable,
+  runInstallCli,
+  runUninstallCli,
+} from "../src/commands/install-cli.js";
+import { repoRootFromModule } from "../src/dev/paths.js";
+import { checkProfile, isQuickChange, planningModel, workflowMode } from "../src/change/changeMetadata.js";
 import { loadConfig } from "../src/config/loadConfig.js";
 import { parseFrontmatter, writeFrontmatter } from "../src/documents/frontmatter.js";
+import { replaceSection } from "../src/documents/sections.js";
 import { validateChangeFile } from "../src/documents/validateDocument.js";
 import { replaceMarkedSection } from "../src/planning/sections.js";
 import { renderProviderIssueBody } from "../src/providers/renderIssueBody.js";
@@ -49,9 +63,22 @@ function cleanup(dir: string): void {
   rmSync(dir, { recursive: true, force: true });
 }
 
+function cliBinPath(): string {
+  return path.join(process.cwd(), "dist", "src", "cli.js");
+}
+
+function nodeBinary(): string {
+  return process.argv[0] ?? "node";
+}
+
 function updatePlannedSection(changePath: string, sectionId: "proposal" | "spec-deltas" | "design" | "tasks" | "verification" | "clarifications" | "requirements-checklist" | "analysis", content: string): void {
   const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
   writeFileSync(changePath, writeFrontmatter(parsed.frontmatter, replaceMarkedSection(parsed.body, sectionId, content)));
+}
+
+function updateSection(changePath: string, sectionName: string, content: string): void {
+  const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
+  writeFileSync(changePath, writeFrontmatter(parsed.frontmatter, replaceSection(parsed.body, sectionName, content)));
 }
 
 function updateAdapterMirrorContent(filePath: string, content: string): void {
@@ -77,13 +104,134 @@ test("init creates config, templates, and storage directories", () => {
     assert.equal(schema.properties.workspace.properties.hydrate.properties.warmupCommand.type, "string");
     assert.deepEqual(schema.properties.planning.properties.defaultProfile.enum, ["none", "openspec-lite"]);
     assert.deepEqual(schema.properties.planning.properties.defaultStrictness.enum, ["normal", "strict"]);
+    assert.deepEqual(schema.properties.planning.properties.quickChangeEscalation.enum, ["off", "warn", "block"]);
     const config = JSON.parse(readFileSync(path.join(repo, ".changeyard", "config.jsonc"), "utf8"));
     assert.equal(config.planning.defaultProfile, "none");
     assert.equal(config.planning.defaultStrictness, "normal");
+    assert.equal(config.planning.allowQuickChanges, true);
+    assert.equal(config.planning.quickChangeCheckProfile, "minimal");
+    assert.equal(config.planning.quickChangeRequiresWorkspace, true);
+    assert.equal(config.planning.quickChangeEscalation, "warn");
     assert.doesNotThrow(() => readFileSync(path.join(repo, ".changeyard", "templates", "agent-task.md"), "utf8"));
+    assert.doesNotThrow(() => readFileSync(path.join(repo, ".changeyard", "templates", "quick.md"), "utf8"));
+    assert.doesNotThrow(() => readFileSync(path.join(repo, CANONICAL_SKILL_RELATIVE_PATH), "utf8"));
   } finally {
     cleanup(repo);
   }
+});
+
+test("init installs cursor agent artifacts when .cursor exists", () => {
+  const repo = tempRepo();
+  try {
+    mkdirSync(path.join(repo, ".cursor"), { recursive: true });
+    runInit(repo);
+    assert.doesNotThrow(() => readFileSync(path.join(repo, ".cursor", "skills", "changeyard", "SKILL.md"), "utf8"));
+    assert.doesNotThrow(() => readFileSync(path.join(repo, ".cursor", "commands", "cy-create.md"), "utf8"));
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("init with explicit tools creates agent paths even when absent", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo, { tools: "cursor" });
+    assert.doesNotThrow(() => readFileSync(path.join(repo, ".cursor", "skills", "changeyard", "SKILL.md"), "utf8"));
+    assert.doesNotThrow(() => readFileSync(path.join(repo, ".cursor", "commands", "cy-doctor.md"), "utf8"));
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("init skips existing agent artifacts on second run", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo, { tools: "cursor" });
+    const skillPath = path.join(repo, ".cursor", "skills", "changeyard", "SKILL.md");
+    writeFileSync(skillPath, "# custom\n");
+    const output = runInit(repo, { tools: "cursor" });
+    assert.match(output, /Skipped existing/);
+    assert.match(readFileSync(skillPath, "utf8"), /# custom/);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("update refreshes bundled templates and agent artifacts", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo, { tools: "cursor" });
+    const skillPath = path.join(repo, ".cursor", "skills", "changeyard", "SKILL.md");
+    writeFileSync(skillPath, "# custom\n");
+    const output = runUpdate(repo, { tools: "cursor" });
+    assert.match(output, /Updated Changeyard scaffold/);
+    assert.match(readFileSync(skillPath, "utf8"), /Changeyard Agent Protocol/);
+    const config = readFileSync(path.join(repo, ".changeyard", "config.jsonc"), "utf8");
+    assert.doesNotThrow(() => JSON.parse(config));
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("init detects git-worktree when .git exists", () => {
+  const repo = tempRepo();
+  try {
+    mkdirSync(path.join(repo, ".git"), { recursive: true });
+    runInit(repo);
+    const config = JSON.parse(readFileSync(path.join(repo, ".changeyard", "config.jsonc"), "utf8"));
+    assert.equal(config.vcs.engine, "git-worktree");
+    assert.equal(config.vcs.fallback, "git-worktree");
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("init detects jj when .jj exists", () => {
+  const repo = tempRepo();
+  try {
+    mkdirSync(path.join(repo, ".jj"), { recursive: true });
+    runInit(repo);
+    const config = JSON.parse(readFileSync(path.join(repo, ".changeyard", "config.jsonc"), "utf8"));
+    assert.equal(config.vcs.engine, "jj");
+    assert.equal(config.vcs.fallback, "jj");
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("init prefers jj over git when both markers exist", () => {
+  const repo = tempRepo();
+  try {
+    mkdirSync(path.join(repo, ".git"), { recursive: true });
+    mkdirSync(path.join(repo, ".jj"), { recursive: true });
+    runInit(repo);
+    const config = JSON.parse(readFileSync(path.join(repo, ".changeyard", "config.jsonc"), "utf8"));
+    assert.equal(config.vcs.engine, "jj");
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("update refreshes detected vcs engine in existing config", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    mkdirSync(path.join(repo, ".jj"), { recursive: true });
+    runUpdate(repo);
+    const config = JSON.parse(readFileSync(path.join(repo, ".changeyard", "config.jsonc"), "utf8"));
+    assert.equal(config.vcs.engine, "jj");
+    assert.equal(config.vcs.fallback, "jj");
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("cursor command adapter formats slash command frontmatter", () => {
+  const create = getCommandContents().find((entry) => entry.id === "create");
+  assert.ok(create);
+  const formatted = formatCommandPreview(create!, cursorAdapter);
+  assert.match(formatted, /name: \/cy-create/);
+  assert.match(formatted, /Create a new Changeyard change/);
 });
 
 test("create allocates a valid markdown change", () => {
@@ -116,6 +264,196 @@ test("create keeps the existing simple format when planning is not enabled", () 
   } finally {
     cleanup(repo);
   }
+});
+
+test("create can generate a quick change with quick metadata defaults", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    const output = runCreate({ template: "quick", title: "Fix README typo" }, repo);
+    assert.match(output, /Created CY-0001/);
+
+    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-fix-readme-typo.md");
+    const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
+    assert.equal(parsed.frontmatter.type, "quick");
+    assert.equal(parsed.frontmatter.priority, "low");
+    assert.deepEqual(parsed.frontmatter.labels, ["quick", "low-risk"]);
+    assert.deepEqual(parsed.frontmatter.planning, { model: "none" });
+    assert.deepEqual(parsed.frontmatter.workflow, {
+      mode: "quick",
+      risk: "low",
+      requiresWorkspace: true,
+    });
+    assert.deepEqual(parsed.frontmatter.checks, {
+      profile: "minimal",
+      lastRun: null,
+      lastStatus: null,
+    });
+    const validationOutput = runValidate("CY-0001", repo);
+    assert.match(validationOutput, /Valid change: \.changeyard\/changes\/CY-0001-fix-readme-typo\.md/);
+    assert.match(validationOutput, /Warning: Quick scope risk review unresolved:/);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("change metadata helpers distinguish quick changes from legacy changes", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "quick", title: "Quick metadata helper coverage", labels: ["docs", "quick"] }, repo);
+    runCreate({ template: "feature", title: "Legacy unplanned change" }, repo);
+
+    const quickPath = path.join(repo, ".changeyard", "changes", "CY-0001-quick-metadata-helper-coverage.md");
+    const legacyPath = path.join(repo, ".changeyard", "changes", "CY-0002-legacy-unplanned-change.md");
+    const quick = parseFrontmatter(readFileSync(quickPath, "utf8")).frontmatter;
+    const legacy = parseFrontmatter(readFileSync(legacyPath, "utf8")).frontmatter;
+
+    assert.equal(planningModel(quick), "none");
+    assert.equal(workflowMode(quick), "quick");
+    assert.equal(checkProfile(quick), "minimal");
+    assert.equal(isQuickChange(quick), true);
+    assert.deepEqual(quick.labels, ["docs", "quick", "low-risk"]);
+
+    assert.equal(planningModel(legacy), "none");
+    assert.equal(workflowMode(legacy), "");
+    assert.equal(checkProfile(legacy), "standard");
+    assert.equal(isQuickChange(legacy), false);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("validate fails malformed quick metadata when quick invariants are broken", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "quick", title: "Broken quick metadata" }, repo);
+    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-broken-quick-metadata.md");
+    const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
+    const nextFrontmatter = {
+      ...parsed.frontmatter,
+      planning: { model: "openspec-lite" },
+      workflow: { mode: "planned", risk: "low", requiresWorkspace: true },
+    };
+    writeFileSync(changePath, writeFrontmatter(nextFrontmatter, `${parsed.body}\n\n<!-- cy:proposal:start -->\n# Proposal\n\nUnexpected.\n<!-- cy:proposal:end -->\n`));
+
+    assert.throws(
+      () => runValidate("CY-0001", repo),
+      /Quick changes must set planning\.model to `none`\.\nQuick changes must set workflow\.mode to `quick`\.\nQuick changes cannot include OpenSpec-lite planning markers unless converted to planned mode\./,
+    );
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("validate warns for unresolved quick scope risk review when escalation is warn", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "quick", title: "Warn on risky quick scope" }, repo);
+    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-warn-on-risky-quick-scope.md");
+    const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
+    const riskyBody = parsed.body.replace("- [ ] No behavior change", "- [x] No behavior change")
+      .replace("- [ ] No public API change", "- [ ] No public API change");
+    writeFileSync(changePath, writeFrontmatter(parsed.frontmatter, riskyBody));
+
+    const output = runValidate("CY-0001", repo);
+    assert.match(output, /Valid change: \.changeyard\/changes\/CY-0001-warn-on-risky-quick-scope\.md/);
+    assert.match(output, /Warning: Quick scope risk review unresolved:/);
+    assert.match(output, /No public API change is not checked/);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("validate blocks risky quick scope when escalation is block", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    writeFileSync(path.join(repo, ".changeyard", "config.local.jsonc"), `{"planning":{"quickChangeEscalation":"block"}}\n`);
+    runCreate({ template: "quick", title: "Block risky quick scope" }, repo);
+    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-block-risky-quick-scope.md");
+    const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
+    const riskyBody = parsed.body.replace("- [ ] No behavior change", "- [x] No behavior change");
+    writeFileSync(changePath, writeFrontmatter(parsed.frontmatter, riskyBody));
+
+    assert.throws(
+      () => runValidate("CY-0001", repo),
+      /Quick scope risk review unresolved:/,
+    );
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("existing configs without planning quick settings still load with defaults", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    writeFileSync(path.join(repo, ".changeyard", "config.local.jsonc"), `{"provider":{"type":"local-folder"}}\n`);
+    const config = loadConfig(repo);
+    assert.equal(config.provider.type, "local-folder");
+    assert.equal(config.planning?.allowQuickChanges, true);
+    assert.equal(config.planning?.quickChangeCheckProfile, "minimal");
+    assert.equal(config.planning?.quickChangeRequiresWorkspace, true);
+    assert.equal(config.planning?.quickChangeEscalation, "warn");
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("cli quick dry-run reports the intended quick change path without writing files", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    const result = spawnSync(nodeBinary(), [cliBinPath(), "quick", "--title", "Fix typo", "--dry-run"], {
+      cwd: repo,
+      encoding: "utf8",
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /Dry-run: would create CY-0001: \.changeyard\/changes\/CY-0001-fix-typo\.md/);
+    assert.equal(result.stderr, "");
+    assert.deepEqual(readdirSync(path.join(repo, ".changeyard", "changes")), []);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("cli create --quick uses the quick template and preserves the standard json envelope", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    const result = spawnSync(nodeBinary(), [cliBinPath(), "create", "--quick", "--title", "Docs wording", "--json"], {
+      cwd: repo,
+      encoding: "utf8",
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const payload = JSON.parse(result.stdout ?? "");
+    assert.equal(payload.ok, true);
+    assert.equal(payload.command, "create");
+    assert.match(payload.message, /Created CY-0001: \.changeyard\/changes\/CY-0001-docs-wording\.md/);
+
+    const parsed = parseFrontmatter(readFileSync(path.join(repo, ".changeyard", "changes", "CY-0001-docs-wording.md"), "utf8"));
+    assert.equal(parsed.frontmatter.type, "quick");
+    assert.deepEqual(parsed.frontmatter.planning, { model: "none" });
+    assert.deepEqual(parsed.frontmatter.workflow, { mode: "quick", risk: "low", requiresWorkspace: true });
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("cli quick --help shows quick-mode examples", () => {
+  const result = spawnSync(nodeBinary(), [cliBinPath(), "quick", "--help"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /cy quick --title "Fix typo in README"/);
+  assert.match(result.stdout, /cy quick --dry-run --title "Tighten release note copy"/);
 });
 
 test("create can generate an openspec-lite planned change", () => {
@@ -368,6 +706,28 @@ test("planned local-folder sync writes a projected planning summary while keepin
   }
 });
 
+test("quick sync renders workflow metadata without planned projections", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    writeFileSync(path.join(repo, ".changeyard", "config.local.jsonc"), `{"provider":{"type":"local-folder"}}\n`);
+    runCreate({ template: "quick", title: "Quick sync workflow metadata" }, repo);
+
+    const output = runSync("CY-0001", repo);
+    assert.match(output, /Workflow: quick \| Planning: none \| Risk: low/);
+
+    const issue = readFileSync(path.join(repo, ".changeyard", "cache", "local-folder", "issues", "0001-CY-0001.md"), "utf8");
+    assert.match(issue, /# Workflow Summary/);
+    assert.match(issue, /- Mode: quick/);
+    assert.match(issue, /- Planning: none/);
+    assert.match(issue, /- Risk: low/);
+    assert.match(issue, /Canonical local file: `\.changeyard\/changes\/CY-0001-quick-sync-workflow-metadata\.md`/);
+    assert.doesNotMatch(issue, /# Planning Summary/);
+  } finally {
+    cleanup(repo);
+  }
+});
+
 test("start creates a plain-copy workspace and verify enforces the workspace directory", () => {
   const repo = tempRepo();
   try {
@@ -391,6 +751,54 @@ test("start creates a plain-copy workspace and verify enforces the workspace dir
     assert.match(readFileSync(path.join(workspacePath, ".changeyard-workspace.json"), "utf8"), /metadataPath/);
     assert.equal(runVerify("CY-0001", workspacePath), "Verified CY-0001 in .changeyard/workspaces/CY-0001/repo");
     assert.throws(() => runVerify("CY-0001", repo), /not inside a Changeyard workspace/);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("cy launcher preserves caller cwd for verify inside a workspace", () => {
+  const repo = tempRepo();
+  const launcher = path.resolve(process.cwd(), "scripts", "cy.mjs");
+  try {
+    runInit(repo);
+    runCreate({ template: "agent-task", title: "Launcher verify cwd" }, repo);
+    runStart("CY-0001", repo);
+    const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
+    const result = spawnSync(nodeBinary(), [launcher, "verify", "CY-0001"], {
+      cwd: workspacePath,
+      encoding: "utf8",
+      env: { ...process.env, CHANGEYARD_USE_DIST: "1" },
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(result.stdout, /Verified CY-0001/);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("quick start succeeds without planned sections", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "quick", title: "Quick start workspace" }, repo);
+    assert.match(runStart("CY-0001", repo), /Started CY-0001 in \.changeyard\/workspaces\/CY-0001\/repo/);
+    const parsed = parseFrontmatter(readFileSync(path.join(repo, ".changeyard", "changes", "CY-0001-quick-start-workspace.md"), "utf8"));
+    assert.equal(parsed.frontmatter.status, "in_progress");
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("quick start blocks when config disables quick changes", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    writeFileSync(path.join(repo, ".changeyard", "config.local.jsonc"), `{"planning":{"allowQuickChanges":false}}\n`);
+    runCreate({ template: "quick", title: "Disabled quick start" }, repo);
+    assert.throws(
+      () => runStart("CY-0001", repo),
+      /Quick changes are disabled by config: set planning\.allowQuickChanges to true or convert this change to planned mode\./,
+    );
   } finally {
     cleanup(repo);
   }
@@ -467,6 +875,80 @@ test("complete runs checks and updates ready_for_pr", () => {
     const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
     assert.equal(parsed.frontmatter.status, "ready_for_pr");
     assert.match(readFileSync(path.join(repo, ".changeyard", "workspaces", "CY-0001", "logs", "checks.log"), "utf8"), /node -v/);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("quick complete defaults to the minimal profile and records quick completion notes", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    writeFileSync(path.join(repo, ".changeyard", "config.local.jsonc"), `{"checks":{"minimal":["node -v"],"standard":["node -p process.version"]}}\n`);
+    runCreate({ template: "quick", title: "Quick complete minimal profile" }, repo);
+    runStart("CY-0001", repo);
+
+    const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
+    writeFileSync(path.join(workspacePath, "implementation.txt"), "done\n");
+
+    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-quick-complete-minimal-profile.md");
+    updateSection(changePath, "Acceptance Criteria", "- [x] Updated the targeted wording\n- [ ] Deferred: screenshot refresh handled separately");
+    updateSection(changePath, "Completion Notes", "Updated the targeted wording. Checks ran: node -v. Remaining risk is low.");
+
+    assert.match(runComplete("CY-0001", { noPr: true }, workspacePath), /Completed CY-0001: 1 checks passed; status ready_for_pr/);
+    const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
+    assert.equal((parsed.frontmatter.checks as { profile?: string }).profile, "minimal");
+
+    const log = readFileSync(path.join(repo, ".changeyard", "workspaces", "CY-0001", "logs", "checks.log"), "utf8");
+    assert.match(log, /node -v/);
+    assert.doesNotMatch(log, /node -p process\.version/);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("quick complete fails when acceptance criteria remain unchecked", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    writeFileSync(path.join(repo, ".changeyard", "config.local.jsonc"), `{"checks":{"minimal":["node -v"]}}\n`);
+    runCreate({ template: "quick", title: "Quick complete blocked AC" }, repo);
+    runStart("CY-0001", repo);
+
+    const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
+    writeFileSync(path.join(workspacePath, "implementation.txt"), "done\n");
+
+    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-quick-complete-blocked-ac.md");
+    updateSection(changePath, "Completion Notes", "Updated the targeted wording. Checks ran: node -v.");
+
+    assert.throws(
+      () => runComplete("CY-0001", { noPr: true }, workspacePath),
+      /Acceptance Criteria must be completed or marked `Deferred: <reason>` before quick completion\./,
+    );
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("quick complete fails when completion notes omit check context", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    writeFileSync(path.join(repo, ".changeyard", "config.local.jsonc"), `{"checks":{"minimal":["node -v"]}}\n`);
+    runCreate({ template: "quick", title: "Quick complete notes gate" }, repo);
+    runStart("CY-0001", repo);
+
+    const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
+    writeFileSync(path.join(workspacePath, "implementation.txt"), "done\n");
+
+    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-quick-complete-notes-gate.md");
+    updateSection(changePath, "Acceptance Criteria", "- [x] Updated the targeted wording");
+    updateSection(changePath, "Completion Notes", "Updated the targeted wording and kept the risk low.");
+
+    assert.throws(
+      () => runComplete("CY-0001", { noPr: true }, workspacePath),
+      /Completion Notes must mention checks run or explain why checks were not run before quick completion\./,
+    );
   } finally {
     cleanup(repo);
   }
@@ -572,6 +1054,24 @@ test("review start and complete update review and change status", () => {
     assert.match(review, /status: approved/);
     const change = parseFrontmatter(readFileSync(path.join(repo, ".changeyard", "changes", "CY-0001-review-workflow.md"), "utf8"));
     assert.equal(change.frontmatter.status, "approved");
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("quick review start writes quick workflow context", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "quick", title: "Quick review workflow" }, repo);
+    assert.match(runReviewStart("CY-0001", repo), /Started review 1/);
+
+    const review = readFileSync(path.join(repo, ".changeyard", "reviews", "CY-0001", "review-001.md"), "utf8");
+    assert.match(review, /# Quick Change Context/);
+    assert.match(review, /- Mode: quick/);
+    assert.match(review, /- Planning: none/);
+    assert.match(review, /- Risk: low/);
+    assert.match(review, /- Checks profile: minimal/);
   } finally {
     cleanup(repo);
   }
@@ -1048,12 +1548,24 @@ test("HTTP provider helper surfaces remote status and JSON errors", () => {
 test("package metadata includes release smoke scripts", () => {
   const packageJson = JSON.parse(readFileSync(path.join(process.cwd(), "package.json"), "utf8"));
   assert.equal(packageJson.scripts.prepack, "npm run build");
-  assert.equal(packageJson.scripts.cli, "node dist/src/cli.js");
+  assert.equal(packageJson.scripts.cli, "node scripts/cy.mjs");
+  assert.equal(packageJson.scripts.test, "npm run build && node --test --test-force-exit dist/tests/*.test.js");
   assert.equal(packageJson.scripts["build:kanban"], "npm --workspace @changeyard/kanban run build");
   assert.equal(packageJson.scripts["pack:check"], "npm run build && npm pack --dry-run");
-  assert.equal(packageJson.bin.cy, "./dist/src/cli.js");
+  assert.equal(packageJson.bin.cy, "./scripts/cy.mjs");
   assert.equal(packageJson.engines.node, ">=22.0.0");
-  assert.deepEqual(packageJson.files, ["dist/src", "packages/kanban/dist", "packages/kanban/package.json", "packages/kanban/README.md", "README.md", "docs", "scripts"]);
+  assert.deepEqual(packageJson.files, [
+    "dist/src",
+    "packages/kanban/dist",
+    "packages/kanban/package.json",
+    "packages/kanban/README.md",
+    "packages/tui/src",
+    "packages/tui/package.json",
+    "packages/tui/tsconfig.json",
+    "README.md",
+    "docs",
+    "scripts",
+  ]);
 });
 
 
@@ -1085,7 +1597,16 @@ test("doctor reports workspace drift and recover all repairs missing markers", (
 });
 
 function runCommand(command: string, args: string[], cwd: string): void {
-  const result = spawnSync(command, args, { cwd, encoding: "utf8" });
+  const nextArgs = command === "git"
+    ? [
+        "-c",
+        "commit.gpgsign=false",
+        "-c",
+        "tag.gpgsign=false",
+        ...(args[0] === "commit" ? ["commit", "--no-gpg-sign", ...args.slice(1)] : args),
+      ]
+    : args;
+  const result = spawnSync(command, nextArgs, { cwd, encoding: "utf8" });
   if (result.status !== 0) throw new Error(result.stderr || `${command} ${args.join(" ")} failed`);
 }
 
@@ -1126,5 +1647,102 @@ test("jj workspace engine can verify a real jj workspace when jj is installed", 
     assert.deepEqual(engine.verify({ cwd: workspacePath, metadata: created }), { valid: true, errors: [] });
   } finally {
     cleanup(repo);
+  }
+});
+
+test("install symlinks package bin names into a local directory", () => {
+  const installDir = tempRepo();
+  const repoRoot = repoRootFromModule(new URL("../src/commands/install-cli.ts", import.meta.url));
+  const launcher = path.resolve(repoRoot, "scripts", "cy.mjs");
+  const names = cliBinNames(repoRoot);
+  try {
+    assert.ok(existsSync(launcher));
+    assert.deepEqual(names, ["changeyard", "cy"]);
+
+    const output = runInstallCli({ dir: installDir });
+    assert.match(output, /Linked/);
+    for (const name of names) {
+      const linkPath = path.join(installDir, name);
+      assert.ok(existsSync(linkPath));
+      assert.ok(lstatSync(linkPath).isSymbolicLink());
+      assert.equal(path.resolve(path.dirname(linkPath), readlinkSync(linkPath)), launcher);
+    }
+
+    const again = runInstallCli({ dir: installDir });
+    assert.match(again, /Already linked/);
+
+    const removed = runUninstallCli({ dir: installDir });
+    assert.match(removed, /Removed/);
+    for (const name of names) {
+      assert.equal(existsSync(path.join(installDir, name)), false);
+    }
+  } finally {
+    cleanup(installDir);
+  }
+});
+
+test("install refuses to overwrite an unrelated binary", () => {
+  const installDir = tempRepo();
+  try {
+    mkdirSync(installDir, { recursive: true });
+    writeFileSync(path.join(installDir, "cy"), "#!/bin/sh\n");
+    assert.throws(() => runInstallCli({ dir: installDir }), /Refusing to overwrite/);
+  } finally {
+    cleanup(installDir);
+  }
+});
+
+test("install makes the launcher executable", () => {
+  const installDir = tempRepo();
+  const repoRoot = repoRootFromModule(new URL("../src/commands/install-cli.ts", import.meta.url));
+  const launcher = path.resolve(repoRoot, "scripts", "cy.mjs");
+  const originalMode = statSync(launcher).mode;
+  try {
+    chmodSync(launcher, 0o644);
+    const output = runInstallCli({ dir: installDir });
+    assert.match(output, /Made executable/);
+    assert.notEqual(statSync(launcher).mode & 0o111, 0);
+  } finally {
+    chmodSync(launcher, originalMode);
+    runUninstallCli({ dir: installDir });
+    cleanup(installDir);
+  }
+});
+
+test("ensureExecutable is a no-op when the launcher is already executable", () => {
+  const repoRoot = repoRootFromModule(new URL("../src/commands/install-cli.ts", import.meta.url));
+  const launcher = path.resolve(repoRoot, "scripts", "cy.mjs");
+  const originalMode = statSync(launcher).mode;
+  try {
+    chmodSync(launcher, 0o755);
+    assert.equal(ensureExecutable(launcher), false);
+    assert.equal(statSync(launcher).mode & 0o777, 0o755);
+  } finally {
+    chmodSync(launcher, originalMode);
+  }
+});
+
+test("cy install and uninstall work through the CLI", () => {
+  const installDir = tempRepo();
+  const repoRoot = repoRootFromModule(new URL("../src/commands/install-cli.ts", import.meta.url));
+  const launcher = path.resolve(repoRoot, "scripts", "cy.mjs");
+  try {
+    const install = spawnSync(nodeBinary(), [cliBinPath(), "install", "--dir", installDir], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+    });
+    assert.equal(install.status, 0, install.stderr || install.stdout);
+    assert.match(install.stdout, /Linked/);
+    assert.equal(path.resolve(path.dirname(path.join(installDir, "cy")), readlinkSync(path.join(installDir, "cy"))), launcher);
+
+    const uninstall = spawnSync(nodeBinary(), [cliBinPath(), "uninstall", "--dir", installDir], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+    });
+    assert.equal(uninstall.status, 0, uninstall.stderr || uninstall.stdout);
+    assert.match(uninstall.stdout, /Removed/);
+    assert.equal(existsSync(path.join(installDir, "cy")), false);
+  } finally {
+    cleanup(installDir);
   }
 });

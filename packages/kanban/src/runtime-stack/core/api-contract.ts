@@ -71,7 +71,16 @@ export const runtimeSlashCommandsResponseSchema = z.object({
 });
 export type RuntimeSlashCommandsResponse = z.infer<typeof runtimeSlashCommandsResponseSchema>;
 
-export const runtimeAgentIdSchema = z.enum(["claude", "codex", "gemini", "opencode", "droid", "kiro", "cline"]);
+export const runtimeAgentIdSchema = z.enum([
+	"claude",
+	"codex",
+	"gemini",
+	"opencode",
+	"droid",
+	"kiro",
+	"copilot",
+	"cline",
+]);
 export type RuntimeAgentId = z.infer<typeof runtimeAgentIdSchema>;
 
 const runtimeBoardColumnIdEnum = z.enum(["backlog", "in_progress", "review", "trash"]);
@@ -447,7 +456,7 @@ export const runtimeChangeyardChangeGetRequestSchema = z.object({
 export type RuntimeChangeyardChangeGetRequest = z.infer<typeof runtimeChangeyardChangeGetRequestSchema>;
 
 export const runtimeChangeyardChangeCreateRequestSchema = z.object({
-	template: z.enum(["feature", "bug", "refactor", "agent-task"]),
+	template: z.enum(["feature", "bug", "refactor", "agent-task", "quick"]),
 	title: z.string().min(1),
 	priority: z.string().optional(),
 	labels: z.array(z.string()).optional(),
@@ -471,6 +480,71 @@ export const runtimeChangeyardChangeDetailSchema = runtimeChangeyardChangeListIt
 	sections: z.array(runtimeChangeyardPlanningSectionSchema),
 });
 export type RuntimeChangeyardChangeDetail = z.infer<typeof runtimeChangeyardChangeDetailSchema>;
+
+export const runtimeChangeyardPlanningPromptRequestSchema = z.object({
+	id: z.string(),
+	sectionId: runtimeChangeyardPlanningSectionIdSchema,
+});
+export type RuntimeChangeyardPlanningPromptRequest = z.infer<typeof runtimeChangeyardPlanningPromptRequestSchema>;
+
+export const runtimeChangeyardPlanningPromptResponseSchema = z.object({
+	section: runtimeChangeyardPlanningSectionIdSchema,
+	path: z.string(),
+	prompt: z.string(),
+});
+export type RuntimeChangeyardPlanningPromptResponse = z.infer<typeof runtimeChangeyardPlanningPromptResponseSchema>;
+
+export const runtimeChangeyardCompleteRequestSchema = z.object({
+	id: z.string(),
+	noPr: z.boolean().optional(),
+	profile: z.string().optional(),
+});
+export type RuntimeChangeyardCompleteRequest = z.infer<typeof runtimeChangeyardCompleteRequestSchema>;
+
+export const runtimeChangeyardReviewCompleteRequestSchema = z.object({
+	id: z.string(),
+	decision: z.enum(["approve", "request-changes", "reject"]),
+});
+export type RuntimeChangeyardReviewCompleteRequest = z.infer<typeof runtimeChangeyardReviewCompleteRequestSchema>;
+
+export const runtimeChangeyardChangeActionResponseSchema = z.object({
+	message: z.string(),
+	change: runtimeChangeyardChangeDetailSchema,
+});
+export type RuntimeChangeyardChangeActionResponse = z.infer<typeof runtimeChangeyardChangeActionResponseSchema>;
+
+export const runtimeChangeyardProjectConfigSchema = z.object({
+	initialized: z.boolean(),
+	providerType: z.string(),
+	vcsEngine: z.string(),
+	vcsFallback: z.string(),
+	planningDefaultProfile: z.string().optional(),
+});
+export type RuntimeChangeyardProjectConfig = z.infer<typeof runtimeChangeyardProjectConfigSchema>;
+
+export const runtimeChangeyardInitResponseSchema = z.object({
+	message: z.string(),
+});
+export type RuntimeChangeyardInitResponse = z.infer<typeof runtimeChangeyardInitResponseSchema>;
+
+export const runtimeChangeyardUpdateResponseSchema = runtimeChangeyardInitResponseSchema;
+export type RuntimeChangeyardUpdateResponse = z.infer<typeof runtimeChangeyardUpdateResponseSchema>;
+
+export const runtimeChangeyardUpdateProjectConfigRequestSchema = z.object({
+	providerType: z.enum(["noop", "local-folder", "forgejo", "github", "gitlab"]).optional(),
+	vcsEngine: z.enum(["plain-copy", "jj", "git-worktree"]).optional(),
+	vcsFallback: z.enum(["plain-copy", "jj", "git-worktree"]).optional(),
+});
+export type RuntimeChangeyardUpdateProjectConfigRequest = z.infer<
+	typeof runtimeChangeyardUpdateProjectConfigRequestSchema
+>;
+
+export const runtimeChangeyardDoctorResponseSchema = z.object({
+	ok: z.array(z.string()),
+	warnings: z.array(z.string()),
+	notes: z.array(z.string()),
+});
+export type RuntimeChangeyardDoctorResponse = z.infer<typeof runtimeChangeyardDoctorResponseSchema>;
 
 export const runtimeTaskWorkspaceMetadataSchema = z.object({
 	taskId: z.string(),

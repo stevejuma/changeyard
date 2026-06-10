@@ -20,7 +20,7 @@ import { createGitProcessEnv } from "../core/git-process-env.js";
 import { updateTaskDependencies } from "../core/task-board-mutations.js";
 import { type LockRequest, lockedFileSystem } from "../fs/locked-file-system.js";
 
-const RUNTIME_HOME_PARENT_DIR = ".cline";
+const RUNTIME_HOME_PARENT_DIR = ".changeyard";
 const RUNTIME_HOME_DIR = "kanban";
 const RUNTIME_WORKTREES_DIR = "worktrees";
 const WORKSPACES_DIR = "workspaces";

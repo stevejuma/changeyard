@@ -78,6 +78,14 @@ Initialize Changeyard in a repository:
 cy init
 ```
 
+`cy init` creates `.changeyard/` storage and also installs a canonical agent skill at `.agents/skills/changeyard/`. When agent tool directories already exist in the repo (for example `.cursor/`, `.claude/`, or `.cline/`), Changeyard also installs matching skills and `/cy-*` slash commands for those tools. Use `cy init --tools cursor,claude`, `--tools all`, or `--tools none` to control delivery.
+
+Refresh bundled templates, skills, and agent slash commands after upgrading Changeyard:
+
+```bash
+cy update
+```
+
 Create a change:
 
 ```bash
@@ -135,6 +143,10 @@ cy plan import CY-0001 --format speckit
     review.md
   changes/
   reviews/
+.agents/skills/changeyard/SKILL.md
+.cursor/commands/cy-*.md            # when Cursor is present or selected
+.claude/commands/cy/*.md             # when Claude Code is present or selected
+.clinerules/workflows/cy-*.md       # when Cline/ChangeYard is present or selected
 ```
 
 ## Lifecycle target

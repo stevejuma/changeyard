@@ -8,7 +8,11 @@ export function runValidate(id: string, repoRoot = process.cwd()): string {
   const config = loadConfig(repoRoot);
   const changes = changesRoot(repoRoot, config);
   const filePath = findChangeFile(changes, id) ?? path.resolve(repoRoot, id);
-  const result = validateChangeFile(filePath, storageRoot(repoRoot, config));
+  const result = validateChangeFile(filePath, storageRoot(repoRoot, config), { config });
   if (!result.valid) throw new Error(result.errors.join("\n"));
-  return `Valid change: ${path.relative(repoRoot, filePath)}`;
+  const lines = [`Valid change: ${path.relative(repoRoot, filePath)}`];
+  if (result.warnings?.length) {
+    lines.push(...result.warnings.map((warning) => `Warning: ${warning}`));
+  }
+  return lines.join("\n");
 }

@@ -1,15 +1,25 @@
 import { existsSync } from "node:fs";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ChangeyardCard, ChangeyardCardDetail } from "../board/boardTypes.js";
 import { createChangeyardBoardService } from "../board/boardService.js";
+import { runComplete } from "./complete.js";
 import { createChange } from "./create.js";
+import { getPlanPrompt } from "./plan.js";
+import { runReviewComplete, runReviewStart, type ReviewDecision } from "./review.js";
+import { runVerify } from "./verify.js";
 import { validateChangeFile } from "../documents/validateDocument.js";
 import { changesRoot, storageRoot } from "../paths.js";
 import { parseMarkedSections } from "../planning/sections.js";
 import type { ValidationGate } from "../planning/validation.js";
 import { findRepoRoot, loadConfig } from "../config/loadConfig.js";
+import { isChangeyardInitialized, updateLocalConfig } from "../config/localConfig.js";
+import { runInit } from "./init.js";
+import { runUpdate } from "./update.js";
+import { doctorReport } from "./doctor.js";
 import { DEFAULT_PLANNING_SECTION_ORDER, STRICT_PLANNING_SECTION_ORDER, type PlanningSectionId } from "../planning/types.js";
 import { findChangeFile } from "../state/id.js";
+import { importKanbanServer, resolveUiServerModuleUrl as resolveRuntimeUrl } from "../dev/runtime.js";
 
 export type UiOptions = {
   host?: string;
@@ -49,7 +59,7 @@ export function createChangeyardUiApi() {
       { gate: "complete", label: "Complete Gate" },
     ];
     const failures = gates
-      .map(({ gate, label }) => ({ label, result: validateChangeFile(filePath, root, { gate }) }))
+      .map(({ gate, label }) => ({ label, result: validateChangeFile(filePath, root, { gate, config }) }))
       .filter(({ result }) => !result.valid);
     if (failures.length === 0) {
       return;
@@ -113,7 +123,7 @@ export function createChangeyardUiApi() {
       return board.columns.flatMap((column) => column.cards).map((card) => toChangeSummary(card));
     },
     createChange(repoRoot: string, input: {
-      template: "feature" | "bug" | "refactor" | "agent-task";
+      template: "feature" | "bug" | "refactor" | "agent-task" | "quick";
       title: string;
       priority?: string;
       labels?: string[];
@@ -148,6 +158,50 @@ export function createChangeyardUiApi() {
     startChange(repoRoot: string, input: { id: string }) {
       return toChangeDetail(createChangeyardBoardService(repoRoot).startCard(input.id));
     },
+    verifyChange(repoRoot: string, input: { id: string }) {
+      const current = toChangeDetail(createChangeyardBoardService(repoRoot).getCard(input.id));
+      const workspacePath = current.workspace?.path;
+      if (!workspacePath) {
+        throw new Error(`Change ${input.id} has no workspace to verify.`);
+      }
+      const message = runVerify(input.id, path.resolve(repoRoot, workspacePath));
+      return {
+        message,
+        change: toChangeDetail(createChangeyardBoardService(repoRoot).getCard(input.id)),
+      };
+    },
+    completeChange(repoRoot: string, input: { id: string; noPr?: boolean; profile?: string }) {
+      const current = toChangeDetail(createChangeyardBoardService(repoRoot).getCard(input.id));
+      const workspacePath = current.workspace?.path;
+      if (!workspacePath) {
+        throw new Error(`Change ${input.id} has no workspace to complete.`);
+      }
+      const message = runComplete(input.id, {
+        noPr: input.noPr ?? true,
+        profile: input.profile,
+      }, path.resolve(repoRoot, workspacePath));
+      return {
+        message,
+        change: toChangeDetail(createChangeyardBoardService(repoRoot).getCard(input.id)),
+      };
+    },
+    reviewStart(repoRoot: string, input: { id: string }) {
+      const message = runReviewStart(input.id, repoRoot);
+      return {
+        message,
+        change: toChangeDetail(createChangeyardBoardService(repoRoot).getCard(input.id)),
+      };
+    },
+    reviewComplete(repoRoot: string, input: { id: string; decision: ReviewDecision }) {
+      const message = runReviewComplete(input.id, input.decision, repoRoot);
+      return {
+        message,
+        change: toChangeDetail(createChangeyardBoardService(repoRoot).getCard(input.id)),
+      };
+    },
+    planningPrompt(repoRoot: string, input: { id: string; sectionId: PlanningSectionId }) {
+      return getPlanPrompt(input.id, input.sectionId, repoRoot);
+    },
     updatePlanningSection(repoRoot: string, input: {
       id: string;
       sectionId: PlanningSectionId;
@@ -160,6 +214,52 @@ export function createChangeyardUiApi() {
         expectedUpdatedAt: input.expectedUpdatedAt,
       }));
     },
+    initProject(repoRoot: string) {
+      return { message: runInit(repoRoot) };
+    },
+    updateProject(repoRoot: string) {
+      return { message: runUpdate(repoRoot) };
+    },
+    getProjectConfig(repoRoot: string) {
+      const config = loadConfig(repoRoot);
+      return {
+        initialized: isChangeyardInitialized(repoRoot),
+        providerType: config.provider.type,
+        vcsEngine: config.vcs.engine,
+        vcsFallback: config.vcs.fallback,
+        planningDefaultProfile: config.planning?.defaultProfile,
+      };
+    },
+    updateProjectConfig(repoRoot: string, input: {
+      providerType?: "noop" | "local-folder" | "forgejo" | "github" | "gitlab";
+      vcsEngine?: "plain-copy" | "jj" | "git-worktree";
+      vcsFallback?: "plain-copy" | "jj" | "git-worktree";
+    }) {
+      const patch: Parameters<typeof updateLocalConfig>[1] = {};
+      if (input.providerType) patch.provider = { type: input.providerType };
+      if (input.vcsEngine || input.vcsFallback) {
+        patch.vcs = {
+          engine: input.vcsEngine ?? loadConfig(repoRoot).vcs.engine,
+          fallback: input.vcsFallback ?? input.vcsEngine ?? loadConfig(repoRoot).vcs.fallback,
+        };
+      }
+      const config = updateLocalConfig(repoRoot, patch);
+      return {
+        initialized: isChangeyardInitialized(repoRoot),
+        providerType: config.provider.type,
+        vcsEngine: config.vcs.engine,
+        vcsFallback: config.vcs.fallback,
+        planningDefaultProfile: config.planning?.defaultProfile,
+      };
+    },
+    doctorProject(repoRoot: string) {
+      const report = doctorReport(repoRoot);
+      return {
+        ok: report.ok,
+        warnings: report.warnings,
+        notes: report.notes,
+      };
+    },
   };
 }
 
@@ -168,8 +268,12 @@ export function assertUiNodeVersion(): void {
   if (major < 22) throw new Error("cy ui requires Node.js 22 or newer.");
 }
 
-function resolveUiServerModuleUrl(): URL {
-  return new URL("../../../packages/kanban/dist/server/index.js", import.meta.url);
+export function resolveUiServerModuleUrl(): URL {
+  return resolveRuntimeUrl(import.meta.url);
+}
+
+export function importKanbanServerModule() {
+  return importKanbanServer(import.meta.url);
 }
 
 export async function runUi(options: UiOptions = {}, cwd = process.cwd()): Promise<string> {
@@ -178,18 +282,10 @@ export async function runUi(options: UiOptions = {}, cwd = process.cwd()): Promi
   const config = loadConfig(repoRoot);
   const moduleUrl = resolveUiServerModuleUrl();
   if (!existsSync(fileURLToPath(moduleUrl))) {
-    throw new Error("Changeyard UI assets were not found. Run npm run build before launching cy ui.");
+    throw new Error("Changeyard UI runtime was not found. Run npm run build or set CHANGEYARD_DEV=1.");
   }
 
-  const loaded = await import(moduleUrl.href) as {
-    startChangeyardKanban: (input: {
-      repoRoot: string;
-      host?: string;
-      port?: number | "auto";
-      open?: boolean;
-      changeyardApi?: ReturnType<typeof createChangeyardUiApi>;
-    }) => Promise<{ url: string; close: () => Promise<void> }>;
-  };
+  const loaded = await importKanbanServer(import.meta.url);
   const server = await loaded.startChangeyardKanban({
     repoRoot,
     host: options.host ?? config.ui?.host ?? "127.0.0.1",

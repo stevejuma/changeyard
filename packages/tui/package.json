@@ -1,0 +1,21 @@
+{
+  "name": "@changeyard/tui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "bun run build.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "bun --conditions=browser run tests/run-interaction-tests.tsx"
+  },
+  "dependencies": {
+    "@opentui/core": "^0.4.0",
+    "@opentui/solid": "^0.4.0",
+    "fuzzysort": "^3.1.0",
+    "solid-js": "^1.9.10"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.2",
+    "typescript": "^5.9.3"
+  }
+}
