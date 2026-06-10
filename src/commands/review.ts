@@ -11,6 +11,21 @@ import { createProvider } from "../providers/index.js";
 
 export type ReviewDecision = "approve" | "request-changes" | "reject";
 
+export const REVIEW_SUMMARY_PLACEHOLDER = "Review the change here.";
+
+export const REVIEW_BODY_TEMPLATE = `# Summary
+
+${REVIEW_SUMMARY_PLACEHOLDER}
+
+# Required Changes
+
+- [ ] Add any required changes, or leave this checklist as a record.
+
+# Inline Comments
+
+Add inline comments as bullets: - path/to/file.ts:42: Comment text.
+`;
+
 function nextReviewNumber(root: string): number {
   if (!existsSync(root)) return 1;
   let max = 0;
@@ -49,6 +64,33 @@ function asRecord(value: unknown): Frontmatter {
 function hasRemoteThread(frontmatter: Frontmatter): boolean {
   const remote = asRecord(frontmatter.remote);
   return typeof remote.issueNumber === "number" || typeof remote.pullRequestNumber === "number";
+}
+
+export function extractReviewSection(body: string, sectionName: string): string {
+  const target = sectionName.trim().toLowerCase();
+  const lines = body.split(/\r?\n/);
+  let inSection = false;
+  const collected: string[] = [];
+  for (const line of lines) {
+    const heading = /^#+\s+(.+?)\s*$/.exec(line);
+    if (heading) {
+      const name = heading[1].trim().toLowerCase();
+      if (inSection) break;
+      inSection = name === target;
+      continue;
+    }
+    if (inSection) collected.push(line);
+  }
+  return collected.join("\n").trim();
+}
+
+export function assertReviewBodyFilled(body: string): void {
+  const summary = extractReviewSection(body, "summary");
+  if (!summary || summary === REVIEW_SUMMARY_PLACEHOLDER) {
+    throw new Error(
+      "Review Summary must be filled in before completing. Edit the review markdown under .changeyard/reviews/<id>/ and replace the template placeholder.",
+    );
+  }
 }
 
 export function parseInlineComments(body: string): { path: string; line: number; body: string }[] {
@@ -98,7 +140,7 @@ export function runReviewStart(id: string, repoRoot = process.cwd(), mutationOpt
     createdAt: new Date().toISOString(),
     commitBased: false,
   };
-  const reviewBody = `# Summary\n\nReview the change here.\n\n# Required Changes\n\n- [ ] Add any required changes, or leave this checklist as a record.\n\n# Inline Comments\n\nAdd inline comments as bullets: - path/to/file.ts:42: Comment text.\n`;
+  const reviewBody = REVIEW_BODY_TEMPLATE;
   const planningContext = renderPlanningContextForReview({
     canonicalPath: path.relative(repoRoot, changePath),
     frontmatter: parsedChange.frontmatter,
@@ -133,6 +175,7 @@ export function runReviewComplete(id: string, decision: ReviewDecision, repoRoot
   if (!changePath) throw new Error(`Change not found: ${id}`);
   const parsedChange = parseFrontmatter(readFileSync(changePath, "utf8"));
 
+  assertReviewBodyFilled(parsedReview.body);
   const inlineComments = parseInlineComments(parsedReview.body);
   if (mutationOptions.dryRun) {
     return `Dry-run: would complete review for ${id}: ${status} (${inlineComments.length} inline comments)`;

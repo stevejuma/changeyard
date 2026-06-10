@@ -79,7 +79,26 @@ const CHANGEYARD_COMMANDS: CommandContent[] = [
 1. Ensure Completion Notes in the change markdown are filled in.
 2. Run \`cy verify <id>\` from the workspace.
 3. Run \`cy complete <id> --no-pr\` unless the user explicitly wants PR creation.
-4. Summarize checks, risks, and follow-up review steps.`,
+4. If a review is needed, use \`/cy-review\` — do not skip filling the review markdown.`,
+  },
+  {
+    id: "review",
+    name: "Changeyard Review",
+    description: "Start, write, and complete a markdown review for a change.",
+    category: "Changeyard",
+    tags: ["changeyard", "review"],
+    body: `Review a completed Changeyard change.
+
+1. Identify the change id from context or run \`cy list\`.
+2. Run \`cy review start <id>\` to create \`.changeyard/reviews/<id>/review-NNN.md\`.
+3. Edit the review file before completing:
+   - **Summary** — what was reviewed, scope, risks, and decision rationale (replace the template placeholder).
+   - **Required Changes** — check off items or mark none (e.g. \`- [x] None\`).
+   - **Inline Comments** — optional \`path/to/file.ts:42: comment\` bullets, or write \`None.\`
+4. Run \`cy review complete <id> --decision approve|request-changes|reject\` only after Summary is filled in.
+5. Report the decision and any follow-up actions.
+
+Gate protocol (hard stop): do not run \`cy review complete\` while Summary still says "Review the change here." — the CLI rejects empty template reviews.`,
   },
   {
     id: "status",
