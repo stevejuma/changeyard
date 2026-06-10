@@ -11,7 +11,9 @@
     "reviewsDir": "reviews"
   },
   "provider": {
-    "type": "noop"
+    "type": "github",
+    "owner": "stevejuma",
+    "repo": "changeyard"
   },
   "vcs": {
     "engine": "jj",
@@ -70,5 +72,16 @@
       "showBadges": true,
       "allowInlineEditing": true
     }
+  },
+  "pullRequests": {
+    "enabled": false,
+    "requireApprovedReview": true,
+    "draft": true,
+    "allowLocalFolder": false
+  },
+  "review": {
+    "requireBeforePr": true,
+    "requireFilledRequiredChanges": true,
+    "requireInlineCommentDisposition": true
   }
 }

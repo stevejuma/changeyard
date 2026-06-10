@@ -350,17 +350,26 @@
         "draft": {
           "type": "boolean"
         },
-        "titlePattern": {
-          "type": "string"
-        },
-        "bodyFromChange": {
+        "requireApprovedReview": {
           "type": "boolean"
         },
-        "labels": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
+        "allowLocalFolder": {
+          "type": "boolean"
+        }
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requireBeforePr": {
+          "type": "boolean"
+        },
+        "requireFilledRequiredChanges": {
+          "type": "boolean"
+        },
+        "requireInlineCommentDisposition": {
+          "type": "boolean"
         }
       }
     }

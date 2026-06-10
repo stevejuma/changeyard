@@ -15,10 +15,12 @@ validation:
 
 # Summary
 
+Review the change here.
+
 # Required Changes
 
-- [ ]
+None.
 
 # Inline Comments
 
-- path/to/file.ts:42: Optional inline comment text
+None.

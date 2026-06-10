@@ -11,3 +11,7 @@ dist/
 !.changeyard/reviews/
 !.changeyard/templates/
 !.changeyard/config.jsonc
+
+# Changeyard local guard hooks
+.changeyard/bin/
+.changeyard/guards/
