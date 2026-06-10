@@ -126,6 +126,9 @@ function buildHooksCommand(args: string[]): string {
 function hasCliOption(args: string[], optionName: string): boolean {
 	for (let i = 0; i < args.length; i += 1) {
 		const arg = args[i];
+		if (arg === undefined) {
+			continue;
+		}
 		if (arg === optionName || arg.startsWith(`${optionName}=`)) {
 			return true;
 		}
@@ -1110,7 +1113,8 @@ async function resolveOpenCodePreferredModelArg(configPath: string | null): Prom
 		return configuredMatch.model;
 	}
 
-	return candidates[0].model;
+	const firstCandidate = candidates[0];
+	return firstCandidate ? firstCandidate.model : null;
 }
 
 const opencodeAdapter: AgentSessionAdapter = {
@@ -1600,6 +1604,129 @@ function shouldInspectCopilotOutputForTransition(summary: RuntimeTaskSessionSumm
 	return summary.state === "running" || summary.state === "awaiting_review";
 }
 
+const KANBAN_CURSOR_HOOK_SCRIPT_PREFIX = "kanban-";
+
+function buildCursorHookScriptContent(event: RuntimeHookEvent): string {
+	const commandParts = buildHooksCommandParts(["notify", "--event", event, "--source", "cursor"]);
+	if (process.platform === "win32") {
+		const command = commandParts.map(powerShellQuote).join(" ");
+		return `$inputText = [Console]::In.ReadToEnd()
+try {
+  $inputText | & ${command} | Out-Null
+} catch {
+}
+exit 0
+`;
+	}
+	const command = commandParts.map(quoteShellArg).join(" ");
+	return `#!/usr/bin/env bash
+INPUT="$(cat || true)"
+printf '%s' "$INPUT" | ${command} >/dev/null 2>&1 || true
+exit 0
+`;
+}
+
+function buildCursorHookCommand(relativeScriptPath: string): { command: string } {
+	return { command: relativeScriptPath };
+}
+
+function isKanbanCursorHookEntry(entry: { command?: string }): boolean {
+	return typeof entry.command === "string" && entry.command.includes(`/${KANBAN_CURSOR_HOOK_SCRIPT_PREFIX}`);
+}
+
+type CursorHooksFile = {
+	version?: number;
+	hooks?: Record<string, Array<{ command?: string; type?: string }>>;
+};
+
+async function readCursorHooksFile(filePath: string): Promise<CursorHooksFile> {
+	try {
+		return JSON.parse(await readFile(filePath, "utf8")) as CursorHooksFile;
+	} catch {
+		return { version: 1, hooks: {} };
+	}
+}
+
+async function ensureCursorKanbanHooks(
+	cwd: string,
+): Promise<{ hooksFilePath: string; cleanup: () => Promise<void> }> {
+	const cursorDir = join(cwd, ".cursor");
+	const hooksDir = join(cursorDir, "hooks");
+	const hooksFilePath = join(cursorDir, "hooks.json");
+	const previousConfig = await readCursorHooksFile(hooksFilePath);
+	const hookScripts = {
+		stop: join(hooksDir, `${KANBAN_CURSOR_HOOK_SCRIPT_PREFIX}stop`),
+		beforeSubmitPrompt: join(hooksDir, `${KANBAN_CURSOR_HOOK_SCRIPT_PREFIX}before-submit-prompt`),
+		preToolUse: join(hooksDir, `${KANBAN_CURSOR_HOOK_SCRIPT_PREFIX}pre-tool-use`),
+		postToolUse: join(hooksDir, `${KANBAN_CURSOR_HOOK_SCRIPT_PREFIX}post-tool-use`),
+		subagentStop: join(hooksDir, `${KANBAN_CURSOR_HOOK_SCRIPT_PREFIX}subagent-stop`),
+	} as const;
+	const executable = process.platform !== "win32";
+
+	await ensureTextFile(hookScripts.stop, buildCursorHookScriptContent("to_review"), executable);
+	await ensureTextFile(hookScripts.beforeSubmitPrompt, buildCursorHookScriptContent("to_in_progress"), executable);
+	await ensureTextFile(hookScripts.preToolUse, buildCursorHookScriptContent("activity"), executable);
+	await ensureTextFile(hookScripts.postToolUse, buildCursorHookScriptContent("to_in_progress"), executable);
+	await ensureTextFile(hookScripts.subagentStop, buildCursorHookScriptContent("activity"), executable);
+
+	const kanbanHooks: CursorHooksFile["hooks"] = {
+		stop: [buildCursorHookCommand(".cursor/hooks/kanban-stop")],
+		beforeSubmitPrompt: [buildCursorHookCommand(".cursor/hooks/kanban-before-submit-prompt")],
+		preToolUse: [buildCursorHookCommand(".cursor/hooks/kanban-pre-tool-use")],
+		postToolUse: [buildCursorHookCommand(".cursor/hooks/kanban-post-tool-use")],
+		subagentStop: [buildCursorHookCommand(".cursor/hooks/kanban-subagent-stop")],
+	};
+	const mergedHooks: Record<string, Array<{ command?: string; type?: string }>> = {
+		...(previousConfig.hooks ?? {}),
+	};
+	for (const [eventName, entries] of Object.entries(kanbanHooks ?? {})) {
+		const preserved = (mergedHooks[eventName] ?? []).filter((entry) => !isKanbanCursorHookEntry(entry));
+		mergedHooks[eventName] = [...preserved, ...entries];
+	}
+	await ensureTextFile(
+		hooksFilePath,
+		`${JSON.stringify({ version: previousConfig.version ?? 1, hooks: mergedHooks }, null, 2)}\n`,
+	);
+	await addToWorktreeGitExclude(cwd, ".cursor/hooks/kanban-stop");
+	await addToWorktreeGitExclude(cwd, ".cursor/hooks/kanban-before-submit-prompt");
+	await addToWorktreeGitExclude(cwd, ".cursor/hooks/kanban-pre-tool-use");
+	await addToWorktreeGitExclude(cwd, ".cursor/hooks/kanban-post-tool-use");
+	await addToWorktreeGitExclude(cwd, ".cursor/hooks/kanban-subagent-stop");
+
+	return {
+		hooksFilePath,
+		cleanup: async () => {
+			try {
+				const current = await readCursorHooksFile(hooksFilePath);
+				const restoredHooks: Record<string, Array<{ command?: string; type?: string }>> = {};
+				for (const [eventName, entries] of Object.entries(current.hooks ?? {})) {
+					const filtered = entries.filter((entry) => !isKanbanCursorHookEntry(entry));
+					if (filtered.length > 0) {
+						restoredHooks[eventName] = filtered;
+					}
+				}
+				if (Object.keys(restoredHooks).length === 0) {
+					await unlink(hooksFilePath);
+				} else {
+					await ensureTextFile(
+						hooksFilePath,
+						`${JSON.stringify({ version: current.version ?? 1, hooks: restoredHooks }, null, 2)}\n`,
+					);
+				}
+			} catch {
+				// Best-effort cleanup only.
+			}
+			for (const scriptPath of Object.values(hookScripts)) {
+				try {
+					await unlink(scriptPath);
+				} catch {
+					// Best-effort cleanup only.
+				}
+			}
+		},
+	};
+}
+
 const copilotAdapter: AgentSessionAdapter = {
 	async prepare(input) {
 		const args = [...input.args];
@@ -1710,6 +1837,53 @@ const copilotAdapter: AgentSessionAdapter = {
 	},
 };
 
+const cursorAdapter: AgentSessionAdapter = {
+	async prepare(input) {
+		const args = [...input.args];
+		const env: Record<string, string | undefined> = {};
+		let cleanupHooks: (() => Promise<void>) | undefined;
+
+		if (input.autonomousModeEnabled && !hasCliOption(args, "--force") && !hasCliOption(args, "--yolo")) {
+			args.push("--force");
+		}
+		if (input.autonomousModeEnabled && !hasCliOption(args, "--approve-mcps")) {
+			args.push("--approve-mcps");
+		}
+		if (input.resumeFromTrash && !hasCliOption(args, "--continue") && !hasCliOption(args, "--resume")) {
+			args.push("--continue");
+		}
+		if (input.startInPlanMode && !hasCliOption(args, "--plan") && !hasCliOption(args, "--mode")) {
+			args.push("--plan");
+		}
+		if (!hasCliOption(args, "--workspace")) {
+			args.push("--workspace", input.cwd);
+		}
+
+		const hooks = resolveHookContext(input);
+		if (hooks) {
+			const cursorHooks = await ensureCursorKanbanHooks(input.cwd);
+			cleanupHooks = cursorHooks.cleanup;
+			Object.assign(
+				env,
+				createHookRuntimeEnv({
+					taskId: hooks.taskId,
+					workspaceId: hooks.workspaceId,
+				}),
+			);
+		}
+
+		const withPromptLaunch = withPrompt(args, input.prompt, "append");
+		return {
+			...withPromptLaunch,
+			env: {
+				...withPromptLaunch.env,
+				...env,
+			},
+			cleanup: cleanupHooks,
+		};
+	},
+};
+
 const ADAPTERS: Record<RuntimeAgentId, AgentSessionAdapter> = {
 	claude: claudeAdapter,
 	codex: codexAdapter,
@@ -1719,6 +1893,7 @@ const ADAPTERS: Record<RuntimeAgentId, AgentSessionAdapter> = {
 	kiro: kiroAdapter,
 	cline: clineAdapter,
 	copilot: copilotAdapter,
+	cursor: cursorAdapter,
 };
 
 export async function prepareAgentLaunch(input: AgentAdapterLaunchInput): Promise<PreparedAgentLaunch> {

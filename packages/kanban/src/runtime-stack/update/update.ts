@@ -159,7 +159,7 @@ function getNpmTag(currentVersion: string): string {
 
 function parseVersion(version: string): ParsedVersion {
 	const versionWithoutBuild = version.split("+", 1)[0] ?? "";
-	const [corePart, prereleasePart] = versionWithoutBuild.split("-", 2);
+	const [corePart = "", prereleasePart] = versionWithoutBuild.split("-", 2);
 	const core = corePart
 		.split(".")
 		.filter((part) => part.length > 0)

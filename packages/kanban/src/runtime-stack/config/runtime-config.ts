@@ -54,7 +54,7 @@ const PROJECT_CONFIG_PARENT_DIR = ".changeyard";
 const PROJECT_CONFIG_DIR = "kanban";
 const PROJECT_CONFIG_FILENAME = "config.json";
 const DEFAULT_AGENT_ID: RuntimeAgentId = "cline";
-const AUTO_SELECT_AGENT_PRIORITY: readonly RuntimeAgentId[] = ["claude", "codex", "copilot", "droid", "kiro"];
+const AUTO_SELECT_AGENT_PRIORITY: readonly RuntimeAgentId[] = ["cursor", "claude", "codex", "copilot", "droid", "kiro"];
 const DEFAULT_AGENT_AUTONOMOUS_MODE_ENABLED = true;
 const DEFAULT_READY_FOR_REVIEW_NOTIFICATIONS_ENABLED = true;
 const DEFAULT_COMMIT_PROMPT_TEMPLATE = `You are in a worktree on a detached HEAD. When you are finished with the task, commit the working changes onto {{base_ref}}.
@@ -125,7 +125,8 @@ function normalizeAgentId(agentId: RuntimeAgentId | string | null | undefined): 
 			agentId === "droid" ||
 			agentId === "kiro" ||
 			agentId === "copilot" ||
-			agentId === "cline") &&
+			agentId === "cline" ||
+			agentId === "cursor") &&
 		isRuntimeAgentLaunchSupported(agentId)
 	) {
 		return agentId;
