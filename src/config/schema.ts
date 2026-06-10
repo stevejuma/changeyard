@@ -139,9 +139,20 @@ export const configSchema = {
       properties: {
         enabled: { type: "boolean" },
         draft: { type: "boolean" },
+        requireApprovedReview: { type: "boolean" },
+        allowLocalFolder: { type: "boolean" },
         titlePattern: { type: "string" },
         bodyFromChange: { type: "boolean" },
         labels: { type: "array", items: { type: "string" } },
+      },
+    },
+    review: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        requireBeforePr: { type: "boolean" },
+        requireFilledRequiredChanges: { type: "boolean" },
+        requireInlineCommentDisposition: { type: "boolean" },
       },
     },
   },
