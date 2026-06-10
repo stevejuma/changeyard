@@ -13,7 +13,14 @@ Changeyard is the markdown-first local change workflow for this repository. Cano
 7. Work only inside the verified workspace checkout
 8. Update Completion Notes in the change markdown
 9. Complete locally: \`cy complete <id> --no-pr\`
-10. Start and complete a markdown review when needed
+10. Review when needed: \`cy review start <id>\`, edit \`.changeyard/reviews/<id>/review-NNN.md\`, then \`cy review complete <id> --decision <approve|request-changes|reject>\`
+
+## Review gate (hard stop)
+
+- Do not run \`cy review complete\` until the review file **Summary** is written (not the template placeholder)
+- Update **Required Changes** — check items off or explicitly mark none
+- **Inline Comments** are optional; note findings or write \`None.\`
+- Use \`/cy-review\` when available for the full review workflow
 
 ## Gate protocol (hard stops)
 

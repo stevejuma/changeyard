@@ -1049,6 +1049,8 @@ test("review start and complete update review and change status", () => {
     runInit(repo);
     runCreate({ template: "agent-task", title: "Review workflow" }, repo);
     assert.match(runReviewStart("CY-0001", repo), /Started review 1/);
+    const reviewPath = path.join(repo, ".changeyard", "reviews", "CY-0001", "review-001.md");
+    writeFileSync(reviewPath, readFileSync(reviewPath, "utf8").replace("Review the change here.", "Scope and checks look good."));
     assert.equal(runReviewComplete("CY-0001", "approve", repo), "Completed review for CY-0001: approved");
     const review = readFileSync(path.join(repo, ".changeyard", "reviews", "CY-0001", "review-001.md"), "utf8");
     assert.match(review, /status: approved/);
@@ -1092,10 +1094,26 @@ test("planned local-folder review includes planning context in the review file a
     assert.match(reviewFile, /# Planning Context/);
     assert.match(reviewFile, /Canonical local file: `.changeyard\/changes\/CY-0001-projected-planning-review.md`/);
 
+    writeFileSync(reviewPath, readFileSync(reviewPath, "utf8").replace("Review the change here.", "Planning context and implementation align."));
     assert.match(runReviewComplete("CY-0001", "approve", repo), /Completed review for CY-0001: approved/);
     const publishedReview = readFileSync(path.join(repo, ".changeyard", "cache", "local-folder", "reviews", "0001-CY-0001.md"), "utf8");
     assert.match(publishedReview, /# Planning Summary/);
     assert.match(publishedReview, /Canonical local file: `.changeyard\/changes\/CY-0001-projected-planning-review.md`/);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("review complete rejects unfilled summary placeholder", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "agent-task", title: "Empty review" }, repo);
+    runReviewStart("CY-0001", repo);
+    assert.throws(
+      () => runReviewComplete("CY-0001", "approve", repo),
+      /Review Summary must be filled in/,
+    );
   } finally {
     cleanup(repo);
   }
@@ -1114,7 +1132,9 @@ test("local-folder provider publishes completed markdown reviews", () => {
     runCreate({ template: "agent-task", title: "Publish review" }, repo);
     runReviewStart("CY-0001", repo);
     const reviewPath = path.join(repo, ".changeyard", "reviews", "CY-0001", "review-001.md");
-    writeFileSync(reviewPath, readFileSync(reviewPath, "utf8").replace("Add inline comments as bullets: - path/to/file.ts:42: Comment text.", "- src/example.ts:42: Tighten this assertion."));
+    writeFileSync(reviewPath, readFileSync(reviewPath, "utf8")
+      .replace("Review the change here.", "Approved with one inline note.")
+      .replace("Add inline comments as bullets: - path/to/file.ts:42: Comment text.", "- src/example.ts:42: Tighten this assertion."));
     assert.equal(runReviewComplete("CY-0001", "approve", repo), "Completed review for CY-0001: approved");
     const review = readFileSync(path.join(repo, ".changeyard", "reviews", "CY-0001", "review-001.md"), "utf8");
     assert.match(review, /reviewUrl: file:\/\//);
