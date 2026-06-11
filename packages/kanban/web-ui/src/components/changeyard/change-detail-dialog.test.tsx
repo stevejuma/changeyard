@@ -45,6 +45,29 @@ function createChange(overrides: Partial<RuntimeChangeyardChangeDetail> = {}): R
 	};
 }
 
+function createPlanning(): NonNullable<RuntimeChangeyardChangeDetail["planning"]> {
+	return {
+		model: "openspec-lite",
+		strictness: "normal",
+		phase: "draft",
+		gates: {
+			proposal: "pass",
+			tasks: "pending",
+		},
+		gateSummary: {
+			pass: 1,
+			pending: 1,
+			fail: 0,
+			skipped: 0,
+			warning: 0,
+		},
+		presentSections: ["proposal", "tasks"],
+		missingSections: [],
+		nextAction: "Complete pending planning gate: tasks",
+		errors: [],
+	};
+}
+
 function render(element: ReactElement): void {
 	container = document.createElement("div");
 	document.body.appendChild(container);
@@ -127,6 +150,27 @@ describe("ChangeDetailDialog", () => {
 
 		expect(document.body.textContent).toContain("No workspace file changes recorded");
 		expect(mockUseRuntimeChangeWorkspaceChanges).toHaveBeenCalledWith("CY-9999", "project-1", expect.any(Number));
+	});
+
+	it("renders planning gates as continuous property rows", () => {
+		render(
+			<ChangeDetailDialog
+				change={createChange({ planning: createPlanning() })}
+				open
+				workspaceId="project-1"
+				onOpenChange={vi.fn()}
+				onRunAction={vi.fn()}
+				onSaveBody={vi.fn()}
+			/>,
+		);
+
+		expect(document.body.textContent).toContain("Planning Gates");
+		expect(document.body.textContent).toContain("Proposal");
+		expect(document.body.textContent).toContain("Pass");
+		expect(document.body.textContent).toContain("Tasks");
+		expect(document.body.textContent).toContain("Pending");
+		expect(document.body.textContent).toContain("Next Action");
+		expect(document.body.textContent).toContain("Complete pending planning gate: tasks");
 	});
 
 	it("renders a visible file explorer in the changes tab and selects diffs from it", () => {
