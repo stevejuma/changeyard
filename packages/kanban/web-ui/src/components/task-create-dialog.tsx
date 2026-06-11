@@ -20,11 +20,10 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { useHotkeys } from "react-hotkeys-hook";
 
 import type { BranchSelectOption } from "@/components/branch-select-dropdown";
-import { BranchSelectDropdown } from "@/components/branch-select-dropdown";
+import { CreateDialogBranchSection, CreateDialogShell } from "@/components/create-dialog-shell";
 import { TaskAgentModelPicker, useTaskAgentModelPicker } from "@/components/task-agent-model-picker";
 import { TaskPromptComposer } from "@/components/task-prompt-composer";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogBody, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { NativeSelect } from "@/components/ui/native-select";
 import type { RuntimeAgentId, RuntimeClineReasoningEffort, RuntimeTaskClineSettings } from "@/runtime/types";
 import { LocalStorageKey } from "@/storage/local-storage-store";
@@ -427,9 +426,122 @@ export function TaskCreateDialog({
 	const secondaryStartShortcutModifier = secondaryStartAction === "start" ? "mod" : "alt";
 
 	return (
-		<Dialog open={open} onOpenChange={onOpenChange} contentClassName="max-w-2xl">
-			<DialogHeader title={dialogTitle} icon={<PencilLine size={16} />} />
-			<DialogBody>
+		<CreateDialogShell
+			open={open}
+			onOpenChange={onOpenChange}
+			title={dialogTitle}
+			icon={<PencilLine size={16} />}
+			footer={
+				<>
+					<label
+						htmlFor={createMoreId}
+						className="mr-auto flex items-center gap-2 text-[12px] text-text-primary cursor-pointer select-none"
+					>
+						<RadixSwitch.Root
+							id={createMoreId}
+							checked={createMore}
+							onCheckedChange={setCreateMore}
+							className="relative h-5 w-9 rounded-full bg-surface-4 data-[state=checked]:bg-accent cursor-pointer"
+						>
+							<RadixSwitch.Thumb className="block h-4 w-4 rounded-full bg-white shadow-sm transition-transform translate-x-0.5 data-[state=checked]:translate-x-[18px]" />
+						</RadixSwitch.Root>
+						<span>Create more</span>
+					</label>
+					{mode === "single" ? (
+						<>
+							<Button size="sm" onClick={handleCreateSingle} disabled={!prompt.trim() || !branchRef}>
+								<span className="inline-flex items-center">
+									Create
+									<ButtonShortcut />
+								</span>
+							</Button>
+							{onCreateAndStart ? (
+								<DropdownMenu.Root>
+									<div className="inline-flex items-center">
+										<Button
+											variant="primary"
+											size="sm"
+											onClick={() => handleRunSingleStartAction(primaryStartAction)}
+											disabled={!prompt.trim() || !branchRef}
+											className={onCreateStartAndOpen ? "rounded-r-none" : undefined}
+										>
+											<span className="inline-flex items-center">
+												{primaryStartLabel}
+												<ButtonShortcut includeShift modifier={primaryStartShortcutModifier} />
+											</span>
+										</Button>
+										{onCreateStartAndOpen ? (
+											<DropdownMenu.Trigger asChild>
+												<Button
+													variant="primary"
+													size="sm"
+													disabled={!prompt.trim() || !branchRef}
+													className="rounded-l-none border-l border-white/20 px-1"
+													aria-label="More start options"
+												>
+													<ChevronDown size={12} />
+												</Button>
+											</DropdownMenu.Trigger>
+										) : null}
+									</div>
+									<DropdownMenu.Portal>
+										<DropdownMenu.Content
+											side="bottom"
+											align="end"
+											sideOffset={4}
+											className="z-50 rounded-md border border-border-bright bg-surface-1 p-1 shadow-lg"
+											onCloseAutoFocus={(event) => event.preventDefault()}
+										>
+											<DropdownMenu.Item
+												className="flex items-center justify-between gap-2 rounded-sm px-2 py-1 text-[12px] text-text-primary cursor-pointer outline-none data-[highlighted]:bg-surface-3 whitespace-nowrap"
+												onSelect={() => handleRunSingleStartAction(secondaryStartAction)}
+											>
+												{secondaryStartLabel}
+												<span className="inline-flex items-center gap-0.5 text-text-tertiary" aria-hidden>
+													{secondaryStartShortcutModifier === "alt" ? (
+														isMacPlatform ? (
+															<Option size={10} />
+														) : (
+															<span className="text-[10px] font-medium leading-none">Alt</span>
+														)
+													) : (
+														<Command size={10} />
+													)}
+													<ArrowBigUp size={10} />
+													<CornerDownLeft size={10} />
+												</span>
+											</DropdownMenu.Item>
+										</DropdownMenu.Content>
+									</DropdownMenu.Portal>
+								</DropdownMenu.Root>
+							) : null}
+						</>
+					) : (
+						<>
+							<Button size="sm" onClick={handleCreateAll} disabled={validTaskCount === 0 || !branchRef}>
+								<span className="inline-flex items-center">
+									Create {validTaskCount} {taskCountLabel}
+									<ButtonShortcut />
+								</span>
+							</Button>
+							{onCreateAndStartMultiple ? (
+								<Button
+									variant="primary"
+									size="sm"
+									onClick={handleCreateAndStartAll}
+									disabled={validTaskCount === 0 || !branchRef}
+								>
+									<span className="inline-flex items-center">
+										Start {validTaskCount} {taskCountLabel}
+										<ButtonShortcut includeShift />
+									</span>
+								</Button>
+							) : null}
+						</>
+					)}
+				</>
+			}
+		>
 				{mode === "single" ? (
 					<div>
 						<TaskPromptComposer
@@ -533,17 +645,13 @@ export function TaskCreateDialog({
 						Start in plan mode
 					</label>
 
-					<div>
-						<span className="text-[11px] text-text-secondary block mb-1">Worktree base ref</span>
-						<BranchSelectDropdown
-							options={branchOptions}
-							selectedValue={branchRef}
-							onSelect={onBranchRefChange}
-							fill
-							size="sm"
-							emptyText="No branches detected"
-						/>
-					</div>
+					<CreateDialogBranchSection
+						label="Worktree base ref"
+						options={branchOptions}
+						selectedValue={branchRef}
+						onSelect={onBranchRefChange}
+						emptyText="No branches detected"
+					/>
 
 					<div className="flex items-center gap-2 flex-wrap">
 						<label
@@ -596,115 +704,6 @@ export function TaskCreateDialog({
 						/>
 					) : null}
 				</div>
-			</DialogBody>
-			<DialogFooter>
-				<label
-					htmlFor={createMoreId}
-					className="mr-auto flex items-center gap-2 text-[12px] text-text-primary cursor-pointer select-none"
-				>
-					<RadixSwitch.Root
-						id={createMoreId}
-						checked={createMore}
-						onCheckedChange={setCreateMore}
-						className="relative h-5 w-9 rounded-full bg-surface-4 data-[state=checked]:bg-accent cursor-pointer"
-					>
-						<RadixSwitch.Thumb className="block h-4 w-4 rounded-full bg-white shadow-sm transition-transform translate-x-0.5 data-[state=checked]:translate-x-[18px]" />
-					</RadixSwitch.Root>
-					<span>Create more</span>
-				</label>
-				{mode === "single" ? (
-					<>
-						<Button size="sm" onClick={handleCreateSingle} disabled={!prompt.trim() || !branchRef}>
-							<span className="inline-flex items-center">
-								Create
-								<ButtonShortcut />
-							</span>
-						</Button>
-						{onCreateAndStart ? (
-							<DropdownMenu.Root>
-								<div className="inline-flex items-center">
-									<Button
-										variant="primary"
-										size="sm"
-										onClick={() => handleRunSingleStartAction(primaryStartAction)}
-										disabled={!prompt.trim() || !branchRef}
-										className={onCreateStartAndOpen ? "rounded-r-none" : undefined}
-									>
-										<span className="inline-flex items-center">
-											{primaryStartLabel}
-											<ButtonShortcut includeShift modifier={primaryStartShortcutModifier} />
-										</span>
-									</Button>
-									{onCreateStartAndOpen ? (
-										<DropdownMenu.Trigger asChild>
-											<Button
-												variant="primary"
-												size="sm"
-												disabled={!prompt.trim() || !branchRef}
-												className="rounded-l-none border-l border-white/20 px-1"
-												aria-label="More start options"
-											>
-												<ChevronDown size={12} />
-											</Button>
-										</DropdownMenu.Trigger>
-									) : null}
-								</div>
-								<DropdownMenu.Portal>
-									<DropdownMenu.Content
-										side="bottom"
-										align="end"
-										sideOffset={4}
-										className="z-50 rounded-md border border-border-bright bg-surface-1 p-1 shadow-lg"
-										onCloseAutoFocus={(event) => event.preventDefault()}
-									>
-										<DropdownMenu.Item
-											className="flex items-center justify-between gap-2 rounded-sm px-2 py-1 text-[12px] text-text-primary cursor-pointer outline-none data-[highlighted]:bg-surface-3 whitespace-nowrap"
-											onSelect={() => handleRunSingleStartAction(secondaryStartAction)}
-										>
-											{secondaryStartLabel}
-											<span className="inline-flex items-center gap-0.5 text-text-tertiary" aria-hidden>
-												{secondaryStartShortcutModifier === "alt" ? (
-													isMacPlatform ? (
-														<Option size={10} />
-													) : (
-														<span className="text-[10px] font-medium leading-none">Alt</span>
-													)
-												) : (
-													<Command size={10} />
-												)}
-												<ArrowBigUp size={10} />
-												<CornerDownLeft size={10} />
-											</span>
-										</DropdownMenu.Item>
-									</DropdownMenu.Content>
-								</DropdownMenu.Portal>
-							</DropdownMenu.Root>
-						) : null}
-					</>
-				) : (
-					<>
-						<Button size="sm" onClick={handleCreateAll} disabled={validTaskCount === 0 || !branchRef}>
-							<span className="inline-flex items-center">
-								Create {validTaskCount} {taskCountLabel}
-								<ButtonShortcut />
-							</span>
-						</Button>
-						{onCreateAndStartMultiple ? (
-							<Button
-								variant="primary"
-								size="sm"
-								onClick={handleCreateAndStartAll}
-								disabled={validTaskCount === 0 || !branchRef}
-							>
-								<span className="inline-flex items-center">
-									Start {validTaskCount} {taskCountLabel}
-									<ButtonShortcut includeShift />
-								</span>
-							</Button>
-						) : null}
-					</>
-				)}
-			</DialogFooter>
-		</Dialog>
+		</CreateDialogShell>
 	);
 }

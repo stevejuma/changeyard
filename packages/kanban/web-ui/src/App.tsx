@@ -565,17 +565,20 @@ export default function App(): ReactElement {
 	}, [changeyardChanges, selectedChangeId]);
 
 	const handleCreateChange = useCallback(
-		async (input: {
-			template: "feature" | "bug" | "refactor" | "agent-task" | "quick";
-			title: string;
-			priority?: string;
-			labels?: string[];
-			baseRevision?: string;
-			planning?: "none" | "openspec-lite";
-			strict?: boolean;
-		}) => {
+		async (
+			input: {
+				template: "feature" | "bug" | "refactor" | "agent-task" | "quick";
+				title: string;
+				priority?: string;
+				labels?: string[];
+				baseRevision?: string;
+				planning?: "none" | "openspec-lite";
+				strict?: boolean;
+			},
+			options?: { keepDialogOpen?: boolean },
+		): Promise<boolean> => {
 			if (!currentProjectId) {
-				return;
+				return false;
 			}
 			setIsChangeActionPending(true);
 			setChangeActionError(null);
@@ -584,15 +587,19 @@ export default function App(): ReactElement {
 				setSelectedChangeId(created.id);
 				setSelectedChangeDetail(created);
 				await refetchChangeyardChanges();
-				setIsCreateChangeDialogOpen(false);
+				if (!options?.keepDialogOpen) {
+					setIsCreateChangeDialogOpen(false);
+				}
 				showAppToast({
 					intent: "success",
 					icon: "tick",
 					message: `Created ${created.id}: ${created.title}`,
 					timeout: 4000,
 				});
+				return true;
 			} catch (error) {
 				setChangeActionError(error instanceof Error ? error.message : String(error));
+				return false;
 			} finally {
 				setIsChangeActionPending(false);
 			}
@@ -1242,12 +1249,28 @@ export default function App(): ReactElement {
 												selectedChangeId={selectedChangeId}
 												selectedTaskId={selectedTaskId}
 												isLoading={isChangeyardChangesLoading}
+												taskSessions={sessions}
 												onFilterChange={setChangeBoardFilter}
 												onSelectChange={(changeId) => {
 													setChangeActionError(null);
 													setSelectedChangeId(changeId);
 												}}
-												onSelectTask={handleCardSelect}
+												onSelectTask={(taskId) => {
+													setSelectedTaskId(taskId);
+													setIsGitHistoryOpen(false);
+												}}
+												onMoveTask={handleDragEnd}
+												onStartTask={handleStartTask}
+												onCommitTask={handleCommitTask}
+												onOpenPrTask={handleOpenPrTask}
+												onCancelAutomaticTaskAction={handleCancelAutomaticTaskAction}
+												onMoveToTrashTask={handleMoveReviewCardToTrash}
+												onRestoreFromTrashTask={handleRestoreTaskFromTrash}
+												commitTaskLoadingById={commitTaskLoadingById}
+												openPrTaskLoadingById={openPrTaskLoadingById}
+												moveToTrashLoadingById={moveToTrashLoadingById}
+												workspacePath={workspacePath}
+												defaultClineModelId={runtimeProjectConfig?.clineProviderSettings?.modelId ?? null}
 												onCreateTask={handleOpenCreateTask}
 												onCreateChange={() => {
 													setChangeActionError(null);
@@ -1410,6 +1433,7 @@ export default function App(): ReactElement {
 					error={changeActionError}
 					branchOptions={createTaskBranchOptions}
 					defaultBaseRevision={defaultTaskBranchRef}
+					workspaceId={currentProjectId}
 					onOpenChange={setIsCreateChangeDialogOpen}
 					onCreate={handleCreateChange}
 				/>
