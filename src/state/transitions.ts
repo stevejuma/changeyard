@@ -5,6 +5,7 @@ const transitions: Record<string, string[]> = {
   ready: ["synced", "in_progress", "approved", "changes_requested", "abandoned"],
   synced: ["in_progress"],
   in_progress: ["ready_for_pr", "blocked", "abandoned"],
+  blocked: ["in_progress", "abandoned"],
   ready_for_pr: ["pr_open", "in_review", "approved", "changes_requested", "abandoned"],
   pr_open: ["in_review", "merged", "abandoned"],
   in_review: ["approved", "changes_requested", "abandoned"],

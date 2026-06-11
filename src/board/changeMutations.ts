@@ -32,6 +32,10 @@ export type UpdateChangeBodyInput = {
   expectedUpdatedAt?: string | null;
 };
 
+export type UpdateChangeStatusInput = {
+  status: ChangeStatus;
+};
+
 export class ChangeMutationConflictError extends Error {
   readonly currentUpdatedAt: string | null;
 
@@ -195,6 +199,19 @@ export function updateChangeBody(repoRoot: string, id: string, input: UpdateChan
       body: input.body,
     };
   });
+
+  return result.filePath;
+}
+
+export function updateChangeStatus(repoRoot: string, id: string, input: UpdateChangeStatusInput): string {
+  const result = mutateChangeFrontmatter(repoRoot, id, ({ frontmatter, body }) => ({
+    frontmatter: {
+      ...frontmatter,
+      status: input.status,
+      updatedAt: nowIso(),
+    },
+    body,
+  }));
 
   return result.filePath;
 }

@@ -4,6 +4,7 @@ import type {
 	RuntimeChangeyardCompleteRequest,
 	RuntimeChangeyardChangeCreateRequest,
 	RuntimeChangeyardChangeGetRequest,
+	RuntimeChangeyardChangeUpdateStatusRequest,
 	RuntimeChangeyardChangeUpdateBodyRequest,
 	RuntimeChangeyardPlanningPromptRequest,
 	RuntimeChangeyardPlanningPromptResponse,
@@ -63,6 +64,10 @@ export interface RuntimeChangeyardApiAdapter {
 		repoRoot: string,
 		input: RuntimeChangeyardChangeUpdatePlanningSectionRequest,
 	) => Promise<RuntimeChangeyardChangeDetail> | RuntimeChangeyardChangeDetail;
+	updateChangeStatus: (
+		repoRoot: string,
+		input: RuntimeChangeyardChangeUpdateStatusRequest,
+	) => Promise<RuntimeChangeyardChangeDetail> | RuntimeChangeyardChangeDetail;
 	updateChangeBody: (
 		repoRoot: string,
 		input: RuntimeChangeyardChangeUpdateBodyRequest,
@@ -98,6 +103,10 @@ export interface RuntimeTrpcChangesApi {
 	updatePlanningSection: (
 		workspacePath: string,
 		input: RuntimeChangeyardChangeUpdatePlanningSectionRequest,
+	) => Promise<RuntimeChangeyardChangeDetail>;
+	updateChangeStatus: (
+		workspacePath: string,
+		input: RuntimeChangeyardChangeUpdateStatusRequest,
 	) => Promise<RuntimeChangeyardChangeDetail>;
 	updateChangeBody: (
 		workspacePath: string,
@@ -190,6 +199,12 @@ export function createChangesApi(deps: {
 				throw new Error("Changeyard planning updates are not available in this runtime.");
 			}
 			return await deps.changeyardApi.updatePlanningSection(workspacePath, input);
+		},
+		updateChangeStatus: async (workspacePath, input) => {
+			if (!deps.changeyardApi) {
+				throw new Error("Changeyard status updates are not available in this runtime.");
+			}
+			return await deps.changeyardApi.updateChangeStatus(workspacePath, input);
 		},
 		updateChangeBody: async (workspacePath, input) => {
 			if (!deps.changeyardApi) {

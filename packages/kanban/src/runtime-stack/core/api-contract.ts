@@ -485,6 +485,27 @@ export type RuntimeChangeyardChangeUpdateBodyRequest = z.infer<
 	typeof runtimeChangeyardChangeUpdateBodyRequestSchema
 >;
 
+export const runtimeChangeyardChangeUpdateStatusRequestSchema = z.object({
+	id: z.string(),
+	status: z.enum([
+		"draft",
+		"ready",
+		"synced",
+		"in_progress",
+		"blocked",
+		"ready_for_pr",
+		"pr_open",
+		"in_review",
+		"changes_requested",
+		"approved",
+		"merged",
+		"abandoned",
+	]),
+});
+export type RuntimeChangeyardChangeUpdateStatusRequest = z.infer<
+	typeof runtimeChangeyardChangeUpdateStatusRequestSchema
+>;
+
 export const runtimeChangeyardChangeDetailSchema = runtimeChangeyardChangeListItemSchema.extend({
 	body: z.string(),
 	sections: z.array(runtimeChangeyardPlanningSectionSchema),

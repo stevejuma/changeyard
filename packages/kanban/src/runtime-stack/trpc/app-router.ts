@@ -102,6 +102,7 @@ import {
 	runtimeChangeyardCompleteRequestSchema,
 	runtimeChangeyardChangeDetailSchema,
 	runtimeChangeyardChangeGetRequestSchema,
+	runtimeChangeyardChangeUpdateStatusRequestSchema,
 	runtimeChangeyardChangeUpdateBodyRequestSchema,
 	runtimeChangeyardPlanningPromptRequestSchema,
 	runtimeChangeyardPlanningPromptResponseSchema,
@@ -830,6 +831,12 @@ export const runtimeAppRouter = t.router({
 					}
 					throw error;
 				}
+			}),
+		updateStatus: workspaceProcedure
+			.input(runtimeChangeyardChangeUpdateStatusRequestSchema)
+			.output(runtimeChangeyardChangeDetailSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.changesApi.updateChangeStatus(ctx.workspaceScope.workspacePath, input);
 			}),
 		updateBody: workspaceProcedure
 			.input(runtimeChangeyardChangeUpdateBodyRequestSchema)

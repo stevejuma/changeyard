@@ -8,14 +8,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AddProjectDialog } from "@/components/add-project-dialog";
 import { notifyError, showAppToast } from "@/components/app-toaster";
 import { CardDetailView } from "@/components/card-detail-view";
-import { ChangeBoard } from "@/components/changeyard/change-board";
+import { ChangeBoard, type ChangeBoardFilter, type ChangeColumnId } from "@/components/changeyard/change-board";
 import { ChangeDetailDialog, type ChangeDetailAction } from "@/components/changeyard/change-detail-dialog";
 import { CreateChangeDialog } from "@/components/changeyard/create-change-dialog";
 import { ClearTrashDialog } from "@/components/clear-trash-dialog";
 import { DebugDialog } from "@/components/debug-dialog";
 import { AgentTerminalPanel } from "@/components/detail-panels/agent-terminal-panel";
 import { GitHistoryView } from "@/components/git-history-view";
-import { KanbanBoard } from "@/components/kanban-board";
 import { ProjectNavigationPanel } from "@/components/project-navigation-panel";
 import { RuntimeSettingsDialog, type RuntimeSettingsSection } from "@/components/runtime-settings-dialog";
 import { StartupOnboardingDialog } from "@/components/startup-onboarding-dialog";
@@ -99,6 +98,7 @@ export default function App(): ReactElement {
 	const [isCreateChangeDialogOpen, setIsCreateChangeDialogOpen] = useState(false);
 	const [isClearTrashDialogOpen, setIsClearTrashDialogOpen] = useState(false);
 	const [isGitHistoryOpen, setIsGitHistoryOpen] = useState(false);
+	const [changeBoardFilter, setChangeBoardFilter] = useState<ChangeBoardFilter>("all");
 	const [selectedChangeId, setSelectedChangeId] = useState<string | null>(null);
 	const [isChangeActionPending, setIsChangeActionPending] = useState(false);
 	const [changeActionError, setChangeActionError] = useState<string | null>(null);
@@ -540,6 +540,7 @@ export default function App(): ReactElement {
 		resetTaskEditorState();
 		setIsCreateChangeDialogOpen(false);
 		setIsClearTrashDialogOpen(false);
+		setChangeBoardFilter("all");
 		setSelectedChangeId(null);
 		setChangeActionError(null);
 		resetGitActionState();
@@ -673,6 +674,109 @@ export default function App(): ReactElement {
 			}
 		},
 		[currentProjectId, refetchChangeyardChanges, refetchSelectedChangeDetail, setSelectedChangeDetail],
+	);
+
+	const handleMoveChange = useCallback(
+		async (changeId: string, targetColumnId: ChangeColumnId) => {
+			if (!currentProjectId) {
+				return;
+			}
+			const current =
+				(selectedChangeDetail?.id === changeId ? selectedChangeDetail : null)
+				?? changeyardChanges.find((change) => change.id === changeId)
+				?? null;
+			if (!current) {
+				setChangeActionError(`Change ${changeId} is no longer available.`);
+				return;
+			}
+
+			setIsChangeActionPending(true);
+			setChangeActionError(null);
+			try {
+				const client = getRuntimeTrpcClient(currentProjectId);
+				const status = current.status;
+				let nextDetail;
+				let successMessage = "";
+				switch (targetColumnId) {
+					case "in_progress":
+						if (status === "ready" || status === "synced") {
+							nextDetail = await client.changes.start.mutate({ id: changeId });
+							successMessage = `Started ${changeId}`;
+							break;
+						}
+						if (status === "blocked" || status === "changes_requested") {
+							nextDetail = await client.changes.updateStatus.mutate({ id: changeId, status: "in_progress" });
+							successMessage = `Moved ${changeId} to in progress`;
+							break;
+						}
+						throw new Error(`Cannot move ${changeId} from ${status} to In Progress.`);
+					case "blocked":
+						if (status === "in_progress") {
+							nextDetail = await client.changes.updateStatus.mutate({ id: changeId, status: "blocked" });
+							successMessage = `Blocked ${changeId}`;
+							break;
+						}
+						throw new Error(`Cannot move ${changeId} from ${status} to Blocked.`);
+					case "review": {
+						if (status === "in_progress") {
+							const response = await client.changes.complete.mutate({ id: changeId, noPr: true });
+							nextDetail = response.change;
+							successMessage = response.message;
+							break;
+						}
+						throw new Error(`Cannot move ${changeId} from ${status} to Review / PR.`);
+					}
+					case "done": {
+						if (status === "in_review") {
+							const response = await client.changes.reviewComplete.mutate({ id: changeId, decision: "approve" });
+							nextDetail = response.change;
+							successMessage = response.message;
+							break;
+						}
+						throw new Error(`Cannot move ${changeId} from ${status} to Done.`);
+					}
+					case "abandoned":
+						if (["ready", "in_progress", "ready_for_pr", "pr_open", "in_review", "changes_requested", "approved"].includes(status)) {
+							nextDetail = await client.changes.updateStatus.mutate({ id: changeId, status: "abandoned" });
+							successMessage = `Abandoned ${changeId}`;
+							break;
+						}
+						throw new Error(`Cannot move ${changeId} from ${status} to Abandoned.`);
+					case "backlog":
+					case "ready":
+						throw new Error(`Move ${changeId} with its lifecycle actions instead of dragging into ${targetColumnId}.`);
+				}
+				setSelectedChangeId(nextDetail.id);
+				setSelectedChangeDetail(nextDetail);
+				await refetchChangeyardChanges();
+				await refetchSelectedChangeDetail();
+				showAppToast({
+					intent: "success",
+					icon: "tick",
+					message: successMessage,
+					timeout: 4000,
+				});
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				setChangeActionError(message);
+				showAppToast({
+					intent: "warning",
+					icon: "warning-sign",
+					message,
+					timeout: 5000,
+				});
+			} finally {
+				setIsChangeActionPending(false);
+			}
+		},
+		[
+			changeyardChanges,
+			currentProjectId,
+			refetchChangeyardChanges,
+			refetchSelectedChangeDetail,
+			selectedChangeDetail,
+			setSelectedChangeDetail,
+		],
 	);
 
 	const handleSaveChangeBody = useCallback(
@@ -1116,19 +1220,6 @@ export default function App(): ReactElement {
 								</div>
 							) : (
 								<div className="flex flex-1 flex-col min-h-0 min-w-0">
-									<ChangeBoard
-										changes={changeyardChanges}
-										selectedChangeId={selectedChangeId}
-										isLoading={isChangeyardChangesLoading}
-										onSelectChange={(changeId) => {
-											setChangeActionError(null);
-											setSelectedChangeId(changeId);
-										}}
-										onCreateChange={() => {
-											setChangeActionError(null);
-											setIsCreateChangeDialogOpen(true);
-										}}
-									/>
 									<div className="flex flex-1 min-h-0 min-w-0">
 										{isGitHistoryOpen ? (
 											<GitHistoryView
@@ -1143,35 +1234,27 @@ export default function App(): ReactElement {
 												isDiscardWorkingChangesPending={isDiscardingHomeWorkingChanges}
 											/>
 										) : (
-											<KanbanBoard
-												data={board}
-												taskSessions={sessions}
-												workspacePath={workspacePath}
-												onCardSelect={handleCardSelect}
+											<ChangeBoard
+												board={board}
+												changes={changeyardChanges}
+												filter={changeBoardFilter}
+												selectedChangeId={selectedChangeId}
+												selectedTaskId={selectedTaskId}
+												isLoading={isChangeyardChangesLoading}
+												onFilterChange={setChangeBoardFilter}
+												onSelectChange={(changeId) => {
+													setChangeActionError(null);
+													setSelectedChangeId(changeId);
+												}}
+												onSelectTask={handleCardSelect}
 												onCreateTask={handleOpenCreateTask}
-												onStartTask={handleStartTaskFromBoard}
-												onStartAllTasks={handleStartAllBacklogTasksFromBoard}
-												onClearTrash={handleOpenClearTrash}
-												editingTaskId={editingTaskId}
-												inlineTaskEditor={inlineTaskEditor}
-												onEditTask={handleOpenEditTask}
-												onSaveTaskTitle={handleSaveTaskTitle}
-												onCommitTask={handleCommitTask}
-												onOpenPrTask={handleOpenPrTask}
-												onCancelAutomaticTaskAction={handleCancelAutomaticTaskAction}
-												commitTaskLoadingById={commitTaskLoadingById}
-												openPrTaskLoadingById={openPrTaskLoadingById}
-												moveToTrashLoadingById={moveToTrashLoadingById}
-												onMoveToTrashTask={handleMoveReviewCardToTrash}
-												onRestoreFromTrashTask={handleRestoreTaskFromTrash}
-												dependencies={board.dependencies}
-												onCreateDependency={handleCreateDependency}
-												onDeleteDependency={handleDeleteDependency}
-												onRequestProgrammaticCardMoveReady={
-													selectedCard ? undefined : handleProgrammaticCardMoveReady
-												}
-												onDragEnd={handleDragEnd}
-												defaultClineModelId={runtimeProjectConfig?.clineProviderSettings?.modelId ?? null}
+												onCreateChange={() => {
+													setChangeActionError(null);
+													setIsCreateChangeDialogOpen(true);
+												}}
+												onMoveChange={(changeId, targetColumnId) => {
+													void handleMoveChange(changeId, targetColumnId);
+												}}
 											/>
 										)}
 									</div>
