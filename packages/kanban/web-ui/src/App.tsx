@@ -570,6 +570,7 @@ export default function App(): ReactElement {
 			title: string;
 			priority?: string;
 			labels?: string[];
+			baseRevision?: string;
 			planning?: "none" | "openspec-lite";
 			strict?: boolean;
 		}) => {
@@ -1407,6 +1408,8 @@ export default function App(): ReactElement {
 					open={isCreateChangeDialogOpen}
 					isPending={isChangeActionPending}
 					error={changeActionError}
+					branchOptions={createTaskBranchOptions}
+					defaultBaseRevision={defaultTaskBranchRef}
 					onOpenChange={setIsCreateChangeDialogOpen}
 					onCreate={handleCreateChange}
 				/>

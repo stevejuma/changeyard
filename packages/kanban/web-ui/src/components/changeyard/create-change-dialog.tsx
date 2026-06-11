@@ -1,5 +1,6 @@
 import type { ReactElement } from "react";
 import { useEffect, useState } from "react";
+import { BranchSelectDropdown, type BranchSelectOption } from "@/components/branch-select-dropdown";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -9,6 +10,7 @@ type CreateChangeInput = {
 	title: string;
 	priority?: string;
 	labels?: string[];
+	baseRevision?: string;
 	planning?: "none" | "openspec-lite";
 	strict?: boolean;
 };
@@ -17,12 +19,16 @@ export function CreateChangeDialog({
 	open,
 	isPending = false,
 	error = null,
+	branchOptions,
+	defaultBaseRevision,
 	onOpenChange,
 	onCreate,
 }: {
 	open: boolean;
 	isPending?: boolean;
 	error?: string | null;
+	branchOptions: BranchSelectOption[];
+	defaultBaseRevision: string;
 	onOpenChange: (open: boolean) => void;
 	onCreate: (input: CreateChangeInput) => Promise<void> | void;
 }): ReactElement {
@@ -30,6 +36,7 @@ export function CreateChangeDialog({
 	const [title, setTitle] = useState("");
 	const [priority, setPriority] = useState("medium");
 	const [labels, setLabels] = useState("agent-ready");
+	const [baseRevision, setBaseRevision] = useState(defaultBaseRevision);
 	const [planning, setPlanning] = useState<"none" | "openspec-lite">("none");
 	const [strict, setStrict] = useState(false);
 
@@ -39,28 +46,29 @@ export function CreateChangeDialog({
 			setTitle("");
 			setPriority("medium");
 			setLabels("agent-ready");
+			setBaseRevision(defaultBaseRevision);
 			setPlanning("none");
 			setStrict(false);
 		}
-	}, [open]);
+	}, [defaultBaseRevision, open]);
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogHeader title="Create Change" />
 			<DialogBody>
-				<div className="grid gap-3">
+				<div className="grid gap-4">
 					<label className="grid gap-1.5">
-						<span className="text-sm font-medium text-text-primary">Title</span>
+						<span className="text-[11px] text-text-secondary">Title</span>
 						<input
 							value={title}
 							onChange={(event) => setTitle(event.target.value)}
 							placeholder="Add planning status panel"
-							className="h-9 rounded-md border border-divider bg-surface-1 px-3 text-sm text-text-primary outline-none"
+							className="h-9 rounded-md border border-border-bright bg-surface-2 px-3 text-sm text-text-primary outline-none focus:border-border-focus"
 						/>
 					</label>
 					<div className="grid gap-3 sm:grid-cols-2">
 						<label className="grid gap-1.5">
-							<span className="text-sm font-medium text-text-primary">Template</span>
+							<span className="text-[11px] text-text-secondary">Template</span>
 							<NativeSelect
 								value={template}
 								onChange={(event) => setTemplate(event.target.value as CreateChangeInput["template"])}
@@ -73,7 +81,7 @@ export function CreateChangeDialog({
 							</NativeSelect>
 						</label>
 						<label className="grid gap-1.5">
-							<span className="text-sm font-medium text-text-primary">Priority</span>
+							<span className="text-[11px] text-text-secondary">Priority</span>
 							<NativeSelect value={priority} onChange={(event) => setPriority(event.target.value)}>
 								<option value="low">Low</option>
 								<option value="medium">Medium</option>
@@ -81,9 +89,20 @@ export function CreateChangeDialog({
 							</NativeSelect>
 						</label>
 					</div>
+					<div>
+						<span className="mb-1 block text-[11px] text-text-secondary">Base revision</span>
+						<BranchSelectDropdown
+							options={branchOptions}
+							selectedValue={baseRevision}
+							onSelect={setBaseRevision}
+							fill
+							size="sm"
+							emptyText="No refs detected"
+						/>
+					</div>
 					<div className="grid gap-3 sm:grid-cols-2">
 						<label className="grid gap-1.5">
-							<span className="text-sm font-medium text-text-primary">Planning</span>
+							<span className="text-[11px] text-text-secondary">Planning</span>
 							<NativeSelect
 								value={planning}
 								onChange={(event) => setPlanning(event.target.value as "none" | "openspec-lite")}
@@ -93,12 +112,12 @@ export function CreateChangeDialog({
 							</NativeSelect>
 						</label>
 						<label className="grid gap-1.5">
-							<span className="text-sm font-medium text-text-primary">Labels</span>
+							<span className="text-[11px] text-text-secondary">Labels</span>
 							<input
 								value={labels}
 								onChange={(event) => setLabels(event.target.value)}
 								placeholder="agent-ready, ui"
-								className="h-9 rounded-md border border-divider bg-surface-1 px-3 text-sm text-text-primary outline-none"
+								className="h-9 rounded-md border border-border-bright bg-surface-2 px-3 text-sm text-text-primary outline-none focus:border-border-focus"
 							/>
 						</label>
 					</div>
@@ -125,6 +144,7 @@ export function CreateChangeDialog({
 							template,
 							title: title.trim(),
 							priority,
+							baseRevision: baseRevision.trim() || undefined,
 							labels: labels
 								.split(",")
 								.map((value) => value.trim())

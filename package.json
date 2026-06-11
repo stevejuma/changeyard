@@ -19,6 +19,7 @@
     "cli": "node scripts/cy.mjs",
     "cy": "node scripts/cy.mjs",
     "cy:dev": "CHANGEYARD_DEV=1 node scripts/cy.mjs",
+    "ui:dev": "node --import tsx scripts/ui-dev.ts",
     "cy:install": "npm run cy:dev -- install",
     "cy:uninstall": "npm run cy:dev -- uninstall",
     "test": "npm run build && node --test --test-force-exit dist/tests/*.test.js",

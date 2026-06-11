@@ -16,6 +16,7 @@ export type CreateOptions = {
   title: string;
   priority?: string;
   labels?: string[];
+  baseRevision?: string;
   author?: string;
   planFile?: string;
   planning?: PlanningModel;
@@ -109,7 +110,7 @@ export function createChange(options: CreateOptions, repoRoot = process.cwd(), m
     updatedAt: createdAt,
     base: {
       vcs: "unknown",
-      revision: config.project.defaultBase,
+      revision: options.baseRevision?.trim() || config.project.defaultBase,
     },
     workspace: {
       engine: config.vcs.engine,
