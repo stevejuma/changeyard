@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { RuntimeSettingsDialog } from "@/components/runtime-settings-dialog";
-import type { RuntimeConfigResponse } from "@/runtime/types";
+import type { RuntimeChangeyardProjectConfig, RuntimeConfigResponse } from "@/runtime/types";
 
 /*
  * Radix Select depends on pointer-capture APIs that jsdom lacks.
@@ -78,6 +78,7 @@ const resetLayoutCustomizationsMock = vi.hoisted(() => vi.fn());
 const clineSetupSectionOnSavedRef = vi.hoisted(() => ({
 	onSaved: null as null | (() => void),
 }));
+const saveChangeyardProjectConfigMock = vi.hoisted(() => vi.fn(async () => true));
 
 vi.mock("@runtime-agent-catalog", () => ({
 	getRuntimeAgentCatalogEntry: vi.fn((agentId: string) => ({
@@ -146,6 +147,20 @@ vi.mock("@/runtime/use-runtime-config", () => ({
 	}),
 }));
 
+vi.mock("@/runtime/use-changeyard-project-config", () => ({
+	useChangeyardProjectConfig: (
+		_open: boolean,
+		_workspaceId: string | null,
+		initialConfig?: RuntimeChangeyardProjectConfig | null,
+	) => ({
+		config: initialConfig ?? null,
+		isLoading: false,
+		isSaving: false,
+		refresh: vi.fn(),
+		save: saveChangeyardProjectConfigMock,
+	}),
+}));
+
 vi.mock("@/runtime/runtime-config-query", () => ({
 	openFileOnHost: vi.fn(async () => undefined),
 }));
@@ -210,6 +225,18 @@ const savedClineOauthConfig = {
 	},
 } as unknown as RuntimeConfigResponse;
 
+const savedChangeyardProjectConfig: RuntimeChangeyardProjectConfig = {
+	initialized: true,
+	providerType: "noop",
+	vcsEngine: "jj",
+	vcsFallback: "jj",
+	projectDefaultBase: "main",
+	planningDefaultProfile: "none",
+	planningDefaultStrictness: "normal",
+	planningAllowQuickChanges: true,
+	planningQuickChangeCheckProfile: "minimal",
+};
+
 describe("RuntimeSettingsDialog", () => {
 	let container: HTMLDivElement;
 	let root: Root;
@@ -218,6 +245,7 @@ describe("RuntimeSettingsDialog", () => {
 	beforeEach(() => {
 		resetLayoutCustomizationsMock.mockReset();
 		clineSetupSectionOnSavedRef.onSaved = null;
+		saveChangeyardProjectConfigMock.mockClear();
 		window.localStorage.clear();
 		document.documentElement.removeAttribute("data-theme");
 		previousActEnvironment = (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
@@ -251,6 +279,7 @@ describe("RuntimeSettingsDialog", () => {
 					open={true}
 					workspaceId={"workspace-1"}
 					initialConfig={savedClineOauthConfig}
+					initialChangeyardProjectConfig={savedChangeyardProjectConfig}
 					onOpenChange={() => {}}
 				/>,
 			);
@@ -267,6 +296,7 @@ describe("RuntimeSettingsDialog", () => {
 					open={true}
 					workspaceId={"workspace-1"}
 					initialConfig={savedClineOauthConfig}
+					initialChangeyardProjectConfig={savedChangeyardProjectConfig}
 					onOpenChange={() => {}}
 				/>,
 			);
@@ -290,6 +320,7 @@ describe("RuntimeSettingsDialog", () => {
 					open={true}
 					workspaceId={"workspace-1"}
 					initialConfig={savedClineOauthConfig}
+					initialChangeyardProjectConfig={savedChangeyardProjectConfig}
 					onOpenChange={handleOpenChange}
 				/>,
 			);
@@ -337,6 +368,7 @@ describe("RuntimeSettingsDialog", () => {
 					open={true}
 					workspaceId={"workspace-1"}
 					initialConfig={savedClineOauthConfig}
+					initialChangeyardProjectConfig={savedChangeyardProjectConfig}
 					onOpenChange={handleOpenChange}
 				/>,
 			);
@@ -374,6 +406,7 @@ describe("RuntimeSettingsDialog", () => {
 					open={true}
 					workspaceId={"workspace-1"}
 					initialConfig={savedClineOauthConfig}
+					initialChangeyardProjectConfig={savedChangeyardProjectConfig}
 					onOpenChange={() => {}}
 					onSaved={handleSaved}
 				/>,
@@ -387,5 +420,52 @@ describe("RuntimeSettingsDialog", () => {
 		});
 
 		expect(handleSaved).toHaveBeenCalledTimes(1);
+	});
+
+	it("saves changeyard project settings when project fields change", async () => {
+		const handleOpenChange = vi.fn();
+		await act(async () => {
+			root.render(
+				<RuntimeSettingsDialog
+					open={true}
+					workspaceId={"workspace-1"}
+					initialConfig={savedClineOauthConfig}
+					initialChangeyardProjectConfig={savedChangeyardProjectConfig}
+					onOpenChange={handleOpenChange}
+				/>,
+			);
+		});
+
+		const defaultBaseInput = Array.from(document.querySelectorAll("input")).find(
+			(input) => input.value === "main",
+		) as HTMLInputElement | undefined;
+		let saveButton = findButtonByText(document.body, "Save");
+
+		expect(defaultBaseInput).toBeTruthy();
+		expect(saveButton?.disabled).toBe(true);
+
+		await act(async () => {
+			const valueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+			valueSetter?.call(defaultBaseInput, "trunk");
+			defaultBaseInput!.dispatchEvent(new Event("input", { bubbles: true }));
+			defaultBaseInput!.dispatchEvent(new Event("change", { bubbles: true }));
+		});
+
+		saveButton = findButtonByText(document.body, "Save");
+		expect(saveButton?.disabled).toBe(false);
+
+		await act(async () => {
+			saveButton?.click();
+		});
+
+		expect(saveChangeyardProjectConfigMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				projectDefaultBase: "trunk",
+				providerType: "noop",
+				vcsEngine: "jj",
+				vcsFallback: "jj",
+			}),
+		);
+		expect(handleOpenChange).toHaveBeenCalledWith(false);
 	});
 });

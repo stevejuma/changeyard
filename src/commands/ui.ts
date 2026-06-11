@@ -39,6 +39,20 @@ const PLANNING_SECTION_TITLES: Record<PlanningSectionId, string> = {
 };
 
 export function createChangeyardUiApi() {
+  function toProjectConfig(repoRoot: string, config = loadConfig(repoRoot)) {
+    return {
+      initialized: isChangeyardInitialized(repoRoot),
+      providerType: config.provider.type,
+      vcsEngine: config.vcs.engine,
+      vcsFallback: config.vcs.fallback,
+      projectDefaultBase: config.project.defaultBase,
+      planningDefaultProfile: config.planning?.defaultProfile,
+      planningDefaultStrictness: config.planning?.defaultStrictness,
+      planningAllowQuickChanges: config.planning?.allowQuickChanges,
+      planningQuickChangeCheckProfile: config.planning?.quickChangeCheckProfile,
+    };
+  }
+
   function findCanonicalChangePath(repoRoot: string, id: string): string {
     const config = loadConfig(repoRoot);
     const filePath = findChangeFile(changesRoot(repoRoot, config), id);
@@ -221,36 +235,45 @@ export function createChangeyardUiApi() {
       return { message: runUpdate(repoRoot) };
     },
     getProjectConfig(repoRoot: string) {
-      const config = loadConfig(repoRoot);
-      return {
-        initialized: isChangeyardInitialized(repoRoot),
-        providerType: config.provider.type,
-        vcsEngine: config.vcs.engine,
-        vcsFallback: config.vcs.fallback,
-        planningDefaultProfile: config.planning?.defaultProfile,
-      };
+      return toProjectConfig(repoRoot);
     },
     updateProjectConfig(repoRoot: string, input: {
       providerType?: "noop" | "local-folder" | "forgejo" | "github" | "gitlab";
       vcsEngine?: "plain-copy" | "jj" | "git-worktree";
       vcsFallback?: "plain-copy" | "jj" | "git-worktree";
+      projectDefaultBase?: string;
+      planningDefaultProfile?: "none" | "openspec-lite";
+      planningDefaultStrictness?: "normal" | "strict";
+      planningAllowQuickChanges?: boolean;
+      planningQuickChangeCheckProfile?: string;
     }) {
+      const current = loadConfig(repoRoot);
       const patch: Parameters<typeof updateLocalConfig>[1] = {};
       if (input.providerType) patch.provider = { type: input.providerType };
       if (input.vcsEngine || input.vcsFallback) {
         patch.vcs = {
-          engine: input.vcsEngine ?? loadConfig(repoRoot).vcs.engine,
-          fallback: input.vcsFallback ?? input.vcsEngine ?? loadConfig(repoRoot).vcs.fallback,
+          engine: input.vcsEngine ?? current.vcs.engine,
+          fallback: input.vcsFallback ?? input.vcsEngine ?? current.vcs.fallback,
+        };
+      }
+      if (input.projectDefaultBase !== undefined) {
+        patch.project = { defaultBase: input.projectDefaultBase };
+      }
+      if (
+        input.planningDefaultProfile !== undefined
+        || input.planningDefaultStrictness !== undefined
+        || input.planningAllowQuickChanges !== undefined
+        || input.planningQuickChangeCheckProfile !== undefined
+      ) {
+        patch.planning = {
+          defaultProfile: input.planningDefaultProfile ?? current.planning?.defaultProfile,
+          defaultStrictness: input.planningDefaultStrictness ?? current.planning?.defaultStrictness,
+          allowQuickChanges: input.planningAllowQuickChanges ?? current.planning?.allowQuickChanges,
+          quickChangeCheckProfile: input.planningQuickChangeCheckProfile ?? current.planning?.quickChangeCheckProfile,
         };
       }
       const config = updateLocalConfig(repoRoot, patch);
-      return {
-        initialized: isChangeyardInitialized(repoRoot),
-        providerType: config.provider.type,
-        vcsEngine: config.vcs.engine,
-        vcsFallback: config.vcs.fallback,
-        planningDefaultProfile: config.planning?.defaultProfile,
-      };
+      return toProjectConfig(repoRoot, config);
     },
     doctorProject(repoRoot: string) {
       const report = doctorReport(repoRoot);
