@@ -2,7 +2,7 @@ import { Draggable } from "@hello-pangea/dnd";
 import { getRuntimeAgentCatalogEntry } from "@runtime-agent-catalog";
 import { formatClineToolCallLabel } from "@runtime-cline-tool-call-display";
 import { buildTaskWorktreeDisplayPath } from "@runtime-task-worktree-path";
-import { AlertCircle, AlertTriangle, Bot, GitBranch, Pencil, Play, RotateCcw, Trash2 } from "lucide-react";
+import { AlertCircle, AlertTriangle, Bot, FileText, GitBranch, Pencil, Play, RotateCcw, Trash2 } from "lucide-react";
 import type { KeyboardEvent, MouseEvent } from "react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -234,6 +234,7 @@ export function BoardCard({
 	isDependencyLinking = false,
 	workspacePath,
 	defaultClineModelId = null,
+	draggableId,
 }: {
 	card: BoardCardModel;
 	index: number;
@@ -258,6 +259,7 @@ export function BoardCard({
 	isDependencyLinking?: boolean;
 	workspacePath?: string | null;
 	defaultClineModelId?: string | null;
+	draggableId?: string;
 }): React.ReactElement {
 	const [isHovered, setIsHovered] = useState(false);
 	const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -272,6 +274,7 @@ export function BoardCard({
 	const reviewWorkspaceSnapshot = useTaskWorkspaceSnapshotValue(card.id);
 	const isTrashCard = columnId === "trash";
 	const isCardInteractive = !isTrashCard;
+	const canOpenDetails = Boolean(onClick);
 	const descriptionWidth = descriptionRect.width > 0 ? descriptionRect.width : descriptionWidthFallback;
 	const rawSessionActivity = useMemo(() => getCardSessionActivity(sessionSummary), [sessionSummary]);
 	const lastSessionActivityRef = useRef<CardSessionActivity | null>(null);
@@ -474,7 +477,7 @@ export function BoardCard({
 	const activeDescriptionDisplay = isDescriptionExpanded ? descriptionDisplay.expanded : descriptionDisplay.collapsed;
 
 	return (
-		<Draggable draggableId={card.id} index={index} isDragDisabled={false}>
+		<Draggable draggableId={draggableId ?? card.id} index={index} isDragDisabled={false}>
 			{(provided, snapshot) => {
 				const isDragging = snapshot.isDragging;
 				const draggableContent = (
@@ -606,6 +609,21 @@ export function BoardCard({
 										</p>
 									)}
 								</div>
+								{canOpenDetails ? (
+									<Button
+										icon={<FileText size={16} />}
+										variant="ghost"
+										size="sm"
+										aria-label="View task details"
+										title="View details"
+										onMouseDown={stopEvent}
+										onClick={(event) => {
+											stopEvent(event);
+											onClick?.();
+										}}
+										className="h-8 w-8 px-0"
+									/>
+								) : null}
 								{columnId === "backlog" ? (
 									<Button
 										icon={<Play size={14} />}

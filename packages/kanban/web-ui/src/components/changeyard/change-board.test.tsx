@@ -8,6 +8,7 @@ import type { RuntimeChangeyardChangeListItem } from "@/runtime/types";
 import type { BoardData } from "@/types";
 
 const dndMock = vi.hoisted(() => ({
+	onDragStart: null as ((start: { draggableId: string }) => void) | null,
 	onDragEnd: null as ((result: { draggableId: string; source: { droppableId: string }; destination: { droppableId: string } | null }) => void) | null,
 }));
 
@@ -17,22 +18,27 @@ vi.mock("@hello-pangea/dnd", async () => {
 	return {
 		DragDropContext: ({
 			children,
+			onDragStart,
 			onDragEnd,
 		}: {
 			children: ReactNode;
+			onDragStart?: NonNullable<typeof dndMock.onDragStart>;
 			onDragEnd: NonNullable<typeof dndMock.onDragEnd>;
 		}): React.ReactElement => {
+			dndMock.onDragStart = onDragStart ?? null;
 			dndMock.onDragEnd = onDragEnd;
 			return <>{children}</>;
 		},
 		Droppable: ({
 			children,
 			droppableId,
+			isDropDisabled,
 		}: {
 			children: (provided: { innerRef: () => void; droppableProps: Record<string, never>; placeholder: null }) => ReactNode;
 			droppableId: string;
+			isDropDisabled?: boolean;
 		}): React.ReactElement => (
-			<div data-droppable-id={droppableId}>
+			<div data-droppable-id={droppableId} data-drop-disabled={isDropDisabled ? "true" : "false"}>
 				{children({
 					innerRef: () => {},
 					droppableProps: {},
@@ -48,7 +54,7 @@ vi.mock("@hello-pangea/dnd", async () => {
 				innerRef: () => void;
 				draggableProps: Record<string, string>;
 				dragHandleProps: Record<string, string>;
-			}) => ReactNode;
+			}, snapshot: { isDragging: boolean }) => ReactNode;
 			draggableId: string;
 		}): React.ReactElement => (
 			<div data-draggable-id={draggableId}>
@@ -56,18 +62,23 @@ vi.mock("@hello-pangea/dnd", async () => {
 					innerRef: () => {},
 					draggableProps: { "data-draggable-props": draggableId },
 					dragHandleProps: { "data-drag-handle-props": draggableId },
-				})}
+				}, { isDragging: false })}
 			</div>
 		),
 	};
 });
 
-function createChange(id: string, title: string, planning: RuntimeChangeyardChangeListItem["planning"]): RuntimeChangeyardChangeListItem {
+function createChange(
+	id: string,
+	title: string,
+	planning: RuntimeChangeyardChangeListItem["planning"],
+	status = "ready",
+): RuntimeChangeyardChangeListItem {
 	return {
 		id,
 		title,
 		type: "feature",
-		status: "ready",
+		status,
 		path: `.changeyard/changes/${id}.md`,
 		labels: [],
 		planning,
@@ -89,6 +100,8 @@ describe("ChangeBoard", () => {
 			root.unmount();
 		});
 		container.remove();
+		window.localStorage.clear();
+		dndMock.onDragStart = null;
 		dndMock.onDragEnd = null;
 	});
 
@@ -180,12 +193,136 @@ describe("ChangeBoard", () => {
 
 		act(() => {
 			dndMock.onDragEnd?.({
-				draggableId: "CY-0001",
+				draggableId: "change:CY-0001",
 				source: { droppableId: "ready" },
 				destination: { droppableId: "in_progress" },
 			});
 		});
 
 		expect(onMoveChange).toHaveBeenCalledWith("CY-0001", "in_progress");
+	});
+
+	it("opens change details from the details button", () => {
+		const onSelectChange = vi.fn();
+
+		act(() => {
+			root.render(
+				<ChangeBoard
+					board={{ columns: [], dependencies: [] }}
+					changes={[createChange("CY-0001", "Quick change", null)]}
+					filter="changes"
+					selectedChangeId={null}
+					selectedTaskId={null}
+					onFilterChange={vi.fn()}
+					onSelectChange={onSelectChange}
+					onSelectTask={vi.fn()}
+				/>,
+			);
+		});
+
+		const detailsButton = container.querySelector('button[aria-label="View details for CY-0001"]');
+		expect(detailsButton).toBeTruthy();
+		detailsButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+		expect(onSelectChange).toHaveBeenCalledWith("CY-0001");
+	});
+
+	it("shows the change details button in the abandoned column", () => {
+		act(() => {
+			root.render(
+				<ChangeBoard
+					board={{ columns: [], dependencies: [] }}
+					changes={[createChange("CY-0007", "Abandoned change", null, "abandoned")]}
+					filter="changes"
+					selectedChangeId={null}
+					selectedTaskId={null}
+					onFilterChange={vi.fn()}
+					onSelectChange={vi.fn()}
+					onSelectTask={vi.fn()}
+				/>,
+			);
+		});
+
+		expect(container.querySelector('button[aria-label="View details for CY-0007"]')).toBeTruthy();
+	});
+
+	it("collapses empty columns by default and persists explicit expansion", () => {
+		act(() => {
+			root.render(
+				<ChangeBoard
+					board={{ columns: [], dependencies: [] }}
+					changes={[createChange("CY-0001", "Ready change", null)]}
+					filter="changes"
+					selectedChangeId={null}
+					selectedTaskId={null}
+					onFilterChange={vi.fn()}
+					onSelectChange={vi.fn()}
+					onSelectTask={vi.fn()}
+				/>,
+			);
+		});
+
+		expect(container.querySelector('button[aria-label="Expand Backlog column"]')).toBeTruthy();
+		const expandBacklog = container.querySelector('button[aria-label="Expand Backlog column"]');
+		act(() => {
+			expandBacklog?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+		});
+		expect(container.querySelector('button[aria-label="Collapse Backlog column"]')).toBeTruthy();
+		expect(window.localStorage.getItem("kanban.change-board-collapsed-columns.v1")).toContain('"backlog":false');
+	});
+
+	it("routes typed task drags through the task move handler", () => {
+		const onMoveTask = vi.fn();
+		const board: BoardData = {
+			columns: [
+				{
+					id: "backlog",
+					title: "Backlog",
+					cards: [
+						{
+							id: "task-1",
+							title: "Legacy task",
+							prompt: "Legacy task",
+							startInPlanMode: false,
+							baseRef: "main",
+							createdAt: 1,
+							updatedAt: 1,
+						},
+					],
+				},
+			],
+			dependencies: [],
+		};
+
+		act(() => {
+			root.render(
+				<ChangeBoard
+					board={board}
+					changes={[]}
+					filter="all"
+					selectedChangeId={null}
+					selectedTaskId={null}
+					onFilterChange={vi.fn()}
+					onSelectChange={vi.fn()}
+					onSelectTask={vi.fn()}
+					onMoveTask={onMoveTask}
+				/>,
+			);
+		});
+
+		act(() => {
+			dndMock.onDragEnd?.({
+				draggableId: "task:task-1",
+				source: { droppableId: "backlog" },
+				destination: { droppableId: "in_progress" },
+			});
+		});
+
+		expect(onMoveTask).toHaveBeenCalledWith(
+			expect.objectContaining({
+				draggableId: "task-1",
+				source: expect.objectContaining({ droppableId: "backlog" }),
+				destination: expect.objectContaining({ droppableId: "in_progress" }),
+			}),
+		);
 	});
 });

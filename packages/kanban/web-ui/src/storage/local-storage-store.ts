@@ -19,6 +19,7 @@ export enum LocalStorageKey {
 	GitDiffFileTreePanelRatio = "kanban.git-diff-file-tree-panel-ratio",
 	GitDiffFileTreePanelWidth = "kanban.git-diff-file-tree-panel-width",
 	GitDiffFileTreePanelCollapsed = "kanban.git-diff-file-tree-panel-collapsed",
+	ChangeBoardCollapsedColumns = "kanban.change-board-collapsed-columns.v1",
 	OnboardingDialogShown = "kanban.onboarding.dialog.shown",
 	NotificationPermissionPrompted = "kanban.notifications.permission-prompted",
 	PreferredOpenTarget = "kanban.preferred-open-target",
@@ -43,6 +44,7 @@ export const LAYOUT_CUSTOMIZATION_LOCAL_STORAGE_KEYS = [
 	LocalStorageKey.GitDiffFileTreePanelRatio,
 	LocalStorageKey.GitDiffFileTreePanelWidth,
 	LocalStorageKey.GitDiffFileTreePanelCollapsed,
+	LocalStorageKey.ChangeBoardCollapsedColumns,
 ] as const;
 
 function getLocalStorage(): Storage | null {
