@@ -29,6 +29,7 @@ function createChange(id: string): RuntimeChangeyardChangeListItem {
 		status: "draft",
 		path: `/tmp/${id}.md`,
 		labels: [],
+		dependencies: { blockedBy: [], blocks: [] },
 		updatedAt: "2026-06-09T00:00:00.000Z",
 		planning: null,
 	};

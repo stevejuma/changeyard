@@ -1,66 +1,67 @@
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { DependencyNodeId } from "@/types";
 
 export interface DependencyLinkDraft {
-	sourceTaskId: string;
-	targetTaskId: string | null;
+	sourceNodeId: DependencyNodeId;
+	targetNodeId: DependencyNodeId | null;
 	pointerClientX: number;
 	pointerClientY: number;
 }
 
 const CARD_GAP_CAPTURE_PX = 16;
 
-function getNearestCardTaskIdInColumn(columnElement: HTMLElement, clientY: number): string | null {
-	const cards = Array.from(columnElement.querySelectorAll<HTMLElement>("[data-task-id]"));
+function getNearestNodeIdInColumn(columnElement: HTMLElement, clientY: number): DependencyNodeId | null {
+	const cards = Array.from(columnElement.querySelectorAll<HTMLElement>("[data-dependency-node-id]"));
 	if (cards.length === 0) {
 		return null;
 	}
 
-	let nearestBelow: { taskId: string; distance: number } | null = null;
-	let nearestAbove: { taskId: string; distance: number } | null = null;
+	let nearestBelow: { nodeId: DependencyNodeId; distance: number } | null = null;
+	let nearestAbove: { nodeId: DependencyNodeId; distance: number } | null = null;
 
 	for (const card of cards) {
-		const taskId = card.dataset.taskId;
-		if (!taskId) {
+		const nodeId = card.dataset.dependencyNodeId as DependencyNodeId | undefined;
+		if (!nodeId) {
 			continue;
 		}
 		const rect = card.getBoundingClientRect();
 		if (clientY >= rect.top && clientY <= rect.bottom) {
-			return taskId;
+			return nodeId;
 		}
 		if (clientY < rect.top) {
 			const distance = rect.top - clientY;
 			if (!nearestBelow || distance < nearestBelow.distance) {
-				nearestBelow = { taskId, distance };
+				nearestBelow = { nodeId, distance };
 			}
 			continue;
 		}
 		const distance = clientY - rect.bottom;
 		if (!nearestAbove || distance < nearestAbove.distance) {
-			nearestAbove = { taskId, distance };
+			nearestAbove = { nodeId, distance };
 		}
 	}
 
 	if (nearestBelow && nearestBelow.distance <= CARD_GAP_CAPTURE_PX) {
-		return nearestBelow.taskId;
+		return nearestBelow.nodeId;
 	}
 	if (nearestAbove && nearestAbove.distance <= CARD_GAP_CAPTURE_PX) {
-		return nearestAbove.taskId;
+		return nearestAbove.nodeId;
 	}
 
 	return null;
 }
 
-function getTaskIdFromPoint(clientX: number, clientY: number): string | null {
+function getNodeIdFromPoint(clientX: number, clientY: number): DependencyNodeId | null {
 	if (typeof document === "undefined") {
 		return null;
 	}
 	const elementsAtPoint = document.elementsFromPoint(clientX, clientY);
 	let columnElement: HTMLElement | null = null;
 	for (const element of elementsAtPoint) {
-		const card = element.closest("[data-task-id]");
+		const card = element.closest("[data-dependency-node-id]");
 		if (card instanceof HTMLElement) {
-			return card.dataset.taskId ?? null;
+			return (card.dataset.dependencyNodeId as DependencyNodeId | undefined) ?? null;
 		}
 		if (!columnElement) {
 			const column = element.closest("[data-column-id]");
@@ -71,47 +72,47 @@ function getTaskIdFromPoint(clientX: number, clientY: number): string | null {
 	}
 
 	if (columnElement) {
-		return getNearestCardTaskIdInColumn(columnElement, clientY);
+		return getNearestNodeIdInColumn(columnElement, clientY);
 	}
 	return null;
 }
 
 export function useDependencyLinking({
-	canLinkTasks,
+	canLinkNodes,
 	onCreateDependency,
 }: {
-	canLinkTasks?: (fromTaskId: string, toTaskId: string) => boolean;
-	onCreateDependency?: (fromTaskId: string, toTaskId: string) => void;
+	canLinkNodes?: (fromNodeId: DependencyNodeId, toNodeId: DependencyNodeId) => boolean;
+	onCreateDependency?: (fromNodeId: DependencyNodeId, toNodeId: DependencyNodeId) => void;
 }): {
 	draft: DependencyLinkDraft | null;
-	onDependencyPointerDown: (taskId: string, event: ReactMouseEvent<HTMLElement>) => void;
-	onDependencyPointerEnter: (taskId: string) => void;
+	onDependencyPointerDown: (nodeId: DependencyNodeId, event: ReactMouseEvent<HTMLElement>) => void;
+	onDependencyPointerEnter: (nodeId: DependencyNodeId) => void;
 } {
 	const [draft, setDraft] = useState<DependencyLinkDraft | null>(null);
 	const draftRef = useRef<DependencyLinkDraft | null>(null);
 	const modifierPressedRef = useRef(false);
 
 	const getValidTargetTaskId = useCallback(
-		(sourceTaskId: string, targetTaskId: string | null): string | null => {
-			if (!targetTaskId || targetTaskId === sourceTaskId) {
+		(sourceNodeId: DependencyNodeId, targetNodeId: DependencyNodeId | null): DependencyNodeId | null => {
+			if (!targetNodeId || targetNodeId === sourceNodeId) {
 				return null;
 			}
-			if (canLinkTasks && !canLinkTasks(sourceTaskId, targetTaskId)) {
+			if (canLinkNodes && !canLinkNodes(sourceNodeId, targetNodeId)) {
 				return null;
 			}
-			return targetTaskId;
+			return targetNodeId;
 		},
-		[canLinkTasks],
+		[canLinkNodes],
 	);
 
 	const completeDependencyLink = useCallback(
-		(taskId: string | null): boolean => {
+		(nodeId: DependencyNodeId | null): boolean => {
 			const current = draftRef.current;
-			const validTaskId = current ? getValidTargetTaskId(current.sourceTaskId, taskId) : null;
-			if (!current || !validTaskId) {
+			const validNodeId = current ? getValidTargetTaskId(current.sourceNodeId, nodeId) : null;
+			if (!current || !validNodeId) {
 				return false;
 			}
-			onCreateDependency?.(current.sourceTaskId, validTaskId);
+			onCreateDependency?.(current.sourceNodeId, validNodeId);
 			draftRef.current = null;
 			setDraft(null);
 			return true;
@@ -160,14 +161,14 @@ export function useDependencyLinking({
 					return current;
 				}
 				const targetTaskId = getValidTargetTaskId(
-					current.sourceTaskId,
-					getTaskIdFromPoint(event.clientX, event.clientY),
+					current.sourceNodeId,
+					getNodeIdFromPoint(event.clientX, event.clientY),
 				);
 				return {
 					...current,
 					pointerClientX: event.clientX,
 					pointerClientY: event.clientY,
-					targetTaskId,
+					targetNodeId: targetTaskId,
 				};
 			});
 		};
@@ -179,8 +180,8 @@ export function useDependencyLinking({
 					return null;
 				}
 				const resolvedTargetTaskId = getValidTargetTaskId(
-					current.sourceTaskId,
-					getTaskIdFromPoint(event.clientX, event.clientY) ?? current.targetTaskId,
+					current.sourceNodeId,
+					getNodeIdFromPoint(event.clientX, event.clientY) ?? current.targetNodeId,
 				);
 				if (modifierPressedRef.current && completeDependencyLink(resolvedTargetTaskId ?? null)) {
 					return null;
@@ -191,7 +192,7 @@ export function useDependencyLinking({
 				}
 				const nextDraft = {
 					...current,
-					targetTaskId: resolvedTargetTaskId ?? null,
+					targetNodeId: resolvedTargetTaskId ?? null,
 					pointerClientX: event.clientX,
 					pointerClientY: event.clientY,
 				};
@@ -210,8 +211,8 @@ export function useDependencyLinking({
 				return;
 			}
 			const resolvedTargetTaskId = getValidTargetTaskId(
-				current.sourceTaskId,
-				current.targetTaskId ?? getTaskIdFromPoint(current.pointerClientX, current.pointerClientY),
+				current.sourceNodeId,
+				current.targetNodeId ?? getNodeIdFromPoint(current.pointerClientX, current.pointerClientY),
 			);
 			if (completeDependencyLink(resolvedTargetTaskId)) {
 				return;
@@ -231,16 +232,16 @@ export function useDependencyLinking({
 		};
 	}, [completeDependencyLink, getValidTargetTaskId, isLinking]);
 
-	const handleDependencyPointerDown = useCallback((taskId: string, event: ReactMouseEvent<HTMLElement>) => {
+	const handleDependencyPointerDown = useCallback((nodeId: DependencyNodeId, event: ReactMouseEvent<HTMLElement>) => {
 		modifierPressedRef.current = event.metaKey || event.ctrlKey;
 		setDraft((current) => {
-			if (current?.sourceTaskId === taskId) {
+			if (current?.sourceNodeId === nodeId) {
 				draftRef.current = null;
 				return null;
 			}
 			const nextDraft = {
-				sourceTaskId: taskId,
-				targetTaskId: null,
+				sourceNodeId: nodeId,
+				targetNodeId: null,
 				pointerClientX: event.clientX,
 				pointerClientY: event.clientY,
 			};
@@ -250,14 +251,14 @@ export function useDependencyLinking({
 	}, []);
 
 	const handleDependencyPointerEnter = useCallback(
-		(taskId: string) => {
+		(nodeId: DependencyNodeId) => {
 			setDraft((current) => {
 				if (!current) {
 					return current;
 				}
 				const nextDraft = {
 					...current,
-					targetTaskId: getValidTargetTaskId(current.sourceTaskId, taskId),
+					targetNodeId: getValidTargetTaskId(current.sourceNodeId, nodeId),
 				};
 				draftRef.current = nextDraft;
 				return nextDraft;

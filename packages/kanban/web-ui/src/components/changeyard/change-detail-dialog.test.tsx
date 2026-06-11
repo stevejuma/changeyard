@@ -35,6 +35,7 @@ function createChange(overrides: Partial<RuntimeChangeyardChangeDetail> = {}): R
 		status: "in_progress",
 		path: ".changeyard/changes/CY-9999-polish-details.md",
 		labels: ["ui"],
+		dependencies: { blockedBy: [], blocks: [] },
 		updatedAt: "2026-06-11T12:00:00.000Z",
 		planning: null,
 		remote: { provider: "noop" },

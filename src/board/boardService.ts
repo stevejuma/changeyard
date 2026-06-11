@@ -16,6 +16,8 @@ import { createWorkspaceEngine } from "../workspace/index.js";
 import {
   updateChangeBody,
   updateChangeStatus,
+  linkChanges,
+  unlinkChanges,
   updateCardMetadata,
   updateCardSection,
   updatePlanningSection,
@@ -24,6 +26,7 @@ import {
   type UpdateCardMetadataInput,
   type UpdatePlanningSectionInput,
 } from "./changeMutations.js";
+import { deriveChangeDependencyInfo } from "./changeDependencies.js";
 import { readWorkspaceTerminalView, type WorkspaceTerminalView } from "./workspaceView.js";
 import type { ChangeyardBoard, ChangeyardBoardColumn, ChangeyardCardDetail } from "./boardTypes.js";
 import { COLUMN_STATUS_MAP, COLUMN_TITLES, columnForStatus } from "./statusColumns.js";
@@ -55,7 +58,7 @@ function verifyWorkspace(metadata: WorkspaceMetadata | null): { valid: boolean; 
   }
 }
 
-function toCard(repoRoot: string, filePath: string): ChangeyardCardDetail {
+function toCard(repoRoot: string, filePath: string): Omit<ChangeyardCardDetail, "dependencies"> {
   const parsed = parseFrontmatter(readFileSync(filePath, "utf8"));
   const frontmatter = parsed.frontmatter;
   const id = String(frontmatter.id ?? path.basename(filePath, ".md"));
@@ -117,7 +120,12 @@ export class ChangeyardBoardService {
   }
 
   private readAllCards(): ChangeyardCardDetail[] {
-    return this.changeFiles().map((filePath) => toCard(this.repoRoot, filePath));
+    const cards = this.changeFiles().map((filePath) => toCard(this.repoRoot, filePath));
+    const dependencies = deriveChangeDependencyInfo(cards);
+    return cards.map((card) => ({
+      ...card,
+      dependencies: dependencies.get(card.id) ?? { blockedBy: [], blocks: [] },
+    }));
   }
 
   getBoard(): ChangeyardBoard {
@@ -139,10 +147,9 @@ export class ChangeyardBoardService {
   }
 
   getCard(id: string): ChangeyardCardDetail {
-    const config = loadConfig(this.repoRoot);
-    const filePath = findChangeFile(changesRoot(this.repoRoot, config), id);
-    if (!filePath) throw new Error(`Change not found: ${id}`);
-    return toCard(this.repoRoot, filePath);
+    const card = this.readAllCards().find((entry) => entry.id === id);
+    if (!card) throw new Error(`Change not found: ${id}`);
+    return card;
   }
 
   getWorkspaceView(id: string): WorkspaceTerminalView {
@@ -184,6 +191,16 @@ export class ChangeyardBoardService {
 
   updateChangeStatus(id: string, input: UpdateChangeStatusInput): ChangeyardCardDetail {
     updateChangeStatus(this.repoRoot, id, input);
+    return this.getCard(id);
+  }
+
+  linkCard(id: string, blockedByChangeId: string): ChangeyardCardDetail {
+    linkChanges(this.repoRoot, id, blockedByChangeId);
+    return this.getCard(id);
+  }
+
+  unlinkCard(id: string, blockedByChangeId: string): ChangeyardCardDetail {
+    unlinkChanges(this.repoRoot, id, blockedByChangeId);
     return this.getCard(id);
   }
 

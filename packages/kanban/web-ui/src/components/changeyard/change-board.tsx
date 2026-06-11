@@ -27,12 +27,15 @@ import {
 	useRef,
 	useState,
 	type KeyboardEvent,
+	type MouseEvent as ReactMouseEvent,
 	type PointerEvent as ReactPointerEvent,
 	type ReactElement,
 	type ReactNode,
 } from "react";
 
 import { BoardCard } from "@/components/board-card";
+import { DependencyOverlay } from "@/components/dependencies/dependency-overlay";
+import { useDependencyLinking } from "@/components/dependencies/use-dependency-linking";
 import {
 	getChangeBoardFilesCacheKey,
 	getChangeBoardSummaryCacheKey,
@@ -58,7 +61,7 @@ import type {
 	RuntimeTaskSessionSummary,
 } from "@/runtime/types";
 import { LocalStorageKey, readLocalStorageItem, writeLocalStorageItem } from "@/storage/local-storage-store";
-import type { BoardCard as BoardCardModel, BoardColumnId, BoardData } from "@/types";
+import type { BoardCard as BoardCardModel, BoardColumnId, BoardData, DependencyEdge, DependencyNodeId } from "@/types";
 import { buildFileTree, type FileTreeNode } from "@/utils/file-tree";
 
 export type ChangeBoardFilter = "all" | "changes" | "planned";
@@ -81,6 +84,61 @@ const CHANGE_COLUMNS: Array<{ id: ChangeColumnId; title: string; statuses: strin
 	{ id: "done", title: "Done", statuses: ["approved", "merged"] },
 	{ id: "abandoned", title: "Abandoned", statuses: ["abandoned"] },
 ];
+
+function encodeChangeNodeId(changeId: string): DependencyNodeId {
+	return `change:${changeId}`;
+}
+
+function decodeChangeNodeId(nodeId: DependencyNodeId): string | null {
+	return nodeId.startsWith("change:") ? nodeId.slice(7) : null;
+}
+
+function buildChangeDependencyEdges(changes: RuntimeChangeyardChangeListItem[]): DependencyEdge[] {
+	return changes.flatMap((change) =>
+		change.dependencies.blockedBy.map((blockedByChangeId) => ({
+			id: `change-link:${change.id}:${blockedByChangeId}`,
+			fromNodeId: encodeChangeNodeId(change.id),
+			toNodeId: encodeChangeNodeId(blockedByChangeId),
+			createdAt: 0,
+		})),
+	);
+}
+
+function canCreateChangeDependency(
+	changes: RuntimeChangeyardChangeListItem[],
+	changeId: string,
+	blockedByChangeId: string,
+): boolean {
+	if (!changeId || !blockedByChangeId || changeId === blockedByChangeId) {
+		return false;
+	}
+	const changeById = new Map(changes.map((change) => [change.id, change] as const));
+	const source = changeById.get(changeId);
+	const target = changeById.get(blockedByChangeId);
+	if (!source || !target) {
+		return false;
+	}
+	if (source.dependencies.blockedBy.includes(blockedByChangeId)) {
+		return false;
+	}
+	const pending = [...target.dependencies.blockedBy];
+	const seen = new Set<string>();
+	while (pending.length > 0) {
+		const current = pending.pop();
+		if (!current || seen.has(current)) {
+			continue;
+		}
+		if (current === changeId) {
+			return false;
+		}
+		seen.add(current);
+		const next = changeById.get(current);
+		if (next) {
+			pending.push(...next.dependencies.blockedBy);
+		}
+	}
+	return true;
+}
 
 function columnForStatus(status: string): ChangeColumnId {
 	for (const column of CHANGE_COLUMNS) {
@@ -632,6 +690,11 @@ function ChangeCard({
 	onOpenDetails,
 	onFileSelect,
 	onCommitUnselect,
+	onDependencyPointerDown,
+	onDependencyPointerEnter,
+	isDependencySource,
+	isDependencyTarget,
+	isDependencyLinking,
 }: {
 	change: RuntimeChangeyardChangeListItem;
 	index: number;
@@ -645,6 +708,11 @@ function ChangeCard({
 		input: Pick<SelectedBoardFile, "changeId" | "columnId" | "scopeKey" | "scope" | "path">,
 	) => void;
 	onCommitUnselect: (changeId: string, commitHash: string) => void;
+	onDependencyPointerDown?: (nodeId: DependencyNodeId, event: ReactMouseEvent<HTMLElement>) => void;
+	onDependencyPointerEnter?: (nodeId: DependencyNodeId) => void;
+	isDependencySource?: boolean;
+	isDependencyTarget?: boolean;
+	isDependencyLinking?: boolean;
 }): ReactElement {
 	const [summary, setSummary] = useState<RuntimeChangeyardBoardSummaryResponse | null>(null);
 	const [summaryLoading, setSummaryLoading] = useState(false);
@@ -834,10 +902,35 @@ function ChangeCard({
 					{...provided.draggableProps}
 					{...provided.dragHandleProps}
 					data-change-id={change.id}
+					data-dependency-node-id={encodeChangeNodeId(change.id)}
+					data-column-id={columnId}
 					className={cn(
 						"overflow-hidden rounded-lg border text-left transition-colors",
 						selected && selectedCommitHash === null ? "border-divider bg-surface-2" : "border-divider bg-surface-0 hover:bg-surface-2",
+						isDependencySource ? "kb-board-card-dependency-source" : null,
+						isDependencyTarget ? "kb-board-card-dependency-target" : null,
 					)}
+					onMouseDownCapture={(event) => {
+						if (!event.metaKey && !event.ctrlKey) {
+							return;
+						}
+						const target = event.target as HTMLElement | null;
+						if (target?.closest("button, a, input, textarea, [contenteditable='true']")) {
+							return;
+						}
+						event.preventDefault();
+						event.stopPropagation();
+						onDependencyPointerDown?.(encodeChangeNodeId(change.id), event);
+					}}
+					onMouseEnter={() => {
+						onDependencyPointerEnter?.(encodeChangeNodeId(change.id));
+					}}
+					onMouseMove={() => {
+						if (!isDependencyLinking) {
+							return;
+						}
+						onDependencyPointerEnter?.(encodeChangeNodeId(change.id));
+					}}
 					style={{
 						...provided.draggableProps.style,
 						marginBottom: 6,
@@ -1087,6 +1180,8 @@ export function ChangeBoard({
 	onCreateChange,
 	onCreateTask,
 	onMoveChange,
+	onLinkChange,
+	onUnlinkChange,
 	onMoveTask,
 	onStartTask,
 	onCommitTask,
@@ -1114,6 +1209,8 @@ export function ChangeBoard({
 	onCreateChange?: () => void;
 	onCreateTask?: () => void;
 	onMoveChange?: (changeId: string, targetColumnId: ChangeColumnId) => void;
+	onLinkChange?: (changeId: string, blockedByChangeId: string) => void;
+	onUnlinkChange?: (changeId: string, blockedByChangeId: string) => void;
 	onMoveTask?: (result: DropResult) => void;
 	onStartTask?: (taskId: string) => void;
 	onCommitTask?: (taskId: string) => void;
@@ -1137,7 +1234,27 @@ export function ChangeBoard({
 	const [fileDiffLoading, setFileDiffLoading] = useState(false);
 	const [fileDiffError, setFileDiffError] = useState<Error | null>(null);
 	const [diffPanelWidth, setDiffPanelWidth] = useState(DEFAULT_DIFF_PANEL_WIDTH);
+	const boardSurfaceRef = useRef<HTMLDivElement | null>(null);
 	const filteredChanges = filterChanges(changes, filter);
+	const changeDependencyEdges = useMemo(() => buildChangeDependencyEdges(filteredChanges), [filteredChanges]);
+	const dependencyLinking = useDependencyLinking({
+		canLinkNodes: (fromNodeId, toNodeId) => {
+			const fromChangeId = decodeChangeNodeId(fromNodeId);
+			const toChangeId = decodeChangeNodeId(toNodeId);
+			if (!fromChangeId || !toChangeId) {
+				return false;
+			}
+			return canCreateChangeDependency(filteredChanges, fromChangeId, toChangeId);
+		},
+		onCreateDependency: (fromNodeId, toNodeId) => {
+			const fromChangeId = decodeChangeNodeId(fromNodeId);
+			const toChangeId = decodeChangeNodeId(toNodeId);
+			if (!fromChangeId || !toChangeId) {
+				return;
+			}
+			onLinkChange?.(fromChangeId, toChangeId);
+		},
+	});
 	const groupedChanges = new Map<ChangeColumnId, RuntimeChangeyardChangeListItem[]>();
 	const groupedTasks = new Map<ChangeColumnId, BoardCardModel[]>();
 
@@ -1181,6 +1298,14 @@ export function ChangeBoard({
 			writeCollapsedColumnPreferences(next);
 			return next;
 		});
+	};
+
+	const handleDeleteDependency = (dependencyId: string) => {
+		const match = dependencyId.match(/^change-link:([^:]+):([^:]+)$/);
+		if (!match) {
+			return;
+		}
+		onUnlinkChange?.(match[1] ?? "", match[2] ?? "");
 	};
 
 	const handleDragStart = (start: DragStart) => {
@@ -1355,6 +1480,7 @@ export function ChangeBoard({
 			) : (
 				<DragDropContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
 					<div
+						ref={boardSurfaceRef}
 						className="kb-board kb-dependency-surface"
 						style={{ overflowX: "auto", overflowY: "hidden", padding: 0 }}
 					>
@@ -1458,6 +1584,11 @@ export function ChangeBoard({
 															onOpenDetails={onSelectChange}
 															onFileSelect={handleBoardFileSelect}
 															onCommitUnselect={handleCommitUnselect}
+															onDependencyPointerDown={dependencyLinking.onDependencyPointerDown}
+															onDependencyPointerEnter={dependencyLinking.onDependencyPointerEnter}
+															isDependencySource={dependencyLinking.draft?.sourceNodeId === encodeChangeNodeId(change.id)}
+															isDependencyTarget={dependencyLinking.draft?.targetNodeId === encodeChangeNodeId(change.id)}
+															isDependencyLinking={dependencyLinking.draft !== null}
 														/>
 													))}
 													{column.count === 0 ? (
@@ -1493,6 +1624,21 @@ export function ChangeBoard({
 								);
 							})}
 						</div>
+						<DependencyOverlay
+							containerRef={boardSurfaceRef}
+							dependencies={changeDependencyEdges}
+							draft={dependencyLinking.draft}
+							activeNodeId={selectedBoardChangeId ? encodeChangeNodeId(selectedBoardChangeId) : null}
+							activeNodeEffectiveColumnId={
+								selectedBoardChangeId
+									? columnForStatus(
+											filteredChanges.find((change) => change.id === selectedBoardChangeId)?.status ?? "draft",
+										)
+									: null
+							}
+							columnOrder={CHANGE_COLUMNS.map((column) => column.id)}
+							onDeleteDependency={handleDeleteDependency}
+						/>
 					</div>
 				</DragDropContext>
 			)}

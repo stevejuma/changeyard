@@ -134,3 +134,66 @@ test("board service updates lifecycle status with transition validation", () => 
     cleanup(repo);
   }
 });
+
+test("board service links changes and derives reverse dependencies", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "agent-task", title: "First change" }, repo);
+    runCreate({ template: "agent-task", title: "Second change" }, repo);
+    const service = createChangeyardBoardService(repo);
+
+    const linked = service.linkCard("CY-0002", "CY-0001");
+    assert.deepEqual(linked.dependencies.blockedBy, ["CY-0001"]);
+
+    const first = service.getCard("CY-0001");
+    assert.deepEqual(first.dependencies.blocks, ["CY-0002"]);
+    const raw = readFileSync(path.join(repo, linked.path), "utf8");
+    assert.match(raw, /links:\s*\n\s*blockedBy:\s*\n\s*- CY-0001/s);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("board service unlinks changes and removes empty links frontmatter", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "agent-task", title: "First change" }, repo);
+    runCreate({ template: "agent-task", title: "Second change" }, repo);
+    const service = createChangeyardBoardService(repo);
+    service.linkCard("CY-0002", "CY-0001");
+
+    const unlinked = service.unlinkCard("CY-0002", "CY-0001");
+    assert.deepEqual(unlinked.dependencies.blockedBy, []);
+    const first = service.getCard("CY-0001");
+    assert.deepEqual(first.dependencies.blocks, []);
+
+    const raw = readFileSync(path.join(repo, unlinked.path), "utf8");
+    assert.doesNotMatch(raw, /links:/);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("board service rejects invalid dependency links", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "agent-task", title: "First change" }, repo);
+    runCreate({ template: "agent-task", title: "Second change" }, repo);
+    runCreate({ template: "agent-task", title: "Third change" }, repo);
+    const service = createChangeyardBoardService(repo);
+
+    assert.throws(() => service.linkCard("CY-0001", "CY-0001"), /cannot depend on itself/i);
+    assert.throws(() => service.linkCard("CY-0001", "CY-9999"), /linked change not found/i);
+
+    service.linkCard("CY-0002", "CY-0001");
+    assert.throws(() => service.linkCard("CY-0002", "CY-0001"), /already blocked by/i);
+
+    service.linkCard("CY-0003", "CY-0002");
+    assert.throws(() => service.linkCard("CY-0001", "CY-0003"), /dependency cycle/i);
+  } finally {
+    cleanup(repo);
+  }
+});

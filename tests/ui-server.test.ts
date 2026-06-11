@@ -521,6 +521,54 @@ test("ui changeyard mutations create planned changes and surface planning gate f
   }
 });
 
+test("ui changeyard change dependency mutations link and unlink canonical changes", async () => {
+  const repo = tempRepo();
+  try {
+    runCommand("git", ["init", "-b", "main"], repo);
+    runInit(repo);
+    const first = createChange({ template: "agent-task", title: "First dependency change" }, repo);
+    const second = createChange({ template: "agent-task", title: "Second dependency change" }, repo);
+    const server = await startChangeyardKanban({
+      repoRoot: repo,
+      open: false,
+      port: "auto",
+      changeyardApi: createChangeyardUiApi(),
+    });
+    const origin = new URL(server.url).origin;
+
+    try {
+      const projects = await trpcQuery<{ currentProjectId: string | null }>(origin, "projects.list");
+      assert.equal(typeof projects.currentProjectId, "string");
+      const workspaceId = projects.currentProjectId as string;
+
+      const linked = await trpcMutation<{
+        id: string;
+        dependencies: { blockedBy: string[]; blocks: string[] };
+      }>(origin, "changes.link", { changeId: second.id, blockedByChangeId: first.id }, workspaceId);
+      assert.equal(linked.id, second.id);
+      assert.deepEqual(linked.dependencies.blockedBy, [first.id]);
+
+      const list = await trpcQuery<{
+        changes: Array<{ id: string; dependencies: { blockedBy: string[]; blocks: string[] } }>;
+      }>(origin, "changes.list", undefined, workspaceId);
+      const source = list.changes.find((change) => change.id === first.id);
+      const target = list.changes.find((change) => change.id === second.id);
+      assert.deepEqual(source?.dependencies.blocks, [second.id]);
+      assert.deepEqual(target?.dependencies.blockedBy, [first.id]);
+
+      const unlinked = await trpcMutation<{
+        id: string;
+        dependencies: { blockedBy: string[]; blocks: string[] };
+      }>(origin, "changes.unlink", { changeId: second.id, blockedByChangeId: first.id }, workspaceId);
+      assert.deepEqual(unlinked.dependencies.blockedBy, []);
+    } finally {
+      await server.close();
+    }
+  } finally {
+    cleanup(repo);
+  }
+});
+
 test("ui changeyard planning section updates are marker-scoped and reject stale writes", async () => {
   const repo = tempRepo();
   try {

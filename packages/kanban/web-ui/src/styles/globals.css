@@ -466,14 +466,16 @@ body,
 
 .kb-dependency-overlay {
 	position: absolute;
-	inset: 0;
+	left: 0;
+	top: 0;
 	z-index: 4;
 	pointer-events: none;
 }
 
 .kb-dependency-draft-overlay {
 	position: absolute;
-	inset: 0;
+	left: 0;
+	top: 0;
 	z-index: 5;
 	pointer-events: none;
 }

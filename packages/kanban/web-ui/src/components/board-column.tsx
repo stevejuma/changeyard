@@ -7,7 +7,12 @@ import { Button } from "@/components/ui/button";
 import { ColumnIndicator } from "@/components/ui/column-indicator";
 import type { RuntimeTaskSessionSummary } from "@/runtime/types";
 import { isCardDropDisabled, type ProgrammaticCardMoveInFlight } from "@/state/drag-rules";
-import type { BoardCard as BoardCardModel, BoardColumnId, BoardColumn as BoardColumnModel } from "@/types";
+import type {
+	BoardCard as BoardCardModel,
+	BoardColumnId,
+	BoardColumn as BoardColumnModel,
+	DependencyNodeId,
+} from "@/types";
 
 export function BoardColumn({
 	column,
@@ -62,8 +67,8 @@ export function BoardColumn({
 	activeDragTaskId?: string | null;
 	activeDragSourceColumnId?: BoardColumnId | null;
 	programmaticCardMoveInFlight?: ProgrammaticCardMoveInFlight | null;
-	onDependencyPointerDown?: (taskId: string, event: ReactMouseEvent<HTMLElement>) => void;
-	onDependencyPointerEnter?: (taskId: string) => void;
+	onDependencyPointerDown?: (nodeId: DependencyNodeId, event: ReactMouseEvent<HTMLElement>) => void;
+	onDependencyPointerEnter?: (nodeId: DependencyNodeId) => void;
 	dependencySourceTaskId?: string | null;
 	dependencyTargetTaskId?: string | null;
 	isDependencyLinking?: boolean;

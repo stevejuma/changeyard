@@ -106,6 +106,7 @@ import {
 	runtimeChangeyardBoardSummaryResponseSchema,
 	runtimeChangeyardCompleteRequestSchema,
 	runtimeChangeyardChangeDetailSchema,
+	runtimeChangeyardChangeDependencyRequestSchema,
 	runtimeChangeyardChangeGetRequestSchema,
 	runtimeChangeyardChangeUpdateStatusRequestSchema,
 	runtimeChangeyardChangeUpdateBodyRequestSchema,
@@ -866,6 +867,18 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeChangeyardChangeDetailSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.changesApi.updateChangeStatus(ctx.workspaceScope.workspacePath, input);
+			}),
+		link: workspaceProcedure
+			.input(runtimeChangeyardChangeDependencyRequestSchema)
+			.output(runtimeChangeyardChangeDetailSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.changesApi.linkChange(ctx.workspaceScope.workspacePath, input);
+			}),
+		unlink: workspaceProcedure
+			.input(runtimeChangeyardChangeDependencyRequestSchema)
+			.output(runtimeChangeyardChangeDetailSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.changesApi.unlinkChange(ctx.workspaceScope.workspacePath, input);
 			}),
 		updateBody: workspaceProcedure
 			.input(runtimeChangeyardChangeUpdateBodyRequestSchema)

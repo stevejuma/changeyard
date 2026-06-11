@@ -100,6 +100,7 @@ function createChange(
 		base: { revision: "main" },
 		labels: [],
 		planning,
+		dependencies: { blockedBy: [], blocks: [] },
 		workspace: { path: `.changeyard/workspaces/${id}/repo`, branch: `cy/${id}` },
 	};
 }

@@ -3,26 +3,26 @@ import type { RefObject } from "react";
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import type { DependencyLinkDraft } from "@/components/dependencies/use-dependency-linking";
-import type { BoardColumnId, BoardDependency } from "@/types";
+import type { DependencyEdge } from "@/types";
 
-interface TaskAnchor {
+interface DependencyAnchor {
 	left: number;
 	right: number;
 	top: number;
 	bottom: number;
 	centerX: number;
 	centerY: number;
-	columnId: BoardColumnId | null;
+	columnId: string | null;
 }
 
 interface DependencyLayout {
 	width: number;
 	height: number;
-	anchors: Record<string, TaskAnchor>;
+	anchors: Record<string, DependencyAnchor>;
 }
 
 interface RenderedDependency {
-	dependency: BoardDependency;
+	dependency: DependencyEdge;
 	geometry: DependencyGeometry;
 	path: string;
 	midpointX: number;
@@ -57,7 +57,6 @@ interface AnchorPoint {
 
 const SOURCE_CONNECTOR_PADDING = 2;
 const TARGET_CONNECTOR_PADDING = 8;
-const COLUMN_ORDER: BoardColumnId[] = ["backlog", "in_progress", "review", "trash"];
 const SIDE_NORMALS: Record<AnchorSide, { x: number; y: number }> = {
 	left: { x: -1, y: 0 },
 	right: { x: 1, y: 0 },
@@ -65,11 +64,11 @@ const SIDE_NORMALS: Record<AnchorSide, { x: number; y: number }> = {
 	bottom: { x: 0, y: 1 },
 };
 
-function getColumnOrder(columnId: BoardColumnId | null): number | null {
+function getColumnOrder(columnId: string | null, columnOrder: string[]): number | null {
 	if (!columnId) {
 		return null;
 	}
-	const index = COLUMN_ORDER.indexOf(columnId);
+	const index = columnOrder.indexOf(columnId);
 	return index === -1 ? null : index;
 }
 
@@ -144,18 +143,15 @@ function clamp(value: number, min: number, max: number): number {
 	return Math.min(max, Math.max(min, value));
 }
 
-function normalizeColumnId(value: string | undefined): BoardColumnId | null {
-	if (value === "backlog" || value === "in_progress" || value === "review" || value === "trash") {
-		return value;
-	}
-	return null;
+function normalizeColumnId(value: string | undefined): string | null {
+	return value?.trim() ? value : null;
 }
 
 function dot(a: { x: number; y: number }, b: { x: number; y: number }): number {
 	return a.x * b.x + a.y * b.y;
 }
 
-function getAnchorPoint(anchor: TaskAnchor, side: AnchorSide, laneOffset: number, padding: number): AnchorPoint {
+function getAnchorPoint(anchor: DependencyAnchor, side: AnchorSide, laneOffset: number, padding: number): AnchorPoint {
 	if (side === "left") {
 		return {
 			x: anchor.left - padding,
@@ -185,12 +181,13 @@ function getAnchorPoint(anchor: TaskAnchor, side: AnchorSide, laneOffset: number
 }
 
 function chooseConnection(
-	firstAnchor: TaskAnchor,
-	secondAnchor: TaskAnchor,
+	firstAnchor: DependencyAnchor,
+	secondAnchor: DependencyAnchor,
 	firstLaneOffset: number,
 	secondLaneOffset: number,
 	firstPadding: number,
 	secondPadding: number,
+	columnOrder: string[],
 ): { start: AnchorPoint; end: AnchorPoint } {
 	// Rendered links currently only survive when at least one endpoint is in backlog.
 	// Draft links may still target free pointer space while the user is dragging.
@@ -201,8 +198,8 @@ function chooseConnection(
 	// 3) Otherwise fall back to the cheapest side-pairing based on geometry.
 	const firstColumnId = firstAnchor.columnId;
 	const secondColumnId = secondAnchor.columnId;
-	const firstColumnOrder = getColumnOrder(firstColumnId);
-	const secondColumnOrder = getColumnOrder(secondColumnId);
+	const firstColumnOrder = getColumnOrder(firstColumnId, columnOrder);
+	const secondColumnOrder = getColumnOrder(secondColumnId, columnOrder);
 
 	if (secondColumnId === null) {
 		const sourceSide: AnchorSide =
@@ -298,11 +295,12 @@ function chooseConnection(
 }
 
 function computePath(
-	firstAnchor: TaskAnchor,
-	secondAnchor: TaskAnchor,
+	firstAnchor: DependencyAnchor,
+	secondAnchor: DependencyAnchor,
 	firstLaneOffset: number,
 	secondLaneOffset: number,
 	bounds?: { width: number; height: number },
+	columnOrder: string[] = [],
 ): {
 	geometry: DependencyGeometry;
 	path: string;
@@ -320,6 +318,7 @@ function computePath(
 		secondLaneOffset,
 		sourcePadding,
 		targetPadding,
+		columnOrder,
 	);
 	const minX = bounds ? 2 : Number.NEGATIVE_INFINITY;
 	const maxX = bounds ? bounds.width - 2 : Number.POSITIVE_INFINITY;
@@ -419,16 +418,18 @@ export function DependencyOverlay({
 	containerRef,
 	dependencies,
 	draft,
-	activeTaskId,
-	activeTaskEffectiveColumnId,
+	activeNodeId,
+	activeNodeEffectiveColumnId,
+	columnOrder,
 	isMotionActive = false,
 	onDeleteDependency,
 }: {
 	containerRef: RefObject<HTMLElement>;
-	dependencies: BoardDependency[];
+	dependencies: DependencyEdge[];
 	draft: DependencyLinkDraft | null;
-	activeTaskId?: string | null;
-	activeTaskEffectiveColumnId?: BoardColumnId | null;
+	activeNodeId?: string | null;
+	activeNodeEffectiveColumnId?: string | null;
+	columnOrder: string[];
 	isMotionActive?: boolean;
 	onDeleteDependency?: (dependencyId: string) => void;
 }): React.ReactElement | null {
@@ -439,8 +440,8 @@ export function DependencyOverlay({
 	const previousRenderedDependencyByIdRef = useRef<
 		Record<string, Pick<RenderedDependency, "geometry" | "startSide" | "endSide">>
 	>({});
-	const previousDependenciesByIdRef = useRef<Record<string, BoardDependency>>({});
-	const transientRemovedDependencyByIdRef = useRef<Record<string, BoardDependency>>({});
+	const previousDependenciesByIdRef = useRef<Record<string, DependencyEdge>>({});
+	const transientRemovedDependencyByIdRef = useRef<Record<string, DependencyEdge>>({});
 	const sideTransitionByDependencyIdRef = useRef<
 		Record<
 			string,
@@ -467,18 +468,20 @@ export function DependencyOverlay({
 		}
 
 		const containerRect = container.getBoundingClientRect();
-		const anchors: Record<string, TaskAnchor> = {};
+		const scrollLeft = container.scrollLeft;
+		const scrollTop = container.scrollTop;
+		const anchors: Record<string, DependencyAnchor> = {};
 		const setAnchorFromElement = (cardElement: HTMLElement) => {
-			const taskId = cardElement.dataset.taskId;
-			if (!taskId) {
+			const nodeId = cardElement.dataset.dependencyNodeId;
+			if (!nodeId) {
 				return;
 			}
 			const rect = cardElement.getBoundingClientRect();
-			const left = rect.left - containerRect.left;
-			const right = rect.right - containerRect.left;
-			const top = rect.top - containerRect.top;
-			const bottom = rect.bottom - containerRect.top;
-			anchors[taskId] = {
+			const left = rect.left - containerRect.left + scrollLeft;
+			const right = rect.right - containerRect.left + scrollLeft;
+			const top = rect.top - containerRect.top + scrollTop;
+			const bottom = rect.bottom - containerRect.top + scrollTop;
+			anchors[nodeId] = {
 				left,
 				right,
 				top,
@@ -486,20 +489,20 @@ export function DependencyOverlay({
 				centerX: (left + right) / 2,
 				centerY: (top + bottom) / 2,
 				columnId:
-					taskId === activeTaskId && activeTaskEffectiveColumnId
-						? activeTaskEffectiveColumnId
+					nodeId === activeNodeId && activeNodeEffectiveColumnId
+						? activeNodeEffectiveColumnId
 						: normalizeColumnId(
 								cardElement.dataset.columnId ??
 									cardElement.closest<HTMLElement>("[data-column-id]")?.dataset.columnId,
 							),
 			};
 		};
-		for (const cardElement of container.querySelectorAll<HTMLElement>("[data-task-id]")) {
+		for (const cardElement of container.querySelectorAll<HTMLElement>("[data-dependency-node-id]")) {
 			setAnchorFromElement(cardElement);
 		}
-		if (activeTaskId && typeof document !== "undefined") {
+		if (activeNodeId && typeof document !== "undefined") {
 			const activeCardElements = Array.from(
-				document.querySelectorAll<HTMLElement>(`[data-task-id="${activeTaskId}"]`),
+				document.querySelectorAll<HTMLElement>(`[data-dependency-node-id="${activeNodeId}"]`),
 			);
 			const liveActiveCardElement =
 				activeCardElements.find((element) => !container.contains(element)) ?? activeCardElements[0];
@@ -509,12 +512,12 @@ export function DependencyOverlay({
 		}
 
 		const nextLayout: DependencyLayout = {
-			width: containerRect.width,
-			height: containerRect.height,
+			width: Math.max(container.scrollWidth, containerRect.width),
+			height: Math.max(container.scrollHeight, containerRect.height),
 			anchors,
 		};
 		setLayout((current) => (areLayoutsEqual(current, nextLayout) ? current : nextLayout));
-	}, [activeTaskEffectiveColumnId, activeTaskId, containerRef]);
+	}, [activeNodeEffectiveColumnId, activeNodeId, containerRef]);
 
 	useEffect(() => {
 		refreshLayout();
@@ -533,7 +536,7 @@ export function DependencyOverlay({
 
 	useLayoutEffect(() => {
 		const currentDependenciesById = Object.fromEntries(dependencies.map((dependency) => [dependency.id, dependency]));
-		if (!isMotionActive || !activeTaskId) {
+		if (!isMotionActive || !activeNodeId) {
 			transientRemovedDependencyByIdRef.current = {};
 			previousDependenciesByIdRef.current = currentDependenciesById;
 			return;
@@ -544,7 +547,7 @@ export function DependencyOverlay({
 			if (currentDependenciesById[dependencyId]) {
 				continue;
 			}
-			if (dependency.fromTaskId !== activeTaskId && dependency.toTaskId !== activeTaskId) {
+			if (dependency.fromNodeId !== activeNodeId && dependency.toNodeId !== activeNodeId) {
 				continue;
 			}
 			transientRemovedDependencyByIdRef.current[dependencyId] = dependency;
@@ -552,13 +555,13 @@ export function DependencyOverlay({
 		for (const [dependencyId, transientDependency] of Object.entries(transientRemovedDependencyByIdRef.current)) {
 			if (
 				currentDependenciesById[dependencyId] ||
-				(transientDependency.fromTaskId !== activeTaskId && transientDependency.toTaskId !== activeTaskId)
+				(transientDependency.fromNodeId !== activeNodeId && transientDependency.toNodeId !== activeNodeId)
 			) {
 				delete transientRemovedDependencyByIdRef.current[dependencyId];
 			}
 		}
 		previousDependenciesByIdRef.current = currentDependenciesById;
-	}, [activeTaskId, dependencies, isMotionActive]);
+	}, [activeNodeId, dependencies, isMotionActive]);
 
 	const clearPendingHoverClear = useCallback(() => {
 		if (hoverClearTimeoutRef.current !== null) {
@@ -643,7 +646,7 @@ export function DependencyOverlay({
 	}, [draft, isMotionActive, refreshLayout]);
 
 	const renderedDependencies = useMemo((): RenderedDependency[] => {
-		const displayedDependencies = new Map<string, { dependency: BoardDependency; isTransient: boolean }>();
+		const displayedDependencies = new Map<string, { dependency: DependencyEdge; isTransient: boolean }>();
 		for (const dependency of dependencies) {
 			displayedDependencies.set(dependency.id, {
 				dependency,
@@ -662,18 +665,15 @@ export function DependencyOverlay({
 
 		const candidates = Array.from(displayedDependencies.values())
 			.map(({ dependency, isTransient }) => {
-				const sourceAnchor = layout.anchors[dependency.fromTaskId];
-				const targetAnchor = layout.anchors[dependency.toTaskId];
+				const sourceAnchor = layout.anchors[dependency.fromNodeId];
+				const targetAnchor = layout.anchors[dependency.toNodeId];
 				if (!sourceAnchor || !targetAnchor) {
 					return null;
 				}
 				const touchesActiveTask =
-					activeTaskId !== null && activeTaskId !== undefined
-						? dependency.fromTaskId === activeTaskId || dependency.toTaskId === activeTaskId
+					activeNodeId !== null && activeNodeId !== undefined
+						? dependency.fromNodeId === activeNodeId || dependency.toNodeId === activeNodeId
 						: false;
-				if (!isTransient && sourceAnchor.columnId !== "backlog" && targetAnchor.columnId !== "backlog") {
-					return null;
-				}
 				if (isTransient && !touchesActiveTask) {
 					return null;
 				}
@@ -688,39 +688,39 @@ export function DependencyOverlay({
 				(
 					candidate,
 				): candidate is {
-					dependency: BoardDependency;
-					sourceAnchor: TaskAnchor;
-					targetAnchor: TaskAnchor;
+					dependency: DependencyEdge;
+					sourceAnchor: DependencyAnchor;
+					targetAnchor: DependencyAnchor;
 					isTransient: boolean;
 				} => candidate !== null,
 			);
 
-		const laneOrderByTaskId = new Map<string, Array<{ dependencyId: string; oppositeCenterY: number }>>();
+		const laneOrderByNodeId = new Map<string, Array<{ dependencyId: string; oppositeCenterY: number }>>();
 		for (const candidate of candidates) {
-			const sourceLanes = laneOrderByTaskId.get(candidate.dependency.fromTaskId) ?? [];
+			const sourceLanes = laneOrderByNodeId.get(candidate.dependency.fromNodeId) ?? [];
 			sourceLanes.push({
 				dependencyId: candidate.dependency.id,
 				oppositeCenterY: candidate.targetAnchor.centerY,
 			});
-			laneOrderByTaskId.set(candidate.dependency.fromTaskId, sourceLanes);
+			laneOrderByNodeId.set(candidate.dependency.fromNodeId, sourceLanes);
 
-			const targetLanes = laneOrderByTaskId.get(candidate.dependency.toTaskId) ?? [];
+			const targetLanes = laneOrderByNodeId.get(candidate.dependency.toNodeId) ?? [];
 			targetLanes.push({
 				dependencyId: candidate.dependency.id,
 				oppositeCenterY: candidate.sourceAnchor.centerY,
 			});
-			laneOrderByTaskId.set(candidate.dependency.toTaskId, targetLanes);
+			laneOrderByNodeId.set(candidate.dependency.toNodeId, targetLanes);
 		}
 
-		for (const lanes of laneOrderByTaskId.values()) {
+		for (const lanes of laneOrderByNodeId.values()) {
 			lanes.sort((first, second) => first.oppositeCenterY - second.oppositeCenterY);
 		}
 
 		return candidates.map((candidate) => {
-			const sourceLanes = laneOrderByTaskId.get(candidate.dependency.fromTaskId) ?? [
+			const sourceLanes = laneOrderByNodeId.get(candidate.dependency.fromNodeId) ?? [
 				{ dependencyId: candidate.dependency.id, oppositeCenterY: candidate.targetAnchor.centerY },
 			];
-			const targetLanes = laneOrderByTaskId.get(candidate.dependency.toTaskId) ?? [
+			const targetLanes = laneOrderByNodeId.get(candidate.dependency.toNodeId) ?? [
 				{ dependencyId: candidate.dependency.id, oppositeCenterY: candidate.sourceAnchor.centerY },
 			];
 			const sourceLaneIndex = sourceLanes.findIndex((lane) => lane.dependencyId === candidate.dependency.id);
@@ -733,6 +733,7 @@ export function DependencyOverlay({
 				sourceLaneOffset,
 				targetLaneOffset,
 				{ width: layout.width, height: layout.height },
+				columnOrder,
 			);
 			return {
 				dependency: candidate.dependency,
@@ -745,7 +746,7 @@ export function DependencyOverlay({
 				isTransient: candidate.isTransient,
 			};
 		});
-	}, [activeTaskId, dependencies, layout.anchors, layout.height, layout.width]);
+	}, [activeNodeId, columnOrder, dependencies, layout.anchors, layout.height, layout.width]);
 
 	useLayoutEffect(() => {
 		const now = performance.now();
@@ -836,23 +837,27 @@ export function DependencyOverlay({
 		if (!draft) {
 			return null;
 		}
-		const sourceAnchor = layout.anchors[draft.sourceTaskId];
+		const sourceAnchor = layout.anchors[draft.sourceNodeId];
 		if (!sourceAnchor) {
 			return null;
 		}
-		const targetAnchor = draft.targetTaskId ? layout.anchors[draft.targetTaskId] : null;
+		const targetAnchor = draft.targetNodeId ? layout.anchors[draft.targetNodeId] : null;
 		const container = containerRef.current;
 		if (!container) {
 			return null;
 		}
 		const containerRect = container.getBoundingClientRect();
-		const pointerTarget: TaskAnchor = {
-			left: draft.pointerClientX - containerRect.left,
-			right: draft.pointerClientX - containerRect.left,
-			top: draft.pointerClientY - containerRect.top,
-			bottom: draft.pointerClientY - containerRect.top,
-			centerX: draft.pointerClientX - containerRect.left,
-			centerY: draft.pointerClientY - containerRect.top,
+		const scrollLeft = container.scrollLeft;
+		const scrollTop = container.scrollTop;
+		const pointerX = draft.pointerClientX - containerRect.left + scrollLeft;
+		const pointerY = draft.pointerClientY - containerRect.top + scrollTop;
+		const pointerTarget: DependencyAnchor = {
+			left: pointerX,
+			right: pointerX,
+			top: pointerY,
+			bottom: pointerY,
+			centerX: pointerX,
+			centerY: pointerY,
 			columnId: null,
 		};
 		const geometry = computePath(sourceAnchor, targetAnchor ?? pointerTarget, 0, 0, {
