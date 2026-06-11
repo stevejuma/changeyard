@@ -5,26 +5,70 @@ import {
 	type DragStart,
 	type DropResult,
 } from "@hello-pangea/dnd";
-import { ChevronLeft, ChevronRight, FileText, Plus } from "lucide-react";
-import { useMemo, useState, type ReactElement, type ReactNode } from "react";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import {
+	ChevronDown,
+	ChevronLeft,
+	ChevronRight,
+	Copy,
+	FileText,
+	FolderTree,
+	GitCommitVertical,
+	GitPullRequest,
+	List,
+	MoreHorizontal,
+	Plus,
+} from "lucide-react";
+import {
+	useCallback,
+	useEffect,
+	Fragment,
+	useMemo,
+	useRef,
+	useState,
+	type KeyboardEvent,
+	type PointerEvent as ReactPointerEvent,
+	type ReactElement,
+	type ReactNode,
+} from "react";
 
 import { BoardCard } from "@/components/board-card";
+import {
+	getChangeBoardFilesCacheKey,
+	getChangeBoardSummaryCacheKey,
+	readCachedChangeBoardFiles,
+	readCachedChangeBoardSummary,
+	writeCachedChangeBoardFiles,
+	writeCachedChangeBoardSummary,
+} from "@/components/changeyard/change-board-cache";
 import { PlanningBadge } from "@/components/changeyard/planning-badge";
+import { buildUnifiedDiffRows, parsePatchToRows, ReadOnlyUnifiedDiff } from "@/components/shared/diff-renderer";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { ColumnIndicator } from "@/components/ui/column-indicator";
-import { PathDisplay } from "@/components/ui/path-display";
 import { ChangeStatusChip, StatusChip } from "@/components/ui/status-chip";
-import type { RuntimeChangeyardChangeListItem, RuntimeTaskSessionSummary } from "@/runtime/types";
+import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
+import type {
+	RuntimeChangeyardBoardFilesResponse,
+	RuntimeChangeyardBoardFilesScope,
+	RuntimeChangeyardBoardFileDiffResponse,
+	RuntimeChangeyardBoardFileSummary,
+	RuntimeChangeyardBoardSummaryResponse,
+	RuntimeChangeyardChangeListItem,
+	RuntimeTaskSessionSummary,
+} from "@/runtime/types";
 import { LocalStorageKey, readLocalStorageItem, writeLocalStorageItem } from "@/storage/local-storage-store";
 import type { BoardCard as BoardCardModel, BoardColumnId, BoardData } from "@/types";
+import { buildFileTree, type FileTreeNode } from "@/utils/file-tree";
 
 export type ChangeBoardFilter = "all" | "changes" | "planned";
 export type ChangeColumnId = "backlog" | "ready" | "in_progress" | "blocked" | "review" | "done" | "abandoned";
 
 const CHANGE_CARD_PREFIX = "change:";
 const TASK_CARD_PREFIX = "task:";
-const EXPANDED_COLUMN_WIDTH = 292;
+const EXPANDED_COLUMN_WIDTH = 342;
+const MIN_EXPANDED_COLUMN_WIDTH = 310;
+const MAX_EXPANDED_COLUMN_WIDTH = 520;
 const COLLAPSED_COLUMN_WIDTH = 36;
 const COLUMN_GAP = 12;
 
@@ -137,19 +181,651 @@ function writeCollapsedColumnPreferences(preferences: Partial<Record<ChangeColum
 	writeLocalStorageItem(LocalStorageKey.ChangeBoardCollapsedColumns, JSON.stringify(preferences));
 }
 
+function clampColumnWidth(width: number): number {
+	return Math.min(MAX_EXPANDED_COLUMN_WIDTH, Math.max(MIN_EXPANDED_COLUMN_WIDTH, Math.round(width)));
+}
+
+function readColumnWidthPreferences(): Partial<Record<ChangeColumnId, number>> {
+	const raw = readLocalStorageItem(LocalStorageKey.ChangeBoardColumnWidths);
+	if (!raw) {
+		return {};
+	}
+	try {
+		const parsed = JSON.parse(raw) as unknown;
+		if (!parsed || typeof parsed !== "object") {
+			return {};
+		}
+		const next: Partial<Record<ChangeColumnId, number>> = {};
+		for (const column of CHANGE_COLUMNS) {
+			const value = (parsed as Record<string, unknown>)[column.id];
+			if (typeof value === "number" && Number.isFinite(value)) {
+				next[column.id] = clampColumnWidth(value);
+			}
+		}
+		return next;
+	} catch {
+		return {};
+	}
+}
+
+function writeColumnWidthPreferences(preferences: Partial<Record<ChangeColumnId, number>>): void {
+	writeLocalStorageItem(LocalStorageKey.ChangeBoardColumnWidths, JSON.stringify(preferences));
+}
+
+type BoardFileViewMode = "list" | "tree";
+type SelectedBoardFile = {
+	changeId: string;
+	columnId: ChangeColumnId;
+	scopeKey: string;
+	scope: RuntimeChangeyardBoardFilesScope;
+	path: string;
+};
+const DEFAULT_DIFF_PANEL_WIDTH = 520;
+const MIN_DIFF_PANEL_WIDTH = 360;
+const MAX_DIFF_PANEL_WIDTH = 820;
+
+function formatDelta(value: number, prefix: "+" | "-"): string {
+	return value > 0 ? `${prefix}${value}` : `${prefix}0`;
+}
+
+function scopeLabel(scope: RuntimeChangeyardBoardFilesScope): string {
+	return scope === "all" ? "All Changes" : "Changed files";
+}
+
+function BoardFilesToggle({
+	mode,
+	onModeChange,
+}: {
+	mode: BoardFileViewMode;
+	onModeChange: (mode: BoardFileViewMode) => void;
+}): ReactElement {
+	return (
+		<div className="inline-flex shrink-0 rounded-md border border-divider bg-surface-0 p-0.5">
+			<button
+				type="button"
+				aria-label="Show files as list"
+				title="List"
+				onClick={(event) => {
+					event.stopPropagation();
+					onModeChange("list");
+				}}
+				className={cn(
+					"grid h-6 w-6 place-items-center rounded border border-transparent text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary",
+					mode === "list" ? "border-accent/30 bg-accent/15 text-accent" : null,
+				)}
+			>
+				<List size={14} />
+			</button>
+			<button
+				type="button"
+				aria-label="Show files as folders"
+				title="Folder tree"
+				onClick={(event) => {
+					event.stopPropagation();
+					onModeChange("tree");
+				}}
+				className={cn(
+					"grid h-6 w-6 place-items-center rounded border border-transparent text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary",
+					mode === "tree" ? "border-accent/30 bg-accent/15 text-accent" : null,
+				)}
+			>
+				<FolderTree size={14} />
+			</button>
+		</div>
+	);
+}
+
+function FileStatusGlyph({ status }: { status: RuntimeChangeyardBoardFileSummary["status"] }): ReactElement {
+	const label = status.charAt(0).toUpperCase();
+	const tone =
+		status === "added" || status === "untracked"
+			? "bg-green-100 text-green-700"
+			: status === "deleted"
+				? "bg-red-100 text-red-700"
+				: status === "renamed" || status === "copied"
+					? "bg-amber-100 text-amber-700"
+					: "bg-surface-2 text-text-secondary";
+	return (
+		<span className={cn("grid h-5 w-5 shrink-0 place-items-center rounded-full text-[10px] font-semibold", tone)}>
+			{label}
+		</span>
+	);
+}
+
+function getBoardScopeKey(scope: RuntimeChangeyardBoardFilesScope): string {
+	return scope === "all" ? "all" : `commit:${scope.commitHash}`;
+}
+
+type CopyMenuItem = {
+	label: string;
+	value: string | null | undefined;
+};
+
+function copyText(value: string): void {
+	void navigator.clipboard?.writeText(value).catch(() => {
+		// Ignore clipboard failures.
+	});
+}
+
+function CopyKebabMenu({
+	label,
+	items,
+}: {
+	label: string;
+	items: CopyMenuItem[];
+}): ReactElement {
+	const availableItems = items.filter((item): item is { label: string; value: string } => Boolean(item.value));
+	return (
+		<DropdownMenu.Root>
+			<DropdownMenu.Trigger asChild>
+				<Button
+					variant="ghost"
+					size="sm"
+					icon={<MoreHorizontal size={16} />}
+					aria-label={label}
+					title={label}
+					className="h-7 w-7 shrink-0 px-0"
+					onClick={(event) => {
+						event.stopPropagation();
+					}}
+				/>
+			</DropdownMenu.Trigger>
+			<DropdownMenu.Portal>
+				<DropdownMenu.Content
+					side="bottom"
+					align="end"
+					sideOffset={4}
+					className="z-50 min-w-[180px] rounded-md border border-border-bright bg-surface-1 p-1 shadow-lg"
+					onCloseAutoFocus={(event) => event.preventDefault()}
+				>
+					<div className="px-2 pb-1 pt-1 text-[11px] font-medium text-text-tertiary">Copy</div>
+					{availableItems.length > 0 ? (
+						availableItems.map((item) => (
+							<DropdownMenu.Item
+								key={`${item.label}:${item.value}`}
+								className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-[12px] text-text-primary outline-none data-[highlighted]:bg-surface-3"
+								onSelect={() => copyText(item.value)}
+							>
+								<Copy size={12} className="shrink-0 text-text-tertiary" />
+								<span className="truncate">{item.label}</span>
+							</DropdownMenu.Item>
+						))
+					) : (
+						<div className="px-2 py-1.5 text-[12px] text-text-tertiary">No values available</div>
+					)}
+				</DropdownMenu.Content>
+			</DropdownMenu.Portal>
+		</DropdownMenu.Root>
+	);
+}
+
+function BoardFileRow({
+	file,
+	depth = 0,
+	selected = false,
+	onSelect,
+}: {
+	file: RuntimeChangeyardBoardFileSummary;
+	depth?: number;
+	selected?: boolean;
+	onSelect: (file: RuntimeChangeyardBoardFileSummary) => void;
+}): ReactElement {
+	return (
+		<button
+			type="button"
+			className={cn(
+				"group flex w-full min-w-0 cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-left text-[12px] transition-colors hover:bg-surface-3",
+				selected ? "bg-surface-3" : null,
+			)}
+			style={{ paddingLeft: 6 + depth * 12 }}
+			onClick={(event) => {
+				event.stopPropagation();
+				onSelect(file);
+			}}
+		>
+			<FileStatusGlyph status={file.status} />
+			<span className="min-w-0 flex-1 truncate text-text-secondary" title={file.path}>
+				{file.previousPath ? `${file.previousPath} -> ${file.path}` : file.path}
+			</span>
+			<span className="shrink-0 text-green-600">{formatDelta(file.additions, "+")}</span>
+			<span className="shrink-0 text-red-600">{formatDelta(file.deletions, "-")}</span>
+		</button>
+	);
+}
+
+function FileTreeRows({
+	nodes,
+	filesByPath,
+	selectedPath,
+	onFileSelect,
+	depth = 0,
+}: {
+	nodes: FileTreeNode[];
+	filesByPath: Map<string, RuntimeChangeyardBoardFileSummary>;
+	selectedPath: string | null;
+	onFileSelect: (file: RuntimeChangeyardBoardFileSummary) => void;
+	depth?: number;
+}): ReactElement {
+	return (
+		<>
+			{nodes.map((node) => {
+				if (node.type === "file") {
+					const file = filesByPath.get(node.path);
+					return file ? (
+						<BoardFileRow
+							key={node.path}
+							file={file}
+							depth={depth}
+							selected={selectedPath === file.path}
+							onSelect={onFileSelect}
+						/>
+					) : null;
+				}
+				return (
+					<div key={node.path}>
+						<div
+							className="flex min-w-0 cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-[12px] font-medium text-text-secondary transition-colors hover:bg-surface-3"
+							style={{ paddingLeft: 6 + depth * 12 }}
+						>
+							<FolderTree size={13} className="shrink-0" />
+							<span className="truncate">{node.name}</span>
+						</div>
+						<FileTreeRows
+							nodes={node.children}
+							filesByPath={filesByPath}
+							selectedPath={selectedPath}
+							onFileSelect={onFileSelect}
+							depth={depth + 1}
+						/>
+					</div>
+				);
+			})}
+		</>
+	);
+}
+
+function BoardFileList({
+	files,
+	mode,
+	selectedPath,
+	onFileSelect,
+}: {
+	files: RuntimeChangeyardBoardFileSummary[];
+	mode: BoardFileViewMode;
+	selectedPath: string | null;
+	onFileSelect: (file: RuntimeChangeyardBoardFileSummary) => void;
+}): ReactElement {
+	if (files.length === 0) {
+		return <div className="px-2 py-2 text-[12px] text-text-tertiary">No changed files.</div>;
+	}
+	if (mode === "tree") {
+		const filesByPath = new Map(files.map((file) => [file.path, file]));
+		return (
+			<FileTreeRows
+				nodes={buildFileTree(files.map((file) => file.path))}
+				filesByPath={filesByPath}
+				selectedPath={selectedPath}
+				onFileSelect={onFileSelect}
+			/>
+		);
+	}
+	return (
+		<>
+			{files.map((file) => (
+				<BoardFileRow
+					key={`${file.previousPath ?? ""}:${file.path}`}
+					file={file}
+					selected={selectedPath === file.path}
+					onSelect={onFileSelect}
+				/>
+			))}
+		</>
+	);
+}
+
+function BoardColumnDiffPanel({
+	selectedFile,
+	diff,
+	isLoading,
+	error,
+	width,
+	onResizeStart,
+}: {
+	selectedFile: SelectedBoardFile;
+	diff: RuntimeChangeyardBoardFileDiffResponse | null;
+	isLoading: boolean;
+	error: Error | null;
+	width: number;
+	onResizeStart: (event: ReactPointerEvent<HTMLDivElement>) => void;
+}): ReactElement {
+	const rows = diff?.patch
+		? parsePatchToRows(diff.patch)
+		: diff?.file
+			? buildUnifiedDiffRows(diff.file.oldText, diff.file.newText ?? "")
+			: [];
+	return (
+		<section
+			data-testid="change-board-file-diff-panel"
+			className="relative flex min-h-0 shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-surface-1"
+			style={{ width, minWidth: width }}
+		>
+			<div
+				role="separator"
+				aria-orientation="vertical"
+				aria-label="Resize file diff panel"
+				title="Resize diff panel"
+				className="absolute right-0 top-0 z-10 h-full w-1 cursor-col-resize touch-none bg-transparent transition-colors hover:bg-accent/35"
+				onPointerDown={onResizeStart}
+			/>
+			<div className="flex min-h-10 items-center gap-2 border-b border-divider px-3 py-2">
+				<FileText size={14} className="shrink-0 text-text-tertiary" />
+				<span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-text-primary" title={selectedFile.path}>
+					{selectedFile.path}
+				</span>
+				{diff?.file ? (
+					<span className="shrink-0 text-[11px] text-text-tertiary">
+						<span className="text-green-600">+{diff.file.additions}</span>{" "}
+						<span className="text-red-600">-{diff.file.deletions}</span>
+					</span>
+				) : null}
+			</div>
+			<div className="min-h-0 flex-1 overflow-auto p-2">
+				{isLoading ? (
+					<div className="px-2 py-2 text-[12px] text-text-tertiary">Loading diff...</div>
+				) : error ? (
+					<div className="px-2 py-2 text-[12px] text-red-600">{error.message}</div>
+				) : rows.length > 0 ? (
+					<div className="overflow-hidden rounded-md border border-border bg-surface-0">
+						<ReadOnlyUnifiedDiff rows={rows} path={selectedFile.path} />
+					</div>
+				) : (
+					<div className="px-2 py-2 text-[12px] text-text-tertiary">No textual diff available.</div>
+				)}
+			</div>
+		</section>
+	);
+}
+
+function ChangeFileBanner({
+	scope,
+	summary,
+	filesResponse,
+	isExpanded,
+	isLoading,
+	error,
+	viewMode,
+	onToggle,
+	onViewModeChange,
+	onLoad,
+	selectedFile,
+	onFileSelect,
+}: {
+	scope: RuntimeChangeyardBoardFilesScope;
+	summary: RuntimeChangeyardBoardSummaryResponse | null;
+	filesResponse: RuntimeChangeyardBoardFilesResponse | null;
+	isExpanded: boolean;
+	isLoading: boolean;
+	error: Error | null;
+	viewMode: BoardFileViewMode;
+	onToggle: () => void;
+	onViewModeChange: (mode: BoardFileViewMode) => void;
+	onLoad: () => void;
+	selectedFile: SelectedBoardFile | null;
+	onFileSelect: (scope: RuntimeChangeyardBoardFilesScope, file: RuntimeChangeyardBoardFileSummary) => void;
+}): ReactElement {
+	const loadedFiles = filesResponse?.files ?? [];
+	const aggregateStats = scope === "all" ? summary?.files : null;
+	const fileCount = aggregateStats?.count ?? loadedFiles.length;
+	const additions = aggregateStats?.additions ?? loadedFiles.reduce((total, file) => total + file.additions, 0);
+	const deletions = aggregateStats?.deletions ?? loadedFiles.reduce((total, file) => total + file.deletions, 0);
+
+	return (
+		<div className="mx-2 mb-2 rounded-lg border border-divider bg-surface-0">
+			<button
+				type="button"
+				className="flex w-full items-center gap-2 px-2 py-2 text-left"
+				onClick={(event) => {
+					event.stopPropagation();
+					if (!isExpanded) {
+						onLoad();
+					}
+					onToggle();
+				}}
+			>
+				{isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+				<span className="min-w-0 flex-1 truncate text-sm font-semibold text-text-primary">{scopeLabel(scope)}</span>
+				<span className="rounded-full bg-surface-2 px-1.5 py-0.5 text-[11px] font-semibold">{fileCount}</span>
+				<span className="text-[12px] font-medium text-green-600">{formatDelta(additions, "+")}</span>
+				<span className="text-[12px] font-medium text-red-600">{formatDelta(deletions, "-")}</span>
+				<BoardFilesToggle mode={viewMode} onModeChange={onViewModeChange} />
+			</button>
+			{isExpanded ? (
+				<div className="border-t border-divider">
+					{isLoading ? (
+						<div className="px-2 py-2 text-[12px] text-text-tertiary">Loading files...</div>
+					) : error ? (
+						<div className="px-2 py-2 text-[12px] text-red-600">{error.message}</div>
+					) : (
+						<div className="max-h-[250px] overflow-y-auto px-1 py-1">
+							<BoardFileList
+								files={loadedFiles}
+								mode={viewMode}
+								selectedPath={selectedFile?.scopeKey === getBoardScopeKey(scope) ? selectedFile.path : null}
+								onFileSelect={(file) => onFileSelect(scope, file)}
+							/>
+						</div>
+					)}
+				</div>
+			) : null}
+		</div>
+	);
+}
+
 function ChangeCard({
 	change,
 	index,
 	selected,
-	repoRoot,
+	workspaceId,
+	columnId,
+	selectedFile,
+	onSelectCard,
 	onOpenDetails,
+	onFileSelect,
+	onCommitUnselect,
 }: {
 	change: RuntimeChangeyardChangeListItem;
 	index: number;
 	selected: boolean;
-	repoRoot?: string | null;
+	workspaceId?: string | null;
+	columnId: ChangeColumnId;
+	selectedFile: SelectedBoardFile | null;
+	onSelectCard: (changeId: string) => void;
 	onOpenDetails: (changeId: string) => void;
+	onFileSelect: (
+		input: Pick<SelectedBoardFile, "changeId" | "columnId" | "scopeKey" | "scope" | "path">,
+	) => void;
+	onCommitUnselect: (changeId: string, commitHash: string) => void;
 }): ReactElement {
+	const [summary, setSummary] = useState<RuntimeChangeyardBoardSummaryResponse | null>(null);
+	const [summaryLoading, setSummaryLoading] = useState(false);
+	const [summaryError, setSummaryError] = useState<Error | null>(null);
+	const [allFiles, setAllFiles] = useState<RuntimeChangeyardBoardFilesResponse | null>(null);
+	const [allFilesLoading, setAllFilesLoading] = useState(false);
+	const [allFilesError, setAllFilesError] = useState<Error | null>(null);
+	const [allFilesExpanded, setAllFilesExpanded] = useState(false);
+	const [selectedCommitHash, setSelectedCommitHash] = useState<string | null>(null);
+	const [expandedCommitHash, setExpandedCommitHash] = useState<string | null>(null);
+	const [commitFiles, setCommitFiles] = useState<Record<string, RuntimeChangeyardBoardFilesResponse | null>>({});
+	const [commitFileLoading, setCommitFileLoading] = useState<Record<string, boolean>>({});
+	const [commitFileErrors, setCommitFileErrors] = useState<Record<string, Error | null>>({});
+	const [allFilesMode, setAllFilesMode] = useState<BoardFileViewMode>("list");
+	const [commitFilesMode, setCommitFilesMode] = useState<BoardFileViewMode>("list");
+	const summaryCacheKey = useMemo(() => getChangeBoardSummaryCacheKey(workspaceId ?? null, change), [workspaceId, change]);
+	const summaryRequestRef = useRef<Promise<RuntimeChangeyardBoardSummaryResponse | null> | null>(null);
+
+	const loadSummary = useCallback(async () => {
+		if (summaryRequestRef.current) {
+			return summaryRequestRef.current;
+		}
+		const cached = readCachedChangeBoardSummary(summaryCacheKey);
+		if (cached) {
+			setSummary(cached);
+			setSummaryError(null);
+			setSummaryLoading(false);
+			return cached;
+		}
+		setSummaryLoading(true);
+		setSummaryError(null);
+		const request = (async () => {
+			const response = await getRuntimeTrpcClient(workspaceId ?? null).changes.getBoardSummary.query({ id: change.id });
+			writeCachedChangeBoardSummary(summaryCacheKey, response);
+			setSummary(response);
+			return response;
+		})();
+		summaryRequestRef.current = request;
+		try {
+			return await request;
+		} catch (error) {
+			const nextError = error instanceof Error ? error : new Error(String(error));
+			setSummaryError(nextError);
+			return null;
+		} finally {
+			summaryRequestRef.current = null;
+			setSummaryLoading(false);
+		}
+	}, [change.id, summaryCacheKey, workspaceId]);
+
+	const loadFiles = useCallback(
+		async (scope: RuntimeChangeyardBoardFilesScope) => {
+			const activeSummary = summary ?? (await loadSummary());
+			if (!activeSummary) {
+				return null;
+			}
+			const filesCacheKey = getChangeBoardFilesCacheKey(summaryCacheKey, activeSummary.version, scope);
+			const cached = readCachedChangeBoardFiles(filesCacheKey);
+			if (cached) {
+				return cached;
+			}
+			const response = await getRuntimeTrpcClient(workspaceId ?? null).changes.getBoardFiles.query({
+				id: change.id,
+				scope,
+			});
+			writeCachedChangeBoardFiles(filesCacheKey, response);
+			return response;
+		},
+		[change.id, loadSummary, summary, summaryCacheKey, workspaceId],
+	);
+
+	const loadAllFiles = useCallback(async (): Promise<RuntimeChangeyardBoardFilesResponse | null> => {
+		if (allFilesLoading) {
+			return allFiles;
+		}
+		setAllFilesLoading(true);
+		setAllFilesError(null);
+		try {
+			const response = await loadFiles("all");
+			setAllFiles(response);
+			return response;
+		} catch (error) {
+			setAllFilesError(error instanceof Error ? error : new Error(String(error)));
+			return null;
+		} finally {
+			setAllFilesLoading(false);
+		}
+	}, [allFiles, allFilesLoading, loadFiles]);
+
+	const loadCommitFiles = useCallback(
+		async (commitHash: string): Promise<RuntimeChangeyardBoardFilesResponse | null> => {
+			if (commitFileLoading[commitHash]) {
+				return commitFiles[commitHash] ?? null;
+			}
+			setCommitFileLoading((current) => ({ ...current, [commitHash]: true }));
+			setCommitFileErrors((current) => ({ ...current, [commitHash]: null }));
+			try {
+				const response = await loadFiles({ commitHash });
+				setCommitFiles((current) => ({ ...current, [commitHash]: response }));
+				return response;
+			} catch (error) {
+				setCommitFileErrors((current) => ({
+					...current,
+					[commitHash]: error instanceof Error ? error : new Error(String(error)),
+				}));
+				return null;
+			} finally {
+				setCommitFileLoading((current) => ({ ...current, [commitHash]: false }));
+			}
+		},
+		[commitFileLoading, commitFiles, loadFiles],
+	);
+
+	useEffect(() => {
+		if (selected) {
+			void loadSummary();
+		}
+	}, [loadSummary, selected]);
+
+	const selectFirstAllChangesFile = useCallback(() => {
+		setAllFilesExpanded(true);
+		void loadAllFiles().then((response) => {
+			const firstFile = response?.files[0] ?? allFiles?.files[0] ?? null;
+			if (!firstFile) {
+				return;
+			}
+			onFileSelect({
+				changeId: change.id,
+				columnId,
+				scopeKey: "all",
+				scope: "all",
+				path: firstFile.path,
+			});
+		});
+	}, [allFiles, change.id, columnId, loadAllFiles, onFileSelect]);
+
+	const handleCardSelect = () => {
+		const hadCommitSelection = selectedCommitHash !== null;
+		if (hadCommitSelection) {
+			setSelectedCommitHash(null);
+			setExpandedCommitHash(null);
+		}
+		if (selected && !hadCommitSelection) {
+			onSelectCard(change.id);
+			return;
+		}
+		if (!selected) {
+			onSelectCard(change.id);
+		}
+		selectFirstAllChangesFile();
+	};
+
+	const handleHeaderKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+		if (event.key === "Enter" || event.key === " ") {
+			event.preventDefault();
+			handleCardSelect();
+		}
+	};
+
+	const handleCommitSelect = (commitHash: string) => {
+		setAllFilesExpanded(false);
+		setSelectedCommitHash(commitHash);
+		if (expandedCommitHash !== commitHash) {
+			setExpandedCommitHash(commitHash);
+		}
+		void loadCommitFiles(commitHash).then((response) => {
+			const firstFile = response?.files[0] ?? commitFiles[commitHash]?.files[0] ?? null;
+			if (!firstFile) {
+				return;
+			}
+			const scope = { commitHash };
+			onFileSelect({
+				changeId: change.id,
+				columnId,
+				scopeKey: getBoardScopeKey(scope),
+				scope,
+				path: firstFile.path,
+			});
+		});
+	};
+
 	return (
 		<Draggable draggableId={encodeChangeDraggableId(change.id)} index={index}>
 			{(provided, snapshot) => (
@@ -159,17 +835,43 @@ function ChangeCard({
 					{...provided.dragHandleProps}
 					data-change-id={change.id}
 					className={cn(
-						"rounded-lg border px-3 py-2 text-left transition-colors",
-						selected ? "border-accent bg-surface-2" : "border-divider bg-surface-0 hover:bg-surface-2",
+						"overflow-hidden rounded-lg border text-left transition-colors",
+						selected && selectedCommitHash === null ? "border-divider bg-surface-2" : "border-divider bg-surface-0 hover:bg-surface-2",
 					)}
 					style={{
 						...provided.draggableProps.style,
 						marginBottom: 6,
+						flexShrink: 0,
 						cursor: snapshot.isDragging ? "grabbing" : "grab",
 					}}
 				>
-					<div className="mb-1 flex items-start justify-between gap-2">
-						<span className="line-clamp-2 text-sm font-semibold text-text-primary">{change.title}</span>
+					<div className="relative flex items-start gap-2 px-3 py-2">
+						{selected && selectedCommitHash === null ? (
+							<span
+								aria-hidden
+								className="absolute left-0 top-1/2 h-12 w-1 -translate-y-1/2 rounded-r-full bg-accent"
+							/>
+						) : null}
+						<div
+							role="button"
+							tabIndex={0}
+							className="min-w-0 flex-1"
+							onClick={handleCardSelect}
+							onKeyDown={handleHeaderKeyDown}
+						>
+							<div className="flex min-w-0 items-center gap-2">
+								<span className="line-clamp-2 text-sm font-semibold text-text-primary">{change.title}</span>
+							</div>
+							<div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-[12px] text-text-secondary">
+								{change.workspace?.branch ? <span className="truncate">{change.workspace.branch}</span> : null}
+								{change.workspace?.branch ? <span aria-hidden>•</span> : null}
+								<ChangeStatusChip status={change.status} />
+								{change.remote?.pullRequestUrl ? (
+									<StatusChip label="PR" icon={<GitPullRequest size={12} />} tone="green" />
+								) : null}
+								<StatusChip label="No checks" />
+							</div>
+						</div>
 						<Button
 							variant="ghost"
 							size="sm"
@@ -183,23 +885,138 @@ function ChangeCard({
 							className="h-8 w-8 shrink-0 px-0"
 						/>
 					</div>
-					<div className="mb-2 flex items-center justify-between gap-2">
-						<div className="flex min-w-0 flex-wrap items-center gap-1.5">
-							<ChangeStatusChip status={change.status} />
-							<StatusChip label={change.type} />
-						</div>
-						<span className="shrink-0 text-[11px] uppercase tracking-wide text-text-tertiary">{change.id}</span>
-					</div>
-					<div className="flex flex-wrap items-center gap-2">
+					{selected ? (
+						<ChangeFileBanner
+							scope="all"
+							summary={summary}
+							filesResponse={allFiles}
+							isExpanded={allFilesExpanded}
+							isLoading={summaryLoading || allFilesLoading}
+							error={summaryError ?? allFilesError}
+							viewMode={allFilesMode}
+							onToggle={() => setAllFilesExpanded((current) => !current)}
+							onViewModeChange={setAllFilesMode}
+							onLoad={loadAllFiles}
+							selectedFile={selectedFile}
+							onFileSelect={(scope, file) => {
+								onFileSelect({
+									changeId: change.id,
+									columnId,
+									scopeKey: getBoardScopeKey(scope),
+									scope,
+									path: file.path,
+								});
+							}}
+						/>
+					) : null}
+					<div className="flex items-center gap-2 border-y border-divider bg-surface-1 px-3 py-2">
+						<StatusChip label={change.type} />
 						<PlanningBadge planning={change.planning} />
-						{change.workspace?.path ? (
-							<PathDisplay
-								path={change.workspace.path}
-								repoRoot={repoRoot}
-								className="truncate text-[11px] text-text-tertiary"
-							/>
-						) : null}
+						<span className="min-w-0 flex-1" />
+						<CopyKebabMenu
+							label={`More actions for ${change.id}`}
+							items={[
+								{ label: "Workspace Path", value: change.workspace?.path },
+								{ label: "Git Hash", value: summary?.workspaceHead },
+								{ label: "Change Id", value: change.id },
+								{ label: "Change File", value: change.path },
+								{ label: "Base Revision", value: change.base?.revision },
+								{ label: "Branch", value: change.workspace?.branch },
+								{ label: "Title", value: change.title },
+							]}
+						/>
 					</div>
+					{selected ? (
+						<div className="py-1">
+							{summaryLoading ? (
+								<div className="px-3 py-2 text-[12px] text-text-tertiary">Loading commits...</div>
+							) : summaryError ? (
+								<div className="px-3 py-2 text-[12px] text-red-600">{summaryError.message}</div>
+							) : summary?.commits.length ? (
+								summary.commits.map((commit) => {
+									const commitSelected = selectedCommitHash === commit.hash;
+									const commitExpanded = expandedCommitHash === commit.hash;
+									return (
+										<div key={commit.hash} className={cn("border-t border-divider first:border-t-0", commitSelected ? "bg-surface-2" : null)}>
+											<div
+												className={cn(
+													"relative flex w-full min-w-0 items-center gap-2 hover:bg-surface-2",
+													commitSelected ? "bg-surface-2" : null,
+												)}
+											>
+												{commitSelected ? (
+													<span
+														aria-hidden
+														className="absolute left-0 top-1/2 h-7 w-1 -translate-y-1/2 rounded-r-full bg-accent"
+													/>
+												) : null}
+												<button
+													type="button"
+													className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left"
+													onClick={(event) => {
+														event.stopPropagation();
+														handleCommitSelect(commit.hash);
+													}}
+												>
+													<GitCommitVertical size={14} className="shrink-0 text-text-tertiary" />
+													<span className="min-w-0 flex-1 truncate text-[13px] text-text-primary">{commit.message}</span>
+													<span className="shrink-0 text-[11px] text-text-tertiary">{commit.shortHash}</span>
+												</button>
+												<div className="pr-2">
+													<CopyKebabMenu
+														label={`More actions for commit ${commit.shortHash}`}
+														items={[
+															{ label: "Git Hash", value: commit.hash },
+															{ label: "Short Hash", value: commit.shortHash },
+															{ label: "Commit Message", value: commit.message },
+															{ label: "Author", value: commit.authorName },
+															{ label: "Author Email", value: commit.authorEmail },
+															{ label: "Commit Date", value: commit.date },
+															{ label: "Change Id", value: change.id },
+															{ label: "Workspace Path", value: change.workspace?.path },
+														]}
+													/>
+												</div>
+											</div>
+											{commitExpanded ? (
+												<ChangeFileBanner
+													scope={{ commitHash: commit.hash }}
+													summary={summary}
+													filesResponse={commitFiles[commit.hash] ?? null}
+													isExpanded
+													isLoading={commitFileLoading[commit.hash] ?? false}
+													error={commitFileErrors[commit.hash] ?? null}
+													viewMode={commitFilesMode}
+													onToggle={() => {
+														setExpandedCommitHash(null);
+														onCommitUnselect(change.id, commit.hash);
+													}}
+													onViewModeChange={setCommitFilesMode}
+													onLoad={() => {
+														void loadCommitFiles(commit.hash);
+													}}
+													selectedFile={selectedFile}
+													onFileSelect={(scope, file) => {
+														onFileSelect({
+															changeId: change.id,
+															columnId,
+															scopeKey: getBoardScopeKey(scope),
+															scope,
+															path: file.path,
+														});
+													}}
+												/>
+											) : null}
+										</div>
+									);
+								})
+							) : (
+								<div className="px-3 py-2 text-[12px] text-text-tertiary">
+									{summary?.error ?? "No commits found for this change."}
+								</div>
+							)}
+						</div>
+					) : null}
 				</div>
 			)}
 		</Draggable>
@@ -281,6 +1098,7 @@ export function ChangeBoard({
 	openPrTaskLoadingById,
 	moveToTrashLoadingById,
 	workspacePath,
+	workspaceId,
 	defaultClineModelId,
 }: {
 	board: BoardData;
@@ -307,10 +1125,18 @@ export function ChangeBoard({
 	openPrTaskLoadingById?: Record<string, boolean>;
 	moveToTrashLoadingById?: Record<string, boolean>;
 	workspacePath?: string | null;
+	workspaceId?: string | null;
 	defaultClineModelId?: string | null;
 }): ReactElement {
 	const [collapsedPreferences, setCollapsedPreferences] = useState(readCollapsedColumnPreferences);
+	const [columnWidthPreferences, setColumnWidthPreferences] = useState(readColumnWidthPreferences);
 	const [activeDragKind, setActiveDragKind] = useState<"change" | "task" | null>(null);
+	const [selectedBoardChangeId, setSelectedBoardChangeId] = useState<string | null>(selectedChangeId);
+	const [selectedFile, setSelectedFile] = useState<SelectedBoardFile | null>(null);
+	const [fileDiff, setFileDiff] = useState<RuntimeChangeyardBoardFileDiffResponse | null>(null);
+	const [fileDiffLoading, setFileDiffLoading] = useState(false);
+	const [fileDiffError, setFileDiffError] = useState<Error | null>(null);
+	const [diffPanelWidth, setDiffPanelWidth] = useState(DEFAULT_DIFF_PANEL_WIDTH);
 	const filteredChanges = filterChanges(changes, filter);
 	const groupedChanges = new Map<ChangeColumnId, RuntimeChangeyardChangeListItem[]>();
 	const groupedTasks = new Map<ChangeColumnId, BoardCardModel[]>();
@@ -337,14 +1163,16 @@ export function ChangeBoard({
 			tasks,
 			changes: columnChanges,
 			count,
+			width: columnWidthPreferences[column.id] ?? EXPANDED_COLUMN_WIDTH,
 			collapsed: collapsedPreferences[column.id] ?? count === 0,
 		};
 	});
 	const canvasWidth = useMemo(
 		() =>
-			columnModels.reduce((total, column) => total + (column.collapsed ? COLLAPSED_COLUMN_WIDTH : EXPANDED_COLUMN_WIDTH), 0) +
+			columnModels.reduce((total, column) => total + (column.collapsed ? COLLAPSED_COLUMN_WIDTH : column.width), 0) +
+			(selectedFile ? diffPanelWidth + COLUMN_GAP : 0) +
 			COLUMN_GAP * Math.max(columnModels.length - 1, 0),
-		[columnModels],
+		[columnModels, diffPanelWidth, selectedFile],
 	);
 
 	const setColumnCollapsed = (columnId: ChangeColumnId, collapsed: boolean) => {
@@ -386,6 +1214,107 @@ export function ChangeBoard({
 			draggableId: decoded.id,
 			source: { ...result.source, droppableId: sourceColumnId },
 			destination: { ...destination, droppableId: destinationColumnId },
+		});
+	};
+
+	const handleSelectBoardChange = (changeId: string) => {
+		setSelectedBoardChangeId((current) => {
+			if (current !== changeId) {
+				setSelectedFile((file) => (file?.changeId === changeId ? file : null));
+				setFileDiff(null);
+				setFileDiffError(null);
+				setFileDiffLoading(false);
+				return changeId;
+			}
+			setSelectedFile((file) => (file?.changeId === changeId ? null : file));
+			setFileDiff(null);
+			setFileDiffError(null);
+			setFileDiffLoading(false);
+			return null;
+		});
+	};
+
+	const setColumnWidth = (columnId: ChangeColumnId, width: number) => {
+		setColumnWidthPreferences((current) => {
+			const next = { ...current, [columnId]: clampColumnWidth(width) };
+			writeColumnWidthPreferences(next);
+			return next;
+		});
+	};
+
+	const handleColumnResizeStart = (
+		event: ReactPointerEvent<HTMLDivElement>,
+		columnId: ChangeColumnId,
+		startWidth: number,
+	) => {
+		event.preventDefault();
+		event.stopPropagation();
+		const startX = event.clientX;
+		const handlePointerMove = (moveEvent: globalThis.PointerEvent) => {
+			setColumnWidth(columnId, startWidth + moveEvent.clientX - startX);
+		};
+		const handlePointerUp = () => {
+			window.removeEventListener("pointermove", handlePointerMove);
+			window.removeEventListener("pointerup", handlePointerUp);
+		};
+		window.addEventListener("pointermove", handlePointerMove);
+		window.addEventListener("pointerup", handlePointerUp);
+	};
+
+	const handleDiffPanelResizeStart = (event: ReactPointerEvent<HTMLDivElement>) => {
+		event.preventDefault();
+		event.stopPropagation();
+		const startX = event.clientX;
+		const startWidth = diffPanelWidth;
+		const handlePointerMove = (moveEvent: globalThis.PointerEvent) => {
+			setDiffPanelWidth(
+				Math.min(MAX_DIFF_PANEL_WIDTH, Math.max(MIN_DIFF_PANEL_WIDTH, Math.round(startWidth + moveEvent.clientX - startX))),
+			);
+		};
+		const handlePointerUp = () => {
+			window.removeEventListener("pointermove", handlePointerMove);
+			window.removeEventListener("pointerup", handlePointerUp);
+		};
+		window.addEventListener("pointermove", handlePointerMove);
+		window.addEventListener("pointerup", handlePointerUp);
+	};
+
+	const handleBoardFileSelect = (nextFile: SelectedBoardFile) => {
+		setSelectedFile(nextFile);
+		setFileDiff(null);
+		setFileDiffLoading(true);
+		setFileDiffError(null);
+		Promise.resolve(
+			getRuntimeTrpcClient(workspaceId ?? null).changes.getBoardFileDiff.query({
+				id: nextFile.changeId,
+				scope: nextFile.scope,
+				path: nextFile.path,
+			}),
+		)
+			.then((response) => {
+				if (!response) {
+					setFileDiff(null);
+					setFileDiffLoading(false);
+					return;
+				}
+				setFileDiff(response);
+				setFileDiffLoading(false);
+			})
+			.catch((error: unknown) => {
+				setFileDiffError(error instanceof Error ? error : new Error(String(error)));
+				setFileDiffLoading(false);
+			});
+	};
+
+	const handleCommitUnselect = (changeId: string, commitHash: string) => {
+		setSelectedFile((current) => {
+			if (current?.changeId === changeId && current.scopeKey === `commit:${commitHash}`) {
+				setFileDiff(null);
+				setFileDiffError(null);
+				setFileDiffLoading(false);
+				return null;
+			}
+			return current;
 		});
 	};
 
@@ -431,7 +1360,7 @@ export function ChangeBoard({
 					>
 						<div
 							data-testid="change-board-canvas"
-							className="flex min-h-full"
+							className="flex h-full min-h-0"
 							style={{ width: canvasWidth, minWidth: canvasWidth, flex: "0 0 auto", gap: COLUMN_GAP }}
 						>
 							{columnModels.map((column) => {
@@ -453,12 +1382,12 @@ export function ChangeBoard({
 									);
 								}
 								return (
-									<section
-										key={column.id}
-										data-column-id={column.id}
-										className="flex min-h-0 shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-surface-1"
-										style={{ width: EXPANDED_COLUMN_WIDTH, minWidth: EXPANDED_COLUMN_WIDTH }}
-									>
+									<Fragment key={column.id}>
+										<section
+											data-column-id={column.id}
+											className="relative flex h-full min-h-0 shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-surface-1"
+											style={{ width: column.width, minWidth: column.width }}
+										>
 										<div className="flex h-10 items-center justify-between px-3">
 											<div className="flex min-w-0 items-center gap-2">
 												<ColumnIndicator columnId={column.id} />
@@ -521,9 +1450,14 @@ export function ChangeBoard({
 															key={change.id}
 															change={change}
 															index={column.tasks.length + index}
-															selected={change.id === selectedChangeId}
-															repoRoot={workspacePath}
+															selected={change.id === selectedBoardChangeId}
+															workspaceId={workspaceId}
+															columnId={column.id}
+															selectedFile={selectedFile?.changeId === change.id ? selectedFile : null}
+															onSelectCard={handleSelectBoardChange}
 															onOpenDetails={onSelectChange}
+															onFileSelect={handleBoardFileSelect}
+															onCommitUnselect={handleCommitUnselect}
 														/>
 													))}
 													{column.count === 0 ? (
@@ -535,7 +1469,27 @@ export function ChangeBoard({
 												</div>
 											)}
 										</Droppable>
-									</section>
+										<div
+											role="separator"
+											aria-orientation="vertical"
+											aria-label={`Resize ${column.title} column`}
+											title="Resize column"
+											className="absolute right-0 top-0 z-10 h-full w-1 cursor-col-resize touch-none bg-transparent transition-colors hover:bg-accent/35"
+											onPointerDown={(event) => handleColumnResizeStart(event, column.id, column.width)}
+										/>
+										</section>
+										{selectedFile?.columnId === column.id ? (
+											<BoardColumnDiffPanel
+												key={`${column.id}-file-diff-panel`}
+												selectedFile={selectedFile}
+												diff={fileDiff}
+												isLoading={fileDiffLoading}
+												error={fileDiffError}
+												width={diffPanelWidth}
+												onResizeStart={handleDiffPanelResizeStart}
+											/>
+										) : null}
+									</Fragment>
 								);
 							})}
 						</div>

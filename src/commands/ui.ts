@@ -92,6 +92,7 @@ export function createChangeyardUiApi() {
       type: change.type,
       status: change.status,
       path: change.path,
+      base: change.base,
       labels: change.labels,
       updatedAt: change.updatedAt,
       planning: change.planning ?? null,

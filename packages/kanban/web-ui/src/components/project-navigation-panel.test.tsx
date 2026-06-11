@@ -196,6 +196,31 @@ describe("ProjectNavigationPanel width persistence", () => {
 		expect(container.textContent).toContain("Report issue");
 	});
 
+	it("collapses to a vertical active project rail", () => {
+		renderPanel();
+
+		const collapseButton = container.querySelector('[aria-label="Collapse project navigation"]') as HTMLButtonElement | null;
+		expect(collapseButton).toBeTruthy();
+		act(() => {
+			collapseButton?.click();
+		});
+
+		expect(localStorage.getItem(LocalStorageKey.ProjectNavigationPanelCollapsed)).toBe("true");
+		expect(container.querySelector('[aria-label="Expand project navigation"]')).toBeTruthy();
+		expect(container.textContent).toContain("Kanban");
+
+		const activeProjectButton = Array.from(container.querySelectorAll("button")).find(
+			(button) => button.textContent === "Kanban",
+		);
+		expect(activeProjectButton?.querySelector("span")?.className).toContain("[writing-mode:vertical-rl]");
+
+		act(() => {
+			activeProjectButton?.click();
+		});
+		expect(localStorage.getItem(LocalStorageKey.ProjectNavigationPanelCollapsed)).toBe("false");
+		expect(container.querySelector('[aria-label="Collapse project navigation"]')).toBeTruthy();
+	});
+
 	it("shows send feedback instead of report issue when ChangeYard OAuth is available", () => {
 		renderPanel({
 			selectedAgentId: "cline",

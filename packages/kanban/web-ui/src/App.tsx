@@ -1114,7 +1114,7 @@ export default function App(): ReactElement {
 
 	return (
 		<LayoutCustomizationsProvider onResetBottomTerminalLayoutCustomizations={resetBottomTerminalLayoutCustomizations}>
-			<div className="flex h-[100svh] min-w-0 overflow-hidden">
+			<div className="flex h-[100dvh] min-w-0 overflow-hidden">
 				{!selectedCard ? (
 					<ProjectNavigationPanel
 						projects={displayedProjects}
@@ -1270,6 +1270,7 @@ export default function App(): ReactElement {
 												openPrTaskLoadingById={openPrTaskLoadingById}
 												moveToTrashLoadingById={moveToTrashLoadingById}
 												workspacePath={workspacePath}
+												workspaceId={currentProjectId}
 												defaultClineModelId={runtimeProjectConfig?.clineProviderSettings?.modelId ?? null}
 												onCreateTask={handleOpenCreateTask}
 												onCreateChange={() => {

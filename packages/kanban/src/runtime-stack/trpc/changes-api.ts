@@ -1,6 +1,13 @@
 import path from "node:path";
 
 import type {
+	RuntimeChangeyardBoardFileStats,
+	RuntimeChangeyardBoardFileSummary,
+	RuntimeChangeyardBoardFileDiffRequest,
+	RuntimeChangeyardBoardFileDiffResponse,
+	RuntimeChangeyardBoardFilesRequest,
+	RuntimeChangeyardBoardFilesResponse,
+	RuntimeChangeyardBoardSummaryResponse,
 	RuntimeChangeyardChangeDetail,
 	RuntimeChangeyardChangeActionResponse,
 	RuntimeChangeyardCompleteRequest,
@@ -18,12 +25,17 @@ import type {
 	RuntimeChangeyardUpdateResponse,
 	RuntimeChangeyardProjectConfig,
 	RuntimeChangeyardUpdateProjectConfigRequest,
+	RuntimeWorkspaceFileChange,
 	RuntimeWorkspaceChangesResponse,
 } from "../core/api-contract.js";
+import { getCommitDiff, getCommitDiffSummary, getGitLogRange } from "../workspace/git-history.js";
+import { readGitHeadInfo } from "../workspace/git-utils.js";
+import { detectWorkspaceEngine } from "../workspace/git-sync.js";
 import {
 	createEmptyWorkspaceChangesResponse,
 	getWorkspaceChanges,
 } from "../workspace/get-workspace-changes.js";
+import { readJjHeadInfo } from "../workspace/jj-utils.js";
 
 export interface RuntimeChangeyardApiAdapter {
 	listChanges: (repoRoot: string) => Promise<RuntimeChangeyardChangesListResponse["changes"]> | RuntimeChangeyardChangesListResponse["changes"];
@@ -123,6 +135,18 @@ export interface RuntimeTrpcChangesApi {
 		workspacePath: string,
 		input: RuntimeChangeyardChangeGetRequest,
 	) => Promise<RuntimeWorkspaceChangesResponse>;
+	loadChangeBoardSummary: (
+		workspacePath: string,
+		input: RuntimeChangeyardChangeGetRequest,
+	) => Promise<RuntimeChangeyardBoardSummaryResponse>;
+	loadChangeBoardFiles: (
+		workspacePath: string,
+		input: RuntimeChangeyardBoardFilesRequest,
+	) => Promise<RuntimeChangeyardBoardFilesResponse>;
+	loadChangeBoardFileDiff: (
+		workspacePath: string,
+		input: RuntimeChangeyardBoardFileDiffRequest,
+	) => Promise<RuntimeChangeyardBoardFileDiffResponse>;
 	initProject: (workspacePath: string) => Promise<RuntimeChangeyardInitResponse>;
 	updateProject: (workspacePath: string) => Promise<RuntimeChangeyardUpdateResponse>;
 	getProjectConfig: (workspacePath: string) => Promise<RuntimeChangeyardProjectConfig>;
@@ -136,6 +160,68 @@ export interface RuntimeTrpcChangesApi {
 export function createChangesApi(deps: {
 	changeyardApi?: RuntimeChangeyardApiAdapter | null;
 }): RuntimeTrpcChangesApi {
+	const makeVersion = (change: RuntimeChangeyardChangeDetail | null, workspaceHead: string | null, rawWorkspacePath?: string | null): string =>
+		[
+			change?.id ?? "unknown",
+			change?.updatedAt ?? "unversioned",
+			change?.base?.revision ?? "no-base",
+			rawWorkspacePath ?? "no-workspace",
+			workspaceHead ?? "no-head",
+		].join(":");
+
+	const emptyStats = (): RuntimeChangeyardBoardFileStats => ({
+		count: 0,
+		additions: 0,
+		deletions: 0,
+	});
+
+	const summarizeFiles = (files: RuntimeChangeyardBoardFileSummary[]): RuntimeChangeyardBoardFileStats =>
+		files.reduce(
+			(total, file) => ({
+				count: total.count + 1,
+				additions: total.additions + file.additions,
+				deletions: total.deletions + file.deletions,
+			}),
+			emptyStats(),
+		);
+
+	const resolveChangeWorkspace = async (
+		workspacePath: string,
+		input: RuntimeChangeyardChangeGetRequest,
+	): Promise<{ change: RuntimeChangeyardChangeDetail | null; cwd: string | null; rawWorkspacePath: string | null }> => {
+		if (!deps.changeyardApi) {
+			return { change: null, cwd: null, rawWorkspacePath: null };
+		}
+		const change = await deps.changeyardApi.getChange(workspacePath, input);
+		const rawWorkspacePath = change?.workspace?.path?.trim() || null;
+		if (!change || !rawWorkspacePath) {
+			return { change, cwd: null, rawWorkspacePath };
+		}
+		const cwd = path.isAbsolute(rawWorkspacePath) ? rawWorkspacePath : path.resolve(workspacePath, rawWorkspacePath);
+		return { change, cwd, rawWorkspacePath };
+	};
+
+	const readWorkspaceHead = async (cwd: string): Promise<string | null> => {
+		const engine = await detectWorkspaceEngine(cwd);
+		if (engine === "jj") {
+			const head = await readJjHeadInfo(cwd);
+			return head.jjChangeId ?? head.headCommit;
+		}
+		const head = await readGitHeadInfo(cwd);
+		return head.headCommit;
+	};
+
+	const compactWorkspaceFiles = async (cwd: string): Promise<RuntimeChangeyardBoardFileSummary[]> => {
+		const changes = await getWorkspaceChanges(cwd);
+		return changes.files.map((file) => ({
+			path: file.path,
+			previousPath: file.previousPath,
+			status: file.status,
+			additions: file.additions,
+			deletions: file.deletions,
+		}));
+	};
+
 	return {
 		listChanges: async (workspacePath) => {
 			if (!deps.changeyardApi) {
@@ -224,18 +310,165 @@ export function createChangesApi(deps: {
 			return await deps.changeyardApi.updateChangeBody(workspacePath, input);
 		},
 		loadChangeWorkspaceChanges: async (workspacePath, input) => {
-			if (!deps.changeyardApi) {
+			const { cwd } = await resolveChangeWorkspace(workspacePath, input);
+			if (!cwd) {
 				return await createEmptyWorkspaceChangesResponse(workspacePath);
 			}
-			const change = await deps.changeyardApi.getChange(workspacePath, input);
-			const rawWorkspacePath = change?.workspace?.path?.trim();
-			if (!rawWorkspacePath) {
-				return await createEmptyWorkspaceChangesResponse(workspacePath);
+			return await getWorkspaceChanges(cwd);
+		},
+		loadChangeBoardSummary: async (workspacePath, input) => {
+			const { change, cwd, rawWorkspacePath } = await resolveChangeWorkspace(workspacePath, input);
+			if (!change) {
+				return {
+					ok: false,
+					changeId: input.id,
+					version: makeVersion(null, null, rawWorkspacePath),
+					workspaceHead: null,
+					baseRevision: null,
+					commits: [],
+					files: emptyStats(),
+					error: `Change not found: ${input.id}`,
+				};
 			}
-			const changeWorkspacePath = path.isAbsolute(rawWorkspacePath)
-				? rawWorkspacePath
-				: path.resolve(workspacePath, rawWorkspacePath);
-			return await getWorkspaceChanges(changeWorkspacePath);
+			if (!cwd) {
+				return {
+					ok: true,
+					changeId: change.id,
+					version: makeVersion(change, null, rawWorkspacePath),
+					workspaceHead: null,
+					baseRevision: change.base?.revision ?? null,
+					commits: [],
+					files: emptyStats(),
+					error: "Change workspace has not been started.",
+				};
+			}
+
+			const workspaceHead = await readWorkspaceHead(cwd).catch(() => null);
+			const baseRevision = change.base?.revision?.trim() || null;
+			const [log, files] = await Promise.all([
+				getGitLogRange({ cwd, baseRef: baseRevision, headRef: undefined, maxCount: 80 }),
+				compactWorkspaceFiles(cwd).catch(() => []),
+			]);
+
+			return {
+				ok: log.ok,
+				changeId: change.id,
+				version: makeVersion(change, workspaceHead, rawWorkspacePath),
+				workspaceHead,
+				baseRevision,
+				commits: log.commits,
+				files: summarizeFiles(files),
+				error: log.error,
+			};
+		},
+		loadChangeBoardFiles: async (workspacePath, input) => {
+			const { change, cwd, rawWorkspacePath } = await resolveChangeWorkspace(workspacePath, input);
+			if (!change) {
+				return {
+					ok: false,
+					changeId: input.id,
+					version: makeVersion(null, null, rawWorkspacePath),
+					scope: input.scope,
+					files: [],
+					error: `Change not found: ${input.id}`,
+				};
+			}
+			if (!cwd) {
+				return {
+					ok: true,
+					changeId: change.id,
+					version: makeVersion(change, null, rawWorkspacePath),
+					scope: input.scope,
+					files: [],
+					error: "Change workspace has not been started.",
+				};
+			}
+
+			const workspaceHead = await readWorkspaceHead(cwd).catch(() => null);
+			if (input.scope === "all") {
+				const files = await compactWorkspaceFiles(cwd).catch(() => []);
+				return {
+					ok: true,
+					changeId: change.id,
+					version: makeVersion(change, workspaceHead, rawWorkspacePath),
+					scope: input.scope,
+					files,
+				};
+			}
+
+			const response = await getCommitDiffSummary({ cwd, commitHash: input.scope.commitHash });
+			return {
+				ok: response.ok,
+				changeId: change.id,
+				version: makeVersion(change, workspaceHead, rawWorkspacePath),
+				scope: input.scope,
+				files: response.files,
+				error: response.error,
+			};
+		},
+		loadChangeBoardFileDiff: async (workspacePath, input) => {
+			const { change, cwd, rawWorkspacePath } = await resolveChangeWorkspace(workspacePath, input);
+			if (!change) {
+				return {
+					ok: false,
+					changeId: input.id,
+					version: makeVersion(null, null, rawWorkspacePath),
+					scope: input.scope,
+					path: input.path,
+					file: null,
+					error: `Change not found: ${input.id}`,
+				};
+			}
+			if (!cwd) {
+				return {
+					ok: true,
+					changeId: change.id,
+					version: makeVersion(change, null, rawWorkspacePath),
+					scope: input.scope,
+					path: input.path,
+					file: null,
+					error: "Change workspace has not been started.",
+				};
+			}
+
+			const workspaceHead = await readWorkspaceHead(cwd).catch(() => null);
+			if (input.scope === "all") {
+				const changes = await getWorkspaceChanges(cwd);
+				const file = changes.files.find((candidate) => candidate.path === input.path) ?? null;
+				return {
+					ok: file !== null,
+					changeId: change.id,
+					version: makeVersion(change, workspaceHead, rawWorkspacePath),
+					scope: input.scope,
+					path: input.path,
+					file,
+					error: file ? undefined : `File not found: ${input.path}`,
+				};
+			}
+
+			const response = await getCommitDiff({ cwd, commitHash: input.scope.commitHash });
+			const file = response.files.find((candidate) => candidate.path === input.path) ?? null;
+			const workspaceFile = file
+				? ({
+						path: file.path,
+						previousPath: file.previousPath,
+						status: file.status,
+						additions: file.additions,
+						deletions: file.deletions,
+						oldText: null,
+						newText: null,
+					} satisfies RuntimeWorkspaceFileChange)
+				: null;
+			return {
+				ok: response.ok && file !== null,
+				changeId: change.id,
+				version: makeVersion(change, workspaceHead, rawWorkspacePath),
+				scope: input.scope,
+				path: input.path,
+				file: workspaceFile,
+				patch: file?.patch,
+				error: file ? response.error : (response.error ?? `File not found: ${input.path}`),
+			};
 		},
 		initProject: async (workspacePath) => {
 			if (!deps.changeyardApi) {

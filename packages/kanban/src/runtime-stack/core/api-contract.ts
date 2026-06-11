@@ -425,6 +425,12 @@ export const runtimeChangeyardWorkspaceSummarySchema = z.object({
 });
 export type RuntimeChangeyardWorkspaceSummary = z.infer<typeof runtimeChangeyardWorkspaceSummarySchema>;
 
+export const runtimeChangeyardBaseSummarySchema = z.object({
+	vcs: z.string().optional(),
+	revision: z.string().optional(),
+});
+export type RuntimeChangeyardBaseSummary = z.infer<typeof runtimeChangeyardBaseSummarySchema>;
+
 export const runtimeChangeyardRemoteSummarySchema = z.object({
 	provider: z.string().optional(),
 	issueUrl: z.string().optional(),
@@ -438,6 +444,7 @@ export const runtimeChangeyardChangeListItemSchema = z.object({
 	type: z.string(),
 	status: z.string(),
 	path: z.string(),
+	base: runtimeChangeyardBaseSummarySchema.optional(),
 	labels: z.array(z.string()).default([]),
 	updatedAt: z.string().optional(),
 	planning: runtimeChangeyardPlanningSummarySchema.nullable(),
@@ -1446,6 +1453,77 @@ export const runtimeGitCommitSchema = z.object({
 	relation: z.enum(["selected", "upstream", "shared"]).optional(),
 });
 export type RuntimeGitCommit = z.infer<typeof runtimeGitCommitSchema>;
+
+export const runtimeChangeyardBoardFileSummarySchema = z.object({
+	path: z.string(),
+	previousPath: z.string().optional(),
+	status: runtimeWorkspaceFileStatusSchema,
+	additions: z.number().int().nonnegative(),
+	deletions: z.number().int().nonnegative(),
+});
+export type RuntimeChangeyardBoardFileSummary = z.infer<typeof runtimeChangeyardBoardFileSummarySchema>;
+
+export const runtimeChangeyardBoardFileStatsSchema = z.object({
+	count: z.number().int().nonnegative(),
+	additions: z.number().int().nonnegative(),
+	deletions: z.number().int().nonnegative(),
+});
+export type RuntimeChangeyardBoardFileStats = z.infer<typeof runtimeChangeyardBoardFileStatsSchema>;
+
+export const runtimeChangeyardBoardSummaryResponseSchema = z.object({
+	ok: z.boolean(),
+	changeId: z.string(),
+	version: z.string(),
+	workspaceHead: z.string().nullable(),
+	baseRevision: z.string().nullable(),
+	commits: z.array(runtimeGitCommitSchema),
+	files: runtimeChangeyardBoardFileStatsSchema,
+	error: z.string().optional(),
+});
+export type RuntimeChangeyardBoardSummaryResponse = z.infer<typeof runtimeChangeyardBoardSummaryResponseSchema>;
+
+export const runtimeChangeyardBoardFilesScopeSchema = z.union([
+	z.literal("all"),
+	z.object({ commitHash: z.string().min(1) }),
+]);
+export type RuntimeChangeyardBoardFilesScope = z.infer<typeof runtimeChangeyardBoardFilesScopeSchema>;
+
+export const runtimeChangeyardBoardFilesRequestSchema = z.object({
+	id: z.string(),
+	scope: runtimeChangeyardBoardFilesScopeSchema,
+});
+export type RuntimeChangeyardBoardFilesRequest = z.infer<typeof runtimeChangeyardBoardFilesRequestSchema>;
+
+export const runtimeChangeyardBoardFileDiffRequestSchema = z.object({
+	id: z.string(),
+	scope: runtimeChangeyardBoardFilesScopeSchema,
+	path: z.string().min(1),
+});
+export type RuntimeChangeyardBoardFileDiffRequest = z.infer<typeof runtimeChangeyardBoardFileDiffRequestSchema>;
+
+export const runtimeChangeyardBoardFilesResponseSchema = z.object({
+	ok: z.boolean(),
+	changeId: z.string(),
+	version: z.string(),
+	scope: runtimeChangeyardBoardFilesScopeSchema,
+	files: z.array(runtimeChangeyardBoardFileSummarySchema),
+	error: z.string().optional(),
+});
+export type RuntimeChangeyardBoardFilesResponse = z.infer<typeof runtimeChangeyardBoardFilesResponseSchema>;
+
+export const runtimeChangeyardBoardFileDiffResponseSchema = z.object({
+	ok: z.boolean(),
+	changeId: z.string(),
+	version: z.string(),
+	scope: runtimeChangeyardBoardFilesScopeSchema,
+	path: z.string(),
+	file: runtimeWorkspaceFileChangeSchema.nullable(),
+	patch: z.string().optional(),
+	error: z.string().optional(),
+});
+export type RuntimeChangeyardBoardFileDiffResponse = z.infer<
+	typeof runtimeChangeyardBoardFileDiffResponseSchema
+>;
 
 export const runtimeGitRefSchema = z.object({
 	name: z.string(),

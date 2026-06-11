@@ -4,12 +4,29 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ChangeBoard } from "@/components/changeyard/change-board";
+import { clearChangeBoardCaches } from "@/components/changeyard/change-board-cache";
 import type { RuntimeChangeyardChangeListItem } from "@/runtime/types";
 import type { BoardData } from "@/types";
 
 const dndMock = vi.hoisted(() => ({
 	onDragStart: null as ((start: { draggableId: string }) => void) | null,
 	onDragEnd: null as ((result: { draggableId: string; source: { droppableId: string }; destination: { droppableId: string } | null }) => void) | null,
+}));
+
+const runtimeMock = vi.hoisted(() => ({
+	getBoardSummary: vi.fn(),
+	getBoardFiles: vi.fn(),
+	getBoardFileDiff: vi.fn(),
+}));
+
+vi.mock("@/runtime/trpc-client", () => ({
+	getRuntimeTrpcClient: () => ({
+		changes: {
+			getBoardSummary: { query: runtimeMock.getBoardSummary },
+			getBoardFiles: { query: runtimeMock.getBoardFiles },
+			getBoardFileDiff: { query: runtimeMock.getBoardFileDiff },
+		},
+	}),
 }));
 
 vi.mock("@hello-pangea/dnd", async () => {
@@ -80,8 +97,10 @@ function createChange(
 		type: "feature",
 		status,
 		path: `.changeyard/changes/${id}.md`,
+		base: { revision: "main" },
 		labels: [],
 		planning,
+		workspace: { path: `.changeyard/workspaces/${id}/repo`, branch: `cy/${id}` },
 	};
 }
 
@@ -101,6 +120,10 @@ describe("ChangeBoard", () => {
 		});
 		container.remove();
 		window.localStorage.clear();
+		clearChangeBoardCaches();
+		runtimeMock.getBoardSummary.mockReset();
+		runtimeMock.getBoardFiles.mockReset();
+		runtimeMock.getBoardFileDiff.mockReset();
 		dndMock.onDragStart = null;
 		dndMock.onDragEnd = null;
 	});
@@ -165,6 +188,9 @@ describe("ChangeBoard", () => {
 		expect(container.textContent).toContain("Legacy task");
 		expect(container.textContent).toContain("Quick change");
 		expect(container.textContent).toContain("Planned change");
+		expect(container.textContent).not.toContain("openspec-lite normal · draft");
+		expect(container.textContent).not.toContain(".changeyard/workspaces/CY-0001/repo");
+		expect(container.querySelector('button[aria-label="More actions for CY-0001"]')).toBeTruthy();
 
 		const plannedButton = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "planned");
 		expect(plannedButton).toBeTruthy();
@@ -243,6 +269,327 @@ describe("ChangeBoard", () => {
 		});
 
 		expect(container.querySelector('button[aria-label="View details for CY-0007"]')).toBeTruthy();
+	});
+
+	it("does not request board summary data before a change card is selected", () => {
+		act(() => {
+			root.render(
+				<ChangeBoard
+					board={{ columns: [], dependencies: [] }}
+					changes={[createChange("CY-0001", "Quick change", null)]}
+					filter="changes"
+					selectedChangeId={null}
+					selectedTaskId={null}
+					workspaceId="project-1"
+					onFilterChange={vi.fn()}
+					onSelectChange={vi.fn()}
+					onSelectTask={vi.fn()}
+				/>,
+			);
+		});
+
+		expect(runtimeMock.getBoardSummary).not.toHaveBeenCalled();
+		expect(runtimeMock.getBoardFiles).not.toHaveBeenCalled();
+	});
+
+	it("selecting a change header lazily loads the board summary once", async () => {
+		runtimeMock.getBoardSummary.mockResolvedValue({
+			ok: true,
+			changeId: "CY-0001",
+			version: "v1",
+			workspaceHead: "head",
+			baseRevision: "main",
+			commits: [],
+			files: { count: 1, additions: 2, deletions: 1 },
+		});
+		runtimeMock.getBoardFiles.mockResolvedValue({
+			ok: true,
+			changeId: "CY-0001",
+			version: "v1",
+			scope: "all",
+			files: [{ path: "src/change.ts", status: "modified", additions: 2, deletions: 1 }],
+		});
+		runtimeMock.getBoardFileDiff.mockResolvedValue({
+			ok: true,
+			changeId: "CY-0001",
+			version: "v1",
+			scope: "all",
+			path: "src/change.ts",
+			file: {
+				path: "src/change.ts",
+				status: "modified",
+				additions: 2,
+				deletions: 1,
+				oldText: "const value = 1;\n",
+				newText: "const value = 2;\n",
+			},
+		});
+
+		act(() => {
+			root.render(
+				<ChangeBoard
+					board={{ columns: [], dependencies: [] }}
+					changes={[createChange("CY-0001", "Quick change", null)]}
+					filter="changes"
+					selectedChangeId={null}
+					selectedTaskId={null}
+					workspaceId="project-1"
+					onFilterChange={vi.fn()}
+					onSelectChange={vi.fn()}
+					onSelectTask={vi.fn()}
+				/>,
+			);
+		});
+
+		const header = container.querySelector('[data-change-id="CY-0001"] [role="button"]');
+		await act(async () => {
+			header?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+
+		expect(runtimeMock.getBoardSummary).toHaveBeenCalledTimes(1);
+		expect(container.textContent).toContain("All Changes");
+		expect(runtimeMock.getBoardFiles).toHaveBeenCalledWith({ id: "CY-0001", scope: "all" });
+		expect(runtimeMock.getBoardFileDiff).toHaveBeenCalledWith({
+			id: "CY-0001",
+			scope: "all",
+			path: "src/change.ts",
+		});
+
+		await act(async () => {
+			header?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+			await Promise.resolve();
+		});
+		await act(async () => {
+			header?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+		expect(runtimeMock.getBoardSummary).toHaveBeenCalledTimes(1);
+	});
+
+	it("selecting a change header opens all changes and selects the first file", async () => {
+		runtimeMock.getBoardSummary.mockResolvedValue({
+			ok: true,
+			changeId: "CY-0001",
+			version: "v1",
+			workspaceHead: "head",
+			baseRevision: "main",
+			commits: [],
+			files: { count: 1, additions: 2, deletions: 1 },
+		});
+		runtimeMock.getBoardFiles.mockResolvedValue({
+			ok: true,
+			changeId: "CY-0001",
+			version: "v1",
+			scope: "all",
+			files: [{ path: "src/change.ts", status: "modified", additions: 2, deletions: 1 }],
+		});
+		runtimeMock.getBoardFileDiff.mockResolvedValue({
+			ok: true,
+			changeId: "CY-0001",
+			version: "v1",
+			scope: "all",
+			path: "src/change.ts",
+			file: {
+				path: "src/change.ts",
+				status: "modified",
+				additions: 2,
+				deletions: 1,
+				oldText: "const oldValue = 1;\n",
+				newText: "const newValue = 2;\n",
+			},
+		});
+
+		act(() => {
+			root.render(
+				<ChangeBoard
+					board={{ columns: [], dependencies: [] }}
+					changes={[createChange("CY-0001", "Quick change", null)]}
+					filter="changes"
+					selectedChangeId={null}
+					selectedTaskId={null}
+					workspaceId="project-1"
+					onFilterChange={vi.fn()}
+					onSelectChange={vi.fn()}
+					onSelectTask={vi.fn()}
+				/>,
+			);
+		});
+
+		await act(async () => {
+			container.querySelector('[data-change-id="CY-0001"] [role="button"]')?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+
+		expect(runtimeMock.getBoardFiles).toHaveBeenCalledWith({ id: "CY-0001", scope: "all" });
+		expect(runtimeMock.getBoardFileDiff).toHaveBeenCalledWith({
+			id: "CY-0001",
+			scope: "all",
+			path: "src/change.ts",
+		});
+		expect(container.textContent).toContain("src/change.ts");
+		expect(container.querySelector('[data-testid="change-board-file-diff-panel"]')).toBeTruthy();
+		expect(container.textContent).toContain("const oldValue = 1;");
+	});
+
+	it("selecting a commit lazily loads only that commit's files", async () => {
+		runtimeMock.getBoardSummary.mockResolvedValue({
+			ok: true,
+			changeId: "CY-0001",
+			version: "v1",
+			workspaceHead: "head",
+			baseRevision: "main",
+			commits: [
+				{
+					hash: "abc123",
+					shortHash: "abc123",
+					authorName: "Agent",
+					authorEmail: "agent@example.com",
+					date: "2026-06-11T00:00:00Z",
+					message: "implement lazy cards",
+					parentHashes: [],
+				},
+			],
+			files: { count: 0, additions: 0, deletions: 0 },
+		});
+		runtimeMock.getBoardFiles.mockResolvedValue({
+			ok: true,
+			changeId: "CY-0001",
+			version: "v1",
+			scope: { commitHash: "abc123" },
+			files: [{ path: "src/card.tsx", status: "added", additions: 10, deletions: 0 }],
+		});
+		runtimeMock.getBoardFileDiff.mockResolvedValue({
+			ok: true,
+			changeId: "CY-0001",
+			version: "v1",
+			scope: { commitHash: "abc123" },
+			path: "src/card.tsx",
+			file: {
+				path: "src/card.tsx",
+				status: "added",
+				additions: 10,
+				deletions: 0,
+				oldText: null,
+				newText: "export const card = true;\n",
+			},
+		});
+
+		act(() => {
+			root.render(
+				<ChangeBoard
+					board={{ columns: [], dependencies: [] }}
+					changes={[createChange("CY-0001", "Quick change", null)]}
+					filter="changes"
+					selectedChangeId={null}
+					selectedTaskId={null}
+					workspaceId="project-1"
+					onFilterChange={vi.fn()}
+					onSelectChange={vi.fn()}
+					onSelectTask={vi.fn()}
+				/>,
+			);
+		});
+
+		await act(async () => {
+			container.querySelector('[data-change-id="CY-0001"] [role="button"]')?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+			await Promise.resolve();
+		});
+		await act(async () => {
+			Array.from(container.querySelectorAll("button"))
+				.find((button) => button.textContent?.includes("implement lazy cards"))
+				?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+			await Promise.resolve();
+		});
+
+		expect(runtimeMock.getBoardFiles).toHaveBeenCalledWith({ id: "CY-0001", scope: { commitHash: "abc123" } });
+		expect(runtimeMock.getBoardFileDiff).toHaveBeenCalledWith({
+			id: "CY-0001",
+			scope: { commitHash: "abc123" },
+			path: "src/card.tsx",
+		});
+		expect(container.textContent).toContain("src/card.tsx");
+		expect(container.querySelector('[data-testid="change-board-file-diff-panel"]')).toBeTruthy();
+		expect(container.querySelector('button[aria-label="More actions for commit abc123"]')).toBeTruthy();
+	});
+
+	it("clicking an expanded file lazily opens a diff column", async () => {
+		runtimeMock.getBoardSummary.mockResolvedValue({
+			ok: true,
+			changeId: "CY-0001",
+			version: "v1",
+			workspaceHead: "head",
+			baseRevision: "main",
+			commits: [],
+			files: { count: 1, additions: 1, deletions: 1 },
+		});
+		runtimeMock.getBoardFiles.mockResolvedValue({
+			ok: true,
+			changeId: "CY-0001",
+			version: "v1",
+			scope: "all",
+			files: [{ path: "src/change.ts", status: "modified", additions: 1, deletions: 1 }],
+		});
+		runtimeMock.getBoardFileDiff.mockResolvedValue({
+			ok: true,
+			changeId: "CY-0001",
+			version: "v1",
+			scope: "all",
+			path: "src/change.ts",
+			file: {
+				path: "src/change.ts",
+				status: "modified",
+				additions: 1,
+				deletions: 1,
+				oldText: "const value = 1;\n",
+				newText: "const value = 2;\n",
+			},
+		});
+
+		act(() => {
+			root.render(
+				<ChangeBoard
+					board={{ columns: [], dependencies: [] }}
+					changes={[createChange("CY-0001", "Quick change", null)]}
+					filter="changes"
+					selectedChangeId={null}
+					selectedTaskId={null}
+					workspaceId="project-1"
+					onFilterChange={vi.fn()}
+					onSelectChange={vi.fn()}
+					onSelectTask={vi.fn()}
+				/>,
+			);
+		});
+
+		await act(async () => {
+			container.querySelector('[data-change-id="CY-0001"] [role="button"]')?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+			await Promise.resolve();
+		});
+		await act(async () => {
+			Array.from(container.querySelectorAll("button"))
+				.find((button) => button.textContent?.includes("All Changes"))
+				?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+			await Promise.resolve();
+		});
+		await act(async () => {
+			Array.from(container.querySelectorAll("button"))
+				.find((button) => button.textContent?.includes("src/change.ts"))
+				?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+			await Promise.resolve();
+		});
+
+		expect(runtimeMock.getBoardFileDiff).toHaveBeenCalledWith({
+			id: "CY-0001",
+			scope: "all",
+			path: "src/change.ts",
+		});
+		expect(container.querySelector('[data-testid="change-board-file-diff-panel"]')).toBeTruthy();
+		expect(container.textContent).toContain("const value = 1;");
+		expect(container.textContent).toContain("const value = 2;");
 	});
 
 	it("collapses empty columns by default and persists explicit expansion", () => {

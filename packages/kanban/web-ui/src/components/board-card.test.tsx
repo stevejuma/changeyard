@@ -299,6 +299,30 @@ describe("BoardCard", () => {
 		expect(container.textContent).not.toContain("openai/gpt-5.5");
 	});
 
+	it("renders task agent and model metadata as separate chips", async () => {
+		await act(async () => {
+			root.render(
+				<BoardCard
+					card={createCard({
+						agentId: "cline",
+						clineSettings: {
+							modelId: "openai/gpt-5.5",
+							reasoningEffort: "low",
+						},
+					})}
+					index={0}
+					columnId="backlog"
+				/>,
+			);
+		});
+
+		const chips = Array.from(container.querySelectorAll("[title]")).filter((element) =>
+			["ChangeYard", "GPT-5.5 (Low)"].includes(element.getAttribute("title") ?? ""),
+		);
+		expect(chips).toHaveLength(2);
+		expect(container.textContent).not.toContain("ChangeYard · GPT-5.5");
+	});
+
 	it("shows the task-level indicator for reasoning-only overrides", async () => {
 		await act(async () => {
 			root.render(

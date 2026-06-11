@@ -37,6 +37,10 @@ export type ChangeyardCard = {
   status: ChangeStatus | string;
   column: ChangeyardColumnId;
   path: string;
+  base?: {
+    vcs?: string;
+    revision?: string;
+  };
   priority?: string;
   labels: string[];
   updatedAt?: string;

@@ -1,4 +1,5 @@
 import type {
+	RuntimeChangeyardBoardFileSummary,
 	RuntimeGitCommit,
 	RuntimeGitCommitDiffResponse,
 	RuntimeGitLogResponse,
@@ -114,6 +115,55 @@ export async function getGitLog(options: {
 	]);
 	const totalCount = countResult.ok ? Number.parseInt(countResult.stdout, 10) || commits.length : commits.length;
 
+	return { ok: true, commits, totalCount };
+}
+
+export async function getGitLogRange(options: {
+	cwd: string;
+	baseRef?: string | null;
+	headRef?: string | null;
+	maxCount?: number;
+}): Promise<RuntimeGitLogResponse> {
+	const engine = await detectWorkspaceEngine(options.cwd);
+	if (engine === "jj") {
+		return await getJjLogRange(options);
+	}
+	const { cwd, baseRef, headRef = "HEAD", maxCount = 80 } = options;
+
+	const repoRootResult = await runGit(cwd, ["rev-parse", "--show-toplevel"]);
+	if (!repoRootResult.ok || !repoRootResult.stdout) {
+		return { ok: false, commits: [], totalCount: 0, error: "No git repository detected." };
+	}
+	const repoRoot = repoRootResult.stdout;
+	const trimmedBase = baseRef?.trim();
+	const trimmedHead = headRef?.trim() || "HEAD";
+	const rangeRef = trimmedBase ? `${trimmedBase}..${trimmedHead}` : trimmedHead;
+	const logArgs = [
+		"log",
+		"--topo-order",
+		"--date-order",
+		"--reverse",
+		`--format=${LOG_RECORD_SEPARATOR}${LOG_FORMAT}`,
+		`--max-count=${maxCount}`,
+		rangeRef,
+	];
+
+	const logResult = await runGit(repoRoot, logArgs);
+	if (!logResult.ok) {
+		return { ok: false, commits: [], totalCount: 0, error: logResult.error ?? "Failed to read git log." };
+	}
+
+	const commits: RuntimeGitCommit[] = [];
+	const records = logResult.stdout.split(LOG_RECORD_SEPARATOR).filter(Boolean);
+	for (const record of records) {
+		const commit = parseCommitRecord(record.trim());
+		if (commit) {
+			commits.push(commit);
+		}
+	}
+
+	const countResult = await runGit(repoRoot, ["rev-list", "--count", rangeRef]);
+	const totalCount = countResult.ok ? Number.parseInt(countResult.stdout, 10) || commits.length : commits.length;
 	return { ok: true, commits, totalCount };
 }
 
@@ -468,6 +518,75 @@ export async function getCommitDiff(options: {
 	return { ok: true, commitHash, files };
 }
 
+export async function getCommitDiffSummary(options: {
+	cwd: string;
+	commitHash: string;
+}): Promise<{ ok: boolean; commitHash: string; files: RuntimeChangeyardBoardFileSummary[]; error?: string }> {
+	const engine = await detectWorkspaceEngine(options.cwd);
+	if (engine === "jj") {
+		return await getJjCommitDiffSummary(options);
+	}
+	const { cwd, commitHash } = options;
+	const repoRootResult = await runGit(cwd, ["rev-parse", "--show-toplevel"]);
+	if (!repoRootResult.ok || !repoRootResult.stdout) {
+		return { ok: false, commitHash, files: [], error: "No git repository detected." };
+	}
+	const repoRoot = repoRootResult.stdout;
+
+	const [nameStatusResult, numstatResult] = await Promise.all([
+		runGit(repoRoot, ["diff-tree", "--root", "--no-commit-id", "-r", "-M", "--name-status", "-z", commitHash]),
+		runGit(repoRoot, ["diff-tree", "--root", "--no-commit-id", "-r", "-M", "--numstat", "-z", commitHash]),
+	]);
+
+	if (!nameStatusResult.ok && !numstatResult.ok) {
+		return {
+			ok: false,
+			commitHash,
+			files: [],
+			error: nameStatusResult.error ?? numstatResult.error ?? "Failed to read commit file summary.",
+		};
+	}
+
+	const filesByKey = new Map<string, RuntimeChangeyardBoardFileSummary>();
+	const getEntryKey = (path: string, previousPath?: string): string =>
+		previousPath ? `${previousPath}\0${path}` : path;
+
+	const nameStatusEntries = nameStatusResult.ok ? parseCommitNameStatusEntries(nameStatusResult.stdout) : [];
+	for (const entry of nameStatusEntries) {
+		filesByKey.set(getEntryKey(entry.path, entry.previousPath), {
+			path: entry.path,
+			previousPath: entry.previousPath,
+			status: entry.status,
+			additions: 0,
+			deletions: 0,
+		});
+	}
+
+	const numstatEntries = numstatResult.ok ? parseCommitNumstatEntries(numstatResult.stdout) : [];
+	for (const entry of numstatEntries) {
+		const key = getEntryKey(entry.path, entry.previousPath);
+		const existing = filesByKey.get(key);
+		if (existing) {
+			existing.additions = entry.additions;
+			existing.deletions = entry.deletions;
+			continue;
+		}
+		filesByKey.set(key, {
+			path: entry.path,
+			previousPath: entry.previousPath,
+			status: entry.previousPath ? "renamed" : "modified",
+			additions: entry.additions,
+			deletions: entry.deletions,
+		});
+	}
+
+	return {
+		ok: true,
+		commitHash,
+		files: Array.from(filesByKey.values()).sort((left, right) => left.path.localeCompare(right.path)),
+	};
+}
+
 async function getJjLog(options: {
 	cwd: string;
 	ref?: string | null;
@@ -523,6 +642,63 @@ async function getJjLog(options: {
 	return {
 		ok: true,
 		commits: commits.slice(skip, skip + maxCount),
+		totalCount,
+	};
+}
+
+async function getJjLogRange(options: {
+	cwd: string;
+	baseRef?: string | null;
+	headRef?: string | null;
+	maxCount?: number;
+}): Promise<RuntimeGitLogResponse> {
+	const { cwd, baseRef, headRef = "@", maxCount = 80 } = options;
+	const repoRoot = await getJjStdout(["workspace", "root"], cwd).catch(() => null);
+	if (!repoRoot) {
+		return { ok: false, commits: [], totalCount: 0, error: "No jj repository detected." };
+	}
+	const trimmedBase = baseRef?.trim();
+	const trimmedHead = headRef?.trim() || "@";
+	const revset = trimmedBase ? `${trimmedBase}..${trimmedHead}` : `::${trimmedHead}`;
+	const [logResult, countResult] = await Promise.all([
+		runJj(repoRoot, ["log", "-r", revset, "--no-graph", "-T", JJ_LOG_TEMPLATE], { trimStdout: false }),
+		runJj(repoRoot, ["log", "-r", revset, "--count"]),
+	]);
+	if (!logResult.ok) {
+		return { ok: false, commits: [], totalCount: 0, error: logResult.error ?? "Failed to read jj log." };
+	}
+
+	const commits: RuntimeGitCommit[] = [];
+	for (const record of logResult.stdout.split(LOG_RECORD_SEPARATOR)) {
+		const trimmedRecord = record.trim();
+		if (!trimmedRecord) {
+			continue;
+		}
+		const fields = trimmedRecord.split(LOG_FIELD_SEPARATOR);
+		if (fields.length < 7) {
+			continue;
+		}
+		const [changeId, hash, authorName, authorEmail, dateIso, subject, parentHashes] = fields;
+		if (!changeId || !hash || !authorName || !dateIso) {
+			continue;
+		}
+		commits.push({
+			hash,
+			shortHash: hash.slice(0, 8),
+			changeId,
+			authorName,
+			authorEmail: authorEmail ?? "",
+			date: dateIso,
+			message: subject?.trim() || "(no description)",
+			parentHashes: (parentHashes ?? "").split(" ").filter(Boolean),
+			relation: "shared",
+		});
+	}
+
+	const totalCount = countResult.ok ? Number.parseInt(countResult.stdout, 10) || commits.length : commits.length;
+	return {
+		ok: true,
+		commits: commits.reverse().slice(0, maxCount),
 		totalCount,
 	};
 }
@@ -608,6 +784,38 @@ async function getJjCommitDiff(options: {
 			additions: entry.additions,
 			deletions: entry.deletions,
 			patch: entry.patch,
+		}))
+		.sort((left, right) => left.path.localeCompare(right.path));
+
+	return { ok: true, commitHash: options.commitHash, files };
+}
+
+async function getJjCommitDiffSummary(options: {
+	cwd: string;
+	commitHash: string;
+}): Promise<{ ok: boolean; commitHash: string; files: RuntimeChangeyardBoardFileSummary[]; error?: string }> {
+	const repoRoot = await getJjStdout(["workspace", "root"], options.cwd).catch(() => null);
+	if (!repoRoot) {
+		return { ok: false, commitHash: options.commitHash, files: [], error: "No jj repository detected." };
+	}
+
+	const diffResult = await runJj(repoRoot, ["diff", "-r", options.commitHash, "--git"], { trimStdout: false });
+	if (!diffResult.ok) {
+		return {
+			ok: false,
+			commitHash: options.commitHash,
+			files: [],
+			error: diffResult.error ?? "Failed to read jj commit file summary.",
+		};
+	}
+
+	const files = parseGitStylePatchEntries(diffResult.stdout)
+		.map((entry) => ({
+			path: entry.path,
+			previousPath: entry.previousPath,
+			status: entry.status,
+			additions: entry.additions,
+			deletions: entry.deletions,
 		}))
 		.sort((left, right) => left.path.localeCompare(right.path));
 

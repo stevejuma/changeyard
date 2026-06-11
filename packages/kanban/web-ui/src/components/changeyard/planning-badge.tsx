@@ -1,18 +1,18 @@
 import type { ReactElement } from "react";
-import { cn } from "@/components/ui/cn";
+import { StatusChip, type StatusChipTone } from "@/components/ui/status-chip";
 import type { RuntimeChangeyardPlanningSummary } from "@/runtime/types";
 
 function summarizePlanning(summary: RuntimeChangeyardPlanningSummary): string {
 	if (summary.gateSummary.fail > 0) {
-		return `${summary.gateSummary.fail} failing`;
+		return String(summary.gateSummary.fail);
 	}
 	if (summary.gateSummary.pending > 0) {
-		return `${summary.gateSummary.pending} pending`;
+		return String(summary.gateSummary.pending);
 	}
 	if (summary.gateSummary.warning > 0) {
-		return `${summary.gateSummary.warning} warnings`;
+		return String(summary.gateSummary.warning);
 	}
-	return `${summary.gateSummary.pass} passed`;
+	return String(summary.gateSummary.pass);
 }
 
 export function PlanningBadge({
@@ -23,35 +23,21 @@ export function PlanningBadge({
 	className?: string;
 }): ReactElement {
 	if (!planning) {
-		return (
-			<span
-				className={cn(
-					"inline-flex items-center rounded-full border border-divider bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-text-secondary",
-					className,
-				)}
-			>
-				No planning
-			</span>
-		);
+		return <StatusChip label="No planning" className={className} />;
 	}
 
-	const toneClassName =
-		planning.gateSummary.fail > 0
-			? "border-[color:var(--color-status-red)]/35 bg-[color:var(--color-status-red)]/10 text-[color:var(--color-status-red)]"
-			: planning.gateSummary.pending > 0
-				? "border-[color:var(--color-status-gold)]/35 bg-[color:var(--color-status-gold)]/10 text-[color:var(--color-status-gold)]"
-				: "border-[color:var(--color-status-green)]/35 bg-[color:var(--color-status-green)]/10 text-[color:var(--color-status-green)]";
+	const gateTone: StatusChipTone =
+		planning.gateSummary.fail > 0 ? "red" : planning.gateSummary.pending > 0 ? "gold" : "green";
 
 	return (
-		<span
-			className={cn(
-				"inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium",
-				toneClassName,
-				className,
-			)}
-		>
-			{planning.model} {planning.strictness === "strict" ? "strict" : "normal"} · {planning.phase} ·{" "}
-			{summarizePlanning(planning)}
-		</span>
+		<>
+			<StatusChip
+				label={`${planning.model} ${planning.strictness === "strict" ? "strict" : "normal"}`}
+				tone="gold"
+				className={className}
+			/>
+			<StatusChip label={planning.phase} tone="gold" />
+			<StatusChip label={summarizePlanning(planning)} tone={gateTone} />
+		</>
 	);
 }
