@@ -8,9 +8,11 @@ import { pathToFileURL } from "node:url";
 import { readFileSync, writeFileSync } from "node:fs";
 import { createChange } from "../src/commands/create.js";
 import { loadConfig } from "../src/config/loadConfig.js";
+import { updateLocalConfig } from "../src/config/localConfig.js";
 import { parseFrontmatter, writeFrontmatter } from "../src/documents/frontmatter.js";
 import { changesRoot } from "../src/paths.js";
 import type { PlanningSectionId } from "../src/planning/types.js";
+import { setHttpTransportForTests, type HttpRequest } from "../src/providers/http.js";
 import { replaceMarkedSection } from "../src/planning/sections.js";
 import { findChangeFile } from "../src/state/id.js";
 import { runInit } from "../src/commands/init.js";
@@ -24,6 +26,14 @@ function tempRepo(): string {
 
 function cleanup(dir: string): void {
   rmSync(dir, { recursive: true, force: true });
+}
+
+function restoreEnvFlag(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+    return;
+  }
+  process.env[name] = value;
 }
 
 function runCommand(command: string, args: string[], cwd: string): string {
@@ -140,6 +150,750 @@ test("ui server serves health, manifest, and the current shell entrypoint", asyn
       await server.close();
     }
   } finally {
+    cleanup(repo);
+  }
+});
+
+test("ui server keeps /vcs unavailable unless CHANGEYARD_VCS=1 is enabled", async () => {
+  const repo = tempRepo();
+  const originalFlag = process.env.CHANGEYARD_VCS;
+  try {
+    delete process.env.CHANGEYARD_VCS;
+    runInit(repo);
+    const server = await startChangeyardKanban({
+      repoRoot: repo,
+      open: false,
+      port: "auto",
+      changeyardApi: createChangeyardUiApi(),
+    });
+    const origin = new URL(server.url).origin;
+
+    try {
+      const response = await fetch(`${origin}/vcs`);
+      assert.equal(response.status, 404);
+    } finally {
+      await server.close();
+    }
+  } finally {
+    restoreEnvFlag("CHANGEYARD_VCS", originalFlag);
+    cleanup(repo);
+  }
+});
+
+test("ui server serves the standalone VCS shell when CHANGEYARD_VCS=1 is enabled", async () => {
+  const repo = tempRepo();
+  const originalFlag = process.env.CHANGEYARD_VCS;
+  try {
+    process.env.CHANGEYARD_VCS = "1";
+    runInit(repo);
+    const server = await startChangeyardKanban({
+      repoRoot: repo,
+      open: false,
+      port: "auto",
+      changeyardApi: createChangeyardUiApi(),
+    });
+    const origin = new URL(server.url).origin;
+
+    try {
+      const response = await fetch(`${origin}/vcs/jj`);
+      assert.equal(response.status, 200);
+      const html = await response.text();
+      assert.match(html, /Changeyard VCS/i);
+      assert.match(html, /<div id="root"><\/div>/);
+    } finally {
+      await server.close();
+    }
+  } finally {
+    restoreEnvFlag("CHANGEYARD_VCS", originalFlag);
+    cleanup(repo);
+  }
+});
+
+test("ui server exposes vcs.detect through the runtime tRPC boundary", async () => {
+  const repo = tempRepo();
+  const originalFlag = process.env.CHANGEYARD_VCS;
+  try {
+    process.env.CHANGEYARD_VCS = "1";
+    runCommand("git", ["init", "-b", "main"], repo);
+    runInit(repo);
+    runCommand("git", ["remote", "add", "origin", "https://github.com/example/changeyard.git"], repo);
+    const server = await startChangeyardKanban({
+      repoRoot: repo,
+      open: false,
+      port: "auto",
+      changeyardApi: createChangeyardUiApi(),
+    });
+    const origin = new URL(server.url).origin;
+
+    try {
+      const response = await trpcQuery<{
+        repository: { kind: string; root: string | null };
+        git: { remoteName: string | null; provider: string; remoteUrl: string | null };
+      }>(origin, "vcs.detect");
+      assert.equal(response.repository.kind, "git");
+      assert.ok(response.repository.root);
+      assert.equal(path.basename(response.repository.root), path.basename(repo));
+      assert.equal(response.git.remoteName, "origin");
+      assert.equal(response.git.provider, "github");
+      assert.equal(response.git.remoteUrl, "https://github.com/example/changeyard.git");
+    } finally {
+      await server.close();
+    }
+  } finally {
+    restoreEnvFlag("CHANGEYARD_VCS", originalFlag);
+    cleanup(repo);
+  }
+});
+
+test("ui server exposes vcs.previewOperation through the runtime tRPC boundary", async () => {
+  const repo = tempRepo();
+  const originalFlag = process.env.CHANGEYARD_VCS;
+  try {
+    process.env.CHANGEYARD_VCS = "1";
+    runCommand("git", ["init", "-b", "main"], repo);
+    runInit(repo);
+    const server = await startChangeyardKanban({
+      repoRoot: repo,
+      open: false,
+      port: "auto",
+      changeyardApi: createChangeyardUiApi(),
+    });
+    const origin = new URL(server.url).origin;
+
+    try {
+      const response = await trpcQuery<{
+        valid: boolean;
+        diagnostics: Array<{ code: string; message: string }>;
+      }>(origin, "vcs.previewOperation", {
+        kind: "reorder_change",
+        sourceChangeId: "aaa111",
+        targetChangeId: "bbb222",
+        placement: "after",
+      });
+      assert.equal(response.valid, false);
+      assert.equal(response.diagnostics[0]?.code, "jj_repo_required");
+    } finally {
+      await server.close();
+    }
+  } finally {
+    restoreEnvFlag("CHANGEYARD_VCS", originalFlag);
+    cleanup(repo);
+  }
+});
+
+test("ui server exposes vcs.submitStackPreview through the runtime tRPC boundary", async (t) => {
+  const repo = tempRepo();
+  const originalFlag = process.env.CHANGEYARD_VCS;
+  const originalToken = process.env.TEST_GITHUB_TOKEN;
+  try {
+    process.env.CHANGEYARD_VCS = "1";
+    process.env.TEST_GITHUB_TOKEN = "test-token";
+    if (spawnSync("jj", ["--version"], { encoding: "utf8" }).status !== 0) {
+      t.skip("jj is required for submit stack preview server coverage");
+      return;
+    }
+
+    runCommand("git", ["init", "-b", "main"], repo);
+    runInit(repo);
+    updateLocalConfig(repo, {
+      provider: {
+        type: "github",
+        owner: "example",
+        repo: "changeyard",
+        auth: { tokenEnv: "TEST_GITHUB_TOKEN" },
+      },
+    });
+    writeFileSync(path.join(repo, "README.md"), "# changeyard\n");
+    runCommand("git", ["config", "user.name", "ChangeYard Test"], repo);
+    runCommand("git", ["config", "user.email", "test@example.com"], repo);
+    runCommand("git", ["config", "commit.gpgsign", "false"], repo);
+    runCommand("git", ["add", "README.md"], repo);
+    runCommand("git", ["commit", "-m", "initial"], repo);
+    runCommand("git", ["remote", "add", "origin", "https://github.com/example/changeyard.git"], repo);
+    runCommand("jj", ["git", "init", "--colocate"], repo);
+    runCommand("jj", ["config", "set", "--repo", "user.name", "ChangeYard Test"], repo);
+    runCommand("jj", ["config", "set", "--repo", "user.email", "test@example.com"], repo);
+    runCommand("jj", ["config", "set", "--repo", "signing.behavior", "drop"], repo);
+    runCommand("jj", ["new", "-m", "Base change"], repo);
+    runCommand("jj", ["bookmark", "create", "feature/base", "-r", "@"], repo);
+    runCommand("jj", ["new", "-m", "Top change"], repo);
+    runCommand("jj", ["bookmark", "create", "feature/top", "-r", "@"], repo);
+
+    setHttpTransportForTests((request: HttpRequest) => {
+      if (request.url.includes("head=example%3Afeature%2Fbase")) {
+        return { status: 200, body: "[]" };
+      }
+      if (request.url.includes("head=example%3Afeature%2Ftop")) {
+        return {
+          status: 200,
+          body: JSON.stringify([
+            {
+              number: 12,
+              html_url: "https://github.com/example/changeyard/pull/12",
+              base: { ref: "main" },
+            },
+          ]),
+        };
+      }
+      throw new Error(`Unexpected request: ${request.url}`);
+    });
+
+    const server = await startChangeyardKanban({
+      repoRoot: repo,
+      open: false,
+      port: "auto",
+      changeyardApi: createChangeyardUiApi(),
+    });
+    const origin = new URL(server.url).origin;
+
+    try {
+      const response = await trpcQuery<{
+        available: boolean;
+        targetBookmark: string | null;
+        items: Array<{ bookmarkName: string; action: string; baseBranch: string }>;
+      }>(origin, "vcs.submitStackPreview", { targetBookmark: "feature/top" });
+      assert.equal(response.available, true);
+      assert.equal(response.targetBookmark, "feature/top");
+      assert.deepEqual(
+        response.items.map((item) => ({
+          bookmarkName: item.bookmarkName,
+          action: item.action,
+          baseBranch: item.baseBranch,
+        })),
+        [
+          { bookmarkName: "feature/base", action: "create_pr", baseBranch: "main" },
+          { bookmarkName: "feature/top", action: "update_pr_base", baseBranch: "feature/base" },
+        ],
+      );
+    } finally {
+      setHttpTransportForTests(undefined);
+      await server.close();
+    }
+  } finally {
+    if (originalToken === undefined) {
+      delete process.env.TEST_GITHUB_TOKEN;
+    } else {
+      process.env.TEST_GITHUB_TOKEN = originalToken;
+    }
+    restoreEnvFlag("CHANGEYARD_VCS", originalFlag);
+    cleanup(repo);
+  }
+});
+
+test("ui server exposes vcs.submitStack through the runtime tRPC boundary", async (t) => {
+  const repo = tempRepo();
+  const originalFlag = process.env.CHANGEYARD_VCS;
+  const originalToken = process.env.TEST_GITHUB_TOKEN;
+  try {
+    process.env.CHANGEYARD_VCS = "1";
+    process.env.TEST_GITHUB_TOKEN = "test-token";
+    if (spawnSync("jj", ["--version"], { encoding: "utf8" }).status !== 0) {
+      t.skip("jj is required for submit stack server coverage");
+      return;
+    }
+
+    runCommand("git", ["init", "-b", "main"], repo);
+    runInit(repo);
+    updateLocalConfig(repo, {
+      provider: {
+        type: "github",
+        owner: "example",
+        repo: "changeyard",
+        auth: { tokenEnv: "TEST_GITHUB_TOKEN" },
+      },
+    });
+    writeFileSync(path.join(repo, "README.md"), "# changeyard\n");
+    runCommand("git", ["config", "user.name", "ChangeYard Test"], repo);
+    runCommand("git", ["config", "user.email", "test@example.com"], repo);
+    runCommand("git", ["config", "commit.gpgsign", "false"], repo);
+    runCommand("git", ["add", "README.md"], repo);
+    runCommand("git", ["commit", "-m", "initial"], repo);
+    runCommand("git", ["remote", "add", "origin", "https://github.com/example/changeyard.git"], repo);
+    runCommand("jj", ["git", "init", "--colocate"], repo);
+    runCommand("jj", ["config", "set", "--repo", "user.name", "ChangeYard Test"], repo);
+    runCommand("jj", ["config", "set", "--repo", "user.email", "test@example.com"], repo);
+    runCommand("jj", ["config", "set", "--repo", "signing.behavior", "drop"], repo);
+    runCommand("jj", ["new", "-m", "Base change"], repo);
+    runCommand("jj", ["bookmark", "create", "feature/base", "-r", "@"], repo);
+    runCommand("jj", ["new", "-m", "Top change"], repo);
+    runCommand("jj", ["bookmark", "create", "feature/top", "-r", "@"], repo);
+
+    setHttpTransportForTests((request: HttpRequest) => {
+      if (request.method === "GET" && request.url.includes("head=example%3Afeature%2Fbase")) {
+        return { status: 200, body: "[]" };
+      }
+      if (request.method === "GET" && request.url.includes("head=example%3Afeature%2Ftop")) {
+        return {
+          status: 200,
+          body: JSON.stringify([
+            {
+              number: 12,
+              html_url: "https://github.com/example/changeyard/pull/12",
+              base: { ref: "main" },
+            },
+          ]),
+        };
+      }
+      if (request.method === "POST" && request.url.endsWith("/repos/example/changeyard/pulls")) {
+        return {
+          status: 200,
+          body: JSON.stringify({
+            number: 30,
+            html_url: "https://github.com/example/changeyard/pull/30",
+            base: { ref: "main" },
+          }),
+        };
+      }
+      if (request.method === "PATCH" && request.url.endsWith("/repos/example/changeyard/pulls/12")) {
+        return {
+          status: 200,
+          body: JSON.stringify({
+            number: 12,
+            html_url: "https://github.com/example/changeyard/pull/12",
+            base: { ref: "feature/base" },
+          }),
+        };
+      }
+      if (request.method === "GET" && request.url.endsWith("/issues/30/comments?per_page=100")) {
+        return { status: 200, body: "[]" };
+      }
+      if (request.method === "GET" && request.url.endsWith("/issues/12/comments?per_page=100")) {
+        return {
+          status: 200,
+          body: JSON.stringify([
+            {
+              id: 91,
+              body: "<!--- CHANGEYARD_VCS_STACK: eyJ2ZXJzaW9uIjowLCJzdGFjayI6W119 --->\nold\n\n---\n*Created with Changeyard VCS*",
+            },
+          ]),
+        };
+      }
+      if (request.method === "POST" && request.url.endsWith("/issues/30/comments")) {
+        return { status: 200, body: JSON.stringify({ id: 101 }) };
+      }
+      if (request.method === "PATCH" && request.url.endsWith("/issues/comments/91")) {
+        return { status: 200, body: JSON.stringify({ id: 91 }) };
+      }
+      throw new Error(`Unexpected request: ${request.method} ${request.url}`);
+    });
+
+    const server = await startChangeyardKanban({
+      repoRoot: repo,
+      open: false,
+      port: "auto",
+      changeyardApi: createChangeyardUiApi(),
+    });
+    const origin = new URL(server.url).origin;
+
+    try {
+      const response = await trpcMutation<{
+        ok: boolean;
+        items: Array<{ bookmarkName: string; completed: boolean; resultPr: { number: number } | null }>;
+      }>(origin, "vcs.submitStack", { targetBookmark: "feature/top" });
+      assert.equal(response.ok, true);
+      assert.deepEqual(
+        response.items.map((item) => ({
+          bookmarkName: item.bookmarkName,
+          completed: item.completed,
+          resultPr: item.resultPr?.number ?? null,
+        })),
+        [
+          { bookmarkName: "feature/base", completed: true, resultPr: 30 },
+          { bookmarkName: "feature/top", completed: true, resultPr: 12 },
+        ],
+      );
+    } finally {
+      setHttpTransportForTests(undefined);
+      await server.close();
+    }
+  } finally {
+    if (originalToken === undefined) {
+      delete process.env.TEST_GITHUB_TOKEN;
+    } else {
+      process.env.TEST_GITHUB_TOKEN = originalToken;
+    }
+    restoreEnvFlag("CHANGEYARD_VCS", originalFlag);
+    cleanup(repo);
+  }
+});
+
+test("ui server exposes vcs.applyOperation through the runtime tRPC boundary", async () => {
+  const repo = tempRepo();
+  const originalFlag = process.env.CHANGEYARD_VCS;
+  try {
+    process.env.CHANGEYARD_VCS = "1";
+    runCommand("git", ["init", "-b", "main"], repo);
+    runInit(repo);
+    const server = await startChangeyardKanban({
+      repoRoot: repo,
+      open: false,
+      port: "auto",
+      changeyardApi: createChangeyardUiApi(),
+    });
+    const origin = new URL(server.url).origin;
+
+    try {
+      const response = await trpcMutation<{
+        ok: boolean;
+        diagnostics: Array<{ code: string; message: string }>;
+      }>(origin, "vcs.applyOperation", {
+        kind: "reorder_change",
+        sourceChangeId: "aaa111",
+        targetChangeId: "bbb222",
+        placement: "after",
+      });
+      assert.equal(response.ok, false);
+      assert.equal(response.diagnostics[0]?.code, "jj_repo_required");
+    } finally {
+      await server.close();
+    }
+  } finally {
+    restoreEnvFlag("CHANGEYARD_VCS", originalFlag);
+    cleanup(repo);
+  }
+});
+
+test("ui server accepts create_bookmark previews through the runtime tRPC boundary", async () => {
+  const repo = tempRepo();
+  const originalFlag = process.env.CHANGEYARD_VCS;
+  try {
+    process.env.CHANGEYARD_VCS = "1";
+    runCommand("git", ["init", "-b", "main"], repo);
+    runInit(repo);
+    const server = await startChangeyardKanban({
+      repoRoot: repo,
+      open: false,
+      port: "auto",
+      changeyardApi: createChangeyardUiApi(),
+    });
+    const origin = new URL(server.url).origin;
+
+    try {
+      const response = await trpcQuery<{
+        valid: boolean;
+        diagnostics: Array<{ code: string; message: string }>;
+      }>(origin, "vcs.previewOperation", {
+        kind: "create_bookmark",
+        changeId: "aaa111",
+        bookmarkName: "feature/new-api",
+      });
+      assert.equal(response.valid, false);
+      assert.equal(response.diagnostics[0]?.code, "jj_repo_required");
+    } finally {
+      await server.close();
+    }
+  } finally {
+    restoreEnvFlag("CHANGEYARD_VCS", originalFlag);
+    cleanup(repo);
+  }
+});
+
+test("ui server accepts edit_message previews through the runtime tRPC boundary", async () => {
+  const repo = tempRepo();
+  const originalFlag = process.env.CHANGEYARD_VCS;
+  try {
+    process.env.CHANGEYARD_VCS = "1";
+    runCommand("git", ["init", "-b", "main"], repo);
+    runInit(repo);
+    const server = await startChangeyardKanban({
+      repoRoot: repo,
+      open: false,
+      port: "auto",
+      changeyardApi: createChangeyardUiApi(),
+    });
+    const origin = new URL(server.url).origin;
+
+    try {
+      const response = await trpcQuery<{
+        valid: boolean;
+        diagnostics: Array<{ code: string; message: string }>;
+      }>(origin, "vcs.previewOperation", {
+        kind: "edit_message",
+        changeId: "aaa111",
+        message: "Refine API layer",
+      });
+      assert.equal(response.valid, false);
+      assert.equal(response.diagnostics[0]?.code, "jj_repo_required");
+    } finally {
+      await server.close();
+    }
+  } finally {
+    restoreEnvFlag("CHANGEYARD_VCS", originalFlag);
+    cleanup(repo);
+  }
+});
+
+test("ui server accepts create_change previews through the runtime tRPC boundary", async () => {
+  const repo = tempRepo();
+  const originalFlag = process.env.CHANGEYARD_VCS;
+  try {
+    process.env.CHANGEYARD_VCS = "1";
+    runCommand("git", ["init", "-b", "main"], repo);
+    runInit(repo);
+    const server = await startChangeyardKanban({
+      repoRoot: repo,
+      open: false,
+      port: "auto",
+      changeyardApi: createChangeyardUiApi(),
+    });
+    const origin = new URL(server.url).origin;
+
+    try {
+      const response = await trpcQuery<{
+        valid: boolean;
+        diagnostics: Array<{ code: string; message: string }>;
+      }>(origin, "vcs.previewOperation", {
+        kind: "create_change",
+        anchorChangeId: "aaa111",
+        placement: "after",
+        message: "Follow-up change",
+      });
+      assert.equal(response.valid, false);
+      assert.equal(response.diagnostics[0]?.code, "jj_repo_required");
+    } finally {
+      await server.close();
+    }
+  } finally {
+    restoreEnvFlag("CHANGEYARD_VCS", originalFlag);
+    cleanup(repo);
+  }
+});
+
+test("ui server accepts move_bookmark previews through the runtime tRPC boundary", async () => {
+  const repo = tempRepo();
+  const originalFlag = process.env.CHANGEYARD_VCS;
+  try {
+    process.env.CHANGEYARD_VCS = "1";
+    runCommand("git", ["init", "-b", "main"], repo);
+    runInit(repo);
+    const server = await startChangeyardKanban({
+      repoRoot: repo,
+      open: false,
+      port: "auto",
+      changeyardApi: createChangeyardUiApi(),
+    });
+    const origin = new URL(server.url).origin;
+
+    try {
+      const response = await trpcQuery<{
+        valid: boolean;
+        diagnostics: Array<{ code: string; message: string }>;
+      }>(origin, "vcs.previewOperation", {
+        kind: "move_bookmark",
+        bookmarkName: "feature/api",
+        targetChangeId: "bbb222",
+      });
+      assert.equal(response.valid, false);
+      assert.equal(response.diagnostics[0]?.code, "jj_repo_required");
+    } finally {
+      await server.close();
+    }
+  } finally {
+    restoreEnvFlag("CHANGEYARD_VCS", originalFlag);
+    cleanup(repo);
+  }
+});
+
+test("ui server accepts abandon_change previews through the runtime tRPC boundary", async () => {
+  const repo = tempRepo();
+  const originalFlag = process.env.CHANGEYARD_VCS;
+  try {
+    process.env.CHANGEYARD_VCS = "1";
+    runCommand("git", ["init", "-b", "main"], repo);
+    runInit(repo);
+    const server = await startChangeyardKanban({
+      repoRoot: repo,
+      open: false,
+      port: "auto",
+      changeyardApi: createChangeyardUiApi(),
+    });
+    const origin = new URL(server.url).origin;
+
+    try {
+      const response = await trpcQuery<{
+        valid: boolean;
+        diagnostics: Array<{ code: string; message: string }>;
+      }>(origin, "vcs.previewOperation", {
+        kind: "abandon_change",
+        changeId: "aaa111",
+      });
+      assert.equal(response.valid, false);
+      assert.equal(response.diagnostics[0]?.code, "jj_repo_required");
+    } finally {
+      await server.close();
+    }
+  } finally {
+    restoreEnvFlag("CHANGEYARD_VCS", originalFlag);
+    cleanup(repo);
+  }
+});
+
+test("ui server accepts squash_change previews through the runtime tRPC boundary", async () => {
+  const repo = tempRepo();
+  const originalFlag = process.env.CHANGEYARD_VCS;
+  try {
+    process.env.CHANGEYARD_VCS = "1";
+    runCommand("git", ["init", "-b", "main"], repo);
+    runInit(repo);
+    const server = await startChangeyardKanban({
+      repoRoot: repo,
+      open: false,
+      port: "auto",
+      changeyardApi: createChangeyardUiApi(),
+    });
+    const origin = new URL(server.url).origin;
+
+    try {
+      const response = await trpcQuery<{
+        valid: boolean;
+        diagnostics: Array<{ code: string; message: string }>;
+      }>(origin, "vcs.previewOperation", {
+        kind: "squash_change",
+        sourceChangeId: "aaa111",
+        targetChangeId: "bbb222",
+      });
+      assert.equal(response.valid, false);
+      assert.equal(response.diagnostics[0]?.code, "jj_repo_required");
+    } finally {
+      await server.close();
+    }
+  } finally {
+    restoreEnvFlag("CHANGEYARD_VCS", originalFlag);
+    cleanup(repo);
+  }
+});
+
+test("ui server accepts absorb_file previews through the runtime tRPC boundary", async () => {
+  const repo = tempRepo();
+  const originalFlag = process.env.CHANGEYARD_VCS;
+  try {
+    process.env.CHANGEYARD_VCS = "1";
+    runCommand("git", ["init", "-b", "main"], repo);
+    runInit(repo);
+    const server = await startChangeyardKanban({
+      repoRoot: repo,
+      open: false,
+      port: "auto",
+      changeyardApi: createChangeyardUiApi(),
+    });
+    const origin = new URL(server.url).origin;
+
+    try {
+      const response = await trpcQuery<{
+        valid: boolean;
+        diagnostics: Array<{ code: string; message: string }>;
+      }>(origin, "vcs.previewOperation", {
+        kind: "absorb_file",
+        targetChangeId: "aaa111",
+        paths: ["src/app.ts"],
+      });
+      assert.equal(response.valid, false);
+      assert.equal(response.diagnostics[0]?.code, "jj_repo_required");
+    } finally {
+      await server.close();
+    }
+  } finally {
+    restoreEnvFlag("CHANGEYARD_VCS", originalFlag);
+    cleanup(repo);
+  }
+});
+
+test("ui server accepts restore_file previews through the runtime tRPC boundary", async () => {
+  const repo = tempRepo();
+  const originalFlag = process.env.CHANGEYARD_VCS;
+  try {
+    process.env.CHANGEYARD_VCS = "1";
+    runCommand("git", ["init", "-b", "main"], repo);
+    runInit(repo);
+    const server = await startChangeyardKanban({
+      repoRoot: repo,
+      open: false,
+      port: "auto",
+      changeyardApi: createChangeyardUiApi(),
+    });
+    const origin = new URL(server.url).origin;
+
+    try {
+      const response = await trpcQuery<{
+        valid: boolean;
+        diagnostics: Array<{ code: string; message: string }>;
+      }>(origin, "vcs.previewOperation", {
+        kind: "restore_file",
+        paths: ["src/app.ts"],
+      });
+      assert.equal(response.valid, false);
+      assert.equal(response.diagnostics[0]?.code, "jj_repo_required");
+    } finally {
+      await server.close();
+    }
+  } finally {
+    restoreEnvFlag("CHANGEYARD_VCS", originalFlag);
+    cleanup(repo);
+  }
+});
+
+test("ui server accepts undo_last previews through the runtime tRPC boundary", async () => {
+  const repo = tempRepo();
+  const originalFlag = process.env.CHANGEYARD_VCS;
+  try {
+    process.env.CHANGEYARD_VCS = "1";
+    runCommand("git", ["init", "-b", "main"], repo);
+    runInit(repo);
+    const server = await startChangeyardKanban({
+      repoRoot: repo,
+      open: false,
+      port: "auto",
+      changeyardApi: createChangeyardUiApi(),
+    });
+    const origin = new URL(server.url).origin;
+
+    try {
+      const response = await trpcQuery<{
+        valid: boolean;
+        diagnostics: Array<{ code: string; message: string }>;
+      }>(origin, "vcs.previewOperation", {
+        kind: "undo_last",
+      });
+      assert.equal(response.valid, false);
+      assert.equal(response.diagnostics[0]?.code, "jj_repo_required");
+    } finally {
+      await server.close();
+    }
+  } finally {
+    restoreEnvFlag("CHANGEYARD_VCS", originalFlag);
+    cleanup(repo);
+  }
+});
+
+test("ui server accepts redo_last previews through the runtime tRPC boundary", async () => {
+  const repo = tempRepo();
+  const originalFlag = process.env.CHANGEYARD_VCS;
+  try {
+    process.env.CHANGEYARD_VCS = "1";
+    runCommand("git", ["init", "-b", "main"], repo);
+    runInit(repo);
+    const server = await startChangeyardKanban({
+      repoRoot: repo,
+      open: false,
+      port: "auto",
+      changeyardApi: createChangeyardUiApi(),
+    });
+    const origin = new URL(server.url).origin;
+
+    try {
+      const response = await trpcQuery<{
+        valid: boolean;
+        diagnostics: Array<{ code: string; message: string }>;
+      }>(origin, "vcs.previewOperation", {
+        kind: "redo_last",
+      });
+      assert.equal(response.valid, false);
+      assert.equal(response.diagnostics[0]?.code, "jj_repo_required");
+    } finally {
+      await server.close();
+    }
+  } finally {
+    restoreEnvFlag("CHANGEYARD_VCS", originalFlag);
     cleanup(repo);
   }
 });

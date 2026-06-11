@@ -242,6 +242,7 @@ export async function startChangeyardRuntime(options) {
 		workspaceRegistry,
 		runtimeStateHub,
 		changeyardApi: options.changeyardApi ?? null,
+		fallbackWorkspacePath: options.repoRoot,
 		serveWebAssets: options.serveWebAssets ?? options.mode === "web",
 		warn,
 		ensureTerminalManagerForWorkspace: workspaceRegistry.ensureTerminalManagerForWorkspace,

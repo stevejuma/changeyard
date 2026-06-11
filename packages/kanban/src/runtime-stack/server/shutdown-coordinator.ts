@@ -160,6 +160,19 @@ function collectWorkColumnTaskIds(workspaceState: RuntimeWorkspaceStateResponse)
 	return Array.from(collectProjectWorktreeTaskIdsForRemoval(workspaceState.board));
 }
 
+function shouldSuppressWorkspaceCleanupWarning(error: unknown): boolean {
+	if (!(error instanceof Error)) {
+		return false;
+	}
+
+	const message = error.message;
+	return (
+		message.includes("No Git or JJ repository detected") ||
+		message.includes("ENOENT") ||
+		message.includes("no such file or directory")
+	);
+}
+
 export async function shutdownRuntimeServer(deps: RuntimeShutdownCoordinatorDependencies): Promise<void> {
 	if (deps.skipSessionCleanup) {
 		await deps.closeRuntimeServer();
@@ -193,6 +206,9 @@ export async function shutdownRuntimeServer(deps: RuntimeShutdownCoordinatorDepe
 				resolveSummary: (taskId) => terminalManager.getSummary(taskId),
 			});
 		} catch (error) {
+			if (shouldSuppressWorkspaceCleanupWarning(error)) {
+				continue;
+			}
 			const message = error instanceof Error ? error.message : String(error);
 			deps.warn(`Could not load workspace state for ${workspacePath} during shutdown cleanup. ${message}`);
 		}
@@ -215,6 +231,9 @@ export async function shutdownRuntimeServer(deps: RuntimeShutdownCoordinatorDepe
 				workspaceState,
 			});
 		} catch (error) {
+			if (shouldSuppressWorkspaceCleanupWarning(error)) {
+				continue;
+			}
 			const message = error instanceof Error ? error.message : String(error);
 			deps.warn(`Could not load workspace state for ${workspace.repoPath} during shutdown cleanup. ${message}`);
 		}

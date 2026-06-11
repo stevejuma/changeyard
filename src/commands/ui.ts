@@ -17,6 +17,8 @@ import { isChangeyardInitialized, updateLocalConfig } from "../config/localConfi
 import { runInit } from "./init.js";
 import { runUpdate } from "./update.js";
 import { doctorReport } from "./doctor.js";
+import { applyVcsOperation, detectVcs, getJjDiff, getJjState, previewVcsOperation, submitVcsStack, submitVcsStackPreview } from "../vcs/adapter.js";
+import type { VcsApplyOperationInput, VcsPreviewOperationInput, VcsSubmitStackPreviewInput } from "../vcs/types.js";
 import { installCliShutdownHandlers } from "./gracefulShutdown.js";
 import { DEFAULT_PLANNING_SECTION_ORDER, STRICT_PLANNING_SECTION_ORDER, type PlanningSectionId } from "../planning/types.js";
 import { findChangeFile } from "../state/id.js";
@@ -311,6 +313,27 @@ export function createChangeyardUiApi() {
         warnings: report.warnings,
         notes: report.notes,
       };
+    },
+    detectVcs(repoRoot: string) {
+      return detectVcs(repoRoot);
+    },
+    getJjState(repoRoot: string) {
+      return getJjState(repoRoot);
+    },
+    getJjDiff(repoRoot: string) {
+      return getJjDiff(repoRoot);
+    },
+    previewVcsOperation(repoRoot: string, input: VcsPreviewOperationInput) {
+      return previewVcsOperation(repoRoot, input);
+    },
+    applyVcsOperation(repoRoot: string, input: VcsApplyOperationInput) {
+      return applyVcsOperation(repoRoot, input);
+    },
+    submitVcsStackPreview(repoRoot: string, input: VcsSubmitStackPreviewInput) {
+      return submitVcsStackPreview(repoRoot, input);
+    },
+    submitVcsStack(repoRoot: string, input: VcsSubmitStackPreviewInput) {
+      return submitVcsStack(repoRoot, input);
     },
   };
 }
