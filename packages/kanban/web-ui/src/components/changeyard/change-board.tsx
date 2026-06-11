@@ -8,6 +8,7 @@ import { FileText, Plus } from "lucide-react";
 import type { ReactElement } from "react";
 
 import { PlanningBadge } from "@/components/changeyard/planning-badge";
+import { ColumnIndicator } from "@/components/ui/column-indicator";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import type { RuntimeChangeyardChangeListItem } from "@/runtime/types";
@@ -134,11 +135,6 @@ export function ChangeBoard({
 						</button>
 					))}
 				</div>
-				{onCreateTask && filter === "all" ? (
-					<Button variant="ghost" size="sm" onClick={onCreateTask} className="h-7">
-						Task
-					</Button>
-				) : null}
 				{onCreateChange ? (
 					<Button variant="ghost" size="sm" icon={<Plus size={14} />} onClick={onCreateChange} className="h-7">
 						Change
@@ -160,17 +156,19 @@ export function ChangeBoard({
 						onMoveChange?.(result.draggableId, destination.droppableId as ChangeColumnId);
 					}}
 				>
-					<div className="flex min-h-0 gap-3 overflow-x-auto pb-1">
+					<div className="flex min-h-0 gap-3 pb-1">
 						{CHANGE_COLUMNS.map((column) => {
 							const taskCards = groupedTasks.get(column.id) ?? [];
 							const changeCards = groupedChanges.get(column.id) ?? [];
+							const canCreateTask = filter === "all" && column.id === "backlog" && onCreateTask;
 							return (
 								<section
 									key={column.id}
-									className="flex min-h-[240px] w-[280px] shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-surface-1"
+									className="flex min-h-[240px] min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-surface-1"
 								>
 									<div className="flex items-center justify-between border-b border-divider px-3 py-2">
 										<div className="flex items-center gap-2">
+											<ColumnIndicator columnId={column.id} />
 											<span className="text-sm font-semibold text-text-primary">{column.title}</span>
 											<span className="text-xs text-text-secondary">{taskCards.length + changeCards.length}</span>
 										</div>
@@ -178,6 +176,22 @@ export function ChangeBoard({
 									<Droppable droppableId={column.id}>
 										{(provided) => (
 											<div ref={provided.innerRef} {...provided.droppableProps} className="flex flex-1 flex-col gap-2 overflow-y-auto p-2">
+												{canCreateTask ? (
+													<Button
+														icon={<Plus size={14} />}
+														aria-label="Create task"
+														fill
+														onClick={onCreateTask}
+														style={{ marginBottom: 6, flexShrink: 0 }}
+													>
+														<span className="inline-flex items-center gap-1.5">
+															<span>Create task</span>
+															<span aria-hidden className="text-text-secondary">
+																(c)
+															</span>
+														</span>
+													</Button>
+												) : null}
 												{taskCards.map((task) => {
 													const selected = task.id === selectedTaskId;
 													return (

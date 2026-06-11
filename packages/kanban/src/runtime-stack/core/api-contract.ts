@@ -461,6 +461,7 @@ export const runtimeChangeyardChangeCreateRequestSchema = z.object({
 	title: z.string().min(1),
 	priority: z.string().optional(),
 	labels: z.array(z.string()).optional(),
+	baseRevision: z.string().min(1).optional(),
 	planning: runtimeChangeyardPlanningModelSchema.optional(),
 	strict: z.boolean().optional(),
 });

@@ -142,6 +142,7 @@ export function createChangeyardUiApi() {
       title: string;
       priority?: string;
       labels?: string[];
+      baseRevision?: string;
       planning?: "none" | "openspec-lite";
       strict?: boolean;
     }) {
@@ -150,6 +151,7 @@ export function createChangeyardUiApi() {
         title: input.title,
         priority: input.priority,
         labels: input.labels,
+        baseRevision: input.baseRevision,
         planning: input.planning === "none" ? undefined : input.planning,
         strict: input.strict,
         noPlanning: input.planning === "none",
