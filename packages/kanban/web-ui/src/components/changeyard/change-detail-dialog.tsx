@@ -223,76 +223,77 @@ export function ChangeDetailDialog({
 								Changes
 							</DetailTabButton>
 						</div>
-						<div
-							className={cn(
-								"min-h-0 flex-1 px-3 py-2",
-								detailTab === "details" ? "overflow-y-auto" : "overflow-hidden",
-							)}
-						>
+						<div className="min-h-0 flex-1 overflow-hidden px-3 py-2">
 							{detailTab === "details" ? (
-								<div>
-									<PropertyRow label="Status">
-										<ChangeStatusChip status={change.status} />
-									</PropertyRow>
-									<PropertyRow label="Type">
-										<StatusChip label={change.type} />
-									</PropertyRow>
-									<PropertyRow label="Path">
-										<PathDisplay path={change.path} repoRoot={repoRoot} />
-									</PropertyRow>
-									<PropertyRow label="Workspace">
-										{change.workspace?.path ? (
-											<PathDisplay path={change.workspace.path} repoRoot={repoRoot} />
-										) : (
-											<span className="text-text-tertiary">Not started</span>
-										)}
-									</PropertyRow>
-									<PropertyRow label="Branch">
-										{change.workspace?.branch ? (
-											<span className="break-all font-mono text-xs">{change.workspace.branch}</span>
-										) : (
-											<span className="text-text-tertiary">None</span>
-										)}
-									</PropertyRow>
-									{hasWorkspaceFileChanges ? (
+								<div className="flex h-full min-h-0 flex-col">
+									<div className="min-h-0 flex-1 overflow-y-auto">
+										<PropertyRow label="Status">
+											<ChangeStatusChip status={change.status} />
+										</PropertyRow>
+										<PropertyRow label="Type">
+											<StatusChip label={change.type} />
+										</PropertyRow>
+										<PropertyRow label="Path">
+											<PathDisplay path={change.path} repoRoot={repoRoot} />
+										</PropertyRow>
+										<PropertyRow label="Workspace">
+											{change.workspace?.path ? (
+												<PathDisplay path={change.workspace.path} repoRoot={repoRoot} />
+											) : (
+												<span className="text-text-tertiary">Not started</span>
+											)}
+										</PropertyRow>
+										<PropertyRow label="Branch">
+											{change.workspace?.branch ? (
+												<span className="break-all font-mono text-xs">{change.workspace.branch}</span>
+											) : (
+												<span className="text-text-tertiary">None</span>
+											)}
+										</PropertyRow>
+										{hasWorkspaceFileChanges ? (
 											<>
 												<PropertyRow label="Files">
 													<span>{workspaceFileCount}</span>
 												</PropertyRow>
-											<PropertyRow label="Diff">
-												<span>
-													<span className="text-status-green">+{totalAdditions}</span>{" "}
-													<span className="text-status-red">-{totalDeletions}</span>
-												</span>
-											</PropertyRow>
-										</>
-									) : null}
-									<PropertyRow label="Labels">
-										{change.labels.length ? (
-											<div className="flex flex-wrap gap-1.5">
-												{change.labels.map((label) => (
-													<StatusChip key={label} label={label} />
-												))}
-											</div>
-										) : (
-											<span className="text-text-tertiary">None</span>
-										)}
-									</PropertyRow>
-									<PropertyRow label="Updated">
-										{change.updatedAt ? (
-											<span>{new Date(change.updatedAt).toLocaleString()}</span>
-										) : (
-											<span className="text-text-tertiary">Unknown</span>
-										)}
-									</PropertyRow>
-									<div className="mt-4 rounded-md border border-divider bg-surface-1 px-3 py-3">
-										<h3 className="mb-2 text-sm font-semibold text-text-primary">Planning Gates</h3>
-										<PlanningGateList planning={change.planning} />
+												<PropertyRow label="Diff">
+													<span>
+														<span className="text-status-green">+{totalAdditions}</span>{" "}
+														<span className="text-status-red">-{totalDeletions}</span>
+													</span>
+												</PropertyRow>
+											</>
+										) : null}
+										<PropertyRow label="Labels">
+											{change.labels.length ? (
+												<div className="flex flex-wrap gap-1.5">
+													{change.labels.map((label) => (
+														<StatusChip key={label} label={label} />
+													))}
+												</div>
+											) : (
+												<span className="text-text-tertiary">None</span>
+											)}
+										</PropertyRow>
+										<PropertyRow label="Updated">
+											{change.updatedAt ? (
+												<span>{new Date(change.updatedAt).toLocaleString()}</span>
+											) : (
+												<span className="text-text-tertiary">Unknown</span>
+											)}
+										</PropertyRow>
+										<div className="border-b border-divider/60 py-2 text-sm font-semibold text-text-primary">
+											Planning Gates
+										</div>
+										<PlanningGateList planning={change.planning} variant="properties" />
 									</div>
 									{change.planning?.nextAction ? (
-										<div className="mt-3 rounded-md border border-divider bg-surface-1 px-3 py-3">
-											<h3 className="mb-1 text-sm font-semibold text-text-primary">Next Action</h3>
-											<p className="text-sm text-text-secondary">{change.planning.nextAction}</p>
+										<div className="mt-3 shrink-0 rounded-md border border-status-gold/35 bg-status-gold/10 px-3 py-2">
+											<div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-status-gold">
+												Next Action
+											</div>
+											<p className="text-sm font-medium leading-relaxed text-text-primary">
+												{change.planning.nextAction}
+											</p>
 										</div>
 									) : null}
 								</div>
