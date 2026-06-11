@@ -6,6 +6,8 @@ import { AppErrorBoundary } from "@/components/app-error-boundary";
 import { PasscodeGateProvider } from "@/components/passcode-gate";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { isThemeId } from "@/hooks/use-theme";
+import "@uiw/react-markdown-editor/markdown-editor.css";
+import "@uiw/react-markdown-preview/markdown.css";
 import "@/styles/globals.css";
 
 // Apply the persisted theme synchronously before first paint to prevent a flash.

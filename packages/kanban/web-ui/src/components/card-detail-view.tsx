@@ -1,15 +1,18 @@
 import type { DropResult } from "@hello-pangea/dnd";
-import { Files, GitCompareArrows, Maximize2, MessageSquare, Minimize2, X } from "lucide-react";
+import * as Collapsible from "@radix-ui/react-collapsible";
+import { Bot, CalendarClock, ChevronDown, Files, GitCompareArrows, Maximize2, MessageSquare, Minimize2, X } from "lucide-react";
 import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { AgentTerminalPanel } from "@/components/detail-panels/agent-terminal-panel";
 import { ClineAgentChatPanel, type ClineAgentChatPanelHandle } from "@/components/detail-panels/cline-agent-chat-panel";
-import { ColumnContextPanel } from "@/components/detail-panels/column-context-panel";
 import { type DiffLineComment, DiffViewerPanel } from "@/components/detail-panels/diff-viewer-panel";
 import { FileTreePanel } from "@/components/detail-panels/file-tree-panel";
+import { MarkdownDocumentPreview } from "@/components/markdown-document";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
+import { PathDisplay } from "@/components/ui/path-display";
+import { StatusChip, TaskColumnStatusChip } from "@/components/ui/status-chip";
 import type { ClineChatActionResult } from "@/hooks/use-cline-chat-runtime-actions";
 import type { ClineChatMessage } from "@/hooks/use-cline-chat-session";
 import { useIsMobile } from "@/hooks/use-is-mobile";
@@ -25,6 +28,7 @@ import type {
 	RuntimeTaskSessionMode,
 	RuntimeTaskSessionSummary,
 	RuntimeWorkspaceChangesMode,
+	RuntimeWorkspaceFileChange,
 } from "@/runtime/types";
 import { useRuntimeWorkspaceChanges } from "@/runtime/use-runtime-workspace-changes";
 import { useTaskWorkspaceStateVersionValue } from "@/stores/workspace-metadata-store";
@@ -305,6 +309,116 @@ function DiffToolbar({
 				/>
 			) : null}
 		</div>
+	);
+}
+
+function formatTimestamp(value: number): string {
+	return new Date(value).toLocaleString();
+}
+
+function TaskPropertyRow({ label, children }: { label: string; children: ReactNode }): React.ReactElement {
+	return (
+		<div className="grid grid-cols-[78px_minmax(0,1fr)] items-start gap-3 border-b border-divider/60 py-2 last:border-b-0">
+			<div className="text-[11px] font-medium uppercase tracking-wide text-text-tertiary">{label}</div>
+			<div className="min-w-0 text-sm text-text-secondary">{children}</div>
+		</div>
+	);
+}
+
+function TaskPropertiesSidebar({
+	selection,
+	workspacePath,
+	sessionSummary,
+	workspaceFiles,
+}: {
+	selection: CardSelection;
+	workspacePath?: string | null;
+	sessionSummary: RuntimeTaskSessionSummary | null;
+	workspaceFiles: RuntimeWorkspaceFileChange[] | null;
+}): React.ReactElement {
+	const [propertiesOpen, setPropertiesOpen] = useState(true);
+	const card = selection.card;
+	const changedFileCount = workspaceFiles?.length ?? 0;
+	const additions = workspaceFiles?.reduce((sum, file) => sum + file.additions, 0) ?? 0;
+	const deletions = workspaceFiles?.reduce((sum, file) => sum + file.deletions, 0) ?? 0;
+
+	return (
+		<aside className="flex min-h-0 min-w-0 flex-1 flex-col border-r border-divider bg-surface-0">
+			<Collapsible.Root open={propertiesOpen} onOpenChange={setPropertiesOpen} className="border-b border-divider">
+				<Collapsible.Trigger className="flex w-full items-start justify-between gap-3 px-3 py-2 text-left hover:bg-surface-1">
+					<div className="min-w-0">
+						<p className="text-[11px] font-medium uppercase tracking-wide text-text-tertiary">{card.id}</p>
+						<h2 className="line-clamp-2 text-sm font-semibold text-text-primary">{card.title}</h2>
+					</div>
+					<div className="flex shrink-0 items-center gap-1.5">
+						<TaskColumnStatusChip columnId={selection.column.id} />
+						{card.agentId ? <StatusChip label={card.agentId} icon={<Bot size={12} />} tone="cyan" /> : null}
+						<ChevronDown
+							size={14}
+							className={cn("text-text-tertiary transition-transform", !propertiesOpen && "-rotate-90")}
+						/>
+					</div>
+				</Collapsible.Trigger>
+				<Collapsible.Content className="px-3 pb-2">
+					<TaskPropertyRow label="Status">
+						<TaskColumnStatusChip columnId={selection.column.id} />
+					</TaskPropertyRow>
+					<TaskPropertyRow label="Base">
+						<span className="break-all font-mono text-xs">{card.baseRef}</span>
+					</TaskPropertyRow>
+					<TaskPropertyRow label="Workspace">
+						{workspacePath ? (
+							<PathDisplay path={workspacePath} repoRoot={workspacePath} />
+						) : (
+							<span className="text-text-tertiary">Current project</span>
+						)}
+					</TaskPropertyRow>
+				</Collapsible.Content>
+			</Collapsible.Root>
+			<div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
+				<TaskPropertyRow label="Session">
+					{sessionSummary ? (
+						<div className="flex flex-wrap items-center gap-1.5">
+							<StatusChip label={sessionSummary.state} tone={sessionSummary.state === "failed" ? "red" : "purple"} />
+							{sessionSummary.agentId ? (
+								<StatusChip label={sessionSummary.agentId} icon={<Bot size={12} />} tone="cyan" />
+							) : null}
+						</div>
+					) : (
+						<span className="text-text-tertiary">No active session</span>
+					)}
+				</TaskPropertyRow>
+				<TaskPropertyRow label="Review">
+					<div className="flex flex-wrap items-center gap-1.5">
+						{card.autoReviewEnabled ? (
+							<StatusChip label={`Auto ${card.autoReviewMode ?? "commit"}`} tone="blue" />
+						) : (
+							<StatusChip label="Manual" />
+						)}
+						{card.startInPlanMode ? <StatusChip label="Plan mode" tone="gold" /> : null}
+					</div>
+				</TaskPropertyRow>
+				<TaskPropertyRow label="Changes">
+					<span>
+						{changedFileCount} files <span className="text-status-green">+{additions}</span>{" "}
+						<span className="text-status-red">-{deletions}</span>
+					</span>
+				</TaskPropertyRow>
+				<TaskPropertyRow label="Created">
+					<span className="inline-flex items-center gap-1.5">
+						<CalendarClock size={12} />
+						{formatTimestamp(card.createdAt)}
+					</span>
+				</TaskPropertyRow>
+				<TaskPropertyRow label="Updated">
+					<span>{formatTimestamp(card.updatedAt)}</span>
+				</TaskPropertyRow>
+				<div className="mt-4 rounded-md border border-divider bg-surface-1 px-3 py-3">
+					<h3 className="mb-2 text-sm font-semibold text-text-primary">Prompt</h3>
+					<MarkdownDocumentPreview source={card.prompt} emptyLabel="This task has no prompt." />
+				</div>
+			</div>
+		</aside>
 	);
 }
 
@@ -799,29 +913,11 @@ export function CardDetailView({
 			{!isDiffExpanded ? (
 				<>
 					<div className="flex min-h-0 min-w-0" style={{ width: taskCardsPanelPercent }}>
-						<ColumnContextPanel
+						<TaskPropertiesSidebar
 							selection={selection}
 							workspacePath={workspacePath}
-							onCardSelect={onCardSelect}
-							taskSessions={taskSessions}
-							onTaskDragEnd={onTaskDragEnd}
-							onCreateTask={onCreateTask}
-							onStartTask={onStartTask}
-							onStartAllTasks={onStartAllTasks}
-							onClearTrash={onClearTrash}
-							editingTaskId={editingTaskId}
-							inlineTaskEditor={inlineTaskEditor}
-							onEditTask={onEditTask}
-							onSaveTaskTitle={onSaveTaskTitle}
-							onCommitTask={onCommitTask}
-							onOpenPrTask={onOpenPrTask}
-							onMoveToTrashTask={onMoveReviewCardToTrash}
-							onRestoreFromTrashTask={onRestoreTaskFromTrash}
-							commitTaskLoadingById={commitTaskLoadingById}
-							openPrTaskLoadingById={openPrTaskLoadingById}
-							moveToTrashLoadingById={moveToTrashLoadingById}
-							panelWidth="100%"
-							defaultClineModelId={runtimeConfig?.clineProviderSettings?.modelId ?? null}
+							sessionSummary={sessionSummary}
+							workspaceFiles={runtimeFiles}
 						/>
 					</div>
 					<ResizeHandle

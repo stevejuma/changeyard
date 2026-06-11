@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import type {
 	RuntimeChangeyardChangeDetail,
 	RuntimeChangeyardChangeActionResponse,
@@ -16,7 +18,12 @@ import type {
 	RuntimeChangeyardUpdateResponse,
 	RuntimeChangeyardProjectConfig,
 	RuntimeChangeyardUpdateProjectConfigRequest,
+	RuntimeWorkspaceChangesResponse,
 } from "../core/api-contract.js";
+import {
+	createEmptyWorkspaceChangesResponse,
+	getWorkspaceChanges,
+} from "../workspace/get-workspace-changes.js";
 
 export interface RuntimeChangeyardApiAdapter {
 	listChanges: (repoRoot: string) => Promise<RuntimeChangeyardChangesListResponse["changes"]> | RuntimeChangeyardChangesListResponse["changes"];
@@ -112,6 +119,10 @@ export interface RuntimeTrpcChangesApi {
 		workspacePath: string,
 		input: RuntimeChangeyardChangeUpdateBodyRequest,
 	) => Promise<RuntimeChangeyardChangeDetail>;
+	loadChangeWorkspaceChanges: (
+		workspacePath: string,
+		input: RuntimeChangeyardChangeGetRequest,
+	) => Promise<RuntimeWorkspaceChangesResponse>;
 	initProject: (workspacePath: string) => Promise<RuntimeChangeyardInitResponse>;
 	updateProject: (workspacePath: string) => Promise<RuntimeChangeyardUpdateResponse>;
 	getProjectConfig: (workspacePath: string) => Promise<RuntimeChangeyardProjectConfig>;
@@ -211,6 +222,20 @@ export function createChangesApi(deps: {
 				throw new Error("Changeyard change updates are not available in this runtime.");
 			}
 			return await deps.changeyardApi.updateChangeBody(workspacePath, input);
+		},
+		loadChangeWorkspaceChanges: async (workspacePath, input) => {
+			if (!deps.changeyardApi) {
+				return await createEmptyWorkspaceChangesResponse(workspacePath);
+			}
+			const change = await deps.changeyardApi.getChange(workspacePath, input);
+			const rawWorkspacePath = change?.workspace?.path?.trim();
+			if (!rawWorkspacePath) {
+				return await createEmptyWorkspaceChangesResponse(workspacePath);
+			}
+			const changeWorkspacePath = path.isAbsolute(rawWorkspacePath)
+				? rawWorkspacePath
+				: path.resolve(workspacePath, rawWorkspacePath);
+			return await getWorkspaceChanges(changeWorkspacePath);
 		},
 		initProject: async (workspacePath) => {
 			if (!deps.changeyardApi) {

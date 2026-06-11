@@ -3,6 +3,7 @@ import { FileText, Plus } from "lucide-react";
 import { PlanningBadge } from "@/components/changeyard/planning-badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
+import { ChangeStatusChip, StatusChip } from "@/components/ui/status-chip";
 import type { RuntimeChangeyardChangeListItem } from "@/runtime/types";
 
 export function ChangeStrip({
@@ -55,9 +56,10 @@ export function ChangeStrip({
 									<span className="truncate text-sm font-semibold text-text-primary">{change.title}</span>
 									<span className="shrink-0 text-[11px] uppercase tracking-wide text-text-tertiary">{change.id}</span>
 								</div>
-								<p className="mb-2 text-xs text-text-secondary">
-									{change.status} · {change.type}
-								</p>
+								<div className="mb-2 flex flex-wrap items-center gap-1.5">
+									<ChangeStatusChip status={change.status} />
+									<StatusChip label={change.type} />
+								</div>
 								<PlanningBadge planning={change.planning} />
 							</button>
 						);

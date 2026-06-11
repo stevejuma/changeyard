@@ -5,6 +5,8 @@ import { ClineMarkdownContent } from "@/components/detail-panels/cline-markdown-
 import { PlanningBadge } from "@/components/changeyard/planning-badge";
 import { PlanningGateList } from "@/components/changeyard/planning-gate-list";
 import { Button } from "@/components/ui/button";
+import { PathDisplay } from "@/components/ui/path-display";
+import { ChangeStatusChip, StatusChip } from "@/components/ui/status-chip";
 import type { RuntimeChangeyardChangeDetail, RuntimeChangeyardPlanningSectionId } from "@/runtime/types";
 
 export function ChangeDetailPlanningPanel({
@@ -57,9 +59,11 @@ export function ChangeDetailPlanningPanel({
 				<div className="min-w-0">
 					<p className="text-xs uppercase tracking-wide text-text-tertiary">{change.id}</p>
 					<h2 className="truncate text-base font-semibold text-text-primary">{change.title}</h2>
-					<p className="mt-1 text-sm text-text-secondary">
-						{change.status} · {change.type} · {change.path}
-					</p>
+					<div className="mt-2 flex flex-wrap items-center gap-1.5">
+						<ChangeStatusChip status={change.status} />
+						<StatusChip label={change.type} />
+						<PathDisplay path={change.path} className="min-w-0 truncate text-xs text-text-secondary" />
+					</div>
 				</div>
 				<Button
 					variant="ghost"
@@ -73,7 +77,9 @@ export function ChangeDetailPlanningPanel({
 
 			<div className="mb-4 flex flex-wrap items-center gap-2">
 				<PlanningBadge planning={change.planning} />
-				{change.workspace?.path ? <span className="text-xs text-text-secondary">{change.workspace.path}</span> : null}
+				{change.workspace?.path ? (
+					<PathDisplay path={change.workspace.path} className="text-xs text-text-secondary" />
+				) : null}
 			</div>
 
 			<div className="mb-4 flex flex-wrap gap-2">
