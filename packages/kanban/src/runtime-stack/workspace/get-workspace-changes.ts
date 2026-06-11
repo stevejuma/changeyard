@@ -77,6 +77,9 @@ function parseTrackedChanges(output: string): NameStatusEntry[] {
 	for (const line of lines) {
 		const parts = line.split("\t");
 		const statusCode = parts[0];
+		if (!statusCode) {
+			continue;
+		}
 		const status = mapNameStatus(statusCode);
 
 		if ((status === "renamed" || status === "copied") && parts.length >= 3) {

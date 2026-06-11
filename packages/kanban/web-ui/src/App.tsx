@@ -1440,6 +1440,8 @@ export default function App(): ReactElement {
 				<ChangeDetailDialog
 					change={selectedCard || !selectedChangeId ? null : selectedChangeDetail}
 					open={selectedCard === null && selectedChangeId !== null && selectedChangeDetail !== null}
+					workspaceId={currentProjectId}
+					repoRoot={workspacePath}
 					isActionPending={isChangeActionPending}
 					actionError={changeActionError}
 					onOpenChange={(open) => {

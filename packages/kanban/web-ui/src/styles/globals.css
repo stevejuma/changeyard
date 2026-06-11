@@ -283,6 +283,51 @@ body,
 	color: var(--color-text-primary);
 }
 
+.cy-markdown-editor,
+.cy-markdown-preview {
+	--color-canvas-default: var(--color-surface-0);
+	--color-canvas-subtle: var(--color-surface-1);
+	--color-border-default: var(--color-border);
+	--color-border-muted: var(--color-divider);
+	--color-fg-default: var(--color-text-primary);
+	--color-fg-muted: var(--color-text-secondary);
+	--color-accent-fg: var(--color-accent);
+}
+
+.cy-markdown-editor .w-md-editor {
+	min-height: 100%;
+	border: 0;
+	border-radius: 0;
+	background: var(--color-surface-0);
+	color: var(--color-text-primary);
+	box-shadow: none;
+}
+
+.cy-markdown-editor .w-md-editor-toolbar {
+	border-bottom-color: var(--color-divider);
+	background: var(--color-surface-1);
+}
+
+.cy-markdown-editor .w-md-editor-text,
+.cy-markdown-editor .w-md-editor-text-pre,
+.cy-markdown-editor .w-md-editor-text-input {
+	font-family: var(--font-mono);
+	font-size: 13px !important;
+	line-height: 1.55 !important;
+	color: var(--color-text-primary) !important;
+}
+
+.cy-markdown-editor .w-md-editor-preview,
+.cy-markdown-preview .wmde-markdown {
+	background: var(--color-surface-0);
+	color: var(--color-text-primary);
+}
+
+.cy-markdown-preview .wmde-markdown {
+	font-family: var(--font-sans);
+	font-size: 13px;
+}
+
 
 /* -- Shared layout -- */
 

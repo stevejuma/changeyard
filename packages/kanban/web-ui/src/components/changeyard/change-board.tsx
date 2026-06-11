@@ -13,6 +13,8 @@ import { PlanningBadge } from "@/components/changeyard/planning-badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { ColumnIndicator } from "@/components/ui/column-indicator";
+import { PathDisplay } from "@/components/ui/path-display";
+import { ChangeStatusChip, StatusChip } from "@/components/ui/status-chip";
 import type { RuntimeChangeyardChangeListItem, RuntimeTaskSessionSummary } from "@/runtime/types";
 import { LocalStorageKey, readLocalStorageItem, writeLocalStorageItem } from "@/storage/local-storage-store";
 import type { BoardCard as BoardCardModel, BoardColumnId, BoardData } from "@/types";
@@ -139,11 +141,13 @@ function ChangeCard({
 	change,
 	index,
 	selected,
+	repoRoot,
 	onOpenDetails,
 }: {
 	change: RuntimeChangeyardChangeListItem;
 	index: number;
 	selected: boolean;
+	repoRoot?: string | null;
 	onOpenDetails: (changeId: string) => void;
 }): ReactElement {
 	return (
@@ -180,15 +184,20 @@ function ChangeCard({
 						/>
 					</div>
 					<div className="mb-2 flex items-center justify-between gap-2">
-						<span className="text-xs text-text-secondary">
-							{change.status} · {change.type}
-						</span>
+						<div className="flex min-w-0 flex-wrap items-center gap-1.5">
+							<ChangeStatusChip status={change.status} />
+							<StatusChip label={change.type} />
+						</div>
 						<span className="shrink-0 text-[11px] uppercase tracking-wide text-text-tertiary">{change.id}</span>
 					</div>
 					<div className="flex flex-wrap items-center gap-2">
 						<PlanningBadge planning={change.planning} />
 						{change.workspace?.path ? (
-							<span className="truncate text-[11px] text-text-tertiary">{change.workspace.path}</span>
+							<PathDisplay
+								path={change.workspace.path}
+								repoRoot={repoRoot}
+								className="truncate text-[11px] text-text-tertiary"
+							/>
 						) : null}
 					</div>
 				</div>
@@ -513,6 +522,7 @@ export function ChangeBoard({
 															change={change}
 															index={column.tasks.length + index}
 															selected={change.id === selectedChangeId}
+															repoRoot={workspacePath}
 															onOpenDetails={onSelectChange}
 														/>
 													))}

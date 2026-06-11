@@ -765,6 +765,12 @@ export const runtimeAppRouter = t.router({
 			.query(async ({ ctx, input }) => {
 				return await ctx.changesApi.getChange(ctx.workspaceScope.workspacePath, input);
 			}),
+		getWorkspaceChanges: workspaceProcedure
+			.input(runtimeChangeyardChangeGetRequestSchema)
+			.output(runtimeWorkspaceChangesResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.changesApi.loadChangeWorkspaceChanges(ctx.workspaceScope.workspacePath, input);
+			}),
 		validate: workspaceProcedure
 			.input(runtimeChangeyardChangeGetRequestSchema)
 			.output(runtimeChangeyardChangeDetailSchema)
