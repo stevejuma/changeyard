@@ -84,6 +84,16 @@ import type {
 	RuntimeTaskWorkspaceInfoRequest,
 	RuntimeTaskWorkspaceInfoResponse,
 	RuntimeUpdateStatusResponse,
+	RuntimeVcsDetectResponse,
+	RuntimeVcsApplyOperationRequest,
+	RuntimeVcsApplyOperationResponse,
+	RuntimeVcsJjDiffResponse,
+	RuntimeVcsJjStateResponse,
+	RuntimeVcsPreviewOperationRequest,
+	RuntimeVcsPreviewOperationResponse,
+	RuntimeVcsSubmitStackPreviewRequest,
+	RuntimeVcsSubmitStackPreviewResponse,
+	RuntimeVcsSubmitStackResponse,
 	RuntimeWorkspaceChangesRequest,
 	RuntimeWorkspaceChangesResponse,
 	RuntimeWorkspaceFileSearchRequest,
@@ -198,6 +208,16 @@ import {
 	runtimeTaskWorkspaceInfoRequestSchema,
 	runtimeTaskWorkspaceInfoResponseSchema,
 	runtimeUpdateStatusResponseSchema,
+	runtimeVcsDetectResponseSchema,
+	runtimeVcsApplyOperationRequestSchema,
+	runtimeVcsApplyOperationResponseSchema,
+	runtimeVcsJjDiffResponseSchema,
+	runtimeVcsJjStateResponseSchema,
+	runtimeVcsPreviewOperationRequestSchema,
+	runtimeVcsPreviewOperationResponseSchema,
+	runtimeVcsSubmitStackPreviewRequestSchema,
+	runtimeVcsSubmitStackPreviewResponseSchema,
+	runtimeVcsSubmitStackResponseSchema,
 	runtimeWorkspaceChangesRequestSchema,
 	runtimeWorkspaceChangesResponseSchema,
 	runtimeWorkspaceFileSearchRequestSchema,
@@ -386,6 +406,27 @@ export interface RuntimeTrpcContext {
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeGitCommitDiffRequest,
 		) => Promise<RuntimeGitCommitDiffResponse>;
+	};
+	vcsApi: {
+		detect: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeVcsDetectResponse>;
+		jjDiff: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeVcsJjDiffResponse>;
+		jjState: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeVcsJjStateResponse>;
+		previewOperation: (
+			scope: RuntimeTrpcWorkspaceScope | null,
+			input: RuntimeVcsPreviewOperationRequest,
+		) => Promise<RuntimeVcsPreviewOperationResponse>;
+		applyOperation: (
+			scope: RuntimeTrpcWorkspaceScope | null,
+			input: RuntimeVcsApplyOperationRequest,
+		) => Promise<RuntimeVcsApplyOperationResponse>;
+		submitStackPreview: (
+			scope: RuntimeTrpcWorkspaceScope | null,
+			input: RuntimeVcsSubmitStackPreviewRequest,
+		) => Promise<RuntimeVcsSubmitStackPreviewResponse>;
+		submitStack: (
+			scope: RuntimeTrpcWorkspaceScope | null,
+			input: RuntimeVcsSubmitStackPreviewRequest,
+		) => Promise<RuntimeVcsSubmitStackResponse>;
 	};
 	projectsApi: {
 		listProjects: (preferredWorkspaceId: string | null) => Promise<RuntimeProjectsResponse>;
@@ -645,6 +686,41 @@ export const runtimeAppRouter = t.router({
 		runUpdateNow: t.procedure.output(runtimeRunUpdateResponseSchema).mutation(async ({ ctx }) => {
 			return await ctx.runtimeApi.runUpdateNow(ctx.workspaceScope);
 		}),
+	}),
+	vcs: t.router({
+		detect: t.procedure.output(runtimeVcsDetectResponseSchema).query(async ({ ctx }) => {
+			return await ctx.vcsApi.detect(ctx.workspaceScope);
+		}),
+		jjDiff: t.procedure.output(runtimeVcsJjDiffResponseSchema).query(async ({ ctx }) => {
+			return await ctx.vcsApi.jjDiff(ctx.workspaceScope);
+		}),
+		jjState: t.procedure.output(runtimeVcsJjStateResponseSchema).query(async ({ ctx }) => {
+			return await ctx.vcsApi.jjState(ctx.workspaceScope);
+		}),
+		previewOperation: t.procedure
+			.input(runtimeVcsPreviewOperationRequestSchema)
+			.output(runtimeVcsPreviewOperationResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.vcsApi.previewOperation(ctx.workspaceScope, input);
+			}),
+		applyOperation: t.procedure
+			.input(runtimeVcsApplyOperationRequestSchema)
+			.output(runtimeVcsApplyOperationResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.vcsApi.applyOperation(ctx.workspaceScope, input);
+			}),
+		submitStackPreview: t.procedure
+			.input(runtimeVcsSubmitStackPreviewRequestSchema)
+			.output(runtimeVcsSubmitStackPreviewResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.vcsApi.submitStackPreview(ctx.workspaceScope, input);
+			}),
+		submitStack: t.procedure
+			.input(runtimeVcsSubmitStackPreviewRequestSchema)
+			.output(runtimeVcsSubmitStackResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.vcsApi.submitStack(ctx.workspaceScope, input);
+			}),
 	}),
 	workspace: t.router({
 		getGitSummary: workspaceProcedure

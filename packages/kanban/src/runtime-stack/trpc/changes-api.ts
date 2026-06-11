@@ -26,6 +26,16 @@ import type {
 	RuntimeChangeyardUpdateResponse,
 	RuntimeChangeyardProjectConfig,
 	RuntimeChangeyardUpdateProjectConfigRequest,
+	RuntimeVcsDetectResponse,
+	RuntimeVcsApplyOperationRequest,
+	RuntimeVcsApplyOperationResponse,
+	RuntimeVcsJjDiffResponse,
+	RuntimeVcsPreviewOperationRequest,
+	RuntimeVcsPreviewOperationResponse,
+	RuntimeVcsJjStateResponse,
+	RuntimeVcsSubmitStackPreviewRequest,
+	RuntimeVcsSubmitStackPreviewResponse,
+	RuntimeVcsSubmitStackResponse,
 	RuntimeWorkspaceFileChange,
 	RuntimeWorkspaceChangesResponse,
 } from "../core/api-contract.js";
@@ -108,6 +118,25 @@ export interface RuntimeChangeyardApiAdapter {
 		input: RuntimeChangeyardUpdateProjectConfigRequest,
 	) => Promise<RuntimeChangeyardProjectConfig> | RuntimeChangeyardProjectConfig;
 	doctorProject: (repoRoot: string) => Promise<RuntimeChangeyardDoctorResponse> | RuntimeChangeyardDoctorResponse;
+	detectVcs?: (repoRoot: string) => Promise<RuntimeVcsDetectResponse> | RuntimeVcsDetectResponse;
+	getJjDiff?: (repoRoot: string) => Promise<RuntimeVcsJjDiffResponse> | RuntimeVcsJjDiffResponse;
+	getJjState?: (repoRoot: string) => Promise<RuntimeVcsJjStateResponse> | RuntimeVcsJjStateResponse;
+	previewVcsOperation?: (
+		repoRoot: string,
+		input: RuntimeVcsPreviewOperationRequest,
+	) => Promise<RuntimeVcsPreviewOperationResponse> | RuntimeVcsPreviewOperationResponse;
+	applyVcsOperation?: (
+		repoRoot: string,
+		input: RuntimeVcsApplyOperationRequest,
+	) => Promise<RuntimeVcsApplyOperationResponse> | RuntimeVcsApplyOperationResponse;
+	submitVcsStackPreview?: (
+		repoRoot: string,
+		input: RuntimeVcsSubmitStackPreviewRequest,
+	) => Promise<RuntimeVcsSubmitStackPreviewResponse> | RuntimeVcsSubmitStackPreviewResponse;
+	submitVcsStack?: (
+		repoRoot: string,
+		input: RuntimeVcsSubmitStackPreviewRequest,
+	) => Promise<RuntimeVcsSubmitStackResponse> | RuntimeVcsSubmitStackResponse;
 }
 
 export interface RuntimeTrpcChangesApi {

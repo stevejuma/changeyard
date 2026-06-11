@@ -240,6 +240,294 @@ export const runtimeGitSyncResponseSchema = z.object({
 });
 export type RuntimeGitSyncResponse = z.infer<typeof runtimeGitSyncResponseSchema>;
 
+export const runtimeVcsDiagnosticSchema = z.object({
+	level: z.enum(["info", "warning", "error"]),
+	code: z.string(),
+	message: z.string(),
+});
+export type RuntimeVcsDiagnostic = z.infer<typeof runtimeVcsDiagnosticSchema>;
+
+export const runtimeVcsRepositorySchema = z.object({
+	kind: z.enum(["none", "git", "jj"]),
+	root: z.string().nullable(),
+});
+export type RuntimeVcsRepository = z.infer<typeof runtimeVcsRepositorySchema>;
+
+export const runtimeVcsJjSummarySchema = z.object({
+	installed: z.boolean(),
+	version: z.string().nullable(),
+	repoRoot: z.string().nullable(),
+	currentBookmark: z.string().nullable(),
+	currentChangeId: z.string().nullable(),
+	defaultBase: z.string().nullable(),
+});
+export type RuntimeVcsJjSummary = z.infer<typeof runtimeVcsJjSummarySchema>;
+
+export const runtimeVcsGitSummarySchema = z.object({
+	remoteName: z.string().nullable(),
+	remoteUrl: z.string().nullable(),
+	provider: z.enum(["none", "github", "gitlab", "forgejo", "unknown"]),
+	defaultBranch: z.string().nullable(),
+});
+export type RuntimeVcsGitSummary = z.infer<typeof runtimeVcsGitSummarySchema>;
+
+export const runtimeVcsPublishingSummarySchema = z.object({
+	provider: z.enum(["none", "github", "gitlab", "forgejo", "unknown"]),
+	remoteName: z.string().nullable(),
+	available: z.boolean(),
+	authenticated: z.boolean(),
+	reason: z.string().nullable(),
+});
+export type RuntimeVcsPublishingSummary = z.infer<typeof runtimeVcsPublishingSummarySchema>;
+
+export const runtimeVcsDetectResponseSchema = z.object({
+	cwd: z.string(),
+	repository: runtimeVcsRepositorySchema,
+	jj: runtimeVcsJjSummarySchema,
+	git: runtimeVcsGitSummarySchema,
+	publishing: runtimeVcsPublishingSummarySchema,
+	diagnostics: z.array(runtimeVcsDiagnosticSchema),
+});
+export type RuntimeVcsDetectResponse = z.infer<typeof runtimeVcsDetectResponseSchema>;
+
+export const runtimeVcsJjBookmarkSchema = z.object({
+	name: z.string(),
+	changeId: z.string(),
+	commitId: z.string(),
+	synced: z.boolean(),
+	tracked: z.boolean(),
+});
+export type RuntimeVcsJjBookmark = z.infer<typeof runtimeVcsJjBookmarkSchema>;
+
+export const runtimeVcsJjChangeSchema = z.object({
+	changeId: z.string(),
+	commitId: z.string(),
+	description: z.string(),
+	parentChangeIds: z.array(z.string()),
+	bookmarks: z.array(z.string()),
+	remoteBookmarks: z.array(z.string()),
+	isCurrent: z.boolean(),
+});
+export type RuntimeVcsJjChange = z.infer<typeof runtimeVcsJjChangeSchema>;
+
+export const runtimeVcsJjBranchSegmentSchema = z.object({
+	id: z.string(),
+	changeId: z.string(),
+	commitId: z.string(),
+	title: z.string(),
+	bookmarks: z.array(z.string()),
+	remoteBookmarks: z.array(z.string()),
+	isCurrent: z.boolean(),
+	isHead: z.boolean(),
+});
+export type RuntimeVcsJjBranchSegment = z.infer<typeof runtimeVcsJjBranchSegmentSchema>;
+
+export const runtimeVcsJjStackLaneSchema = z.object({
+	id: z.string(),
+	headBookmark: z.string(),
+	segments: z.array(runtimeVcsJjBranchSegmentSchema),
+});
+export type RuntimeVcsJjStackLane = z.infer<typeof runtimeVcsJjStackLaneSchema>;
+
+export const runtimeVcsJjUnassignedChangeSchema = z.object({
+	path: z.string(),
+	status: z.enum(["modified", "added", "deleted", "renamed", "copied", "unknown"]),
+});
+export type RuntimeVcsJjUnassignedChange = z.infer<typeof runtimeVcsJjUnassignedChangeSchema>;
+
+export const runtimeVcsJjStateResponseSchema = runtimeVcsDetectResponseSchema.extend({
+	bookmarks: z.array(runtimeVcsJjBookmarkSchema),
+	changes: z.array(runtimeVcsJjChangeSchema),
+	lanes: z.array(runtimeVcsJjStackLaneSchema),
+	unassignedChanges: z.array(runtimeVcsJjUnassignedChangeSchema),
+});
+export type RuntimeVcsJjStateResponse = z.infer<typeof runtimeVcsJjStateResponseSchema>;
+
+export const runtimeVcsJjDiffResponseSchema = z.object({
+	changeId: z.string().nullable(),
+	summary: z.string(),
+	patch: z.string(),
+	diagnostics: z.array(runtimeVcsDiagnosticSchema),
+});
+export type RuntimeVcsJjDiffResponse = z.infer<typeof runtimeVcsJjDiffResponseSchema>;
+
+export const runtimeVcsOperationRiskLevelSchema = z.enum(["low", "medium", "high"]);
+export type RuntimeVcsOperationRiskLevel = z.infer<typeof runtimeVcsOperationRiskLevelSchema>;
+
+export const runtimeVcsReorderOperationRequestSchema = z.object({
+	kind: z.literal("reorder_change"),
+	sourceChangeId: z.string(),
+	targetChangeId: z.string(),
+	placement: z.enum(["before", "after"]),
+});
+export const runtimeVcsCreateBookmarkOperationRequestSchema = z.object({
+	kind: z.literal("create_bookmark"),
+	changeId: z.string(),
+	bookmarkName: z.string(),
+});
+export const runtimeVcsEditMessageOperationRequestSchema = z.object({
+	kind: z.literal("edit_message"),
+	changeId: z.string(),
+	message: z.string(),
+});
+export const runtimeVcsCreateChangeOperationRequestSchema = z.object({
+	kind: z.literal("create_change"),
+	anchorChangeId: z.string(),
+	placement: z.enum(["before", "after"]),
+	message: z.string(),
+});
+export const runtimeVcsMoveBookmarkOperationRequestSchema = z.object({
+	kind: z.literal("move_bookmark"),
+	bookmarkName: z.string(),
+	targetChangeId: z.string(),
+});
+export const runtimeVcsSquashChangeOperationRequestSchema = z.object({
+	kind: z.literal("squash_change"),
+	sourceChangeId: z.string(),
+	targetChangeId: z.string(),
+});
+export const runtimeVcsAbsorbFileOperationRequestSchema = z.object({
+	kind: z.literal("absorb_file"),
+	targetChangeId: z.string(),
+	paths: z.array(z.string()).min(1),
+});
+export const runtimeVcsRestoreFileOperationRequestSchema = z.object({
+	kind: z.literal("restore_file"),
+	paths: z.array(z.string()).min(1),
+});
+export const runtimeVcsUndoLastOperationRequestSchema = z.object({
+	kind: z.literal("undo_last"),
+});
+export const runtimeVcsRedoLastOperationRequestSchema = z.object({
+	kind: z.literal("redo_last"),
+});
+export const runtimeVcsAbandonChangeOperationRequestSchema = z.object({
+	kind: z.literal("abandon_change"),
+	changeId: z.string(),
+});
+export const runtimeVcsPreviewOperationRequestSchema = z.discriminatedUnion("kind", [
+	runtimeVcsReorderOperationRequestSchema,
+	runtimeVcsCreateBookmarkOperationRequestSchema,
+	runtimeVcsEditMessageOperationRequestSchema,
+	runtimeVcsCreateChangeOperationRequestSchema,
+	runtimeVcsMoveBookmarkOperationRequestSchema,
+	runtimeVcsSquashChangeOperationRequestSchema,
+	runtimeVcsAbsorbFileOperationRequestSchema,
+	runtimeVcsRestoreFileOperationRequestSchema,
+	runtimeVcsUndoLastOperationRequestSchema,
+	runtimeVcsRedoLastOperationRequestSchema,
+	runtimeVcsAbandonChangeOperationRequestSchema,
+]);
+export type RuntimeVcsPreviewOperationRequest = z.infer<typeof runtimeVcsPreviewOperationRequestSchema>;
+
+export const runtimeVcsPreviewCommandSchema = z.object({
+	command: z.literal("jj"),
+	args: z.array(z.string()),
+});
+export type RuntimeVcsPreviewCommand = z.infer<typeof runtimeVcsPreviewCommandSchema>;
+
+export const runtimeVcsPreviewOperationResponseSchema = z.object({
+	valid: z.boolean(),
+	operation: runtimeVcsPreviewOperationRequestSchema,
+	title: z.string(),
+	description: z.string(),
+	risk: runtimeVcsOperationRiskLevelSchema,
+	commands: z.array(runtimeVcsPreviewCommandSchema),
+	affectedChangeIds: z.array(z.string()),
+	affectedBookmarks: z.array(z.string()),
+	diagnostics: z.array(runtimeVcsDiagnosticSchema),
+});
+export type RuntimeVcsPreviewOperationResponse = z.infer<typeof runtimeVcsPreviewOperationResponseSchema>;
+
+export const runtimeVcsApplyOperationRequestSchema = runtimeVcsPreviewOperationRequestSchema;
+export type RuntimeVcsApplyOperationRequest = z.infer<typeof runtimeVcsApplyOperationRequestSchema>;
+
+export const runtimeVcsApplyOperationResponseSchema = z.object({
+	ok: z.boolean(),
+	operation: runtimeVcsApplyOperationRequestSchema,
+	title: z.string(),
+	description: z.string(),
+	risk: runtimeVcsOperationRiskLevelSchema,
+	command: runtimeVcsPreviewCommandSchema.nullable(),
+	stdout: z.string(),
+	stderr: z.string(),
+	exitCode: z.number().int().nullable(),
+	affectedChangeIds: z.array(z.string()),
+	affectedBookmarks: z.array(z.string()),
+	diagnostics: z.array(runtimeVcsDiagnosticSchema),
+});
+export type RuntimeVcsApplyOperationResponse = z.infer<typeof runtimeVcsApplyOperationResponseSchema>;
+
+export const runtimeVcsSubmitStackPreviewRequestSchema = z.object({
+	targetBookmark: z.string().nullable().optional(),
+	remoteName: z.string().nullable().optional(),
+});
+export type RuntimeVcsSubmitStackPreviewRequest = z.infer<typeof runtimeVcsSubmitStackPreviewRequestSchema>;
+
+export const runtimeVcsSubmitStackActionSchema = z.enum([
+	"none",
+	"push",
+	"create_pr",
+	"update_pr_base",
+	"push_and_create_pr",
+]);
+export type RuntimeVcsSubmitStackAction = z.infer<typeof runtimeVcsSubmitStackActionSchema>;
+
+export const runtimeVcsSubmitStackPullRequestSummarySchema = z.object({
+	number: z.number().int(),
+	url: z.string().nullable(),
+	baseBranch: z.string(),
+});
+export type RuntimeVcsSubmitStackPullRequestSummary = z.infer<typeof runtimeVcsSubmitStackPullRequestSummarySchema>;
+
+export const runtimeVcsSubmitStackItemSchema = z.object({
+	bookmarkName: z.string(),
+	changeId: z.string(),
+	title: z.string(),
+	baseBranch: z.string(),
+	needsPush: z.boolean(),
+	action: runtimeVcsSubmitStackActionSchema,
+	existingPr: runtimeVcsSubmitStackPullRequestSummarySchema.nullable(),
+});
+export type RuntimeVcsSubmitStackItem = z.infer<typeof runtimeVcsSubmitStackItemSchema>;
+
+export const runtimeVcsSubmitStackPreviewResponseSchema = z.object({
+	available: z.boolean(),
+	targetBookmark: z.string().nullable(),
+	remoteName: z.string().nullable(),
+	repoOwner: z.string().nullable(),
+	repoName: z.string().nullable(),
+	items: z.array(runtimeVcsSubmitStackItemSchema),
+	commands: z.array(runtimeVcsPreviewCommandSchema),
+	diagnostics: z.array(runtimeVcsDiagnosticSchema),
+});
+export type RuntimeVcsSubmitStackPreviewResponse = z.infer<typeof runtimeVcsSubmitStackPreviewResponseSchema>;
+
+export const runtimeVcsSubmitStackResultItemSchema = z.object({
+	bookmarkName: z.string(),
+	changeId: z.string(),
+	title: z.string(),
+	baseBranch: z.string(),
+	needsPush: z.boolean(),
+	action: runtimeVcsSubmitStackActionSchema,
+	existingPr: runtimeVcsSubmitStackPullRequestSummarySchema.nullable(),
+	completed: z.boolean(),
+	resultPr: runtimeVcsSubmitStackPullRequestSummarySchema.nullable(),
+});
+export type RuntimeVcsSubmitStackResultItem = z.infer<typeof runtimeVcsSubmitStackResultItemSchema>;
+
+export const runtimeVcsSubmitStackResponseSchema = z.object({
+	ok: z.boolean(),
+	targetBookmark: z.string().nullable(),
+	remoteName: z.string().nullable(),
+	repoOwner: z.string().nullable(),
+	repoName: z.string().nullable(),
+	items: z.array(runtimeVcsSubmitStackResultItemSchema),
+	commands: z.array(runtimeVcsPreviewCommandSchema),
+	diagnostics: z.array(runtimeVcsDiagnosticSchema),
+});
+export type RuntimeVcsSubmitStackResponse = z.infer<typeof runtimeVcsSubmitStackResponseSchema>;
+
 export const runtimeGitCheckoutRequestSchema = z.object({
 	branch: z.string(),
 });

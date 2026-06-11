@@ -44,6 +44,25 @@ export function getWebUiDir(): string {
 	return repoSourcePath;
 }
 
+export function getVcsUiDir(): string {
+	const here = dirname(fileURLToPath(import.meta.url));
+	const bundledPath = resolve(here, "vcs-ui");
+	const packagedBuildPath = resolve(here, "../vcs-ui");
+	const repoBuildPath = resolve(here, "../../../../vcs/dist");
+	const repoSourcePath = resolve(here, "../../../../vcs");
+	const hasAssets = (dir: string) => existsSync(join(dir, "index.html")) && existsSync(join(dir, "assets"));
+	if (hasAssets(bundledPath)) {
+		return bundledPath;
+	}
+	if (hasAssets(packagedBuildPath)) {
+		return packagedBuildPath;
+	}
+	if (hasAssets(repoBuildPath)) {
+		return repoBuildPath;
+	}
+	return repoSourcePath;
+}
+
 function shouldFallbackToIndexHtml(pathname: string): boolean {
 	return !extname(pathname);
 }
@@ -84,4 +103,17 @@ export async function readAsset(rootDir: string, requestPathname: string): Promi
 			contentType: MIME_TYPES[".html"],
 		};
 	}
+}
+
+export async function readMountedAsset(
+	rootDir: string,
+	requestPathname: string,
+	mountPath: string,
+): Promise<RuntimeAsset> {
+	const mountedPath = requestPathname === mountPath
+		? "/"
+		: requestPathname.startsWith(`${mountPath}/`)
+			? requestPathname.slice(mountPath.length)
+			: requestPathname;
+	return await readAsset(rootDir, mountedPath);
 }

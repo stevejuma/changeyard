@@ -21,7 +21,16 @@ function cleanup(dir: string): void {
 }
 
 function runCommand(command: string, args: string[], cwd: string): string {
-  const result = spawnSync(command, args, { cwd, encoding: "utf8" });
+  const nextArgs = command === "git"
+    ? [
+        "-c",
+        "commit.gpgsign=false",
+        "-c",
+        "tag.gpgsign=false",
+        ...(args[0] === "commit" ? ["commit", "--no-gpg-sign", ...args.slice(1)] : args),
+      ]
+    : args;
+  const result = spawnSync(command, nextArgs, { cwd, encoding: "utf8" });
   if (result.status !== 0) {
     throw new Error(`${command} ${args.join(" ")} failed: ${(result.stderr || result.stdout || "command failed").toString().trim()}`);
   }
@@ -64,6 +73,13 @@ function configureTestGitIdentity(repo: string): void {
   runCommand("git", ["config", "user.email", "changeyard-test@example.test"], repo);
   runCommand("git", ["config", "commit.gpgsign", "false"], repo);
   runCommand("git", ["config", "tag.gpgSign", "false"], repo);
+}
+
+function configureTestJjIdentity(repo: string): void {
+  runCommand("jj", ["config", "set", "--repo", "user.name", "Changeyard Test"], repo);
+  runCommand("jj", ["config", "set", "--repo", "user.email", "changeyard-test@example.test"], repo);
+  runCommand("jj", ["config", "set", "--repo", "signing.behavior", "drop"], repo);
+  runCommand("jj", ["config", "set", "--repo", "git.sign-on-push", "false"], repo);
 }
 
 test("git-worktree engine publishes branches to a local bare remote", () => {
@@ -119,6 +135,7 @@ test("jj engine publishes bookmarks to a local bare remote", () => {
     runCommand("git", ["init", "--bare", remote], repo);
     runCommand("git", ["remote", "add", "origin", remote], repo);
     runCommand("jj", ["git", "init", "--colocate"], repo);
+    configureTestJjIdentity(repo);
 
     const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
     const metadata: WorkspaceMetadata = {
@@ -148,8 +165,7 @@ test("doctor detects workspace branch collisions and dirty workspace state", () 
   const repo = createTempRepo();
   try {
     runCommand("git", ["init", "-b", "main"], repo);
-    runCommand("git", ["config", "user.email", "changeyard@example.test"], repo);
-    runCommand("git", ["config", "user.name", "Changeyard Test"], repo);
+    configureTestGitIdentity(repo);
     writeFileSync(path.join(repo, "README.md"), "# repo\n");
     runCommand("git", ["add", "README.md"], repo);
     runCommand("git", ["commit", "-m", "initial"], repo);
