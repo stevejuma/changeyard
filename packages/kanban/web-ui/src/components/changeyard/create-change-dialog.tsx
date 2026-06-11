@@ -5,7 +5,7 @@ import { Dialog, DialogBody, DialogFooter, DialogHeader } from "@/components/ui/
 import { NativeSelect } from "@/components/ui/native-select";
 
 type CreateChangeInput = {
-	template: "feature" | "bug" | "refactor" | "agent-task";
+	template: "feature" | "bug" | "refactor" | "agent-task" | "quick";
 	title: string;
 	priority?: string;
 	labels?: string[];
@@ -69,6 +69,7 @@ export function CreateChangeDialog({
 								<option value="bug">Bug</option>
 								<option value="refactor">Refactor</option>
 								<option value="agent-task">Agent Task</option>
+								<option value="quick">Quick Change</option>
 							</NativeSelect>
 						</label>
 						<label className="grid gap-1.5">

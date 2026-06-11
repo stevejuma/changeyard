@@ -476,6 +476,15 @@ export type RuntimeChangeyardChangeUpdatePlanningSectionRequest = z.infer<
 	typeof runtimeChangeyardChangeUpdatePlanningSectionRequestSchema
 >;
 
+export const runtimeChangeyardChangeUpdateBodyRequestSchema = z.object({
+	id: z.string(),
+	body: z.string(),
+	expectedUpdatedAt: z.string().nullable().optional(),
+});
+export type RuntimeChangeyardChangeUpdateBodyRequest = z.infer<
+	typeof runtimeChangeyardChangeUpdateBodyRequestSchema
+>;
+
 export const runtimeChangeyardChangeDetailSchema = runtimeChangeyardChangeListItemSchema.extend({
 	body: z.string(),
 	sections: z.array(runtimeChangeyardPlanningSectionSchema),

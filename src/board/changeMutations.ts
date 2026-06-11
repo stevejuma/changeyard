@@ -27,6 +27,11 @@ export type UpdatePlanningSectionInput = {
   expectedUpdatedAt?: string | null;
 };
 
+export type UpdateChangeBodyInput = {
+  body: string;
+  expectedUpdatedAt?: string | null;
+};
+
 export class ChangeMutationConflictError extends Error {
   readonly currentUpdatedAt: string | null;
 
@@ -166,6 +171,28 @@ export function updatePlanningSection(repoRoot: string, id: string, input: Updat
         updatedAt: nowIso(),
       },
       body: replaceMarkedSection(body, input.sectionId, input.content),
+    };
+  });
+
+  return result.filePath;
+}
+
+export function updateChangeBody(repoRoot: string, id: string, input: UpdateChangeBodyInput): string {
+  const result = mutateChangeFrontmatter(repoRoot, id, ({ frontmatter }) => {
+    const currentUpdatedAt = typeof frontmatter.updatedAt === "string" ? frontmatter.updatedAt : null;
+    if (input.expectedUpdatedAt !== undefined && input.expectedUpdatedAt !== currentUpdatedAt) {
+      throw new ChangeMutationConflictError(
+        `Change ${id} was updated elsewhere. Reload the latest markdown and retry your edit.`,
+        currentUpdatedAt,
+      );
+    }
+
+    return {
+      frontmatter: {
+        ...frontmatter,
+        updatedAt: nowIso(),
+      },
+      body: input.body,
     };
   });
 

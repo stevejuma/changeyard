@@ -58,12 +58,21 @@ See [docs/planning-profiles.md](docs/planning-profiles.md) for the current plann
 npm install
 npm run build
 npm run pack:check
+npm run cy:install
 npm link
 ```
 
 Changeyard now requires Node.js 22 or newer.
 
-After linking, both command names are available:
+`npm run cy:install` installs `cy` and `changeyard` into `~/.local/bin` by default using the existing safe installer. Remove them again with:
+
+```bash
+npm run cy:uninstall
+```
+
+`npm link` remains available as an alternative development flow.
+
+After installing or linking, both command names are available:
 
 ```bash
 changeyard init
