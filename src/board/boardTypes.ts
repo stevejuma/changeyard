@@ -30,6 +30,11 @@ export type ChangeyardWorkspaceInfo = {
   };
 };
 
+export type ChangeyardDependencyInfo = {
+  blockedBy: string[];
+  blocks: string[];
+};
+
 export type ChangeyardCard = {
   id: string;
   title: string;
@@ -47,6 +52,7 @@ export type ChangeyardCard = {
   workspace?: ChangeyardWorkspaceInfo;
   provider?: ChangeyardProviderInfo;
   planning?: ChangeSummary["planning"];
+  dependencies: ChangeyardDependencyInfo;
 };
 
 export type ChangeyardCardDetail = ChangeyardCard & {

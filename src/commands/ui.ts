@@ -96,6 +96,7 @@ export function createChangeyardUiApi() {
       labels: change.labels,
       updatedAt: change.updatedAt,
       planning: change.planning ?? null,
+      dependencies: change.dependencies,
       remote: change.provider
         ? {
             provider: change.provider.type,
@@ -249,6 +250,12 @@ export function createChangeyardUiApi() {
       return toChangeDetail(createChangeyardBoardService(repoRoot).updateChangeStatus(input.id, {
         status: input.status,
       }));
+    },
+    linkChange(repoRoot: string, input: { changeId: string; blockedByChangeId: string }) {
+      return toChangeDetail(createChangeyardBoardService(repoRoot).linkCard(input.changeId, input.blockedByChangeId));
+    },
+    unlinkChange(repoRoot: string, input: { changeId: string; blockedByChangeId: string }) {
+      return toChangeDetail(createChangeyardBoardService(repoRoot).unlinkCard(input.changeId, input.blockedByChangeId));
     },
     initProject(repoRoot: string) {
       return { message: runInit(repoRoot) };

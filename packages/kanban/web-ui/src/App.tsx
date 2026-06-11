@@ -787,6 +787,82 @@ export default function App(): ReactElement {
 		],
 	);
 
+	const handleLinkChange = useCallback(
+		async (changeId: string, blockedByChangeId: string) => {
+			if (!currentProjectId) {
+				return;
+			}
+			setIsChangeActionPending(true);
+			setChangeActionError(null);
+			try {
+				const nextDetail = await getRuntimeTrpcClient(currentProjectId).changes.link.mutate({
+					changeId,
+					blockedByChangeId,
+				});
+				setSelectedChangeId(nextDetail.id);
+				setSelectedChangeDetail(nextDetail);
+				await refetchChangeyardChanges();
+				await refetchSelectedChangeDetail();
+				showAppToast({
+					intent: "success",
+					icon: "tick",
+					message: `${changeId} now depends on ${blockedByChangeId}`,
+					timeout: 4000,
+				});
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				setChangeActionError(message);
+				showAppToast({
+					intent: "warning",
+					icon: "warning-sign",
+					message,
+					timeout: 5000,
+				});
+			} finally {
+				setIsChangeActionPending(false);
+			}
+		},
+		[currentProjectId, refetchChangeyardChanges, refetchSelectedChangeDetail, setSelectedChangeDetail],
+	);
+
+	const handleUnlinkChange = useCallback(
+		async (changeId: string, blockedByChangeId: string) => {
+			if (!currentProjectId) {
+				return;
+			}
+			setIsChangeActionPending(true);
+			setChangeActionError(null);
+			try {
+				const nextDetail = await getRuntimeTrpcClient(currentProjectId).changes.unlink.mutate({
+					changeId,
+					blockedByChangeId,
+				});
+				setSelectedChangeId(nextDetail.id);
+				setSelectedChangeDetail(nextDetail);
+				await refetchChangeyardChanges();
+				await refetchSelectedChangeDetail();
+				showAppToast({
+					intent: "success",
+					icon: "tick",
+					message: `Removed dependency ${changeId} -> ${blockedByChangeId}`,
+					timeout: 4000,
+				});
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				setChangeActionError(message);
+				showAppToast({
+					intent: "warning",
+					icon: "warning-sign",
+					message,
+					timeout: 5000,
+				});
+			} finally {
+				setIsChangeActionPending(false);
+			}
+		},
+		[currentProjectId, refetchChangeyardChanges, refetchSelectedChangeDetail, setSelectedChangeDetail],
+	);
+
 	const handleSaveChangeBody = useCallback(
 		async (input: {
 			changeId: string;
@@ -1279,6 +1355,12 @@ export default function App(): ReactElement {
 												}}
 												onMoveChange={(changeId, targetColumnId) => {
 													void handleMoveChange(changeId, targetColumnId);
+												}}
+												onLinkChange={(changeId, blockedByChangeId) => {
+													void handleLinkChange(changeId, blockedByChangeId);
+												}}
+												onUnlinkChange={(changeId, blockedByChangeId) => {
+													void handleUnlinkChange(changeId, blockedByChangeId);
 												}}
 											/>
 										)}

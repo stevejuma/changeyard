@@ -17,7 +17,7 @@ import { useDependencyLinking } from "@/components/dependencies/use-dependency-l
 import type { RuntimeTaskSessionSummary } from "@/runtime/types";
 import { canCreateTaskDependency } from "@/state/board-state";
 import { findCardColumnId, type ProgrammaticCardMoveInFlight } from "@/state/drag-rules";
-import type { BoardCard, BoardColumnId, BoardData, BoardDependency } from "@/types";
+import type { BoardCard, BoardColumnId, BoardData, BoardDependency, DependencyEdge, DependencyNodeId } from "@/types";
 
 const BOARD_COLUMN_ORDER: BoardColumnId[] = ["backlog", "in_progress", "review", "trash"];
 
@@ -93,9 +93,25 @@ export function KanbanBoard({
 	const [programmaticCardMoveInFlight, setProgrammaticCardMoveInFlight] =
 		useState<ProgrammaticCardMoveInFlight | null>(null);
 	const dependencyLinking = useDependencyLinking({
-		canLinkTasks: (fromTaskId, toTaskId) => canCreateTaskDependency(data, fromTaskId, toTaskId),
-		onCreateDependency,
+		canLinkNodes: (fromNodeId, toNodeId) => {
+			if (!fromNodeId.startsWith("task:") || !toNodeId.startsWith("task:")) {
+				return false;
+			}
+			return canCreateTaskDependency(data, fromNodeId.slice(5), toNodeId.slice(5));
+		},
+		onCreateDependency: (fromNodeId, toNodeId) => {
+			if (!fromNodeId.startsWith("task:") || !toNodeId.startsWith("task:")) {
+				return;
+			}
+			onCreateDependency?.(fromNodeId.slice(5), toNodeId.slice(5));
+		},
 	});
+	const dependencyEdges: DependencyEdge[] = dependencies.map((dependency) => ({
+		id: dependency.id,
+		fromNodeId: `task:${dependency.fromTaskId}` as DependencyNodeId,
+		toNodeId: `task:${dependency.toTaskId}` as DependencyNodeId,
+		createdAt: dependency.createdAt,
+	}));
 
 	useEffect(() => {
 		latestDataRef.current = data;
@@ -406,8 +422,8 @@ export function KanbanBoard({
 						programmaticCardMoveInFlight={programmaticCardMoveInFlight}
 						onDependencyPointerDown={dependencyLinking.onDependencyPointerDown}
 						onDependencyPointerEnter={dependencyLinking.onDependencyPointerEnter}
-						dependencySourceTaskId={dependencyLinking.draft?.sourceTaskId ?? null}
-						dependencyTargetTaskId={dependencyLinking.draft?.targetTaskId ?? null}
+						dependencySourceTaskId={dependencyLinking.draft?.sourceNodeId?.slice(5) ?? null}
+						dependencyTargetTaskId={dependencyLinking.draft?.targetNodeId?.slice(5) ?? null}
 						isDependencyLinking={dependencyLinking.draft !== null}
 						workspacePath={workspacePath}
 						defaultClineModelId={defaultClineModelId}
@@ -420,10 +436,14 @@ export function KanbanBoard({
 				))}
 				<DependencyOverlay
 					containerRef={boardRef}
-					dependencies={dependencies}
+					dependencies={dependencyEdges}
 					draft={dependencyLinking.draft}
-					activeTaskId={activeDragTaskId ?? programmaticCardMoveInFlight?.taskId ?? null}
-					activeTaskEffectiveColumnId={activeTaskEffectiveColumnId}
+					activeNodeId={(() => {
+						const activeTaskId = activeDragTaskId ?? programmaticCardMoveInFlight?.taskId ?? null;
+						return activeTaskId ? (`task:${activeTaskId}` as DependencyNodeId) : null;
+					})()}
+					activeNodeEffectiveColumnId={activeTaskEffectiveColumnId}
+					columnOrder={BOARD_COLUMN_ORDER}
 					isMotionActive={activeDragTaskId !== null || programmaticCardMoveInFlight !== null}
 					onDeleteDependency={onDeleteDependency}
 				/>

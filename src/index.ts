@@ -23,7 +23,9 @@ export { parseFrontmatter, writeFrontmatter } from "./documents/frontmatter.js";
 export { assertTransition } from "./state/transitions.js";
 export {
   ChangeMutationConflictError,
+  linkChanges,
   mutateChangeFrontmatter,
+  unlinkChanges,
   updateCardMetadata,
   updateCardSection,
   updatePlanningSection,

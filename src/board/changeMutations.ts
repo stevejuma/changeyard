@@ -1,4 +1,4 @@
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { loadConfig } from "../config/loadConfig.js";
 import { parseFrontmatter, writeFrontmatter } from "../documents/frontmatter.js";
@@ -9,6 +9,7 @@ import type { PlanningSectionId } from "../planning/types.js";
 import { findChangeFile } from "../state/id.js";
 import { assertTransition } from "../state/transitions.js";
 import type { ChangeStatus, Frontmatter } from "../types.js";
+import { asFrontmatterRecord, assertNoDependencyCycle, parseChangeLinks } from "./changeDependencies.js";
 
 type ParsedChangeMutation = {
   frontmatter?: Frontmatter;
@@ -35,6 +36,24 @@ export type UpdateChangeBodyInput = {
 export type UpdateChangeStatusInput = {
   status: ChangeStatus;
 };
+
+function listChangeDependencies(repoRoot: string): Map<string, string[]> {
+  const config = loadConfig(repoRoot);
+  const root = changesRoot(repoRoot, config);
+  const idsToDependencies = new Map<string, string[]>();
+
+  if (!existsSync(root)) return idsToDependencies;
+
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
+    const filePath = path.join(root, entry.name);
+    const parsed = parseFrontmatter(readFileSync(filePath, "utf8"));
+    const id = String(parsed.frontmatter.id ?? path.basename(entry.name, ".md"));
+    idsToDependencies.set(id, parseChangeLinks(parsed.frontmatter).blockedBy);
+  }
+
+  return idsToDependencies;
+}
 
 export class ChangeMutationConflictError extends Error {
   readonly currentUpdatedAt: string | null;
@@ -212,6 +231,77 @@ export function updateChangeStatus(repoRoot: string, id: string, input: UpdateCh
     },
     body,
   }));
+
+  return result.filePath;
+}
+
+export function linkChanges(repoRoot: string, id: string, blockedByChangeId: string): string {
+  const targetId = blockedByChangeId.trim();
+  if (!targetId) throw new Error("blockedByChangeId is required");
+  if (id === targetId) throw new Error(`Change ${id} cannot depend on itself.`);
+
+  const dependencies = listChangeDependencies(repoRoot);
+  if (!dependencies.has(id)) throw new Error(`Change not found: ${id}`);
+  if (!dependencies.has(targetId)) throw new Error(`Linked change not found: ${targetId}`);
+
+  const currentBlockedBy = dependencies.get(id) ?? [];
+  if (currentBlockedBy.includes(targetId)) {
+    throw new Error(`Change ${id} is already blocked by ${targetId}.`);
+  }
+
+  dependencies.set(id, [...currentBlockedBy, targetId]);
+  assertNoDependencyCycle(dependencies, id, targetId);
+
+  const result = mutateChangeFrontmatter(repoRoot, id, ({ frontmatter, body }) => {
+    const nextFrontmatter = { ...frontmatter };
+    const currentLinks = asFrontmatterRecord(frontmatter.links);
+    const nextBlockedBy = [...parseChangeLinks(frontmatter).blockedBy, targetId];
+    nextFrontmatter.links = {
+      ...currentLinks,
+      blockedBy: nextBlockedBy,
+    };
+    nextFrontmatter.updatedAt = nowIso();
+    return {
+      frontmatter: nextFrontmatter,
+      body,
+    };
+  });
+
+  return result.filePath;
+}
+
+export function unlinkChanges(repoRoot: string, id: string, blockedByChangeId: string): string {
+  const targetId = blockedByChangeId.trim();
+  if (!targetId) throw new Error("blockedByChangeId is required");
+
+  const result = mutateChangeFrontmatter(repoRoot, id, ({ frontmatter, body }) => {
+    const current = parseChangeLinks(frontmatter).blockedBy;
+    if (!current.includes(targetId)) {
+      throw new Error(`Change ${id} is not blocked by ${targetId}.`);
+    }
+
+    const nextFrontmatter = { ...frontmatter };
+    const currentLinks = asFrontmatterRecord(frontmatter.links);
+    const nextBlockedBy = current.filter((entry) => entry !== targetId);
+
+    if (nextBlockedBy.length > 0) {
+      nextFrontmatter.links = {
+        ...currentLinks,
+        blockedBy: nextBlockedBy,
+      };
+    } else {
+      const nextLinks = { ...currentLinks };
+      delete nextLinks.blockedBy;
+      if (Object.keys(nextLinks).length > 0) nextFrontmatter.links = nextLinks;
+      else delete nextFrontmatter.links;
+    }
+
+    nextFrontmatter.updatedAt = nowIso();
+    return {
+      frontmatter: nextFrontmatter,
+      body,
+    };
+  });
 
   return result.filePath;
 }

@@ -64,6 +64,16 @@ export interface BoardDependency {
 	createdAt: number;
 }
 
+export type DependencyNodeKind = "task" | "change";
+export type DependencyNodeId = `${DependencyNodeKind}:${string}`;
+
+export interface DependencyEdge {
+	id: string;
+	fromNodeId: DependencyNodeId;
+	toNodeId: DependencyNodeId;
+	createdAt: number;
+}
+
 export interface BoardData {
 	columns: BoardColumn[];
 	dependencies: BoardDependency[];

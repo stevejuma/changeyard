@@ -18,7 +18,7 @@ import { StatusChip } from "@/components/ui/status-chip";
 import { Tooltip } from "@/components/ui/tooltip";
 import type { RuntimeTaskSessionSummary } from "@/runtime/types";
 import { useTaskWorkspaceSnapshotValue } from "@/stores/workspace-metadata-store";
-import type { BoardCard as BoardCardModel, BoardColumnId } from "@/types";
+import type { BoardCard as BoardCardModel, BoardColumnId, DependencyNodeId } from "@/types";
 import { getTaskAutoReviewCancelButtonLabel } from "@/types";
 import { formatPathForDisplay } from "@/utils/path-display";
 import { useMeasure } from "@/utils/react-use";
@@ -253,8 +253,8 @@ export function BoardCard({
 	isCommitLoading?: boolean;
 	isOpenPrLoading?: boolean;
 	isMoveToTrashLoading?: boolean;
-	onDependencyPointerDown?: (taskId: string, event: MouseEvent<HTMLElement>) => void;
-	onDependencyPointerEnter?: (taskId: string) => void;
+	onDependencyPointerDown?: (nodeId: DependencyNodeId, event: MouseEvent<HTMLElement>) => void;
+	onDependencyPointerEnter?: (nodeId: DependencyNodeId) => void;
 	isDependencySource?: boolean;
 	isDependencyTarget?: boolean;
 	isDependencyLinking?: boolean;
@@ -488,6 +488,7 @@ export function BoardCard({
 						{...provided.dragHandleProps}
 						className="kb-board-card-shell"
 						data-task-id={card.id}
+						data-dependency-node-id={`task:${card.id}`}
 						data-column-id={columnId}
 						data-selected={selected}
 						onMouseDownCapture={(event) => {
@@ -508,7 +509,7 @@ export function BoardCard({
 							}
 							event.preventDefault();
 							event.stopPropagation();
-							onDependencyPointerDown?.(card.id, event);
+							onDependencyPointerDown?.(`task:${card.id}`, event);
 						}}
 						onClick={(event) => {
 							if (!isCardInteractive) {
@@ -537,13 +538,13 @@ export function BoardCard({
 						}}
 						onMouseEnter={() => {
 							setIsHovered(true);
-							onDependencyPointerEnter?.(card.id);
+							onDependencyPointerEnter?.(`task:${card.id}`);
 						}}
 						onMouseMove={() => {
 							if (!isDependencyLinking) {
 								return;
 							}
-							onDependencyPointerEnter?.(card.id);
+							onDependencyPointerEnter?.(`task:${card.id}`);
 						}}
 						onMouseLeave={() => setIsHovered(false)}
 					>

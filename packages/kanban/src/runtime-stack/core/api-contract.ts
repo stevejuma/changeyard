@@ -438,6 +438,12 @@ export const runtimeChangeyardRemoteSummarySchema = z.object({
 });
 export type RuntimeChangeyardRemoteSummary = z.infer<typeof runtimeChangeyardRemoteSummarySchema>;
 
+export const runtimeChangeyardChangeDependencySchema = z.object({
+	blockedBy: z.array(z.string()).default([]),
+	blocks: z.array(z.string()).default([]),
+});
+export type RuntimeChangeyardChangeDependency = z.infer<typeof runtimeChangeyardChangeDependencySchema>;
+
 export const runtimeChangeyardChangeListItemSchema = z.object({
 	id: z.string(),
 	title: z.string(),
@@ -448,6 +454,7 @@ export const runtimeChangeyardChangeListItemSchema = z.object({
 	labels: z.array(z.string()).default([]),
 	updatedAt: z.string().optional(),
 	planning: runtimeChangeyardPlanningSummarySchema.nullable(),
+	dependencies: runtimeChangeyardChangeDependencySchema,
 	remote: runtimeChangeyardRemoteSummarySchema.optional(),
 	workspace: runtimeChangeyardWorkspaceSummarySchema.optional(),
 });
@@ -512,6 +519,14 @@ export const runtimeChangeyardChangeUpdateStatusRequestSchema = z.object({
 });
 export type RuntimeChangeyardChangeUpdateStatusRequest = z.infer<
 	typeof runtimeChangeyardChangeUpdateStatusRequestSchema
+>;
+
+export const runtimeChangeyardChangeDependencyRequestSchema = z.object({
+	changeId: z.string(),
+	blockedByChangeId: z.string(),
+});
+export type RuntimeChangeyardChangeDependencyRequest = z.infer<
+	typeof runtimeChangeyardChangeDependencyRequestSchema
 >;
 
 export const runtimeChangeyardChangeDetailSchema = runtimeChangeyardChangeListItemSchema.extend({

@@ -12,6 +12,7 @@ import type {
 	RuntimeChangeyardChangeActionResponse,
 	RuntimeChangeyardCompleteRequest,
 	RuntimeChangeyardChangeCreateRequest,
+	RuntimeChangeyardChangeDependencyRequest,
 	RuntimeChangeyardChangeGetRequest,
 	RuntimeChangeyardChangeUpdateStatusRequest,
 	RuntimeChangeyardChangeUpdateBodyRequest,
@@ -87,6 +88,14 @@ export interface RuntimeChangeyardApiAdapter {
 		repoRoot: string,
 		input: RuntimeChangeyardChangeUpdateStatusRequest,
 	) => Promise<RuntimeChangeyardChangeDetail> | RuntimeChangeyardChangeDetail;
+	linkChange: (
+		repoRoot: string,
+		input: RuntimeChangeyardChangeDependencyRequest,
+	) => Promise<RuntimeChangeyardChangeDetail> | RuntimeChangeyardChangeDetail;
+	unlinkChange: (
+		repoRoot: string,
+		input: RuntimeChangeyardChangeDependencyRequest,
+	) => Promise<RuntimeChangeyardChangeDetail> | RuntimeChangeyardChangeDetail;
 	updateChangeBody: (
 		repoRoot: string,
 		input: RuntimeChangeyardChangeUpdateBodyRequest,
@@ -126,6 +135,14 @@ export interface RuntimeTrpcChangesApi {
 	updateChangeStatus: (
 		workspacePath: string,
 		input: RuntimeChangeyardChangeUpdateStatusRequest,
+	) => Promise<RuntimeChangeyardChangeDetail>;
+	linkChange: (
+		workspacePath: string,
+		input: RuntimeChangeyardChangeDependencyRequest,
+	) => Promise<RuntimeChangeyardChangeDetail>;
+	unlinkChange: (
+		workspacePath: string,
+		input: RuntimeChangeyardChangeDependencyRequest,
 	) => Promise<RuntimeChangeyardChangeDetail>;
 	updateChangeBody: (
 		workspacePath: string,
@@ -302,6 +319,18 @@ export function createChangesApi(deps: {
 				throw new Error("Changeyard status updates are not available in this runtime.");
 			}
 			return await deps.changeyardApi.updateChangeStatus(workspacePath, input);
+		},
+		linkChange: async (workspacePath, input) => {
+			if (!deps.changeyardApi) {
+				throw new Error("Changeyard dependency linking is not available in this runtime.");
+			}
+			return await deps.changeyardApi.linkChange(workspacePath, input);
+		},
+		unlinkChange: async (workspacePath, input) => {
+			if (!deps.changeyardApi) {
+				throw new Error("Changeyard dependency unlinking is not available in this runtime.");
+			}
+			return await deps.changeyardApi.unlinkChange(workspacePath, input);
 		},
 		updateChangeBody: async (workspacePath, input) => {
 			if (!deps.changeyardApi) {
