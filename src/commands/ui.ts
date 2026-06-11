@@ -17,6 +17,7 @@ import { isChangeyardInitialized, updateLocalConfig } from "../config/localConfi
 import { runInit } from "./init.js";
 import { runUpdate } from "./update.js";
 import { doctorReport } from "./doctor.js";
+import { installCliShutdownHandlers } from "./gracefulShutdown.js";
 import { DEFAULT_PLANNING_SECTION_ORDER, STRICT_PLANNING_SECTION_ORDER, type PlanningSectionId } from "../planning/types.js";
 import { findChangeFile } from "../state/id.js";
 import { importKanbanServer, resolveUiServerModuleUrl as resolveRuntimeUrl } from "../dev/runtime.js";
@@ -228,6 +229,16 @@ export function createChangeyardUiApi() {
         expectedUpdatedAt: input.expectedUpdatedAt,
       }));
     },
+    updateChangeBody(repoRoot: string, input: {
+      id: string;
+      body: string;
+      expectedUpdatedAt?: string | null;
+    }) {
+      return toChangeDetail(createChangeyardBoardService(repoRoot).updateChangeBody(input.id, {
+        body: input.body,
+        expectedUpdatedAt: input.expectedUpdatedAt,
+      }));
+    },
     initProject(repoRoot: string) {
       return { message: runInit(repoRoot) };
     },
@@ -317,28 +328,18 @@ export async function runUi(options: UiOptions = {}, cwd = process.cwd()): Promi
     changeyardApi: createChangeyardUiApi(),
   });
   const runtimeProcess = process as typeof process & {
-    once: (event: string, listener: () => void) => void;
     stderr: { write: (text: string) => void };
-    exit: (code?: number) => never;
   };
-
-  let shuttingDown = false;
-  const shutdown = (signal: string) => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    void server.close()
-      .catch((error) => {
-        const message = error instanceof Error ? error.message : String(error);
-        runtimeProcess.stderr.write(`Failed to shut down Changeyard UI cleanly after ${signal}: ${message}\n`);
-        runtimeProcess.exitCode = 1;
-      })
-      .finally(() => {
-        runtimeProcess.exit();
-      });
-  };
-
-  runtimeProcess.once("SIGINT", () => shutdown("SIGINT"));
-  runtimeProcess.once("SIGTERM", () => shutdown("SIGTERM"));
+  installCliShutdownHandlers({
+    close: () => server.close(),
+    onError: (signal, error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      runtimeProcess.stderr.write(`Failed to shut down Changeyard UI cleanly after ${signal}: ${message}\n`);
+    },
+    onTimeout: (signal) => {
+      runtimeProcess.stderr.write(`Timed out shutting down Changeyard UI after ${signal ?? "shutdown"}.\n`);
+    },
+  });
 
   return `Changeyard UI running at ${server.url}`;
 }

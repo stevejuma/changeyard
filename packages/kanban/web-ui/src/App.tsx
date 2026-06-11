@@ -8,9 +8,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AddProjectDialog } from "@/components/add-project-dialog";
 import { notifyError, showAppToast } from "@/components/app-toaster";
 import { CardDetailView } from "@/components/card-detail-view";
+import { ChangeBoard } from "@/components/changeyard/change-board";
+import { ChangeDetailDialog, type ChangeDetailAction } from "@/components/changeyard/change-detail-dialog";
 import { CreateChangeDialog } from "@/components/changeyard/create-change-dialog";
-import { ChangeDetailPlanningPanel } from "@/components/changeyard/change-detail-planning-panel";
-import { ChangeStrip } from "@/components/changeyard/change-strip";
 import { ClearTrashDialog } from "@/components/clear-trash-dialog";
 import { DebugDialog } from "@/components/debug-dialog";
 import { AgentTerminalPanel } from "@/components/detail-panels/agent-terminal-panel";
@@ -69,7 +69,6 @@ import {
 	selectTaskChatMessagesForTask,
 } from "@/runtime/native-agent";
 import type {
-	RuntimeChangeyardPlanningSectionId,
 	RuntimeClineReasoningEffort,
 	RuntimeTaskSessionSummary,
 } from "@/runtime/types";
@@ -103,7 +102,6 @@ export default function App(): ReactElement {
 	const [selectedChangeId, setSelectedChangeId] = useState<string | null>(null);
 	const [isChangeActionPending, setIsChangeActionPending] = useState(false);
 	const [changeActionError, setChangeActionError] = useState<string | null>(null);
-	const [savingPlanningSectionId, setSavingPlanningSectionId] = useState<RuntimeChangeyardPlanningSectionId | null>(null);
 	const [pendingTaskStartAfterEditId, setPendingTaskStartAfterEditId] = useState<string | null>(null);
 	const taskEditorResetRef = useRef<() => void>(() => {});
 	const lastStreamErrorRef = useRef<string | null>(null);
@@ -544,7 +542,6 @@ export default function App(): ReactElement {
 		setIsClearTrashDialogOpen(false);
 		setSelectedChangeId(null);
 		setChangeActionError(null);
-		setSavingPlanningSectionId(null);
 		resetGitActionState();
 		resetProjectNavigationState();
 		resetTerminalPanelsState();
@@ -568,7 +565,7 @@ export default function App(): ReactElement {
 
 	const handleCreateChange = useCallback(
 		async (input: {
-			template: "feature" | "bug" | "refactor" | "agent-task";
+			template: "feature" | "bug" | "refactor" | "agent-task" | "quick";
 			title: string;
 			priority?: string;
 			labels?: string[];
@@ -602,7 +599,7 @@ export default function App(): ReactElement {
 	);
 
 	const runChangeAction = useCallback(
-		async (action: "validate" | "sync" | "start", changeId: string) => {
+		async (action: ChangeDetailAction, changeId: string) => {
 			if (!currentProjectId) {
 				return;
 			}
@@ -610,12 +607,55 @@ export default function App(): ReactElement {
 			setChangeActionError(null);
 			try {
 				const client = getRuntimeTrpcClient(currentProjectId);
-				const nextDetail =
-					action === "validate"
-						? await client.changes.validate.mutate({ id: changeId })
-						: action === "sync"
-							? await client.changes.sync.mutate({ id: changeId })
-							: await client.changes.start.mutate({ id: changeId });
+				let nextDetail;
+				let successMessage = "";
+				switch (action) {
+					case "validate":
+						nextDetail = await client.changes.validate.mutate({ id: changeId });
+						successMessage = `Validated ${changeId}`;
+						break;
+					case "sync":
+						nextDetail = await client.changes.sync.mutate({ id: changeId });
+						successMessage = `Synced ${changeId}`;
+						break;
+					case "start":
+						nextDetail = await client.changes.start.mutate({ id: changeId });
+						successMessage = `Started ${changeId}`;
+						break;
+					case "verify": {
+						const response = await client.changes.verify.mutate({ id: changeId });
+						nextDetail = response.change;
+						successMessage = response.message;
+						break;
+					}
+					case "complete": {
+						const response = await client.changes.complete.mutate({ id: changeId, noPr: true });
+						nextDetail = response.change;
+						successMessage = response.message;
+						break;
+					}
+					case "reviewStart": {
+						const response = await client.changes.reviewStart.mutate({ id: changeId });
+						nextDetail = response.change;
+						successMessage = response.message;
+						break;
+					}
+					case "approve": {
+						const response = await client.changes.reviewComplete.mutate({ id: changeId, decision: "approve" });
+						nextDetail = response.change;
+						successMessage = response.message;
+						break;
+					}
+					case "requestChanges": {
+						const response = await client.changes.reviewComplete.mutate({
+							id: changeId,
+							decision: "request-changes",
+						});
+						nextDetail = response.change;
+						successMessage = response.message;
+						break;
+					}
+				}
 				setSelectedChangeId(nextDetail.id);
 				setSelectedChangeDetail(nextDetail);
 				await refetchChangeyardChanges();
@@ -623,12 +663,7 @@ export default function App(): ReactElement {
 				showAppToast({
 					intent: "success",
 					icon: "tick",
-					message:
-						action === "validate"
-							? `Validated ${nextDetail.id}`
-							: action === "sync"
-								? `Synced ${nextDetail.id}`
-								: `Started ${nextDetail.id}`,
+					message: successMessage,
 					timeout: 4000,
 				});
 			} catch (error) {
@@ -640,24 +675,21 @@ export default function App(): ReactElement {
 		[currentProjectId, refetchChangeyardChanges, refetchSelectedChangeDetail, setSelectedChangeDetail],
 	);
 
-	const handleSavePlanningSection = useCallback(
+	const handleSaveChangeBody = useCallback(
 		async (input: {
 			changeId: string;
-			sectionId: RuntimeChangeyardPlanningSectionId;
-			content: string;
+			body: string;
 			expectedUpdatedAt?: string | null;
 		}) => {
 			if (!currentProjectId) {
 				return;
 			}
 			setIsChangeActionPending(true);
-			setSavingPlanningSectionId(input.sectionId);
 			setChangeActionError(null);
 			try {
-				const nextDetail = await getRuntimeTrpcClient(currentProjectId).changes.updatePlanningSection.mutate({
+				const nextDetail = await getRuntimeTrpcClient(currentProjectId).changes.updateBody.mutate({
 					id: input.changeId,
-					sectionId: input.sectionId,
-					content: input.content,
+					body: input.body,
 					expectedUpdatedAt: input.expectedUpdatedAt ?? null,
 				});
 				setSelectedChangeId(nextDetail.id);
@@ -667,28 +699,27 @@ export default function App(): ReactElement {
 				showAppToast({
 					intent: "success",
 					icon: "tick",
-					message: `Saved ${input.sectionId} for ${nextDetail.id}`,
+					message: `Saved markdown for ${nextDetail.id}`,
 					timeout: 4000,
 				});
 			} catch (error) {
 				const conflictUpdatedAt = readTrpcConflictUpdatedAt(error);
 				if (conflictUpdatedAt !== null) {
 					setChangeActionError(
-						"Planning content changed elsewhere. Reloaded the latest section content; reapply your edit if still needed.",
+						"Change markdown changed elsewhere. Reloaded the latest content; reapply your edit if still needed.",
 					);
 					await refetchChangeyardChanges();
 					await refetchSelectedChangeDetail();
 					showAppToast({
 						intent: "warning",
 						icon: "warning-sign",
-						message: `Planning content changed elsewhere at ${conflictUpdatedAt}. Latest content has been reloaded.`,
+						message: `Change markdown changed elsewhere at ${conflictUpdatedAt}. Latest content has been reloaded.`,
 						timeout: 5000,
 					});
 				} else {
 					setChangeActionError(error instanceof Error ? error.message : String(error));
 				}
 			} finally {
-				setSavingPlanningSectionId(null);
 				setIsChangeActionPending(false);
 			}
 		},
@@ -1085,37 +1116,18 @@ export default function App(): ReactElement {
 								</div>
 							) : (
 								<div className="flex flex-1 flex-col min-h-0 min-w-0">
-									<ChangeStrip
+									<ChangeBoard
 										changes={changeyardChanges}
 										selectedChangeId={selectedChangeId}
 										isLoading={isChangeyardChangesLoading}
 										onSelectChange={(changeId) => {
 											setChangeActionError(null);
-											setSelectedChangeId((current) => (current === changeId ? null : changeId));
+											setSelectedChangeId(changeId);
 										}}
 										onCreateChange={() => {
 											setChangeActionError(null);
 											setIsCreateChangeDialogOpen(true);
 										}}
-									/>
-									<ChangeDetailPlanningPanel
-										change={selectedCard || !selectedChangeId ? null : selectedChangeDetail}
-										onClose={() => setSelectedChangeId(null)}
-										isActionPending={isChangeActionPending}
-										actionError={changeActionError}
-										onValidate={(changeId) => {
-											void runChangeAction("validate", changeId);
-										}}
-										onSync={(changeId) => {
-											void runChangeAction("sync", changeId);
-										}}
-										onStart={(changeId) => {
-											void runChangeAction("start", changeId);
-										}}
-										onSaveSection={(input) => {
-											void handleSavePlanningSection(input);
-										}}
-										savingSectionId={savingPlanningSectionId}
 									/>
 									<div className="flex flex-1 min-h-0 min-w-0">
 										{isGitHistoryOpen ? (
@@ -1314,6 +1326,23 @@ export default function App(): ReactElement {
 					error={changeActionError}
 					onOpenChange={setIsCreateChangeDialogOpen}
 					onCreate={handleCreateChange}
+				/>
+				<ChangeDetailDialog
+					change={selectedCard || !selectedChangeId ? null : selectedChangeDetail}
+					open={selectedCard === null && selectedChangeId !== null && selectedChangeDetail !== null}
+					isActionPending={isChangeActionPending}
+					actionError={changeActionError}
+					onOpenChange={(open) => {
+						if (!open) {
+							setSelectedChangeId(null);
+						}
+					}}
+					onRunAction={(action, changeId) => {
+						void runChangeAction(action, changeId);
+					}}
+					onSaveBody={(input) => {
+						void handleSaveChangeBody(input);
+					}}
 				/>
 				<TaskCreateDialog
 					open={isInlineTaskCreateOpen}

@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { findRepoRoot, loadConfig } from "../config/loadConfig.js";
+import { installCliShutdownHandlers } from "./gracefulShutdown.js";
 import { createChangeyardUiApi, importKanbanServerModule, resolveUiServerModuleUrl } from "./ui.js";
 
 export type ServerOptions = {
@@ -42,28 +43,18 @@ export async function startRuntimeServer(options: ServerOptions = {}, cwd = proc
 export async function runServer(options: ServerOptions = {}, cwd = process.cwd()): Promise<string> {
   const server = await startRuntimeServer(options, cwd);
   const runtimeProcess = process as typeof process & {
-    once: (event: string, listener: () => void) => void;
     stderr: { write: (text: string) => void };
-    exit: (code?: number) => never;
   };
-
-  let shuttingDown = false;
-  const shutdown = (signal: string) => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    void server.close()
-      .catch((error) => {
-        const message = error instanceof Error ? error.message : String(error);
-        runtimeProcess.stderr.write(`Failed to shut down Changeyard runtime cleanly after ${signal}: ${message}\n`);
-        runtimeProcess.exitCode = 1;
-      })
-      .finally(() => {
-        runtimeProcess.exit();
-      });
-  };
-
-  runtimeProcess.once("SIGINT", () => shutdown("SIGINT"));
-  runtimeProcess.once("SIGTERM", () => shutdown("SIGTERM"));
+  installCliShutdownHandlers({
+    close: () => server.close(),
+    onError: (signal, error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      runtimeProcess.stderr.write(`Failed to shut down Changeyard runtime cleanly after ${signal}: ${message}\n`);
+    },
+    onTimeout: (signal) => {
+      runtimeProcess.stderr.write(`Timed out shutting down Changeyard runtime after ${signal ?? "shutdown"}.\n`);
+    },
+  });
 
   return `Changeyard runtime running at ${server.url}`;
 }

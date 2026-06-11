@@ -4,6 +4,7 @@
 // should stay in focused services instead of accumulating here.
 
 import { rm } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { TRPCError } from "@trpc/server";
@@ -16,6 +17,7 @@ import type { RuntimeConfigState } from "../config/runtime-config.js";
 import { updateGlobalRuntimeConfig, updateRuntimeConfig } from "../config/runtime-config.js";
 import type {
 	RuntimeCommandRunResponse,
+	RuntimeAgentId,
 	RuntimeRunUpdateResponse,
 	RuntimeUpdateStatusResponse,
 } from "../core/api-contract.js";
@@ -42,6 +44,8 @@ import {
 	parseTaskSessionStopRequest,
 } from "../core/api-validation.js";
 import { isHomeAgentSessionId } from "../core/home-agent-session.js";
+import { buildKanbanCommandParts } from "../core/kanban-command.js";
+import { buildShellCommandLine } from "../core/shell.js";
 import { resolveTaskTitle } from "../core/task-title.js";
 import { openInBrowser } from "../server/browser.js";
 import { buildRuntimeConfigResponse, resolveAgentCommand } from "../terminal/agent-registry.js";
@@ -89,6 +93,39 @@ async function resolveExistingTaskCwdOrEnsure(options: {
 			ensure: true,
 		});
 	}
+}
+
+function resolveAgentHookMarkerPath(agentId: RuntimeAgentId): string {
+	if (agentId === "codex") {
+		const codexHome = process.env.CODEX_HOME?.trim() || join(homedir(), ".codex");
+		return join(codexHome, "prompts", "cy-start.md");
+	}
+
+	switch (agentId) {
+		case "cursor":
+			return ".cursor/commands/cy-start.md";
+		case "claude":
+			return ".claude/commands/cy/start.md";
+		case "cline":
+			return ".clinerules/workflows/cy-start.md";
+		case "copilot":
+			return ".github/prompts/cy-start.prompt.md";
+		case "opencode":
+			return ".opencode/commands/cy-start.md";
+		case "gemini":
+			return ".gemini/commands/cy/start.toml";
+		case "kiro":
+			return ".kiro/prompts/cy-start.prompt.md";
+		case "droid":
+			return ".factory/commands/cy-start.md";
+	}
+
+	return ".changeyard";
+}
+
+function agentHooksInstalled(repoRoot: string, agentId: RuntimeAgentId): boolean {
+	const markerPath = resolveAgentHookMarkerPath(agentId);
+	return existsSync(agentId === "codex" ? markerPath : join(repoRoot, markerPath));
 }
 
 export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrpcContext["runtimeApi"] {
@@ -200,6 +237,22 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					? (terminalManager.getSummary(body.taskId)?.agentId ?? null)
 					: null;
 				const effectiveAgentId = previousTerminalAgentId ?? body.agentId ?? scopedRuntimeConfig.selectedAgentId;
+				if (!agentHooksInstalled(workspaceScope.workspacePath, effectiveAgentId)) {
+					const commandParts = buildKanbanCommandParts(["update", "--tools", effectiveAgentId]);
+					const updateCommand = buildShellCommandLine(
+						commandParts[0] ?? process.execPath,
+						commandParts.slice(1),
+					);
+					const updateResult = await deps.runCommand(updateCommand, workspaceScope.workspacePath);
+					if (updateResult.exitCode !== 0) {
+						const output = [updateResult.stdout, updateResult.stderr].filter(Boolean).join("\n").trim();
+						return {
+							ok: false,
+							summary: null,
+							error: output || `Failed to install Changeyard hooks for ${effectiveAgentId}.`,
+						};
+					}
+				}
 				let useClinePath = effectiveAgentId === "cline";
 				const shouldProbePersistedClineSession =
 					body.resumeFromTrash && !useClinePath && previousTerminalAgentId === null;

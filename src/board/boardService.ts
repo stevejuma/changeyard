@@ -14,9 +14,11 @@ import { findChangeFile } from "../state/id.js";
 import type { Frontmatter, WorkspaceMetadata } from "../types.js";
 import { createWorkspaceEngine } from "../workspace/index.js";
 import {
+  updateChangeBody,
   updateCardMetadata,
   updateCardSection,
   updatePlanningSection,
+  type UpdateChangeBodyInput,
   type UpdateCardMetadataInput,
   type UpdatePlanningSectionInput,
 } from "./changeMutations.js";
@@ -165,6 +167,11 @@ export class ChangeyardBoardService {
 
   updatePlanningSection(id: string, input: UpdatePlanningSectionInput): ChangeyardCardDetail {
     updatePlanningSection(this.repoRoot, id, input);
+    return this.getCard(id);
+  }
+
+  updateChangeBody(id: string, input: UpdateChangeBodyInput): ChangeyardCardDetail {
+    updateChangeBody(this.repoRoot, id, input);
     return this.getCard(id);
   }
 

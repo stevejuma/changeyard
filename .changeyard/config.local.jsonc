@@ -1,5 +1,18 @@
 {
   "provider": {
     "type": "noop"
+  },
+  "vcs": {
+    "engine": "jj",
+    "fallback": "jj"
+  },
+  "project": {
+    "defaultBase": "main"
+  },
+  "planning": {
+    "defaultProfile": "openspec-lite",
+    "defaultStrictness": "normal",
+    "allowQuickChanges": true,
+    "quickChangeCheckProfile": "minimal"
   }
 }

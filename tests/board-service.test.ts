@@ -70,3 +70,46 @@ test("board service surfaces planning summaries on planned changes", () => {
     cleanup(repo);
   }
 });
+
+test("quick changes appear in lifecycle columns like other canonical changes", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "quick", title: "Small change" }, repo);
+    const service = createChangeyardBoardService(repo);
+    const readyColumn = service.getBoard().columns.find((column) => column.id === "ready");
+    assert.ok(readyColumn);
+    if (!readyColumn) throw new Error("Ready column missing");
+    assert.equal(readyColumn.cards.length, 1);
+    assert.equal(readyColumn.cards[0].type, "quick");
+    assert.equal(readyColumn.cards[0].status, "ready");
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("board service updates full change markdown with conflict protection", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "agent-task", title: "Editable change" }, repo);
+    const service = createChangeyardBoardService(repo);
+    const original = service.getCard("CY-0001");
+    const updated = service.updateChangeBody("CY-0001", {
+      body: `${original.body.trimEnd()}\n\nExtra details.\n`,
+      expectedUpdatedAt: original.updatedAt ?? null,
+    });
+    assert.match(updated.body, /Extra details\./);
+
+    assert.throws(
+      () =>
+        service.updateChangeBody("CY-0001", {
+          body: `${updated.body}\nStale edit\n`,
+          expectedUpdatedAt: original.updatedAt ?? null,
+        }),
+      /updated elsewhere/i,
+    );
+  } finally {
+    cleanup(repo);
+  }
+});

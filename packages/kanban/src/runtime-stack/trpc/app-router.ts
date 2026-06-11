@@ -102,6 +102,7 @@ import {
 	runtimeChangeyardCompleteRequestSchema,
 	runtimeChangeyardChangeDetailSchema,
 	runtimeChangeyardChangeGetRequestSchema,
+	runtimeChangeyardChangeUpdateBodyRequestSchema,
 	runtimeChangeyardPlanningPromptRequestSchema,
 	runtimeChangeyardPlanningPromptResponseSchema,
 	runtimeChangeyardReviewCompleteRequestSchema,
@@ -817,6 +818,25 @@ export const runtimeAppRouter = t.router({
 			.mutation(async ({ ctx, input }) => {
 				try {
 					return await ctx.changesApi.updatePlanningSection(ctx.workspaceScope.workspacePath, input);
+				} catch (error) {
+					if (error instanceof Error && error.name === "ChangeMutationConflictError") {
+						throw new TRPCError({
+							code: "CONFLICT",
+							message: error.message,
+							cause: {
+								currentUpdatedAt: readConflictUpdatedAt(error),
+							},
+						});
+					}
+					throw error;
+				}
+			}),
+		updateBody: workspaceProcedure
+			.input(runtimeChangeyardChangeUpdateBodyRequestSchema)
+			.output(runtimeChangeyardChangeDetailSchema)
+			.mutation(async ({ ctx, input }) => {
+				try {
+					return await ctx.changesApi.updateChangeBody(ctx.workspaceScope.workspacePath, input);
 				} catch (error) {
 					if (error instanceof Error && error.name === "ChangeMutationConflictError") {
 						throw new TRPCError({

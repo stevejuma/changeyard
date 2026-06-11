@@ -4,6 +4,7 @@ import type {
 	RuntimeChangeyardCompleteRequest,
 	RuntimeChangeyardChangeCreateRequest,
 	RuntimeChangeyardChangeGetRequest,
+	RuntimeChangeyardChangeUpdateBodyRequest,
 	RuntimeChangeyardPlanningPromptRequest,
 	RuntimeChangeyardPlanningPromptResponse,
 	RuntimeChangeyardReviewCompleteRequest,
@@ -62,6 +63,10 @@ export interface RuntimeChangeyardApiAdapter {
 		repoRoot: string,
 		input: RuntimeChangeyardChangeUpdatePlanningSectionRequest,
 	) => Promise<RuntimeChangeyardChangeDetail> | RuntimeChangeyardChangeDetail;
+	updateChangeBody: (
+		repoRoot: string,
+		input: RuntimeChangeyardChangeUpdateBodyRequest,
+	) => Promise<RuntimeChangeyardChangeDetail> | RuntimeChangeyardChangeDetail;
 	initProject: (repoRoot: string) => Promise<RuntimeChangeyardInitResponse> | RuntimeChangeyardInitResponse;
 	updateProject: (repoRoot: string) => Promise<RuntimeChangeyardUpdateResponse> | RuntimeChangeyardUpdateResponse;
 	getProjectConfig: (repoRoot: string) => Promise<RuntimeChangeyardProjectConfig> | RuntimeChangeyardProjectConfig;
@@ -93,6 +98,10 @@ export interface RuntimeTrpcChangesApi {
 	updatePlanningSection: (
 		workspacePath: string,
 		input: RuntimeChangeyardChangeUpdatePlanningSectionRequest,
+	) => Promise<RuntimeChangeyardChangeDetail>;
+	updateChangeBody: (
+		workspacePath: string,
+		input: RuntimeChangeyardChangeUpdateBodyRequest,
 	) => Promise<RuntimeChangeyardChangeDetail>;
 	initProject: (workspacePath: string) => Promise<RuntimeChangeyardInitResponse>;
 	updateProject: (workspacePath: string) => Promise<RuntimeChangeyardUpdateResponse>;
@@ -181,6 +190,12 @@ export function createChangesApi(deps: {
 				throw new Error("Changeyard planning updates are not available in this runtime.");
 			}
 			return await deps.changeyardApi.updatePlanningSection(workspacePath, input);
+		},
+		updateChangeBody: async (workspacePath, input) => {
+			if (!deps.changeyardApi) {
+				throw new Error("Changeyard change updates are not available in this runtime.");
+			}
+			return await deps.changeyardApi.updateChangeBody(workspacePath, input);
 		},
 		initProject: async (workspacePath) => {
 			if (!deps.changeyardApi) {
