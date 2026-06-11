@@ -239,6 +239,14 @@ export function createChangeyardUiApi() {
         expectedUpdatedAt: input.expectedUpdatedAt,
       }));
     },
+    updateChangeStatus(repoRoot: string, input: {
+      id: string;
+      status: "draft" | "ready" | "synced" | "in_progress" | "blocked" | "ready_for_pr" | "pr_open" | "in_review" | "changes_requested" | "approved" | "merged" | "abandoned";
+    }) {
+      return toChangeDetail(createChangeyardBoardService(repoRoot).updateChangeStatus(input.id, {
+        status: input.status,
+      }));
+    },
     initProject(repoRoot: string) {
       return { message: runInit(repoRoot) };
     },

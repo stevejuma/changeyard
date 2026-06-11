@@ -113,3 +113,24 @@ test("board service updates full change markdown with conflict protection", () =
     cleanup(repo);
   }
 });
+
+test("board service updates lifecycle status with transition validation", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    writeFileSync(path.join(repo, ".env.example"), "SAFE=1\n");
+    runCreate({ template: "agent-task", title: "Status update" }, repo);
+    runStart("CY-0001", repo);
+    const service = createChangeyardBoardService(repo);
+
+    const blocked = service.updateChangeStatus("CY-0001", { status: "blocked" });
+    assert.equal(blocked.status, "blocked");
+
+    const resumed = service.updateChangeStatus("CY-0001", { status: "in_progress" });
+    assert.equal(resumed.status, "in_progress");
+
+    assert.throws(() => service.updateChangeStatus("CY-0001", { status: "ready" }), /cannot transition/i);
+  } finally {
+    cleanup(repo);
+  }
+});
