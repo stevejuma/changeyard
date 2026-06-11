@@ -75,6 +75,7 @@ import type {
 } from "@/runtime/types";
 import { getRuntimeTrpcClient, readTrpcConflictUpdatedAt } from "@/runtime/trpc-client";
 import { useRuntimeProjectConfig } from "@/runtime/use-runtime-project-config";
+import { useChangeyardProjectConfig } from "@/runtime/use-changeyard-project-config";
 import { useTerminalConnectionReady } from "@/runtime/use-terminal-connection-ready";
 import { useWorkspacePersistence } from "@/runtime/use-workspace-persistence";
 import { saveWorkspaceState } from "@/runtime/workspace-state-query";
@@ -157,6 +158,8 @@ export default function App(): ReactElement {
 	const settingsWorkspaceId = navigationCurrentProjectId ?? currentProjectId;
 	const { config: settingsRuntimeProjectConfig, refresh: refreshSettingsRuntimeProjectConfig } =
 		useRuntimeProjectConfig(settingsWorkspaceId);
+	const { config: settingsChangeyardProjectConfig, refresh: refreshSettingsChangeyardProjectConfig } =
+		useChangeyardProjectConfig(isSettingsOpen, settingsWorkspaceId);
 	const featurebaseFeedbackState = useFeaturebaseFeedbackWidget({
 		workspaceId: settingsWorkspaceId,
 		clineProviderSettings: settingsRuntimeProjectConfig?.clineProviderSettings ?? null,
@@ -1282,6 +1285,7 @@ export default function App(): ReactElement {
 					open={isSettingsOpen}
 					workspaceId={settingsWorkspaceId}
 					initialConfig={settingsRuntimeProjectConfig}
+					initialChangeyardProjectConfig={settingsChangeyardProjectConfig}
 					liveMcpAuthStatuses={latestMcpAuthStatuses}
 					initialSection={settingsInitialSection}
 					onOpenChange={(nextOpen) => {
@@ -1293,6 +1297,7 @@ export default function App(): ReactElement {
 					onSaved={() => {
 						refreshRuntimeProjectConfig();
 						refreshSettingsRuntimeProjectConfig();
+						refreshSettingsChangeyardProjectConfig();
 					}}
 					onAccountSwitched={refreshKanbanAccess}
 				/>

@@ -4,6 +4,7 @@
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type {
 	RuntimeAgentId,
+	RuntimeChangeyardProjectConfig,
 	RuntimeClineAccountBalanceResponse,
 	RuntimeClineAccountOrganizationsResponse,
 	RuntimeClineAccountProfileResponse,
@@ -52,6 +53,30 @@ export async function saveRuntimeConfig(
 ): Promise<RuntimeConfigResponse> {
 	const trpcClient = getRuntimeTrpcClient(workspaceId);
 	return await trpcClient.runtime.saveConfig.mutate(nextConfig);
+}
+
+export async function fetchChangeyardProjectConfig(
+	workspaceId: string,
+): Promise<RuntimeChangeyardProjectConfig> {
+	const trpcClient = getRuntimeTrpcClient(workspaceId);
+	return await trpcClient.changes.getProjectConfig.query();
+}
+
+export async function saveChangeyardProjectConfig(
+	workspaceId: string,
+	input: {
+		providerType?: "noop" | "local-folder" | "forgejo" | "github" | "gitlab";
+		vcsEngine?: "plain-copy" | "jj" | "git-worktree";
+		vcsFallback?: "plain-copy" | "jj" | "git-worktree";
+		projectDefaultBase?: string;
+		planningDefaultProfile?: "none" | "openspec-lite";
+		planningDefaultStrictness?: "normal" | "strict";
+		planningAllowQuickChanges?: boolean;
+		planningQuickChangeCheckProfile?: string;
+	},
+): Promise<RuntimeChangeyardProjectConfig> {
+	const trpcClient = getRuntimeTrpcClient(workspaceId);
+	return await trpcClient.changes.updateProjectConfig.mutate(input);
 }
 
 export async function saveClineProviderSettings(

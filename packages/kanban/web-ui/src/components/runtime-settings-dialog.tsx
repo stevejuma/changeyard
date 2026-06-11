@@ -45,10 +45,12 @@ import { useLayoutCustomizations } from "@/resize/layout-customizations";
 import { openFileOnHost } from "@/runtime/runtime-config-query";
 import type {
 	RuntimeAgentId,
+	RuntimeChangeyardProjectConfig,
 	RuntimeClineMcpServerAuthStatus,
 	RuntimeConfigResponse,
 	RuntimeProjectShortcut,
 } from "@/runtime/types";
+import { useChangeyardProjectConfig } from "@/runtime/use-changeyard-project-config";
 import { useRuntimeConfig } from "@/runtime/use-runtime-config";
 import {
 	type BrowserNotificationPermission,
@@ -351,6 +353,7 @@ export function RuntimeSettingsDialog({
 	open,
 	workspaceId,
 	initialConfig = null,
+	initialChangeyardProjectConfig = null,
 	liveMcpAuthStatuses = null,
 	onOpenChange,
 	onSaved,
@@ -360,6 +363,7 @@ export function RuntimeSettingsDialog({
 	open: boolean;
 	workspaceId: string | null;
 	initialConfig?: RuntimeConfigResponse | null;
+	initialChangeyardProjectConfig?: RuntimeChangeyardProjectConfig | null;
 	liveMcpAuthStatuses?: RuntimeClineMcpServerAuthStatus[] | null;
 	onOpenChange: (open: boolean) => void;
 	onSaved?: () => void;
@@ -367,10 +371,31 @@ export function RuntimeSettingsDialog({
 	initialSection?: RuntimeSettingsSection | null;
 }): React.ReactElement {
 	const { config, isLoading, isSaving, save, refresh } = useRuntimeConfig(open, workspaceId, initialConfig);
+	const {
+		config: changeyardProjectConfig,
+		isLoading: isChangeyardProjectConfigLoading,
+		isSaving: isChangeyardProjectConfigSaving,
+		save: saveChangeyardProjectConfig,
+		refresh: refreshChangeyardProjectConfig,
+	} = useChangeyardProjectConfig(open, workspaceId, initialChangeyardProjectConfig);
 	const { resetLayoutCustomizations } = useLayoutCustomizations();
 	const [selectedAgentId, setSelectedAgentId] = useState<RuntimeAgentId>("claude");
 	const [agentAutonomousModeEnabled, setAgentAutonomousModeEnabled] = useState(true);
 	const [readyForReviewNotificationsEnabled, setReadyForReviewNotificationsEnabled] = useState(true);
+	const [changeyardProviderType, setChangeyardProviderType] = useState<
+		"noop" | "local-folder" | "forgejo" | "github" | "gitlab"
+	>("noop");
+	const [changeyardVcsEngine, setChangeyardVcsEngine] = useState<"plain-copy" | "jj" | "git-worktree">("plain-copy");
+	const [changeyardVcsFallback, setChangeyardVcsFallback] = useState<"plain-copy" | "jj" | "git-worktree">("plain-copy");
+	const [changeyardProjectDefaultBase, setChangeyardProjectDefaultBase] = useState("");
+	const [changeyardPlanningDefaultProfile, setChangeyardPlanningDefaultProfile] = useState<"none" | "openspec-lite">(
+		"none",
+	);
+	const [changeyardPlanningDefaultStrictness, setChangeyardPlanningDefaultStrictness] = useState<"normal" | "strict">(
+		"normal",
+	);
+	const [changeyardPlanningAllowQuickChanges, setChangeyardPlanningAllowQuickChanges] = useState(true);
+	const [changeyardPlanningQuickChangeCheckProfile, setChangeyardPlanningQuickChangeCheckProfile] = useState("");
 	const [initialThemeId, setInitialThemeId] = useState<ThemeId>(readStoredThemeId);
 	const [draftThemeId, setDraftThemeId] = useState<ThemeId>(readStoredThemeId);
 	const [notificationPermission, setNotificationPermission] = useState<BrowserNotificationPermission>("unsupported");
@@ -388,6 +413,8 @@ export function RuntimeSettingsDialog({
 	const isScrollingProgrammatically = useRef(false);
 	const [activeSection, setActiveSection] = useState<SettingsNavId>("general");
 	const controlsDisabled = isLoading || isSaving || config === null;
+	const changeyardProjectControlsDisabled =
+		isChangeyardProjectConfigLoading || isChangeyardProjectConfigSaving || changeyardProjectConfig === null;
 	const commitPromptTemplateDefault = config?.commitPromptTemplateDefault ?? "";
 	const openPrPromptTemplateDefault = config?.openPrPromptTemplateDefault ?? "";
 	const isCommitPromptAtDefault =
@@ -444,6 +471,15 @@ export function RuntimeSettingsDialog({
 	const initialSelectedAgentId = configuredAgentId ?? fallbackAgentId;
 	const initialAgentAutonomousModeEnabled = config?.agentAutonomousModeEnabled ?? true;
 	const initialReadyForReviewNotificationsEnabled = config?.readyForReviewNotificationsEnabled ?? true;
+	const initialChangeyardProviderType = changeyardProjectConfig?.providerType ?? "noop";
+	const initialChangeyardVcsEngine = changeyardProjectConfig?.vcsEngine ?? "plain-copy";
+	const initialChangeyardVcsFallback = changeyardProjectConfig?.vcsFallback ?? initialChangeyardVcsEngine;
+	const initialChangeyardProjectDefaultBase = changeyardProjectConfig?.projectDefaultBase ?? "";
+	const initialChangeyardPlanningDefaultProfile = changeyardProjectConfig?.planningDefaultProfile ?? "none";
+	const initialChangeyardPlanningDefaultStrictness = changeyardProjectConfig?.planningDefaultStrictness ?? "normal";
+	const initialChangeyardPlanningAllowQuickChanges = changeyardProjectConfig?.planningAllowQuickChanges ?? true;
+	const initialChangeyardPlanningQuickChangeCheckProfile =
+		changeyardProjectConfig?.planningQuickChangeCheckProfile ?? "";
 	const initialShortcuts = config?.shortcuts ?? [];
 	const initialCommitPromptTemplate = config?.commitPromptTemplate ?? "";
 	const initialOpenPrPromptTemplate = config?.openPrPromptTemplate ?? "";
@@ -472,6 +508,33 @@ export function RuntimeSettingsDialog({
 		if (readyForReviewNotificationsEnabled !== initialReadyForReviewNotificationsEnabled) {
 			return true;
 		}
+		if (changeyardProviderType !== initialChangeyardProviderType) {
+			return true;
+		}
+		if (changeyardVcsEngine !== initialChangeyardVcsEngine) {
+			return true;
+		}
+		if (changeyardVcsFallback !== initialChangeyardVcsFallback) {
+			return true;
+		}
+		if (changeyardProjectDefaultBase.trim() !== initialChangeyardProjectDefaultBase.trim()) {
+			return true;
+		}
+		if (changeyardPlanningDefaultProfile !== initialChangeyardPlanningDefaultProfile) {
+			return true;
+		}
+		if (changeyardPlanningDefaultStrictness !== initialChangeyardPlanningDefaultStrictness) {
+			return true;
+		}
+		if (changeyardPlanningAllowQuickChanges !== initialChangeyardPlanningAllowQuickChanges) {
+			return true;
+		}
+		if (
+			changeyardPlanningQuickChangeCheckProfile.trim()
+			!== initialChangeyardPlanningQuickChangeCheckProfile.trim()
+		) {
+			return true;
+		}
 		if (clineSettings.hasUnsavedChanges) {
 			return true;
 		}
@@ -496,12 +559,28 @@ export function RuntimeSettingsDialog({
 		);
 	}, [
 		agentAutonomousModeEnabled,
+		changeyardPlanningAllowQuickChanges,
+		changeyardPlanningDefaultProfile,
+		changeyardPlanningDefaultStrictness,
+		changeyardPlanningQuickChangeCheckProfile,
+		changeyardProjectDefaultBase,
+		changeyardProviderType,
+		changeyardVcsEngine,
+		changeyardVcsFallback,
 		clineMcpSettings.hasUnsavedChanges,
 		clineSettings.hasUnsavedChanges,
 		commitPromptTemplate,
 		config,
 		draftThemeId,
 		initialAgentAutonomousModeEnabled,
+		initialChangeyardPlanningAllowQuickChanges,
+		initialChangeyardPlanningDefaultProfile,
+		initialChangeyardPlanningDefaultStrictness,
+		initialChangeyardPlanningQuickChangeCheckProfile,
+		initialChangeyardProjectDefaultBase,
+		initialChangeyardProviderType,
+		initialChangeyardVcsEngine,
+		initialChangeyardVcsFallback,
 		initialCommitPromptTemplate,
 		initialOpenPrPromptTemplate,
 		initialReadyForReviewNotificationsEnabled,
@@ -521,6 +600,14 @@ export function RuntimeSettingsDialog({
 		setSelectedAgentId(configuredAgentId ?? fallbackAgentId);
 		setAgentAutonomousModeEnabled(config?.agentAutonomousModeEnabled ?? true);
 		setReadyForReviewNotificationsEnabled(config?.readyForReviewNotificationsEnabled ?? true);
+		setChangeyardProviderType(initialChangeyardProviderType);
+		setChangeyardVcsEngine(initialChangeyardVcsEngine);
+		setChangeyardVcsFallback(initialChangeyardVcsFallback);
+		setChangeyardProjectDefaultBase(initialChangeyardProjectDefaultBase);
+		setChangeyardPlanningDefaultProfile(initialChangeyardPlanningDefaultProfile);
+		setChangeyardPlanningDefaultStrictness(initialChangeyardPlanningDefaultStrictness);
+		setChangeyardPlanningAllowQuickChanges(initialChangeyardPlanningAllowQuickChanges);
+		setChangeyardPlanningQuickChangeCheckProfile(initialChangeyardPlanningQuickChangeCheckProfile);
 		setShortcuts(config?.shortcuts ?? []);
 		setCommitPromptTemplate(config?.commitPromptTemplate ?? "");
 		setOpenPrPromptTemplate(config?.openPrPromptTemplate ?? "");
@@ -533,6 +620,14 @@ export function RuntimeSettingsDialog({
 		config?.selectedAgentId,
 		config?.shortcuts,
 		fallbackAgentId,
+		initialChangeyardPlanningAllowQuickChanges,
+		initialChangeyardPlanningDefaultProfile,
+		initialChangeyardPlanningDefaultStrictness,
+		initialChangeyardPlanningQuickChangeCheckProfile,
+		initialChangeyardProjectDefaultBase,
+		initialChangeyardProviderType,
+		initialChangeyardVcsEngine,
+		initialChangeyardVcsFallback,
 		open,
 	]);
 
@@ -699,6 +794,22 @@ export function RuntimeSettingsDialog({
 				return;
 			}
 		}
+		if (changeyardProjectConfig !== null) {
+			const savedProjectConfig = await saveChangeyardProjectConfig({
+				providerType: changeyardProviderType,
+				vcsEngine: changeyardVcsEngine,
+				vcsFallback: changeyardVcsFallback,
+				projectDefaultBase: changeyardProjectDefaultBase.trim(),
+				planningDefaultProfile: changeyardPlanningDefaultProfile,
+				planningDefaultStrictness: changeyardPlanningDefaultStrictness,
+				planningAllowQuickChanges: changeyardPlanningAllowQuickChanges,
+				planningQuickChangeCheckProfile: changeyardPlanningQuickChangeCheckProfile.trim(),
+			});
+			if (!savedProjectConfig) {
+				setSaveError("Could not save Changeyard project settings. Check runtime logs and try again.");
+				return;
+			}
+		}
 		const saved = await save({
 			selectedAgentId,
 			agentAutonomousModeEnabled,
@@ -739,8 +850,9 @@ export function RuntimeSettingsDialog({
 
 	const handleClineSetupSaved = useCallback(() => {
 		refresh();
+		refreshChangeyardProjectConfig();
 		onSaved?.();
-	}, [onSaved, refresh]);
+	}, [onSaved, refresh, refreshChangeyardProjectConfig]);
 
 	const handleDialogOpenChange = useCallback(
 		(nextOpen: boolean) => {
@@ -1062,12 +1174,151 @@ export function RuntimeSettingsDialog({
 								handleOpenFilePath(config.projectConfigPath);
 							}
 						}}
-					>
-						{config?.projectConfigPath
-							? formatPathForDisplay(config.projectConfigPath)
-							: "<project>/.changeyard/kanban/config.json"}
-						{config?.projectConfigPath ? <ExternalLink size={12} className="inline ml-1.5 align-middle" /> : null}
-					</p>
+						>
+							{config?.projectConfigPath
+								? formatPathForDisplay(config.projectConfigPath)
+								: "<project>/.changeyard/kanban/config.json"}
+							{config?.projectConfigPath ? <ExternalLink size={12} className="inline ml-1.5 align-middle" /> : null}
+						</p>
+					<div className="rounded-lg border border-border bg-surface-0 px-4 py-3 mb-4">
+						<h6 className="text-[12px] font-semibold uppercase tracking-wider text-text-secondary m-0 mb-2">
+							Changeyard CLI
+						</h6>
+						<p className="text-text-secondary text-[13px] mt-0 mb-3">
+							These values are saved to <code>.changeyard/config.local.jsonc</code>.
+						</p>
+						{changeyardProjectConfig ? (
+							<>
+								<div className="grid gap-3 md:grid-cols-2 mb-3">
+									<label className="block">
+										<span className="text-[11px] text-text-secondary block mb-1">Provider</span>
+										<NativeSelect
+											size="sm"
+											fill
+											value={changeyardProviderType}
+											onChange={(event) =>
+												setChangeyardProviderType(
+													event.currentTarget.value as "noop" | "local-folder" | "forgejo" | "github" | "gitlab",
+												)
+											}
+											disabled={changeyardProjectControlsDisabled}
+										>
+											<option value="noop">noop</option>
+											<option value="local-folder">local-folder</option>
+											<option value="forgejo">forgejo</option>
+											<option value="github">github</option>
+											<option value="gitlab">gitlab</option>
+										</NativeSelect>
+									</label>
+									<label className="block">
+										<span className="text-[11px] text-text-secondary block mb-1">Default base</span>
+										<input
+											value={changeyardProjectDefaultBase}
+											onChange={(event) => setChangeyardProjectDefaultBase(event.target.value)}
+											disabled={changeyardProjectControlsDisabled}
+											className="h-7 w-full rounded-md border border-border bg-surface-2 px-2 text-xs text-text-primary placeholder:text-text-tertiary focus:border-border-focus focus:outline-none disabled:opacity-40"
+										/>
+									</label>
+									<label className="block">
+										<span className="text-[11px] text-text-secondary block mb-1">VCS engine</span>
+										<NativeSelect
+											size="sm"
+											fill
+											value={changeyardVcsEngine}
+											onChange={(event) =>
+												setChangeyardVcsEngine(
+													event.currentTarget.value as "plain-copy" | "jj" | "git-worktree",
+												)
+											}
+											disabled={changeyardProjectControlsDisabled}
+										>
+											<option value="plain-copy">plain-copy</option>
+											<option value="jj">jj</option>
+											<option value="git-worktree">git-worktree</option>
+										</NativeSelect>
+									</label>
+									<label className="block">
+										<span className="text-[11px] text-text-secondary block mb-1">VCS fallback</span>
+										<NativeSelect
+											size="sm"
+											fill
+											value={changeyardVcsFallback}
+											onChange={(event) =>
+												setChangeyardVcsFallback(
+													event.currentTarget.value as "plain-copy" | "jj" | "git-worktree",
+												)
+											}
+											disabled={changeyardProjectControlsDisabled}
+										>
+											<option value="plain-copy">plain-copy</option>
+											<option value="jj">jj</option>
+											<option value="git-worktree">git-worktree</option>
+										</NativeSelect>
+									</label>
+									<label className="block">
+										<span className="text-[11px] text-text-secondary block mb-1">Planning profile</span>
+										<NativeSelect
+											size="sm"
+											fill
+											value={changeyardPlanningDefaultProfile}
+											onChange={(event) =>
+												setChangeyardPlanningDefaultProfile(
+													event.currentTarget.value as "none" | "openspec-lite",
+												)
+											}
+											disabled={changeyardProjectControlsDisabled}
+										>
+											<option value="none">none</option>
+											<option value="openspec-lite">openspec-lite</option>
+										</NativeSelect>
+									</label>
+									<label className="block">
+										<span className="text-[11px] text-text-secondary block mb-1">Planning strictness</span>
+										<NativeSelect
+											size="sm"
+											fill
+											value={changeyardPlanningDefaultStrictness}
+											onChange={(event) =>
+												setChangeyardPlanningDefaultStrictness(
+													event.currentTarget.value as "normal" | "strict",
+												)
+											}
+											disabled={changeyardProjectControlsDisabled}
+										>
+											<option value="normal">normal</option>
+											<option value="strict">strict</option>
+										</NativeSelect>
+									</label>
+									<label className="block">
+										<span className="text-[11px] text-text-secondary block mb-1">Quick-change profile</span>
+										<input
+											value={changeyardPlanningQuickChangeCheckProfile}
+											onChange={(event) => setChangeyardPlanningQuickChangeCheckProfile(event.target.value)}
+											disabled={changeyardProjectControlsDisabled}
+											className="h-7 w-full rounded-md border border-border bg-surface-2 px-2 text-xs text-text-primary placeholder:text-text-tertiary focus:border-border-focus focus:outline-none disabled:opacity-40"
+										/>
+									</label>
+								</div>
+								<label className="flex items-center gap-2 text-[12px] text-text-primary cursor-pointer select-none">
+									<RadixCheckbox.Root
+										checked={changeyardPlanningAllowQuickChanges}
+										onCheckedChange={(checked) => setChangeyardPlanningAllowQuickChanges(checked === true)}
+										disabled={changeyardProjectControlsDisabled}
+										className="flex h-3.5 w-3.5 cursor-pointer items-center justify-center rounded-sm border border-border-bright bg-surface-3 data-[state=checked]:bg-accent data-[state=checked]:border-accent disabled:cursor-default disabled:opacity-40"
+									>
+										<RadixCheckbox.Indicator>
+											<Check size={10} className="text-white" />
+										</RadixCheckbox.Indicator>
+									</RadixCheckbox.Root>
+									Allow quick changes
+								</label>
+							</>
+						) : (
+							<p className="text-text-secondary text-[13px] mb-0">
+								{workspaceId ? "Loading Changeyard project settings..." : "Select a project to edit Changeyard settings."}
+							</p>
+						)}
+					</div>
 					<div className="rounded-lg border border-border bg-surface-0 px-4 py-3 mb-4">
 						<div className="flex items-center justify-between mb-2">
 							<h6

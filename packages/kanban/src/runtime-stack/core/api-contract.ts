@@ -516,10 +516,14 @@ export type RuntimeChangeyardChangeActionResponse = z.infer<typeof runtimeChange
 
 export const runtimeChangeyardProjectConfigSchema = z.object({
 	initialized: z.boolean(),
-	providerType: z.string(),
-	vcsEngine: z.string(),
-	vcsFallback: z.string(),
-	planningDefaultProfile: z.string().optional(),
+	providerType: z.enum(["noop", "local-folder", "forgejo", "github", "gitlab"]),
+	vcsEngine: z.enum(["plain-copy", "jj", "git-worktree"]),
+	vcsFallback: z.enum(["plain-copy", "jj", "git-worktree"]),
+	projectDefaultBase: z.string(),
+	planningDefaultProfile: z.enum(["none", "openspec-lite"]).optional(),
+	planningDefaultStrictness: z.enum(["normal", "strict"]).optional(),
+	planningAllowQuickChanges: z.boolean().optional(),
+	planningQuickChangeCheckProfile: z.string().optional(),
 });
 export type RuntimeChangeyardProjectConfig = z.infer<typeof runtimeChangeyardProjectConfigSchema>;
 
@@ -535,6 +539,11 @@ export const runtimeChangeyardUpdateProjectConfigRequestSchema = z.object({
 	providerType: z.enum(["noop", "local-folder", "forgejo", "github", "gitlab"]).optional(),
 	vcsEngine: z.enum(["plain-copy", "jj", "git-worktree"]).optional(),
 	vcsFallback: z.enum(["plain-copy", "jj", "git-worktree"]).optional(),
+	projectDefaultBase: z.string().optional(),
+	planningDefaultProfile: z.enum(["none", "openspec-lite"]).optional(),
+	planningDefaultStrictness: z.enum(["normal", "strict"]).optional(),
+	planningAllowQuickChanges: z.boolean().optional(),
+	planningQuickChangeCheckProfile: z.string().optional(),
 });
 export type RuntimeChangeyardUpdateProjectConfigRequest = z.infer<
 	typeof runtimeChangeyardUpdateProjectConfigRequestSchema

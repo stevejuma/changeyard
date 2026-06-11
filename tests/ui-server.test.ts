@@ -112,7 +112,12 @@ test("ui server serves health, manifest, and the current shell entrypoint", asyn
   const repo = tempRepo();
   try {
     runInit(repo);
-    const server = await startChangeyardKanban({ repoRoot: repo, open: false, port: "auto" });
+    const server = await startChangeyardKanban({
+      repoRoot: repo,
+      open: false,
+      port: "auto",
+      changeyardApi: createChangeyardUiApi(),
+    });
     const origin = new URL(server.url).origin;
 
     try {
@@ -144,7 +149,12 @@ test("ui server exposes the current project through the projects.list tRPC route
   try {
     runCommand("git", ["init", "-b", "main"], repo);
     runInit(repo);
-    const server = await startChangeyardKanban({ repoRoot: repo, open: false, port: "auto" });
+    const server = await startChangeyardKanban({
+      repoRoot: repo,
+      open: false,
+      port: "auto",
+      changeyardApi: createChangeyardUiApi(),
+    });
     const origin = new URL(server.url).origin;
 
     try {
@@ -217,6 +227,105 @@ test("headless runtime serves API health without browser assets", async () => {
       }>(origin, "projects.list");
       assert.equal(typeof projects.currentProjectId, "string");
       assert.ok(projects.projects.some((project) => project.name === path.basename(repo)));
+    } finally {
+      await server.close();
+    }
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("changes project config routes expose and persist core changeyard settings", async () => {
+  const repo = tempRepo();
+  try {
+    runCommand("git", ["init", "-b", "main"], repo);
+    runInit(repo);
+    const server = await startChangeyardKanban({
+      repoRoot: repo,
+      open: false,
+      port: "auto",
+      changeyardApi: createChangeyardUiApi(),
+    });
+    const origin = new URL(server.url).origin;
+
+    try {
+      const projects = await trpcQuery<{
+        currentProjectId: string | null;
+        projects: Array<{ id: string; name: string; path: string }>;
+      }>(origin, "projects.list");
+      const project = projects.projects.find((entry) => entry.path === repo || entry.name === path.basename(repo));
+      assert.ok(project);
+      const workspaceId = project.id;
+
+      const current = await trpcQuery<{
+        initialized: boolean;
+        providerType: string;
+        vcsEngine: string;
+        vcsFallback: string;
+        projectDefaultBase: string;
+        planningDefaultProfile?: string;
+        planningDefaultStrictness?: string;
+        planningAllowQuickChanges?: boolean;
+        planningQuickChangeCheckProfile?: string;
+      }>(origin, "changes.getProjectConfig", undefined, workspaceId);
+      assert.equal(current.initialized, true);
+      assert.equal(current.vcsEngine, "git-worktree");
+      assert.equal(current.projectDefaultBase, "main");
+
+      const updated = await trpcMutation<{
+        initialized: boolean;
+        providerType: string;
+        vcsEngine: string;
+        vcsFallback: string;
+        projectDefaultBase: string;
+        planningDefaultProfile?: string;
+        planningDefaultStrictness?: string;
+        planningAllowQuickChanges?: boolean;
+        planningQuickChangeCheckProfile?: string;
+      }>(
+        origin,
+        "changes.updateProjectConfig",
+        {
+          providerType: "noop",
+          vcsEngine: "jj",
+          vcsFallback: "jj",
+          projectDefaultBase: "trunk",
+          planningDefaultProfile: "openspec-lite",
+          planningDefaultStrictness: "strict",
+          planningAllowQuickChanges: false,
+          planningQuickChangeCheckProfile: "full",
+        },
+        workspaceId,
+      );
+
+      assert.equal(updated.providerType, "noop");
+      assert.equal(updated.vcsEngine, "jj");
+      assert.equal(updated.vcsFallback, "jj");
+      assert.equal(updated.projectDefaultBase, "trunk");
+      assert.equal(updated.planningDefaultProfile, "openspec-lite");
+      assert.equal(updated.planningDefaultStrictness, "strict");
+      assert.equal(updated.planningAllowQuickChanges, false);
+      assert.equal(updated.planningQuickChangeCheckProfile, "full");
+
+      const localConfig = JSON.parse(readFileSync(path.join(repo, ".changeyard", "config.local.jsonc"), "utf8")) as {
+        provider?: { type?: string };
+        vcs?: { engine?: string; fallback?: string };
+        project?: { defaultBase?: string };
+        planning?: {
+          defaultProfile?: string;
+          defaultStrictness?: string;
+          allowQuickChanges?: boolean;
+          quickChangeCheckProfile?: string;
+        };
+      };
+      assert.equal(localConfig.provider?.type, "noop");
+      assert.equal(localConfig.vcs?.engine, "jj");
+      assert.equal(localConfig.vcs?.fallback, "jj");
+      assert.equal(localConfig.project?.defaultBase, "trunk");
+      assert.equal(localConfig.planning?.defaultProfile, "openspec-lite");
+      assert.equal(localConfig.planning?.defaultStrictness, "strict");
+      assert.equal(localConfig.planning?.allowQuickChanges, false);
+      assert.equal(localConfig.planning?.quickChangeCheckProfile, "full");
     } finally {
       await server.close();
     }
