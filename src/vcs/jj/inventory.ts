@@ -32,7 +32,7 @@ function gravatarUrlForEmail(email: string | null | undefined): string | null {
 		return null;
 	}
 	const hash = createHash("md5").update(normalized).digest("hex");
-	return `https://www.gravatar.com/avatar/${hash}?s=40&d=404`;
+	return `https://www.gravatar.com/avatar/${hash}?s=80&d=identicon`;
 }
 
 function makeItem(input: {

@@ -1,4 +1,7 @@
+import { createHash } from "node:crypto";
+
 import { detectVcsState, type VcsCommandRunner } from "../detect.js";
+import { isInternalJjBookmark } from "./bookmark-utils.js";
 import type {
 	VcsDiagnostic,
 	VcsJjOperationCommit,
@@ -21,6 +24,28 @@ function normalizeOperationDescription(description: string): string {
 
 function normalizeOperationId(id: string): string {
 	return id.trim();
+}
+
+function gravatarUrlForEmail(email: string | null | undefined): string | null {
+	const normalized = email?.trim().toLowerCase();
+	if (!normalized) {
+		return null;
+	}
+	const hash = createHash("md5").update(normalized).digest("hex");
+	return `https://www.gravatar.com/avatar/${hash}?s=80&d=identicon`;
+}
+
+function parseList(value: string | undefined): string[] {
+	return value?.split("|").map((entry) => entry.trim()).filter(Boolean) ?? [];
+}
+
+function parseUserFacingBookmarks(...values: Array<string | undefined>): string[] {
+	const bookmarks = values.flatMap((value) => parseList(value));
+	return [...new Set(bookmarks.filter((bookmark) => !isInternalJjBookmark(bookmark)))];
+}
+
+function parseLabels(...values: Array<string | undefined>): string[] {
+	return [...new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))];
 }
 
 export function parseJjOperationFiles(output: string): VcsJjOperationFile[] {
@@ -132,7 +157,7 @@ async function readOperationCommits(
 				"-n",
 				String(jjLimit),
 				"-T",
-				'change_id.short() ++ "\\t" ++ commit_id.short() ++ "\\t" ++ commit_id ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name() ++ "\\t" ++ author.email() ++ "\\t" ++ author.timestamp() ++ "\\t" ++ parents.map(|c| c.commit_id()).join("|") ++ "\\n"',
+				'change_id.short() ++ "\\t" ++ change_id.shortest() ++ "\\t" ++ commit_id.short() ++ "\\t" ++ commit_id ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ author.timestamp() ++ "\\t" ++ parents.map(|c| c.commit_id()).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(conflict, "conflict", "") ++ "\\t" ++ if(divergent, "divergent", "") ++ "\\t" ++ if(empty, "empty", "") ++ "\\t" ++ if(hidden, "hidden", "") ++ "\\n"',
 			],
 			cwd,
 		}),
@@ -158,6 +183,7 @@ async function readOperationCommits(
 		}
 		const [
 			changeId = "",
+			changeIdUniquePrefix = "",
 			shortHash = "",
 			hash = "",
 			message = "",
@@ -165,20 +191,31 @@ async function readOperationCommits(
 			authorEmail = "",
 			date = "",
 			parentHashes = "",
+			localBookmarks = "",
+			remoteBookmarks = "",
+			conflictLabel = "",
+			divergentLabel = "",
+			emptyLabel = "",
+			hiddenLabel = "",
 		] = trimmed.split(FIELD_SEPARATOR);
 		const normalizedHash = hash.trim();
 		if (!normalizedHash) {
 			continue;
 		}
+		const normalizedAuthorEmail = authorEmail.trim();
 		commits.push({
 			hash: normalizedHash,
 			shortHash: shortHash.trim() || normalizedHash.slice(0, 12),
 			changeId: changeId.trim() || undefined,
+			changeIdUniquePrefix: changeIdUniquePrefix.trim() || undefined,
 			authorName: authorName.trim() || "Unknown",
-			authorEmail: authorEmail.trim(),
+			authorEmail: normalizedAuthorEmail,
+			authorAvatarUrl: gravatarUrlForEmail(normalizedAuthorEmail),
 			date: date.trim(),
 			message: message.trim() || "(no description)",
-			parentHashes: parentHashes.split("|").map((entry) => entry.trim()).filter(Boolean),
+			parentHashes: parseList(parentHashes),
+			bookmarks: parseUserFacingBookmarks(localBookmarks, remoteBookmarks),
+			labels: parseLabels(conflictLabel, divergentLabel, emptyLabel, hiddenLabel),
 			relation: "selected",
 		});
 	}

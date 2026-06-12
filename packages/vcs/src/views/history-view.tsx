@@ -1,9 +1,11 @@
-import { Camera, Clock3, GitCommit, History, RotateCcw } from "lucide-react";
+import { Camera, Clock3, History, RotateCcw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
+import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
-import { FileStatusGlyph, StatusChip } from "@/components/ui/status-chip";
+import { CopyValueButton } from "@/components/ui/copy-value-button";
+import { FileStatusGlyph, StatusChip, type StatusChipTone } from "@/components/ui/status-chip";
 import {
 	findFileByPath,
 	getFirstFilePath,
@@ -44,6 +46,192 @@ const HISTORY_COLUMN_LIMITS = {
 	commits: { min: 420, max: 820, fallback: 520, key: VCS_LAYOUT_STORAGE_KEYS.historyCommitsWidth },
 	diff: { min: 420, max: 980, fallback: 640, key: VCS_LAYOUT_STORAGE_KEYS.historyDiffWidth },
 } as const;
+const HISTORY_TRAILING_SPACER_WIDTH = HISTORY_COLUMN_LIMITS.diff.fallback;
+
+const GRAPH_LANE_COLORS = [
+	"var(--color-status-blue)",
+	"var(--color-status-green)",
+	"var(--color-status-orange)",
+	"var(--color-status-violet)",
+	"var(--color-status-rose)",
+	"var(--color-status-cyan)",
+	"var(--color-status-lime)",
+	"var(--color-status-gold)",
+];
+const REMOTE_LANE_COLOR = "color-mix(in srgb, var(--color-status-blue) 75%, white 10%)";
+const GRAPH_ROW_HEIGHT = 90;
+const GRAPH_LANE_WIDTH = 12;
+const GRAPH_NODE_RADIUS = 4;
+const GRAPH_LEFT_PAD = 8;
+
+interface GraphLane {
+	hash: string;
+	color: string;
+}
+
+interface CommitGraphRow {
+	commit: VcsJjOperationCommit;
+	commitLane: number;
+	lanes: GraphLane[];
+	mergeFromLanes: number[];
+	convergingLanes: number[];
+	splitFromLane: number | null;
+	commitStartsLane: boolean;
+	isFirst: boolean;
+}
+
+function laneX(lane: number): number {
+	return GRAPH_LEFT_PAD + lane * GRAPH_LANE_WIDTH + GRAPH_LANE_WIDTH / 2;
+}
+
+function graphContentLeft(row: CommitGraphRow): number {
+	let rightmostLane = row.commitLane;
+	for (let index = 0; index < row.lanes.length; index += 1) {
+		if (index > rightmostLane) {
+			rightmostLane = index;
+		}
+	}
+	for (const lane of row.mergeFromLanes) {
+		if (lane > rightmostLane) {
+			rightmostLane = lane;
+		}
+	}
+	return GRAPH_LEFT_PAD + (rightmostLane + 1) * GRAPH_LANE_WIDTH + 10;
+}
+
+function buildCommitGraph(commits: VcsJjOperationCommit[]): CommitGraphRow[] {
+	const rows: CommitGraphRow[] = [];
+	let lanes: GraphLane[] = [];
+	let colorIndex = 0;
+
+	function nextColor(): string {
+		const color = GRAPH_LANE_COLORS[colorIndex % GRAPH_LANE_COLORS.length] ?? GRAPH_LANE_COLORS[0]!;
+		colorIndex += 1;
+		return color;
+	}
+
+	for (let commitIndex = 0; commitIndex < commits.length; commitIndex += 1) {
+		const commit = commits[commitIndex]!;
+		let commitStartsLane = false;
+		let commitLane = lanes.findIndex((lane) => lane.hash === commit.hash);
+		if (commitLane === -1) {
+			commitStartsLane = true;
+			commitLane = lanes.length;
+			lanes.push({
+				hash: commit.hash,
+				color: commit.relation === "upstream" ? REMOTE_LANE_COLOR : nextColor(),
+			});
+		}
+
+		const currentLanes = lanes.map((lane) => ({ ...lane }));
+		const mergeFromLanes: number[] = [];
+		const convergingLanes = currentLanes
+			.map((lane, laneIndex) => (lane.hash === commit.hash && laneIndex !== commitLane ? laneIndex : -1))
+			.filter((laneIndex) => laneIndex !== -1);
+		let splitFromLane: number | null = null;
+
+		const firstParent = commit.parentHashes[0];
+		const otherParents = commit.parentHashes.slice(1);
+		const firstParentLane = firstParent ? currentLanes.findIndex((lane) => lane.hash === firstParent) : -1;
+		if (commitLane === currentLanes.length - 1 && firstParentLane !== -1 && firstParentLane !== commitLane) {
+			splitFromLane = firstParentLane;
+		}
+
+		if (firstParent) {
+			lanes[commitLane] = { hash: firstParent, color: currentLanes[commitLane]?.color ?? nextColor() };
+		} else {
+			lanes = lanes.filter((_, laneIndex) => laneIndex !== commitLane);
+		}
+
+		for (const parentHash of otherParents) {
+			const existingLane = lanes.findIndex((lane) => lane.hash === parentHash);
+			if (existingLane !== -1) {
+				mergeFromLanes.push(existingLane);
+			} else {
+				const newLane = lanes.length;
+				lanes.push({ hash: parentHash, color: nextColor() });
+				mergeFromLanes.push(newLane);
+			}
+		}
+
+		lanes = lanes.filter((lane, laneIndex, currentLanesAfterUpdate) => {
+			return currentLanesAfterUpdate.findIndex((candidate) => candidate.hash === lane.hash) === laneIndex;
+		});
+
+		rows.push({
+			commit,
+			commitLane,
+			lanes: currentLanes,
+			mergeFromLanes,
+			convergingLanes,
+			splitFromLane,
+			commitStartsLane,
+			isFirst: commitIndex === 0,
+		});
+	}
+
+	return rows;
+}
+
+function CommitGraphSvg({ row, maxLanes }: { row: CommitGraphRow; maxLanes: number }): React.ReactElement {
+	const width = GRAPH_LEFT_PAD + maxLanes * GRAPH_LANE_WIDTH + GRAPH_LANE_WIDTH;
+	const centerY = GRAPH_ROW_HEIGHT / 2;
+	const commitX = laneX(row.commitLane);
+	const commitColor = row.lanes[row.commitLane]?.color ?? GRAPH_LANE_COLORS[0]!;
+	const isUpstreamCommit = row.commit.relation === "upstream";
+
+	return (
+		<svg
+			width={width}
+			height={GRAPH_ROW_HEIGHT}
+			className="pointer-events-none absolute left-0 top-0 z-20 overflow-visible"
+		>
+			{row.lanes.map((lane, laneIndex) => {
+				const x = laneX(laneIndex);
+				const isConvergingLane = row.convergingLanes.includes(laneIndex);
+				const isSplitCommitLane = row.splitFromLane !== null && laneIndex === row.commitLane;
+				const isCommitStartLane = row.commitStartsLane && laneIndex === row.commitLane;
+				const y1 = row.isFirst || (isCommitStartLane && !isSplitCommitLane) ? centerY : 0;
+				const y2 = isConvergingLane || isSplitCommitLane ? centerY : GRAPH_ROW_HEIGHT;
+				return <line key={`lane-${laneIndex}`} x1={x} y1={y1} x2={x} y2={y2} stroke={lane.color} strokeWidth={2.5} />;
+			})}
+			{row.splitFromLane !== null ? (
+				<path
+					d={`M ${laneX(row.splitFromLane)} ${GRAPH_ROW_HEIGHT} C ${laneX(row.splitFromLane)} ${GRAPH_ROW_HEIGHT - 10}, ${commitX} ${centerY + 10}, ${commitX} ${centerY}`}
+					fill="none"
+					stroke={row.lanes[row.splitFromLane]?.color ?? commitColor}
+					strokeWidth={2.5}
+				/>
+			) : null}
+			{row.mergeFromLanes.map((fromLane) => (
+				<path
+					key={`merge-${fromLane}`}
+					d={`M ${commitX} ${centerY} C ${commitX} ${centerY + 14}, ${laneX(fromLane)} ${centerY + 6}, ${laneX(fromLane)} ${GRAPH_ROW_HEIGHT}`}
+					fill="none"
+					stroke={row.lanes[fromLane]?.color ?? commitColor}
+					strokeWidth={2.5}
+				/>
+			))}
+			{row.convergingLanes.map((fromLane) => (
+				<path
+					key={`converge-${fromLane}`}
+					d={`M ${laneX(fromLane)} ${centerY} C ${laneX(fromLane)} ${centerY + 8}, ${commitX} ${centerY + 8}, ${commitX} ${centerY}`}
+					fill="none"
+					stroke={row.lanes[fromLane]?.color ?? commitColor}
+					strokeWidth={2.5}
+				/>
+			))}
+			<circle
+				cx={commitX}
+				cy={centerY}
+				r={isUpstreamCommit ? GRAPH_NODE_RADIUS + 0.5 : GRAPH_NODE_RADIUS}
+				fill={isUpstreamCommit ? "var(--color-surface-0)" : commitColor}
+				stroke={commitColor}
+				strokeWidth={isUpstreamCommit ? 2 : 0}
+			/>
+		</svg>
+	);
+}
 
 function readQueryParam(name: string): string | null {
 	return new URLSearchParams(window.location.search).get(name)?.trim() || null;
@@ -88,6 +276,32 @@ function formatRelativeTime(timestamp: string | null): string {
 	if (days < 30) return `${days}d ago`;
 	const months = Math.floor(days / 30);
 	return months < 12 ? `${months}mo ago` : `${Math.floor(months / 12)}y ago`;
+}
+
+function authorInitials(name: string | null): string {
+	const trimmed = name?.trim();
+	if (!trimmed) {
+		return "?";
+	}
+	const parts = trimmed.split(/\s+/).filter(Boolean);
+	const first = parts[0]?.[0] ?? "";
+	const second = parts.length > 1 ? (parts[parts.length - 1]?.[0] ?? "") : "";
+	return `${first}${second}`.toUpperCase() || "?";
+}
+
+function commitLabelTone(label: string): StatusChipTone {
+	switch (label) {
+		case "conflict":
+			return "red";
+		case "divergent":
+			return "orange";
+		case "hidden":
+			return "purple";
+		case "empty":
+			return "neutral";
+		default:
+			return "blue";
+	}
 }
 
 function formatTime(timestamp: string | null): string {
@@ -392,6 +606,11 @@ function HistoryLoadingLayout({
 					>
 						<CommitRowsSkeleton />
 					</VcsColumn>
+					<div
+						aria-hidden
+						className="h-full shrink-0"
+						style={{ width: HISTORY_TRAILING_SPACER_WIDTH, minWidth: HISTORY_TRAILING_SPACER_WIDTH }}
+					/>
 				</div>
 			</div>
 		</div>
@@ -558,6 +777,11 @@ function HistoryReady({
 							onClose={onCloseDiff}
 						/>
 					) : null}
+					<div
+						aria-hidden
+						className="h-full shrink-0"
+						style={{ width: HISTORY_TRAILING_SPACER_WIDTH, minWidth: HISTORY_TRAILING_SPACER_WIDTH }}
+					/>
 				</div>
 			</div>
 			{operations.diagnostics.length > 0 ? (
@@ -644,10 +868,9 @@ function OperationRow({
 	onSelect: () => void;
 }): React.ReactElement {
 	return (
-		<button
-			type="button"
+		<section
 			className={cn(
-				"grid w-full grid-cols-[72px_24px_minmax(0,1fr)] gap-2 px-3 py-3 text-left hover:bg-surface-2",
+				"relative grid cursor-pointer grid-cols-[72px_24px_minmax(0,1fr)] gap-2 border-b border-border px-3 py-3 text-left transition-colors last:border-b-0 hover:bg-surface-2",
 				selected && "bg-surface-2",
 				selected && SELECTED_OPERATION_MARKER_CLASS,
 			)}
@@ -661,7 +884,14 @@ function OperationRow({
 				</span>
 			</div>
 			<div className="min-w-0">
-				<div className="truncate text-sm font-semibold text-text-primary">{operation.description}</div>
+				<div className="flex min-w-0 items-center gap-2">
+					<div className="min-w-0 flex-1 truncate text-sm font-semibold text-text-primary">{operation.description}</div>
+					<CopyValueButton
+						displayValue={operation.id.slice(0, 7)}
+						copyValue={operation.id}
+						className="shrink-0"
+					/>
+				</div>
 				<div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-text-tertiary">
 					<code>{operation.shortId}</code>
 					{operation.user ? <span>{operation.user}</span> : null}
@@ -675,7 +905,7 @@ function OperationRow({
 					/>
 				</div>
 			</div>
-		</button>
+		</section>
 	);
 }
 
@@ -746,51 +976,131 @@ function OperationCommitGraphColumn({
 			: commitDiffState.status === "ready" && !commitDiffState.data.ok
 				? commitDiffState.data.error ?? "The selected commit diff could not be read."
 				: null;
+	const graphRows = buildCommitGraph(state.data.commits);
+	const maxLanes = Math.max(
+		1,
+		...graphRows.map((row) =>
+			Math.max(row.lanes.length, row.mergeFromLanes.length > 0 ? Math.max(...row.mergeFromLanes) + 1 : 0),
+		),
+	);
 
 	return (
 		<div className="py-1">
 			{state.data.commits.map((commit, index) => {
 				const selected = selectedCommitHash === commit.hash;
+				const graphRow = graphRows[index];
+				const authorName = commit.authorName?.trim() || null;
+				const title = commit.message || "Untitled commit";
+				const changeDisplay = commit.changeId?.trim() || null;
+				const bookmarkNames = commit.bookmarks ?? [];
+				const labels = commit.labels ?? [];
 				return (
-					<div key={commit.hash} className={cn("border-b border-divider last:border-b-0", selected && "bg-surface-2")}>
-						<button
-							type="button"
-							className="relative flex w-full min-w-0 gap-3 px-3 py-3 text-left hover:bg-surface-2"
+					<div
+						key={commit.hash}
+						className={cn(
+							"relative overflow-visible",
+							selected && "bg-surface-3",
+							selected && SELECTED_OPERATION_MARKER_CLASS,
+						)}
+					>
+						{index < state.data.commits.length - 1 ? (
+							<span aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 z-0 h-px bg-divider" />
+						) : null}
+						<section
+							role="button"
+							tabIndex={0}
+							className="kb-git-commit-row relative z-10 flex w-full min-w-0 cursor-pointer items-center gap-2 text-left"
+							style={{
+								height: GRAPH_ROW_HEIGHT,
+								paddingLeft: graphRow ? graphContentLeft(graphRow) : GRAPH_LEFT_PAD,
+								paddingRight: 12,
+								border: "none",
+								fontFamily: "inherit",
+							}}
 							onClick={() => onSelectCommit(commit)}
+							onKeyDown={(event) => {
+								if (event.target !== event.currentTarget) {
+									return;
+								}
+								if (event.key === "Enter" || event.key === " ") {
+									event.preventDefault();
+									onSelectCommit(commit);
+								}
+							}}
 						>
-							{selected ? <span aria-hidden className="absolute left-0 top-1/2 h-8 w-1 -translate-y-1/2 rounded-r-full bg-accent" /> : null}
-							<div className="relative flex w-7 shrink-0 justify-center">
-								<span className="absolute bottom-[-13px] top-[-13px] w-px bg-accent/70" />
-								<span
-									className={cn(
-										"relative mt-1 grid h-3 w-3 place-items-center rounded-full border border-accent bg-surface-1",
-										index === 0 && "bg-accent",
-									)}
-								/>
-							</div>
-							<div className="min-w-0 flex-1">
-								<div className="truncate text-sm font-medium text-text-primary">{commit.message || "Untitled commit"}</div>
-								<div className="mt-1 flex min-w-0 flex-wrap items-center gap-2 text-xs text-text-tertiary">
-									<GitCommit size={12} />
-									<code>{commit.changeId ?? commit.shortHash}</code>
-									{commit.authorName ? <span>{commit.authorName}</span> : null}
-									<span>{formatRelativeTime(commit.date)}</span>
+							{graphRow ? <CommitGraphSvg row={graphRow} maxLanes={maxLanes} /> : null}
+							<div className="relative z-10 min-w-0 flex-1 py-2">
+								<div className="flex min-w-0 items-center gap-2">
+									<Avatar
+										src={commit.authorAvatarUrl}
+										name={authorName}
+										email={commit.authorEmail}
+										initials={authorInitials(authorName)}
+										className="h-5 w-5"
+									/>
+									<span className="kb-git-commit-row-message min-w-0 truncate text-sm font-semibold text-text-primary">
+										{title}
+									</span>
+									{labels.length > 0 ? (
+										<div className="ml-auto flex min-w-0 shrink-0 items-center gap-1 overflow-hidden">
+											{labels.map((label) => (
+												<StatusChip
+													key={label}
+													label={label}
+													tone={commitLabelTone(label)}
+													className="shrink-0 px-1.5 py-0 text-[10px] leading-4"
+												/>
+											))}
+										</div>
+									) : null}
+								</div>
+								<div className="mt-1 flex min-w-0 items-center gap-2 text-xs text-text-tertiary">
+									<CopyValueButton
+										displayValue={commit.shortHash}
+										copyValue={commit.hash}
+										className="h-5 max-w-[9rem] border-transparent bg-transparent px-0.5 text-xs"
+									/>
+									{changeDisplay ? (
+										<>
+											<span className="shrink-0 text-text-tertiary">•</span>
+											<CopyValueButton
+												label="Change:"
+												displayValue={changeDisplay}
+												copyValue={changeDisplay}
+												highlightPrefix={commit.changeIdUniquePrefix}
+												className="h-5 max-w-[13rem] border-transparent bg-transparent px-0.5 text-xs"
+											/>
+										</>
+									) : null}
+								</div>
+								<div className="kb-scrollbar-hidden mt-1 flex min-w-0 items-center gap-2 overflow-x-auto overscroll-x-contain pb-0.5 text-xs text-text-secondary">
+									<span className="shrink-0">{formatRelativeTime(commit.date)}</span>
+									{bookmarkNames.map((bookmarkName) => (
+										<StatusChip
+											key={bookmarkName}
+											label={bookmarkName}
+											tone="red"
+											className="max-w-[16rem] shrink-0"
+										/>
+									))}
 								</div>
 							</div>
-						</button>
+						</section>
 						{selected ? (
-							<VcsInlineFileSection
-								title="Changed files"
-								files={selectedFiles}
-								selectedPath={selectedFilePath}
-								isLoading={commitDiffState.status === "loading"}
-								errorMessage={selectedError}
-								viewMode={fileViewMode}
-								onViewModeChange={onFileViewModeChange}
-								collapsed={isFileSectionCollapsed}
-								onCollapsedChange={onFileSectionCollapsedChange}
-								onSelectPath={onSelectFile}
-							/>
+							<div className="pb-2">
+								<VcsInlineFileSection
+									title="Changed files"
+									files={selectedFiles}
+									selectedPath={selectedFilePath}
+									isLoading={commitDiffState.status === "loading"}
+									errorMessage={selectedError}
+									viewMode={fileViewMode}
+									onViewModeChange={onFileViewModeChange}
+									collapsed={isFileSectionCollapsed}
+									onCollapsedChange={onFileSectionCollapsedChange}
+									onSelectPath={onSelectFile}
+								/>
+							</div>
 						) : null}
 					</div>
 				);

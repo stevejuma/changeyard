@@ -1,7 +1,15 @@
-const INTERNAL_BOOKMARK_PREFIXES = ["changeyard/", "_changeyard/", "workspace/", "workspace-wip/"];
+const INTERNAL_BOOKMARK_PREFIXES = [
+	"changeyard/",
+	"_changeyard/",
+	"gitbutler/",
+	"jjbutler/",
+	"workspace/",
+	"workspace-wip/",
+];
 
 export function isInternalJjBookmark(name: string): boolean {
-	return INTERNAL_BOOKMARK_PREFIXES.some((prefix) => name.startsWith(prefix));
+	const localName = name.split("@")[0] ?? name;
+	return INTERNAL_BOOKMARK_PREFIXES.some((prefix) => localName.startsWith(prefix));
 }
 
 export function normalizeRemoteTargetToLocalBookmark(target: string | null | undefined, remoteName?: string | null): string | null {
