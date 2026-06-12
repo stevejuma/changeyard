@@ -3,6 +3,11 @@ import type {
 	RuntimeVcsApplyOperationResponse,
 	RuntimeVcsDetectResponse,
 	RuntimeVcsJjDiffResponse,
+	RuntimeVcsJjInventoryResponse,
+	RuntimeVcsJjOperationDiffRequest,
+	RuntimeVcsJjOperationDiffResponse,
+	RuntimeVcsJjOperationsRequest,
+	RuntimeVcsJjOperationsResponse,
 	RuntimeVcsJjStateResponse,
 	RuntimeVcsPreviewOperationRequest,
 	RuntimeVcsPreviewOperationResponse,
@@ -72,6 +77,46 @@ function createUnavailableJjDiffResponse(reason: string): RuntimeVcsJjDiffRespon
 		changeId: null,
 		summary: "",
 		patch: "",
+		diagnostics: [
+			{
+				level: "warning",
+				code: "workspace_missing",
+				message: reason,
+			},
+		],
+	};
+}
+
+function createUnavailableJjInventoryResponse(reason: string): RuntimeVcsJjInventoryResponse {
+	return {
+		...createUnavailableResponse(reason),
+		workspaceTarget: null,
+		items: [],
+	};
+}
+
+function createUnavailableJjOperationsResponse(reason: string): RuntimeVcsJjOperationsResponse {
+	return {
+		operations: [],
+		diagnostics: [
+			{
+				level: "warning",
+				code: "workspace_missing",
+				message: reason,
+			},
+		],
+	};
+}
+
+function createUnavailableJjOperationDiffResponse(
+	reason: string,
+	input: RuntimeVcsJjOperationDiffRequest,
+): RuntimeVcsJjOperationDiffResponse {
+	return {
+		operationId: input.operationId,
+		summary: "",
+		patch: "",
+		files: [],
 		diagnostics: [
 			{
 				level: "warning",
@@ -204,6 +249,45 @@ export function createVcsApi(deps: CreateVcsApiDependencies): RuntimeTrpcContext
 				return createUnavailableJjStateResponse("Changeyard JJ state is not available in this runtime.");
 			}
 			return await deps.changeyardApi.getJjState(workspacePath);
+		},
+		jjInventory: async (workspaceScope: RuntimeTrpcWorkspaceScope | null) => {
+			const workspacePath = workspaceScope?.workspacePath ?? deps.getActiveWorkspacePath() ?? deps.fallbackWorkspacePath;
+			if (!workspacePath) {
+				return createUnavailableJjInventoryResponse("No active workspace is available for JJ inventory.");
+			}
+			if (!deps.changeyardApi?.getJjInventory) {
+				return createUnavailableJjInventoryResponse("Changeyard JJ inventory is not available in this runtime.");
+			}
+			return await deps.changeyardApi.getJjInventory(workspacePath);
+		},
+		jjOperations: async (
+			workspaceScope: RuntimeTrpcWorkspaceScope | null,
+			input?: RuntimeVcsJjOperationsRequest,
+		) => {
+			const workspacePath = workspaceScope?.workspacePath ?? deps.getActiveWorkspacePath() ?? deps.fallbackWorkspacePath;
+			if (!workspacePath) {
+				return createUnavailableJjOperationsResponse("No active workspace is available for JJ operation history.");
+			}
+			if (!deps.changeyardApi?.getJjOperations) {
+				return createUnavailableJjOperationsResponse("Changeyard JJ operation history is not available in this runtime.");
+			}
+			return await deps.changeyardApi.getJjOperations(workspacePath, input);
+		},
+		jjOperationDiff: async (
+			workspaceScope: RuntimeTrpcWorkspaceScope | null,
+			input: RuntimeVcsJjOperationDiffRequest,
+		) => {
+			const workspacePath = workspaceScope?.workspacePath ?? deps.getActiveWorkspacePath() ?? deps.fallbackWorkspacePath;
+			if (!workspacePath) {
+				return createUnavailableJjOperationDiffResponse("No active workspace is available for JJ operation details.", input);
+			}
+			if (!deps.changeyardApi?.getJjOperationDiff) {
+				return createUnavailableJjOperationDiffResponse(
+					"Changeyard JJ operation details are not available in this runtime.",
+					input,
+				);
+			}
+			return await deps.changeyardApi.getJjOperationDiff(workspacePath, input);
 		},
 		previewOperation: async (workspaceScope: RuntimeTrpcWorkspaceScope | null, input: RuntimeVcsPreviewOperationRequest) => {
 			const workspacePath = workspaceScope?.workspacePath ?? deps.getActiveWorkspacePath() ?? deps.fallbackWorkspacePath;

@@ -98,11 +98,144 @@ export type VcsJjStateResponse = VcsDetectResponse & {
 	}>;
 };
 
+export type VcsJjInventoryItem = {
+	id: string;
+	name: string;
+	type: "current" | "bookmark" | "remote" | "branch" | "tag" | "workspace";
+	group: "current" | "applied" | "remote" | "local" | "tags" | "older";
+	changeId: string | null;
+	commitId: string | null;
+	target: string | null;
+	remoteName: string | null;
+	synced: boolean;
+	tracked: boolean;
+	isCurrent: boolean;
+	pr: {
+		number: number;
+		url: string | null;
+		baseBranch: string | null;
+	} | null;
+};
+
+export type VcsJjInventoryResponse = VcsDetectResponse & {
+	workspaceTarget: VcsJjInventoryItem | null;
+	items: VcsJjInventoryItem[];
+};
+
 export type VcsJjDiffResponse = {
 	changeId: string | null;
 	summary: string;
 	patch: string;
 	diagnostics: VcsDiagnostic[];
+};
+
+export type VcsJjOperationFile = {
+	path: string;
+	status: "modified" | "added" | "deleted" | "renamed" | "copied" | "unknown";
+};
+
+export type VcsJjOperationEntry = {
+	id: string;
+	shortId: string;
+	description: string;
+	user: string | null;
+	timestamp: string | null;
+	files: VcsJjOperationFile[];
+	restoreEligible: boolean;
+};
+
+export type VcsJjOperationsResponse = {
+	operations: VcsJjOperationEntry[];
+	diagnostics: VcsDiagnostic[];
+};
+
+export type VcsJjOperationDiffResponse = {
+	operationId: string;
+	summary: string;
+	patch: string;
+	files: VcsJjOperationFile[];
+	diagnostics: VcsDiagnostic[];
+};
+
+export type RuntimeProjectSummary = {
+	id: string;
+	path: string;
+	name: string;
+	taskCounts: {
+		backlog: number;
+		in_progress: number;
+		review: number;
+		trash: number;
+	};
+};
+
+export type RuntimeProjectsResponse = {
+	currentProjectId: string | null;
+	projects: RuntimeProjectSummary[];
+};
+
+export type RuntimeProjectAddResponse = {
+	ok: boolean;
+	project: RuntimeProjectSummary | null;
+	requiresGitInitialization?: boolean;
+	error?: string;
+};
+
+export type RuntimeProjectRemoveResponse = {
+	ok: boolean;
+	error?: string;
+};
+
+export type RuntimeGitRef = {
+	name: string;
+	type: "branch" | "remote" | "detached";
+	hash: string;
+	changeId?: string;
+	isHead: boolean;
+	upstreamName?: string;
+	ahead?: number;
+	behind?: number;
+};
+
+export type RuntimeGitCommit = {
+	hash: string;
+	shortHash: string;
+	changeId?: string;
+	authorName: string;
+	authorEmail: string;
+	date: string;
+	message: string;
+	parentHashes: string[];
+	relation?: "selected" | "upstream" | "shared";
+};
+
+export type RuntimeGitLogResponse = {
+	ok: boolean;
+	commits: RuntimeGitCommit[];
+	totalCount: number;
+	error?: string;
+};
+
+export type RuntimeGitRefsResponse = {
+	ok: boolean;
+	refs: RuntimeGitRef[];
+	error?: string;
+};
+
+export type RuntimeGitCommitDiffFile = {
+	path: string;
+	previousPath?: string;
+	status: "modified" | "added" | "deleted" | "renamed";
+	additions: number;
+	deletions: number;
+	patch: string;
+};
+
+export type RuntimeGitCommitDiffResponse = {
+	ok: boolean;
+	commitHash: string;
+	files: RuntimeGitCommitDiffFile[];
+	error?: string;
 };
 
 export type VcsPreviewOperationResponse = {

@@ -210,9 +210,9 @@ test("ui server serves the standalone VCS shell when CHANGEYARD_VCS=1 is enabled
 });
 
 test("ui server exposes vcs.detect through the runtime tRPC boundary", async () => {
-  const repo = tempRepo();
-  const originalFlag = process.env.CHANGEYARD_VCS;
-  try {
+	const repo = tempRepo();
+	const originalFlag = process.env.CHANGEYARD_VCS;
+	try {
     process.env.CHANGEYARD_VCS = "1";
     runCommand("git", ["init", "-b", "main"], repo);
     runInit(repo);
@@ -242,13 +242,87 @@ test("ui server exposes vcs.detect through the runtime tRPC boundary", async () 
   } finally {
     restoreEnvFlag("CHANGEYARD_VCS", originalFlag);
     cleanup(repo);
-  }
+	}
+});
+
+test("ui server exposes scoped JJ inventory and operations through the runtime tRPC boundary", async (t) => {
+	const repo = tempRepo();
+	const originalFlag = process.env.CHANGEYARD_VCS;
+	try {
+		process.env.CHANGEYARD_VCS = "1";
+		if (spawnSync("jj", ["--version"], { encoding: "utf8" }).status !== 0) {
+			t.skip("jj is required for JJ inventory and operations server coverage");
+			return;
+		}
+
+		runCommand("git", ["init", "-b", "main"], repo);
+		runInit(repo);
+		writeFileSync(path.join(repo, "README.md"), "# changeyard\n");
+		runCommand("git", ["config", "user.name", "ChangeYard Test"], repo);
+		runCommand("git", ["config", "user.email", "test@example.com"], repo);
+		runCommand("git", ["config", "commit.gpgsign", "false"], repo);
+		runCommand("git", ["add", "README.md"], repo);
+		runCommand("git", ["commit", "-m", "initial"], repo);
+		runCommand("jj", ["git", "init", "--colocate"], repo);
+		runCommand("jj", ["config", "set", "--repo", "user.name", "ChangeYard Test"], repo);
+		runCommand("jj", ["config", "set", "--repo", "user.email", "test@example.com"], repo);
+		runCommand("jj", ["config", "set", "--repo", "signing.behavior", "drop"], repo);
+		runCommand("jj", ["new", "-m", "Feature work"], repo);
+		runCommand("jj", ["bookmark", "create", "feature/scoped-inventory", "-r", "@"], repo);
+
+		const server = await startChangeyardKanban({
+			repoRoot: repo,
+			open: false,
+			port: "auto",
+			changeyardApi: createChangeyardUiApi(),
+		});
+		const origin = new URL(server.url).origin;
+
+		try {
+			const projects = await trpcQuery<{
+				currentProjectId: string | null;
+				projects: Array<{ id: string; path: string }>;
+			}>(origin, "projects.list");
+			const workspaceId = projects.currentProjectId;
+			assert.ok(workspaceId);
+
+			const inventory = await trpcQuery<{
+				repository: { kind: string };
+				items: Array<{ name: string; type: string; target: string | null }>;
+			}>(origin, "vcs.jjInventory", undefined, workspaceId);
+			assert.equal(inventory.repository.kind, "jj");
+			assert.ok(inventory.items.some((item) => item.name === "feature/scoped-inventory"));
+
+			const operations = await trpcQuery<{
+				operations: Array<{ id: string; description: string; restoreEligible: boolean }>;
+				diagnostics: Array<{ code: string }>;
+			}>(origin, "vcs.jjOperations", { limit: 5 }, workspaceId);
+			assert.ok(operations.operations.length > 0);
+			assert.equal(operations.operations[0]?.restoreEligible, true);
+
+			const operationId = operations.operations[0]?.id;
+			assert.ok(operationId);
+			const operationDiff = await trpcQuery<{
+				operationId: string;
+				summary: string;
+				patch: string;
+				diagnostics: Array<{ code: string }>;
+			}>(origin, "vcs.jjOperationDiff", { operationId }, workspaceId);
+			assert.equal(operationDiff.operationId, operationId);
+			assert.equal(Array.isArray(operationDiff.diagnostics), true);
+		} finally {
+			await server.close();
+		}
+	} finally {
+		restoreEnvFlag("CHANGEYARD_VCS", originalFlag);
+		cleanup(repo);
+	}
 });
 
 test("ui server exposes vcs.previewOperation through the runtime tRPC boundary", async () => {
-  const repo = tempRepo();
-  const originalFlag = process.env.CHANGEYARD_VCS;
-  try {
+	const repo = tempRepo();
+	const originalFlag = process.env.CHANGEYARD_VCS;
+	try {
     process.env.CHANGEYARD_VCS = "1";
     runCommand("git", ["init", "-b", "main"], repo);
     runInit(repo);

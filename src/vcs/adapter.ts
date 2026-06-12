@@ -1,6 +1,8 @@
 import { detectVcsState } from "./detect.js";
 import { applyJjOperation } from "./jj/apply.js";
 import { loadJjDiff } from "./jj/diff.js";
+import { loadJjInventory } from "./jj/inventory.js";
+import { loadJjOperationDiff, loadJjOperations } from "./jj/operations.js";
 import { previewJjOperation } from "./jj/preview.js";
 import { previewJjStackSubmit, submitJjStack } from "./jj/stack-submit.js";
 import { loadJjState } from "./jj/state.js";
@@ -17,6 +19,18 @@ export async function getJjState(repoRoot: string) {
 
 export async function getJjDiff(repoRoot: string) {
 	return await loadJjDiff(repoRoot, runVcsCommand);
+}
+
+export async function getJjInventory(repoRoot: string) {
+	return await loadJjInventory(repoRoot, runVcsCommand);
+}
+
+export async function getJjOperations(repoRoot: string, input?: { limit?: number | null }) {
+	return await loadJjOperations(repoRoot, runVcsCommand, input?.limit ?? 30);
+}
+
+export async function getJjOperationDiff(repoRoot: string, input: { operationId: string }) {
+	return await loadJjOperationDiff(repoRoot, runVcsCommand, input.operationId);
 }
 
 export async function previewVcsOperation(repoRoot: string, input: VcsPreviewOperationInput) {

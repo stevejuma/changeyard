@@ -343,6 +343,35 @@ export const runtimeVcsJjStateResponseSchema = runtimeVcsDetectResponseSchema.ex
 });
 export type RuntimeVcsJjStateResponse = z.infer<typeof runtimeVcsJjStateResponseSchema>;
 
+export const runtimeVcsJjInventoryPullRequestSchema = z.object({
+	number: z.number().int(),
+	url: z.string().nullable(),
+	baseBranch: z.string().nullable(),
+});
+export type RuntimeVcsJjInventoryPullRequest = z.infer<typeof runtimeVcsJjInventoryPullRequestSchema>;
+
+export const runtimeVcsJjInventoryItemSchema = z.object({
+	id: z.string(),
+	name: z.string(),
+	type: z.enum(["current", "bookmark", "remote", "branch", "tag", "workspace"]),
+	group: z.enum(["current", "applied", "remote", "local", "tags", "older"]),
+	changeId: z.string().nullable(),
+	commitId: z.string().nullable(),
+	target: z.string().nullable(),
+	remoteName: z.string().nullable(),
+	synced: z.boolean(),
+	tracked: z.boolean(),
+	isCurrent: z.boolean(),
+	pr: runtimeVcsJjInventoryPullRequestSchema.nullable(),
+});
+export type RuntimeVcsJjInventoryItem = z.infer<typeof runtimeVcsJjInventoryItemSchema>;
+
+export const runtimeVcsJjInventoryResponseSchema = runtimeVcsDetectResponseSchema.extend({
+	workspaceTarget: runtimeVcsJjInventoryItemSchema.nullable(),
+	items: z.array(runtimeVcsJjInventoryItemSchema),
+});
+export type RuntimeVcsJjInventoryResponse = z.infer<typeof runtimeVcsJjInventoryResponseSchema>;
+
 export const runtimeVcsJjDiffResponseSchema = z.object({
 	changeId: z.string().nullable(),
 	summary: z.string(),
@@ -350,6 +379,48 @@ export const runtimeVcsJjDiffResponseSchema = z.object({
 	diagnostics: z.array(runtimeVcsDiagnosticSchema),
 });
 export type RuntimeVcsJjDiffResponse = z.infer<typeof runtimeVcsJjDiffResponseSchema>;
+
+export const runtimeVcsJjOperationsRequestSchema = z.object({
+	limit: z.number().int().positive().max(100).nullable().optional(),
+});
+export type RuntimeVcsJjOperationsRequest = z.infer<typeof runtimeVcsJjOperationsRequestSchema>;
+
+export const runtimeVcsJjOperationFileSchema = z.object({
+	path: z.string(),
+	status: z.enum(["modified", "added", "deleted", "renamed", "copied", "unknown"]),
+});
+export type RuntimeVcsJjOperationFile = z.infer<typeof runtimeVcsJjOperationFileSchema>;
+
+export const runtimeVcsJjOperationEntrySchema = z.object({
+	id: z.string(),
+	shortId: z.string(),
+	description: z.string(),
+	user: z.string().nullable(),
+	timestamp: z.string().nullable(),
+	files: z.array(runtimeVcsJjOperationFileSchema),
+	restoreEligible: z.boolean(),
+});
+export type RuntimeVcsJjOperationEntry = z.infer<typeof runtimeVcsJjOperationEntrySchema>;
+
+export const runtimeVcsJjOperationsResponseSchema = z.object({
+	operations: z.array(runtimeVcsJjOperationEntrySchema),
+	diagnostics: z.array(runtimeVcsDiagnosticSchema),
+});
+export type RuntimeVcsJjOperationsResponse = z.infer<typeof runtimeVcsJjOperationsResponseSchema>;
+
+export const runtimeVcsJjOperationDiffRequestSchema = z.object({
+	operationId: z.string().min(1),
+});
+export type RuntimeVcsJjOperationDiffRequest = z.infer<typeof runtimeVcsJjOperationDiffRequestSchema>;
+
+export const runtimeVcsJjOperationDiffResponseSchema = z.object({
+	operationId: z.string(),
+	summary: z.string(),
+	patch: z.string(),
+	files: z.array(runtimeVcsJjOperationFileSchema),
+	diagnostics: z.array(runtimeVcsDiagnosticSchema),
+});
+export type RuntimeVcsJjOperationDiffResponse = z.infer<typeof runtimeVcsJjOperationDiffResponseSchema>;
 
 export const runtimeVcsOperationRiskLevelSchema = z.enum(["low", "medium", "high"]);
 export type RuntimeVcsOperationRiskLevel = z.infer<typeof runtimeVcsOperationRiskLevelSchema>;

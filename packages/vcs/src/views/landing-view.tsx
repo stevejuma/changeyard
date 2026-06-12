@@ -3,12 +3,23 @@ import { ArrowRight, GitBranch, Layers3, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { StatusChip } from "@/components/ui/status-chip";
 import { DiagnosticsPanel, KeyValue, PageBody, Panel, QueryGate, StatCard } from "@/components/vcs-panels";
-import { VcsShell } from "@/components/vcs-shell";
+import { NoProjectSelected, SelectProjectButton, VcsShell, type VcsShellProjectState } from "@/components/vcs-shell";
 import type { QueryState, VcsDetectResponse } from "@/runtime/types";
 
-export function LandingView({ state, currentPath }: { state: QueryState<VcsDetectResponse>; currentPath: string }): React.ReactElement {
+export function LandingView({
+	state,
+	currentPath,
+	projectState,
+	workspaceId,
+}: {
+	state: QueryState<VcsDetectResponse>;
+	currentPath: string;
+	projectState: VcsShellProjectState;
+	workspaceId: string | null;
+}): React.ReactElement {
 	return (
 		<VcsShell
+			projectState={projectState}
 			currentPath={currentPath}
 			title="VCS Overview"
 			subtitle="JJ-first repository operations through the Changeyard runtime"
@@ -21,6 +32,11 @@ export function LandingView({ state, currentPath }: { state: QueryState<VcsDetec
 				</Button>
 			}
 		>
+			{!workspaceId ? (
+				<NoProjectSelected action={<SelectProjectButton onClick={projectState.onAddProject} />}>
+					Select or add a project to show the current commit and VCS interface for that workspace.
+				</NoProjectSelected>
+			) : (
 			<PageBody>
 				<QueryGate state={state} loading="Loading repository detection." errorTitle="Repository detection failed">
 					{(data) => (
@@ -74,6 +90,7 @@ export function LandingView({ state, currentPath }: { state: QueryState<VcsDetec
 					)}
 				</QueryGate>
 			</PageBody>
+			)}
 		</VcsShell>
 	);
 }

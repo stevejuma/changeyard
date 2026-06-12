@@ -2,12 +2,33 @@ import { Settings } from "lucide-react";
 
 import { StatusChip } from "@/components/ui/status-chip";
 import { DiagnosticsPanel, KeyValue, PageBody, Panel, QueryGate, StatCard } from "@/components/vcs-panels";
-import { VcsShell } from "@/components/vcs-shell";
+import { NoProjectSelected, SelectProjectButton, VcsShell, type VcsShellProjectState } from "@/components/vcs-shell";
 import type { QueryState, VcsDetectResponse } from "@/runtime/types";
 
-export function SettingsView({ state, currentPath }: { state: QueryState<VcsDetectResponse>; currentPath: string }): React.ReactElement {
+export function SettingsView({
+	state,
+	currentPath,
+	projectState,
+	workspaceId,
+}: {
+	state: QueryState<VcsDetectResponse>;
+	currentPath: string;
+	projectState: VcsShellProjectState;
+	workspaceId: string | null;
+}): React.ReactElement {
 	return (
-		<VcsShell currentPath={currentPath} title="VCS Settings" subtitle="Read-only runtime diagnostics" kicker={<StatusChip label="Informational" tone="neutral" />}>
+		<VcsShell
+			projectState={projectState}
+			currentPath={currentPath}
+			title="VCS Settings"
+			subtitle="Read-only runtime diagnostics"
+			kicker={<StatusChip label="Informational" tone="neutral" />}
+		>
+			{!workspaceId ? (
+				<NoProjectSelected action={<SelectProjectButton onClick={projectState.onAddProject} />}>
+					Select a project to inspect VCS runtime configuration for that workspace.
+				</NoProjectSelected>
+			) : (
 			<PageBody>
 				<QueryGate state={state} loading="Loading VCS settings diagnostics." errorTitle="Settings failed">
 					{(data) => (
@@ -42,6 +63,7 @@ export function SettingsView({ state, currentPath }: { state: QueryState<VcsDete
 					)}
 				</QueryGate>
 			</PageBody>
+			)}
 		</VcsShell>
 	);
 }

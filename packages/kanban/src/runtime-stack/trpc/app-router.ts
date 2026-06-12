@@ -88,6 +88,11 @@ import type {
 	RuntimeVcsApplyOperationRequest,
 	RuntimeVcsApplyOperationResponse,
 	RuntimeVcsJjDiffResponse,
+	RuntimeVcsJjInventoryResponse,
+	RuntimeVcsJjOperationDiffRequest,
+	RuntimeVcsJjOperationDiffResponse,
+	RuntimeVcsJjOperationsRequest,
+	RuntimeVcsJjOperationsResponse,
 	RuntimeVcsJjStateResponse,
 	RuntimeVcsPreviewOperationRequest,
 	RuntimeVcsPreviewOperationResponse,
@@ -212,6 +217,11 @@ import {
 	runtimeVcsApplyOperationRequestSchema,
 	runtimeVcsApplyOperationResponseSchema,
 	runtimeVcsJjDiffResponseSchema,
+	runtimeVcsJjInventoryResponseSchema,
+	runtimeVcsJjOperationDiffRequestSchema,
+	runtimeVcsJjOperationDiffResponseSchema,
+	runtimeVcsJjOperationsRequestSchema,
+	runtimeVcsJjOperationsResponseSchema,
 	runtimeVcsJjStateResponseSchema,
 	runtimeVcsPreviewOperationRequestSchema,
 	runtimeVcsPreviewOperationResponseSchema,
@@ -411,6 +421,15 @@ export interface RuntimeTrpcContext {
 		detect: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeVcsDetectResponse>;
 		jjDiff: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeVcsJjDiffResponse>;
 		jjState: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeVcsJjStateResponse>;
+		jjInventory: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeVcsJjInventoryResponse>;
+		jjOperations: (
+			scope: RuntimeTrpcWorkspaceScope | null,
+			input?: RuntimeVcsJjOperationsRequest,
+		) => Promise<RuntimeVcsJjOperationsResponse>;
+		jjOperationDiff: (
+			scope: RuntimeTrpcWorkspaceScope | null,
+			input: RuntimeVcsJjOperationDiffRequest,
+		) => Promise<RuntimeVcsJjOperationDiffResponse>;
 		previewOperation: (
 			scope: RuntimeTrpcWorkspaceScope | null,
 			input: RuntimeVcsPreviewOperationRequest,
@@ -697,6 +716,21 @@ export const runtimeAppRouter = t.router({
 		jjState: t.procedure.output(runtimeVcsJjStateResponseSchema).query(async ({ ctx }) => {
 			return await ctx.vcsApi.jjState(ctx.workspaceScope);
 		}),
+		jjInventory: t.procedure.output(runtimeVcsJjInventoryResponseSchema).query(async ({ ctx }) => {
+			return await ctx.vcsApi.jjInventory(ctx.workspaceScope);
+		}),
+		jjOperations: t.procedure
+			.input(runtimeVcsJjOperationsRequestSchema.optional())
+			.output(runtimeVcsJjOperationsResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.vcsApi.jjOperations(ctx.workspaceScope, input);
+			}),
+		jjOperationDiff: t.procedure
+			.input(runtimeVcsJjOperationDiffRequestSchema)
+			.output(runtimeVcsJjOperationDiffResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.vcsApi.jjOperationDiff(ctx.workspaceScope, input);
+			}),
 		previewOperation: t.procedure
 			.input(runtimeVcsPreviewOperationRequestSchema)
 			.output(runtimeVcsPreviewOperationResponseSchema)
