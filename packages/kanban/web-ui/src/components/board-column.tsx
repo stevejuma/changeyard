@@ -90,12 +90,12 @@ export function BoardColumn({
 	return (
 		<section
 			data-column-id={column.id}
-			className="flex flex-col min-w-0 min-h-0 bg-surface-1 rounded-lg overflow-hidden border border-border"
+			className="flex h-full flex-col min-w-0 min-h-0 bg-surface-1 rounded-lg overflow-hidden border border-border"
 			style={{
 				flex: "1 1 0",
 			}}
 		>
-			<div className="flex flex-col min-h-0" style={{ flex: "1 1 0" }}>
+			<div className="flex h-full flex-col min-h-0" style={{ flex: "1 1 0" }}>
 				<div
 					className="flex items-center justify-between"
 					style={{

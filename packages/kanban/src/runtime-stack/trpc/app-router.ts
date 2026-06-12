@@ -99,6 +99,11 @@ import type {
 import {
 	runtimeChangeyardChangeCreateRequestSchema,
 	runtimeChangeyardChangeActionResponseSchema,
+	runtimeChangeyardBoardFileDiffRequestSchema,
+	runtimeChangeyardBoardFileDiffResponseSchema,
+	runtimeChangeyardBoardFilesRequestSchema,
+	runtimeChangeyardBoardFilesResponseSchema,
+	runtimeChangeyardBoardSummaryResponseSchema,
 	runtimeChangeyardCompleteRequestSchema,
 	runtimeChangeyardChangeDetailSchema,
 	runtimeChangeyardChangeGetRequestSchema,
@@ -770,6 +775,24 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeWorkspaceChangesResponseSchema)
 			.query(async ({ ctx, input }) => {
 				return await ctx.changesApi.loadChangeWorkspaceChanges(ctx.workspaceScope.workspacePath, input);
+			}),
+		getBoardSummary: workspaceProcedure
+			.input(runtimeChangeyardChangeGetRequestSchema)
+			.output(runtimeChangeyardBoardSummaryResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.changesApi.loadChangeBoardSummary(ctx.workspaceScope.workspacePath, input);
+			}),
+		getBoardFiles: workspaceProcedure
+			.input(runtimeChangeyardBoardFilesRequestSchema)
+			.output(runtimeChangeyardBoardFilesResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.changesApi.loadChangeBoardFiles(ctx.workspaceScope.workspacePath, input);
+			}),
+		getBoardFileDiff: workspaceProcedure
+			.input(runtimeChangeyardBoardFileDiffRequestSchema)
+			.output(runtimeChangeyardBoardFileDiffResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.changesApi.loadChangeBoardFileDiff(ctx.workspaceScope.workspacePath, input);
 			}),
 		validate: workspaceProcedure
 			.input(runtimeChangeyardChangeGetRequestSchema)

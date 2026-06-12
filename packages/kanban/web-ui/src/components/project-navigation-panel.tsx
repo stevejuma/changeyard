@@ -1,6 +1,6 @@
 import * as Collapsible from "@radix-ui/react-collapsible";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { ChevronDown, ChevronUp, Ellipsis, ExternalLink, Info, Lightbulb, Plus, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Ellipsis, ExternalLink, Info, Lightbulb, Plus, X } from "lucide-react";
 import { type MouseEvent as ReactMouseEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { canShowFeaturebaseFeedbackButton } from "@/components/featurebase-feedback-button";
 import { Button } from "@/components/ui/button";
@@ -85,6 +85,7 @@ export function ProjectNavigationPanel({
 	setSidebarCollapsed: (collapsed: boolean, persist?: boolean) => void;
 }): React.ReactElement {
 	const sortedProjects = [...projects].sort((a, b) => a.path.localeCompare(b.path));
+	const currentProject = sortedProjects.find((project) => project.id === currentProjectId) ?? null;
 	const shouldShowFeaturebaseFeedback = canShowFeaturebaseFeedbackButton({
 		selectedAgentId,
 		clineProviderSettings,
@@ -204,9 +205,10 @@ export function ProjectNavigationPanel({
 	const collapsedWidth = COLLAPSED_WIDTH;
 
 	if (isCollapsed) {
+		const activeProjectLabel = currentProject?.name ?? "Projects";
 		return (
 			<aside
-				className="flex flex-col items-center min-h-0 overflow-hidden bg-surface-1 relative shrink-0 py-2 gap-1.5"
+				className="flex flex-col items-center min-h-0 overflow-hidden bg-surface-1 relative shrink-0 py-2"
 				style={{
 					width: collapsedWidth,
 					minWidth: collapsedWidth,
@@ -222,32 +224,31 @@ export function ProjectNavigationPanel({
 						className="absolute top-0 right-0 bottom-0 w-1.5 cursor-ew-resize z-10"
 					/>
 				)}
-				{sortedProjects.map((project) => {
-					const isCurrent = currentProjectId === project.id;
-					const letter = project.name.charAt(0).toUpperCase();
-					return (
-						<button
-							key={project.id}
-							type="button"
-							title={project.name}
-							onClick={() => {
-								if (isMobile) {
-									setCollapsed(false);
-								}
-								onSelectProject(project.id);
-							}}
-							className={cn(
-								"rounded-md text-xs font-semibold shrink-0 border-0 cursor-pointer flex items-center justify-center",
-								isMobile ? "w-11 h-11" : "w-8 h-8",
-								isCurrent
-									? "bg-accent text-accent-fg"
-									: "bg-surface-3 text-text-secondary hover:text-text-primary hover:bg-surface-4",
-							)}
-						>
-							{letter}
-						</button>
-					);
-				})}
+				<button
+					type="button"
+					title="Expand projects"
+					aria-label="Expand project navigation"
+					onClick={() => setCollapsed(false)}
+					className={cn(
+						"mb-2 rounded-md border-0 bg-transparent text-text-tertiary hover:bg-surface-2 hover:text-text-primary",
+						isMobile ? "grid h-11 w-11 place-items-center" : "grid h-8 w-8 place-items-center",
+					)}
+				>
+					<ChevronRight size={16} />
+				</button>
+				<button
+					type="button"
+					title={currentProject ? `Expand ${currentProject.name}` : "Expand projects"}
+					onClick={() => setCollapsed(false)}
+					className={cn(
+						"group flex min-h-0 flex-1 cursor-pointer items-center justify-center rounded-md border border-transparent px-1.5 py-2 text-text-secondary hover:border-border hover:bg-surface-2 hover:text-text-primary",
+						currentProject ? "text-accent" : null,
+					)}
+				>
+					<span className="max-h-full truncate text-[12px] font-semibold [writing-mode:vertical-rl]">
+						{activeProjectLabel}
+					</span>
+				</button>
 				<button
 					type="button"
 					title="Add project"
@@ -311,7 +312,17 @@ export function ProjectNavigationPanel({
 							aria-label="Close sidebar"
 							className="min-w-[44px] min-h-[44px] -mr-2"
 						/>
-					) : null}
+					) : (
+						<Button
+							variant="ghost"
+							size="sm"
+							icon={<ChevronLeft size={16} />}
+							onClick={() => setCollapsed(true)}
+							aria-label="Collapse project navigation"
+							title="Collapse projects"
+							className="-mr-1"
+						/>
+					)}
 				</div>
 				<div className="mt-2 rounded-md bg-surface-2 border border-border p-1">
 					<div className="grid grid-cols-2 gap-1">

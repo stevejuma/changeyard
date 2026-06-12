@@ -63,6 +63,7 @@ function toCard(repoRoot: string, filePath: string): ChangeyardCardDetail {
   const verification = verifyWorkspace(metadata);
   const workspaceFrontmatter = asRecord(frontmatter.workspace);
   const branchFrontmatter = asRecord(frontmatter.branch);
+  const baseFrontmatter = asRecord(frontmatter.base);
   const remoteFrontmatter = asRecord(frontmatter.remote);
   const status = String(frontmatter.status ?? "unknown");
 
@@ -73,6 +74,10 @@ function toCard(repoRoot: string, filePath: string): ChangeyardCardDetail {
     status,
     column: columnForStatus(status),
     path: path.relative(repoRoot, filePath),
+    base: {
+      vcs: baseFrontmatter.vcs === undefined ? undefined : String(baseFrontmatter.vcs),
+      revision: baseFrontmatter.revision === undefined ? undefined : String(baseFrontmatter.revision),
+    },
     priority: frontmatter.priority === undefined ? undefined : String(frontmatter.priority),
     labels: asStringArray(frontmatter.labels),
     updatedAt: frontmatter.updatedAt === undefined ? undefined : String(frontmatter.updatedAt),

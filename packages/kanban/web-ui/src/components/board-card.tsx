@@ -14,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/spinner";
+import { StatusChip } from "@/components/ui/status-chip";
 import { Tooltip } from "@/components/ui/tooltip";
 import type { RuntimeTaskSessionSummary } from "@/runtime/types";
 import { useTaskWorkspaceSnapshotValue } from "@/stores/workspace-metadata-store";
@@ -469,9 +470,9 @@ export function BoardCard({
 			showReasoningEffort: Boolean(inheritedReasoningEffort),
 		});
 	}, [card.clineSettings, defaultClineModelId]);
-	const taskAgentSettingsLabel = useMemo(() => {
+	const taskAgentSettingsLabels = useMemo(() => {
 		const parts = [agentOverrideLabel, modelOverrideLabel].filter((value): value is string => Boolean(value));
-		return parts.length > 0 ? parts.join(" · ") : null;
+		return parts;
 	}, [agentOverrideLabel, modelOverrideLabel]);
 
 	const activeDescriptionDisplay = isDescriptionExpanded ? descriptionDisplay.expanded : descriptionDisplay.collapsed;
@@ -732,19 +733,18 @@ export function BoardCard({
 									</p>
 								</div>
 							) : null}
-							{taskAgentSettingsLabel ? (
-								<div className="mt-1">
-									<span
-										className={cn(
-											"inline-flex max-w-full items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs",
-											isTrashCard
-												? "border-border text-text-tertiary bg-surface-1"
-												: "border-status-blue/30 bg-status-blue/10 text-status-blue",
-										)}
-									>
-										<Bot size={12} className="shrink-0" />
-										<span className="truncate">{taskAgentSettingsLabel}</span>
-									</span>
+							{taskAgentSettingsLabels.length > 0 ? (
+								<div className="mt-1 flex min-w-0 flex-wrap gap-1">
+									{taskAgentSettingsLabels.map((label, labelIndex) => (
+										<StatusChip
+											key={`${labelIndex}:${label}`}
+											label={label}
+											tone={isTrashCard ? "neutral" : "blue"}
+											icon={labelIndex === 0 ? <Bot size={12} /> : undefined}
+											className={cn("max-w-full", isTrashCard ? "bg-surface-1 text-text-tertiary" : null)}
+											title={label}
+										/>
+									))}
 								</div>
 							) : null}
 							{sessionActivity ? (
