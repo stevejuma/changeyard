@@ -381,7 +381,7 @@ export const runtimeVcsJjDiffResponseSchema = z.object({
 export type RuntimeVcsJjDiffResponse = z.infer<typeof runtimeVcsJjDiffResponseSchema>;
 
 export const runtimeVcsJjOperationsRequestSchema = z.object({
-	limit: z.number().int().positive().max(100).nullable().optional(),
+	limit: z.number().int().positive().max(1000).nullable().optional(),
 });
 export type RuntimeVcsJjOperationsRequest = z.infer<typeof runtimeVcsJjOperationsRequestSchema>;
 
@@ -404,20 +404,42 @@ export type RuntimeVcsJjOperationEntry = z.infer<typeof runtimeVcsJjOperationEnt
 
 export const runtimeVcsJjOperationsResponseSchema = z.object({
 	operations: z.array(runtimeVcsJjOperationEntrySchema),
+	requestedLimit: z.number().int().positive(),
+	hasMore: z.boolean(),
 	diagnostics: z.array(runtimeVcsDiagnosticSchema),
 });
 export type RuntimeVcsJjOperationsResponse = z.infer<typeof runtimeVcsJjOperationsResponseSchema>;
 
 export const runtimeVcsJjOperationDiffRequestSchema = z.object({
 	operationId: z.string().min(1),
+	commitSkip: z.number().int().nonnegative().optional(),
+	commitLimit: z.number().int().positive().max(500).optional(),
 });
 export type RuntimeVcsJjOperationDiffRequest = z.infer<typeof runtimeVcsJjOperationDiffRequestSchema>;
+
+export const runtimeVcsJjOperationCommitSchema = z.object({
+	hash: z.string(),
+	shortHash: z.string(),
+	changeId: z.string().optional(),
+	authorName: z.string(),
+	authorEmail: z.string(),
+	date: z.string(),
+	message: z.string(),
+	parentHashes: z.array(z.string()),
+	relation: z.enum(["selected", "upstream", "shared"]).optional(),
+});
+export type RuntimeVcsJjOperationCommit = z.infer<typeof runtimeVcsJjOperationCommitSchema>;
 
 export const runtimeVcsJjOperationDiffResponseSchema = z.object({
 	operationId: z.string(),
 	summary: z.string(),
 	patch: z.string(),
 	files: z.array(runtimeVcsJjOperationFileSchema),
+	commits: z.array(runtimeVcsJjOperationCommitSchema),
+	commitSkip: z.number().int().nonnegative(),
+	commitLimit: z.number().int().positive(),
+	totalCommitCount: z.number().int().nonnegative(),
+	hasMoreCommits: z.boolean(),
 	diagnostics: z.array(runtimeVcsDiagnosticSchema),
 });
 export type RuntimeVcsJjOperationDiffResponse = z.infer<typeof runtimeVcsJjOperationDiffResponseSchema>;

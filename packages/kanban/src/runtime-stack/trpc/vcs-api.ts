@@ -98,6 +98,8 @@ function createUnavailableJjInventoryResponse(reason: string): RuntimeVcsJjInven
 function createUnavailableJjOperationsResponse(reason: string): RuntimeVcsJjOperationsResponse {
 	return {
 		operations: [],
+		requestedLimit: 50,
+		hasMore: false,
 		diagnostics: [
 			{
 				level: "warning",
@@ -117,6 +119,11 @@ function createUnavailableJjOperationDiffResponse(
 		summary: "",
 		patch: "",
 		files: [],
+		commits: [],
+		commitSkip: input.commitSkip ?? 0,
+		commitLimit: input.commitLimit ?? 50,
+		totalCommitCount: 0,
+		hasMoreCommits: false,
 		diagnostics: [
 			{
 				level: "warning",

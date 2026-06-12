@@ -146,7 +146,21 @@ export type VcsJjOperationEntry = {
 
 export type VcsJjOperationsResponse = {
 	operations: VcsJjOperationEntry[];
+	requestedLimit: number;
+	hasMore: boolean;
 	diagnostics: VcsDiagnostic[];
+};
+
+export type VcsJjOperationCommit = {
+	hash: string;
+	shortHash: string;
+	changeId?: string;
+	authorName: string;
+	authorEmail: string;
+	date: string;
+	message: string;
+	parentHashes: string[];
+	relation?: "selected" | "upstream" | "shared";
 };
 
 export type VcsJjOperationDiffResponse = {
@@ -154,6 +168,11 @@ export type VcsJjOperationDiffResponse = {
 	summary: string;
 	patch: string;
 	files: VcsJjOperationFile[];
+	commits: VcsJjOperationCommit[];
+	commitSkip: number;
+	commitLimit: number;
+	totalCommitCount: number;
+	hasMoreCommits: boolean;
 	diagnostics: VcsDiagnostic[];
 };
 
@@ -181,9 +200,110 @@ export type RuntimeProjectAddResponse = {
 	error?: string;
 };
 
+export type RuntimeProjectAddRequest = {
+	path?: string;
+	gitUrl?: string;
+	initializeGit?: boolean;
+};
+
+export type RuntimeProjectDirectoryPickerResponse = {
+	ok: boolean;
+	path: string | null;
+	error?: string;
+};
+
+export type RuntimeDirectoryListEntry = {
+	name: string;
+	path: string;
+	isGitRepository: boolean;
+};
+
+export type RuntimeDirectoryListRequest = {
+	path?: string;
+};
+
+export type RuntimeDirectoryListResponse = {
+	ok: boolean;
+	currentPath: string;
+	parentPath: string | null;
+	rootPath: string;
+	entries: RuntimeDirectoryListEntry[];
+	error?: string;
+};
+
 export type RuntimeProjectRemoveResponse = {
 	ok: boolean;
 	error?: string;
+};
+
+export type RuntimeTaskSessionSummary = {
+	taskId: string;
+	state: "idle" | "running" | "awaiting_review" | "interrupted" | "failed";
+	mode?: string | null;
+	agentId: string | null;
+	workspacePath: string | null;
+	pid: number | null;
+	startedAt: number | null;
+	updatedAt: number;
+	lastOutputAt: number | null;
+	reviewReason: string | null;
+	exitCode: number | null;
+	lastHookAt?: number | null;
+	warningMessage?: string | null;
+};
+
+export type RuntimeShellSessionStartResponse = {
+	ok: boolean;
+	summary: RuntimeTaskSessionSummary | null;
+	shellBinary?: string | null;
+	error?: string;
+};
+
+export type RuntimeTerminalWsClientMessage =
+	| {
+			type: "resize";
+			cols: number;
+			rows: number;
+			pixelWidth?: number;
+			pixelHeight?: number;
+	  }
+	| {
+			type: "stop";
+	  }
+	| {
+			type: "output_ack";
+			bytes: number;
+	  }
+	| {
+			type: "restore_complete";
+	  };
+
+export type RuntimeTerminalWsServerMessage =
+	| {
+			type: "state";
+			summary: RuntimeTaskSessionSummary;
+	  }
+	| {
+			type: "error";
+			message: string;
+	  }
+	| {
+			type: "exit";
+			code: number | null;
+	  }
+	| {
+			type: "restore";
+			snapshot: string;
+			cols?: number | null;
+			rows?: number | null;
+	  };
+
+export type RuntimeCommandRunResponse = {
+	exitCode: number;
+	stdout: string;
+	stderr: string;
+	combinedOutput: string;
+	durationMs: number;
 };
 
 export type RuntimeGitRef = {
@@ -207,6 +327,14 @@ export type RuntimeGitCommit = {
 	message: string;
 	parentHashes: string[];
 	relation?: "selected" | "upstream" | "shared";
+};
+
+export type RuntimeGitLogRequest = {
+	ref?: string | null;
+	refs?: string[];
+	maxCount?: number;
+	skip?: number;
+	taskScope?: { taskId: string; baseRef: string } | null;
 };
 
 export type RuntimeGitLogResponse = {

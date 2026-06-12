@@ -2,8 +2,17 @@ import { GitBranch, GitCommit, GitPullRequest, Search, Tag } from "lucide-react"
 import { useEffect, useMemo, useState } from "react";
 
 import { cn } from "@/components/ui/cn";
-import { FileStatusChip, StatusChip } from "@/components/ui/status-chip";
-import { DiagnosticsPanel, EmptyState, Panel, QueryGate } from "@/components/vcs-panels";
+import { StatusChip } from "@/components/ui/status-chip";
+import {
+	findFileByPath,
+	getFirstFilePath,
+	VcsCollapsedColumn,
+	VcsColumn,
+	VcsFileDiffColumn,
+	VcsInlineFileSection,
+	type VcsFileChange,
+} from "@/components/vcs-file-columns";
+import { DiagnosticsPanel, EmptyState, QueryGate } from "@/components/vcs-panels";
 import { NoProjectSelected, SelectProjectButton, VcsShell, type VcsShellProjectState } from "@/components/vcs-shell";
 import type {
 	QueryState,
@@ -14,9 +23,27 @@ import type {
 	VcsJjInventoryItem,
 	VcsJjInventoryResponse,
 } from "@/runtime/types";
-import { useTrpcInputQuery, useTrpcQuery } from "@/runtime/trpc-client";
+import { usePaginatedRepositoryLog, useTrpcInputQuery, useTrpcQuery } from "@/runtime/trpc-client";
+import {
+	readVcsFileViewMode,
+	readVcsNumberPreference,
+	VCS_LAYOUT_STORAGE_KEYS,
+	writeVcsFileViewMode,
+	writeVcsNumberPreference,
+	type VcsFileViewMode,
+} from "@/utils/vcs-ui-preferences";
 
 type BranchFilter = "all" | "prs" | "local";
+type BranchColumnId = "refs" | "commits";
+
+const SELECTED_REF_MARKER_CLASS =
+	"relative before:absolute before:left-0 before:top-1/2 before:h-12 before:w-1 before:-translate-y-1/2 before:rounded-r-full before:bg-accent before:content-['']";
+
+const BRANCH_COLUMN_LIMITS = {
+	refs: { min: 300, max: 580, fallback: 360, key: VCS_LAYOUT_STORAGE_KEYS.branchesRefsWidth },
+	commits: { min: 380, max: 760, fallback: 500, key: VCS_LAYOUT_STORAGE_KEYS.branchesCommitsWidth },
+	diff: { min: 420, max: 980, fallback: 640, key: VCS_LAYOUT_STORAGE_KEYS.branchesDiffWidth },
+} as const;
 
 const GROUP_LABELS: Record<VcsJjInventoryItem["group"], string> = {
 	current: "Current workspace target",
@@ -69,6 +96,13 @@ function getItemTarget(item: VcsJjInventoryItem): string {
 	return item.target ?? item.name;
 }
 
+function toFileChanges(diffState: QueryState<RuntimeGitCommitDiffResponse>): VcsFileChange[] {
+	if (diffState.status !== "ready" || !diffState.data.ok) {
+		return [];
+	}
+	return diffState.data.files;
+}
+
 export function BranchesView({
 	currentPath,
 	projectState,
@@ -93,27 +127,45 @@ export function BranchesView({
 	);
 	const [filter, setFilter] = useState<BranchFilter>("all");
 	const [search, setSearch] = useState("");
+	const [collapsedColumns, setCollapsedColumns] = useState<Record<BranchColumnId, boolean>>({
+		refs: false,
+		commits: false,
+	});
+	const [columnWidths, setColumnWidths] = useState(() => ({
+		refs: readVcsNumberPreference(BRANCH_COLUMN_LIMITS.refs.key, BRANCH_COLUMN_LIMITS.refs.fallback, BRANCH_COLUMN_LIMITS.refs.min, BRANCH_COLUMN_LIMITS.refs.max),
+		commits: readVcsNumberPreference(BRANCH_COLUMN_LIMITS.commits.key, BRANCH_COLUMN_LIMITS.commits.fallback, BRANCH_COLUMN_LIMITS.commits.min, BRANCH_COLUMN_LIMITS.commits.max),
+		diff: readVcsNumberPreference(BRANCH_COLUMN_LIMITS.diff.key, BRANCH_COLUMN_LIMITS.diff.fallback, BRANCH_COLUMN_LIMITS.diff.min, BRANCH_COLUMN_LIMITS.diff.max),
+	}));
+	const [fileViewMode, setFileViewMode] = useState<VcsFileViewMode>(() => readVcsFileViewMode());
 	const [selectedRefName, setSelectedRefName] = useState<string | null>(() => readQueryParam("ref"));
 	const [selectedCommitHash, setSelectedCommitHash] = useState<string | null>(() => readQueryParam("commit"));
+	const [selectedFilePath, setSelectedFilePath] = useState<string | null>(() => readQueryParam("file"));
+	const [hasUserClearedRef, setHasUserClearedRef] = useState(false);
+	const [hasUserClearedCommit, setHasUserClearedCommit] = useState(false);
+	const [hasUserClearedFile, setHasUserClearedFile] = useState(false);
+	const [isFileSectionCollapsed, setFileSectionCollapsed] = useState(false);
 
 	const selectedInventoryTarget = useMemo(() => {
 		if (inventoryQuery.state.status !== "ready") {
 			return null;
 		}
-		return selectedRefName ?? inventoryQuery.state.data.workspaceTarget?.target ?? inventoryQuery.state.data.items[0]?.target ?? null;
+		return selectedRefName;
 	}, [inventoryQuery.state, selectedRefName]);
 
-	const logQuery = useTrpcInputQuery<RuntimeGitLogResponse>(
-		"workspace.getRepositoryLog",
-		{
+	const logInput = useMemo(
+		() => ({
 			ref: selectedInventoryTarget,
 			refs: selectedInventoryTarget ? [selectedInventoryTarget] : [],
-			maxCount: 150,
-		},
-		"Failed to load commits.",
-		Boolean(workspaceId && selectedInventoryTarget),
-		workspaceId,
+		}),
+		[selectedInventoryTarget],
 	);
+	const logQuery = usePaginatedRepositoryLog({
+		input: logInput,
+		message: "Failed to load commits.",
+		enabled: Boolean(workspaceId && selectedInventoryTarget),
+		workspaceId,
+		pageSize: 50,
+	});
 	const commitDiffQuery = useTrpcInputQuery<RuntimeGitCommitDiffResponse>(
 		"workspace.getRepositoryCommitDiff",
 		{ commitHash: selectedCommitHash ?? "" },
@@ -121,9 +173,11 @@ export function BranchesView({
 		Boolean(workspaceId && selectedCommitHash),
 		workspaceId,
 	);
+	const files = toFileChanges(commitDiffQuery.state);
+	const selectedFile = findFileByPath(files, selectedFilePath);
 
 	useEffect(() => {
-		if (selectedRefName || inventoryQuery.state.status !== "ready") {
+		if (selectedRefName || hasUserClearedRef || inventoryQuery.state.status !== "ready") {
 			return;
 		}
 		const next = inventoryQuery.state.data.workspaceTarget?.target ?? inventoryQuery.state.data.items[0]?.target ?? null;
@@ -131,10 +185,13 @@ export function BranchesView({
 			setSelectedRefName(next);
 			writeQueryParam("ref", next);
 		}
-	}, [inventoryQuery.state, selectedRefName]);
+	}, [hasUserClearedRef, inventoryQuery.state, selectedRefName]);
 
 	useEffect(() => {
 		if (logQuery.state.status !== "ready") {
+			return;
+		}
+		if (hasUserClearedCommit) {
 			return;
 		}
 		const hasSelectedCommit = selectedCommitHash
@@ -143,21 +200,119 @@ export function BranchesView({
 		if (!hasSelectedCommit) {
 			const nextCommit = logQuery.state.data.commits[0]?.hash ?? null;
 			setSelectedCommitHash(nextCommit);
+			setSelectedFilePath(null);
 			writeQueryParam("commit", nextCommit);
+			writeQueryParam("file", null);
 		}
-	}, [logQuery.state, selectedCommitHash]);
+	}, [hasUserClearedCommit, logQuery.state, selectedCommitHash]);
+
+	useEffect(() => {
+		if (isFileSectionCollapsed || commitDiffQuery.state.status !== "ready" || !commitDiffQuery.state.data.ok) {
+			return;
+		}
+		if (hasUserClearedFile) {
+			return;
+		}
+		const nextFiles = commitDiffQuery.state.data.files;
+		if (nextFiles.length === 0) {
+			if (selectedFilePath) {
+				setSelectedFilePath(null);
+				writeQueryParam("file", null);
+			}
+			return;
+		}
+		if (selectedFilePath && nextFiles.some((file) => file.path === selectedFilePath)) {
+			return;
+		}
+		const nextFilePath = getFirstFilePath(nextFiles);
+		setSelectedFilePath(nextFilePath);
+		writeQueryParam("file", nextFilePath);
+	}, [commitDiffQuery.state, hasUserClearedFile, isFileSectionCollapsed, selectedFilePath]);
 
 	function selectRef(item: VcsJjInventoryItem): void {
 		const target = getItemTarget(item);
+		if (selectedRefName === target) {
+			setSelectedRefName(null);
+			setSelectedCommitHash(null);
+			setSelectedFilePath(null);
+			setHasUserClearedRef(true);
+			setHasUserClearedCommit(true);
+			setHasUserClearedFile(true);
+			setFileSectionCollapsed(false);
+			writeQueryParam("ref", null);
+			writeQueryParam("commit", null);
+			writeQueryParam("file", null);
+			return;
+		}
 		setSelectedRefName(target);
 		setSelectedCommitHash(null);
+		setSelectedFilePath(null);
+		setHasUserClearedRef(false);
+		setHasUserClearedCommit(false);
+		setHasUserClearedFile(false);
+		setFileSectionCollapsed(false);
 		writeQueryParam("ref", target);
 		writeQueryParam("commit", null);
+		writeQueryParam("file", null);
+		setCollapsedColumns((current) => ({ ...current, commits: false }));
 	}
 
 	function selectCommit(commit: RuntimeGitCommit): void {
+		if (selectedCommitHash === commit.hash) {
+			setSelectedCommitHash(null);
+			setSelectedFilePath(null);
+			setHasUserClearedCommit(true);
+			setHasUserClearedFile(true);
+			setFileSectionCollapsed(false);
+			writeQueryParam("commit", null);
+			writeQueryParam("file", null);
+			return;
+		}
 		setSelectedCommitHash(commit.hash);
+		setSelectedFilePath(null);
+		setHasUserClearedCommit(false);
+		setHasUserClearedFile(false);
+		setFileSectionCollapsed(false);
 		writeQueryParam("commit", commit.hash);
+		writeQueryParam("file", null);
+	}
+
+	function selectFile(path: string): void {
+		if (selectedFilePath === path) {
+			setSelectedFilePath(null);
+			setHasUserClearedFile(true);
+			writeQueryParam("file", null);
+			return;
+		}
+		setSelectedFilePath(path);
+		setHasUserClearedFile(false);
+		writeQueryParam("file", path);
+	}
+
+	function setColumnWidth(column: keyof typeof columnWidths, width: number): void {
+		const limits = BRANCH_COLUMN_LIMITS[column];
+		const normalized = writeVcsNumberPreference(limits.key, width, limits.min, limits.max);
+		setColumnWidths((current) => ({ ...current, [column]: normalized }));
+	}
+
+	function changeFileViewMode(mode: VcsFileViewMode): void {
+		setFileViewMode(writeVcsFileViewMode(mode));
+	}
+
+	function changeFileSectionCollapsed(collapsed: boolean): void {
+		setFileSectionCollapsed(collapsed);
+		if (collapsed) {
+			setSelectedFilePath(null);
+			setHasUserClearedFile(true);
+			writeQueryParam("file", null);
+			return;
+		}
+		setHasUserClearedFile(false);
+		const nextFilePath = getFirstFilePath(files);
+		if (nextFilePath) {
+			setSelectedFilePath(nextFilePath);
+			writeQueryParam("file", nextFilePath);
+		}
 	}
 
 	return (
@@ -173,7 +328,12 @@ export function BranchesView({
 					Select a project to show JJ bookmarks, remotes, local branches, tags, and commits.
 				</NoProjectSelected>
 			) : (
-				<QueryGate state={inventoryQuery.state} loading="Loading branch inventory." errorTitle="Branch inventory failed">
+				<QueryGate
+					state={inventoryQuery.state}
+					loading="Loading branch inventory."
+					loadingFallback={<BranchesLoadingLayout columnWidths={columnWidths} />}
+					errorTitle="Branch inventory failed"
+				>
 					{(inventory) => (
 						<BranchesReady
 							inventory={inventory}
@@ -184,15 +344,107 @@ export function BranchesView({
 							setSearch={setSearch}
 							selectedRefName={selectedRefName}
 							selectedCommitHash={selectedCommitHash}
+							selectedFilePath={selectedFilePath}
+							selectedFile={selectedFile}
+							selectedRefTarget={selectedInventoryTarget}
 							logState={logQuery.state}
+							isLoadingMoreCommits={logQuery.isLoadingMore}
+							hasMoreCommits={logQuery.hasMore}
 							diffState={commitDiffQuery.state}
+							collapsedColumns={collapsedColumns}
+							columnWidths={columnWidths}
+							fileViewMode={fileViewMode}
+							isFileSectionCollapsed={isFileSectionCollapsed}
+							onColumnCollapsedChange={(column, collapsed) => setCollapsedColumns((current) => ({ ...current, [column]: collapsed }))}
+							onColumnWidthChange={setColumnWidth}
+							onFileViewModeChange={changeFileViewMode}
+							onFileSectionCollapsedChange={changeFileSectionCollapsed}
 							onSelectRef={selectRef}
 							onSelectCommit={selectCommit}
+							onSelectFile={selectFile}
+							onLoadMoreCommits={logQuery.loadMore}
+							onCloseDiff={() => {
+								setSelectedFilePath(null);
+								setHasUserClearedFile(true);
+								writeQueryParam("file", null);
+							}}
 						/>
 					)}
 				</QueryGate>
 			)}
 		</VcsShell>
+	);
+}
+
+function BranchesLoadingLayout({
+	columnWidths,
+}: {
+	columnWidths: Record<BranchColumnId | "diff", number>;
+}): React.ReactElement {
+	return (
+		<div className="h-full min-h-0 overflow-x-auto overflow-y-hidden bg-surface-0 p-3">
+			<div className="flex h-full min-h-0 gap-3">
+				<VcsColumn
+					id="refs"
+					title="Branches"
+					width={columnWidths.refs}
+					minWidth={BRANCH_COLUMN_LIMITS.refs.min}
+					maxWidth={BRANCH_COLUMN_LIMITS.refs.max}
+					onCollapse={() => undefined}
+					onWidthChange={() => undefined}
+				>
+					<div className="border-b border-border p-3">
+						<div className="rounded-md border border-border bg-surface-0 p-3">
+							<div className="kb-skeleton h-3 w-36" />
+							<div className="mt-3 flex items-center gap-2">
+								<div className="kb-skeleton h-7 w-7 shrink-0 rounded-md" />
+								<div className="min-w-0 flex-1">
+									<div className="kb-skeleton h-4 w-3/4" />
+									<div className="kb-skeleton mt-2 h-3 w-1/2" />
+								</div>
+							</div>
+						</div>
+					</div>
+					<div className="border-b border-border p-3">
+						<div className="kb-skeleton h-8 w-full" />
+						<div className="kb-skeleton mt-3 h-8 w-full" />
+					</div>
+					<BranchRowsSkeleton />
+				</VcsColumn>
+				<VcsColumn
+					id="commits"
+					title="Commits"
+					width={columnWidths.commits}
+					minWidth={BRANCH_COLUMN_LIMITS.commits.min}
+					maxWidth={BRANCH_COLUMN_LIMITS.commits.max}
+					onCollapse={() => undefined}
+					onWidthChange={() => undefined}
+				>
+					<CommitRowsSkeleton />
+				</VcsColumn>
+			</div>
+		</div>
+	);
+}
+
+function BranchRowsSkeleton({ rows = 8 }: { rows?: number }): React.ReactElement {
+	return (
+		<div className="py-1">
+			{Array.from({ length: rows }, (_, index) => (
+				<div key={index} className="border-b border-divider px-3 py-3">
+					<div className="flex items-center gap-2">
+						<div className="kb-skeleton h-4 w-4 shrink-0 rounded" />
+						<div className="kb-skeleton h-4 min-w-0 flex-1" />
+						<div className="kb-skeleton h-5 w-16 shrink-0 rounded-full" />
+					</div>
+					<div className="mt-2 flex gap-2">
+						<div className="kb-skeleton h-3 w-16" />
+						<div className="kb-skeleton h-3 w-20" />
+						<div className="kb-skeleton h-3 w-12" />
+					</div>
+				</div>
+			))}
+		</div>
 	);
 }
 
@@ -205,10 +457,26 @@ function BranchesReady({
 	setSearch,
 	selectedRefName,
 	selectedCommitHash,
+	selectedFilePath,
+	selectedFile,
+	selectedRefTarget,
 	logState,
+	isLoadingMoreCommits,
+	hasMoreCommits,
 	diffState,
+	collapsedColumns,
+	columnWidths,
+	fileViewMode,
+	isFileSectionCollapsed,
+	onColumnCollapsedChange,
+	onColumnWidthChange,
+	onFileViewModeChange,
+	onFileSectionCollapsedChange,
 	onSelectRef,
 	onSelectCommit,
+	onSelectFile,
+	onLoadMoreCommits,
+	onCloseDiff,
 }: {
 	inventory: VcsJjInventoryResponse;
 	refsState: QueryState<RuntimeGitRefsResponse>;
@@ -218,10 +486,26 @@ function BranchesReady({
 	setSearch: (value: string) => void;
 	selectedRefName: string | null;
 	selectedCommitHash: string | null;
+	selectedFilePath: string | null;
+	selectedFile: VcsFileChange | null;
+	selectedRefTarget: string | null;
 	logState: QueryState<RuntimeGitLogResponse>;
+	isLoadingMoreCommits: boolean;
+	hasMoreCommits: boolean;
 	diffState: QueryState<RuntimeGitCommitDiffResponse>;
+	collapsedColumns: Record<BranchColumnId, boolean>;
+	columnWidths: Record<BranchColumnId | "diff", number>;
+	fileViewMode: VcsFileViewMode;
+	isFileSectionCollapsed: boolean;
+	onColumnCollapsedChange: (column: BranchColumnId, collapsed: boolean) => void;
+	onColumnWidthChange: (column: BranchColumnId | "diff", width: number) => void;
+	onFileViewModeChange: (mode: VcsFileViewMode) => void;
+	onFileSectionCollapsedChange: (collapsed: boolean) => void;
 	onSelectRef: (item: VcsJjInventoryItem) => void;
 	onSelectCommit: (commit: RuntimeGitCommit) => void;
+	onSelectFile: (path: string) => void;
+	onLoadMoreCommits: () => void;
+	onCloseDiff: () => void;
 }): React.ReactElement {
 	const refsCount = refsState.status === "ready" && refsState.data.ok ? refsState.data.refs.length : inventory.items.length;
 	const visibleItems = inventory.items.filter((item) => {
@@ -242,110 +526,201 @@ function BranchesReady({
 		{ current: [], applied: [], remote: [], local: [], tags: [], older: [] },
 	);
 	const activeItem =
-		inventory.items.find((item) => getItemTarget(item) === selectedRefName) ??
-		inventory.workspaceTarget ??
-		inventory.items[0] ??
-		null;
+		selectedRefName ? inventory.items.find((item) => getItemTarget(item) === selectedRefName) ?? null : null;
+	const activeFiles = toFileChanges(diffState);
 
 	return (
-		<div className="flex h-full min-h-0">
-			<aside className="flex w-[360px] shrink-0 flex-col overflow-hidden border-r border-divider bg-surface-1">
-				<div className="border-b border-border px-3 py-3">
-					<div className="rounded-md border border-border bg-surface-0 p-3">
-						<div className="text-xs font-medium text-text-tertiary">Current workspace target</div>
-						<div className="mt-2 flex min-w-0 items-center gap-2">
-							<div className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-accent text-accent-fg">
-								<GitBranch size={14} />
-							</div>
-							<div className="min-w-0">
-								<div className="truncate text-sm font-semibold text-text-primary">
-									{inventory.workspaceTarget?.name ?? inventory.jj.currentBookmark ?? "Current change"}
-								</div>
-								<div className="truncate font-mono text-[11px] text-text-tertiary">
-									{inventory.workspaceTarget?.changeId ?? inventory.jj.currentChangeId ?? "unknown"}
-								</div>
-							</div>
-						</div>
-						<div className="mt-3 border-t border-border pt-2 text-xs text-text-secondary">
-							{refsCount} refs · {inventory.items.filter((item) => item.pr).length} PRs
-						</div>
-					</div>
-				</div>
-				<div className="border-b border-border px-3 py-3">
-					<div className="flex items-center justify-between">
-						<h2 className="text-sm font-semibold text-text-primary">Branches</h2>
-						<StatusChip label={`${visibleItems.length}`} tone="neutral" />
-					</div>
-					<div className="mt-3 grid grid-cols-3 rounded-md border border-border bg-surface-0 p-1">
-						{(["all", "prs", "local"] as BranchFilter[]).map((candidate) => (
-							<button
-								key={candidate}
-								type="button"
-								className={cn(
-									"h-7 rounded-sm text-xs font-medium capitalize",
-									filter === candidate ? "bg-surface-3 text-text-primary" : "text-text-secondary hover:text-text-primary",
-								)}
-								onClick={() => setFilter(candidate)}
-							>
-								{candidate === "prs" ? "PRs" : candidate}
-							</button>
-						))}
-					</div>
-					<label className="mt-3 flex h-8 items-center gap-2 rounded-md border border-border bg-surface-0 px-2 text-xs text-text-secondary">
-						<Search size={14} />
-						<input
-							value={search}
-							onChange={(event) => setSearch(event.target.value)}
-							placeholder="Search refs"
-							className="min-w-0 flex-1 border-0 bg-transparent text-text-primary outline-none placeholder:text-text-tertiary"
-						/>
-					</label>
-				</div>
-				<div className="min-h-0 flex-1 overflow-y-auto">
-					{visibleItems.length === 0 ? (
-						<div className="p-3">
-							<EmptyState title="No branch data">No refs matched the active filter.</EmptyState>
-						</div>
-					) : (
-						(Object.keys(groupedItems) as VcsJjInventoryItem["group"][]).map((group) =>
-							groupedItems[group].length > 0 ? (
-								<section key={group} className="border-b border-border">
-									<header className="bg-surface-0 px-3 py-2 text-xs font-medium text-text-tertiary">
-										{GROUP_LABELS[group]}
-									</header>
-									{groupedItems[group].map((item) => (
-										<BranchRow
-											key={item.id}
-											item={item}
-											selected={getItemTarget(item) === selectedRefName || item.id === activeItem?.id}
-											onSelect={() => onSelectRef(item)}
-										/>
-									))}
-								</section>
-							) : null,
-						)
-					)}
-				</div>
-			</aside>
-			<section
-				className="min-w-0 flex-1 overflow-auto p-3"
-				style={{
-					backgroundImage: "radial-gradient(color-mix(in srgb, var(--color-text-tertiary) 18%, transparent) 1px, transparent 1px)",
-					backgroundSize: "10px 10px",
-				}}
-			>
-				<div className="grid min-h-full gap-3 xl:grid-cols-[minmax(360px,520px)_minmax(420px,1fr)]">
-					<CommitGraphPanel
-						item={activeItem}
-						state={logState}
-						selectedCommitHash={selectedCommitHash}
-						onSelectCommit={onSelectCommit}
+		<div className="h-full min-h-0 overflow-x-auto overflow-y-hidden bg-surface-0 p-3">
+			<div className="flex h-full min-h-0 gap-3">
+				{collapsedColumns.refs ? (
+					<VcsCollapsedColumn
+						label="Branches"
+						count={visibleItems.length}
+						onExpand={() => onColumnCollapsedChange("refs", false)}
 					/>
-					<CommitDiffPanel state={diffState} selectedCommitHash={selectedCommitHash} />
+				) : (
+					<VcsColumn
+						id="refs"
+						title="Branches"
+						count={visibleItems.length}
+						width={columnWidths.refs}
+						minWidth={BRANCH_COLUMN_LIMITS.refs.min}
+						maxWidth={BRANCH_COLUMN_LIMITS.refs.max}
+						onCollapse={() => onColumnCollapsedChange("refs", true)}
+						onWidthChange={(width) => onColumnWidthChange("refs", width)}
+					>
+						<BranchesColumnContent
+							inventory={inventory}
+							groupedItems={groupedItems}
+							visibleItems={visibleItems}
+							refsCount={refsCount}
+							filter={filter}
+							setFilter={setFilter}
+							search={search}
+							setSearch={setSearch}
+							activeItem={activeItem}
+							selectedRefName={selectedRefName}
+							onSelectRef={onSelectRef}
+						/>
+					</VcsColumn>
+				)}
+				{collapsedColumns.commits ? (
+					<VcsCollapsedColumn
+						label="Commits"
+						count={logState.status === "ready" && logState.data.ok ? logState.data.totalCount : undefined}
+						onExpand={() => onColumnCollapsedChange("commits", false)}
+					/>
+				) : (
+					<VcsColumn
+						id="commits"
+						title={activeItem?.name ?? "Commits"}
+						count={logState.status === "ready" && logState.data.ok ? logState.data.totalCount : undefined}
+						width={columnWidths.commits}
+						minWidth={BRANCH_COLUMN_LIMITS.commits.min}
+						maxWidth={BRANCH_COLUMN_LIMITS.commits.max}
+						onCollapse={() => onColumnCollapsedChange("commits", true)}
+						onWidthChange={(width) => onColumnWidthChange("commits", width)}
+						onScrollNearEnd={hasMoreCommits ? onLoadMoreCommits : undefined}
+					>
+						<CommitGraphColumn
+							hasSelectedRef={Boolean(selectedRefTarget)}
+							state={logState}
+							isLoadingMore={isLoadingMoreCommits}
+							hasMore={hasMoreCommits}
+							diffState={diffState}
+							selectedCommitHash={selectedCommitHash}
+							selectedFilePath={selectedFilePath}
+							fileViewMode={fileViewMode}
+							isFileSectionCollapsed={isFileSectionCollapsed}
+							onFileViewModeChange={onFileViewModeChange}
+							onFileSectionCollapsedChange={onFileSectionCollapsedChange}
+							onSelectCommit={onSelectCommit}
+							onSelectFile={onSelectFile}
+							onLoadMore={onLoadMoreCommits}
+						/>
+					</VcsColumn>
+				)}
+				{selectedFile ? (
+					<VcsFileDiffColumn
+						file={selectedFile}
+						width={columnWidths.diff}
+						minWidth={BRANCH_COLUMN_LIMITS.diff.min}
+						maxWidth={BRANCH_COLUMN_LIMITS.diff.max}
+						onWidthChange={(width) => onColumnWidthChange("diff", width)}
+						onClose={onCloseDiff}
+					/>
+				) : null}
+			</div>
+			<DiagnosticsPanel diagnostics={inventory.diagnostics} />
+			{selectedCommitHash && diffState.status === "ready" && diffState.data.ok && activeFiles.length === 0 ? (
+				<div className="mt-3 max-w-md">
+					<EmptyState title="No file changes">This commit did not return any file changes.</EmptyState>
 				</div>
-				<DiagnosticsPanel diagnostics={inventory.diagnostics} />
-			</section>
+			) : null}
 		</div>
+	);
+}
+
+function BranchesColumnContent({
+	inventory,
+	groupedItems,
+	visibleItems,
+	refsCount,
+	filter,
+	setFilter,
+	search,
+	setSearch,
+	activeItem,
+	selectedRefName,
+	onSelectRef,
+}: {
+	inventory: VcsJjInventoryResponse;
+	groupedItems: Record<VcsJjInventoryItem["group"], VcsJjInventoryItem[]>;
+	visibleItems: VcsJjInventoryItem[];
+	refsCount: number;
+	filter: BranchFilter;
+	setFilter: (filter: BranchFilter) => void;
+	search: string;
+	setSearch: (value: string) => void;
+	activeItem: VcsJjInventoryItem | null;
+	selectedRefName: string | null;
+	onSelectRef: (item: VcsJjInventoryItem) => void;
+}): React.ReactElement {
+	return (
+		<>
+			<div className="border-b border-border px-3 py-3">
+				<div className="rounded-md border border-border bg-surface-0 p-3">
+					<div className="text-xs font-medium text-text-tertiary">Current workspace target</div>
+					<div className="mt-2 flex min-w-0 items-center gap-2">
+						<div className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-accent text-accent-fg">
+							<GitBranch size={14} />
+						</div>
+						<div className="min-w-0">
+							<div className="truncate text-sm font-semibold text-text-primary">
+								{inventory.workspaceTarget?.name ?? inventory.jj.currentBookmark ?? "Current change"}
+							</div>
+							<div className="truncate font-mono text-[11px] text-text-tertiary">
+								{inventory.workspaceTarget?.changeId ?? inventory.jj.currentChangeId ?? "unknown"}
+							</div>
+						</div>
+					</div>
+					<div className="mt-3 border-t border-border pt-2 text-xs text-text-secondary">
+						{refsCount} refs · {inventory.items.filter((item) => item.pr).length} PRs
+					</div>
+				</div>
+			</div>
+			<div className="border-b border-border px-3 py-3">
+				<div className="mt-1 grid grid-cols-3 rounded-md border border-border bg-surface-0 p-1">
+					{(["all", "prs", "local"] as BranchFilter[]).map((candidate) => (
+						<button
+							key={candidate}
+							type="button"
+							className={cn(
+								"h-7 rounded-sm text-xs font-medium capitalize",
+								filter === candidate ? "bg-surface-3 text-text-primary" : "text-text-secondary hover:text-text-primary",
+							)}
+							onClick={() => setFilter(candidate)}
+						>
+							{candidate === "prs" ? "PRs" : candidate}
+						</button>
+					))}
+				</div>
+				<label className="mt-3 flex h-8 items-center gap-2 rounded-md border border-border bg-surface-0 px-2 text-xs text-text-secondary">
+					<Search size={14} />
+					<input
+						value={search}
+						onChange={(event) => setSearch(event.target.value)}
+						placeholder="Search refs"
+						className="min-w-0 flex-1 border-0 bg-transparent text-text-primary outline-none placeholder:text-text-tertiary"
+					/>
+				</label>
+			</div>
+			<div className="min-h-0 flex-1">
+				{visibleItems.length === 0 ? (
+					<div className="p-3">
+						<EmptyState title="No branch data">No refs matched the active filter.</EmptyState>
+					</div>
+				) : (
+					(Object.keys(groupedItems) as VcsJjInventoryItem["group"][]).map((group) =>
+						groupedItems[group].length > 0 ? (
+							<section key={group} className="border-b border-border">
+								<header className="bg-surface-0 px-3 py-2 text-xs font-medium text-text-tertiary">
+									{GROUP_LABELS[group]}
+								</header>
+								{groupedItems[group].map((item) => (
+							<BranchRow
+								key={item.id}
+								item={item}
+								selected={getItemTarget(item) === selectedRefName}
+								onSelect={() => onSelectRef(item)}
+							/>
+								))}
+							</section>
+						) : null,
+					)
+				)}
+			</div>
+		</>
 	);
 }
 
@@ -362,8 +737,9 @@ function BranchRow({
 		<button
 			type="button"
 			className={cn(
-				"flex w-full min-w-0 flex-col gap-2 border-l-2 px-3 py-3 text-left hover:bg-surface-2",
-				selected ? "border-accent bg-surface-2" : "border-transparent",
+				"flex w-full min-w-0 flex-col gap-2 px-3 py-3 text-left hover:bg-surface-2",
+				selected && "bg-surface-2",
+				selected && SELECTED_REF_MARKER_CLASS,
 			)}
 			onClick={onSelect}
 		>
@@ -385,43 +761,73 @@ function BranchRow({
 	);
 }
 
-function CommitGraphPanel({
-	item,
+function CommitGraphColumn({
+	hasSelectedRef,
 	state,
+	isLoadingMore,
+	hasMore,
+	diffState,
 	selectedCommitHash,
+	selectedFilePath,
+	fileViewMode,
+	isFileSectionCollapsed,
+	onFileViewModeChange,
+	onFileSectionCollapsedChange,
 	onSelectCommit,
+	onSelectFile,
+	onLoadMore,
 }: {
-	item: VcsJjInventoryItem | null;
+	hasSelectedRef: boolean;
 	state: QueryState<RuntimeGitLogResponse>;
+	isLoadingMore: boolean;
+	hasMore: boolean;
+	diffState: QueryState<RuntimeGitCommitDiffResponse>;
 	selectedCommitHash: string | null;
+	selectedFilePath: string | null;
+	fileViewMode: VcsFileViewMode;
+	isFileSectionCollapsed: boolean;
+	onFileViewModeChange: (mode: VcsFileViewMode) => void;
+	onFileSectionCollapsedChange: (collapsed: boolean) => void;
 	onSelectCommit: (commit: RuntimeGitCommit) => void;
+	onSelectFile: (path: string) => void;
+	onLoadMore: () => void;
 }): React.ReactElement {
+	if (!hasSelectedRef) {
+		return <div className="p-3"><EmptyState title="Select a branch">Choose a branch or bookmark to show its commits.</EmptyState></div>;
+	}
+	if (state.status === "loading") {
+		return <CommitRowsSkeleton />;
+	}
+	if (state.status === "error") {
+		return <div className="p-3"><EmptyState title="Commit history unavailable">{state.message}</EmptyState></div>;
+	}
+	if (!state.data.ok) {
+		return <div className="p-3"><EmptyState title="Commit history unavailable">{state.data.error ?? "The selected ref could not be read."}</EmptyState></div>;
+	}
+	if (state.data.commits.length === 0) {
+		return <div className="p-3"><EmptyState title="No commits">No commits were returned for this ref.</EmptyState></div>;
+	}
+
+	const selectedFiles = toFileChanges(diffState);
+	const selectedError =
+		diffState.status === "error"
+			? diffState.message
+			: diffState.status === "ready" && !diffState.data.ok
+				? diffState.data.error ?? "The selected commit diff could not be read."
+				: null;
+
 	return (
-		<Panel
-			title={item ? item.name : "Commits"}
-			actions={item ? <StatusChip label={item.type} tone={item.type === "remote" ? "blue" : "neutral"} /> : null}
-			className="min-h-[520px] overflow-hidden"
-		>
-			{state.status === "loading" ? <EmptyState title="Loading commits">Reading the selected ref history.</EmptyState> : null}
-			{state.status === "error" ? <EmptyState title="Commit history unavailable">{state.message}</EmptyState> : null}
-			{state.status === "ready" && !state.data.ok ? (
-				<EmptyState title="Commit history unavailable">{state.data.error ?? "The selected ref could not be read."}</EmptyState>
-			) : null}
-			{state.status === "ready" && state.data.ok && state.data.commits.length === 0 ? (
-				<EmptyState title="No commits">No commits were returned for this ref.</EmptyState>
-			) : null}
-			{state.status === "ready" && state.data.ok && state.data.commits.length > 0 ? (
-				<div className="max-h-[calc(100vh-150px)] overflow-y-auto">
-					{state.data.commits.map((commit, index) => (
+		<div className="py-1">
+			{state.data.commits.map((commit, index) => {
+				const selected = selectedCommitHash === commit.hash;
+				return (
+					<div key={commit.hash} className={cn("border-b border-divider last:border-b-0", selected && "bg-surface-2")}>
 						<button
-							key={commit.hash}
 							type="button"
-							className={cn(
-								"relative flex w-full min-w-0 gap-3 border-b border-border px-2 py-3 text-left last:border-b-0 hover:bg-surface-2",
-								selectedCommitHash === commit.hash && "bg-surface-2",
-							)}
+							className="relative flex w-full min-w-0 gap-3 px-3 py-3 text-left hover:bg-surface-2"
 							onClick={() => onSelectCommit(commit)}
 						>
+							{selected ? <span aria-hidden className="absolute left-0 top-1/2 h-8 w-1 -translate-y-1/2 rounded-r-full bg-accent" /> : null}
 							<div className="relative flex w-7 shrink-0 justify-center">
 								<span className="absolute bottom-[-13px] top-[-13px] w-px bg-accent/70" />
 								<span
@@ -441,64 +847,58 @@ function CommitGraphPanel({
 								</div>
 							</div>
 						</button>
-					))}
+						{selected ? (
+							<VcsInlineFileSection
+								title="Commit files"
+								files={selectedFiles}
+								selectedPath={selectedFilePath}
+								isLoading={diffState.status === "loading"}
+								errorMessage={selectedError}
+								viewMode={fileViewMode}
+								onViewModeChange={onFileViewModeChange}
+								collapsed={isFileSectionCollapsed}
+								onCollapsedChange={onFileSectionCollapsedChange}
+								onSelectPath={onSelectFile}
+							/>
+						) : null}
+					</div>
+				);
+			})}
+			{hasMore || isLoadingMore ? (
+				<div className="border-t border-divider p-2">
+					<button
+						type="button"
+						className="flex h-8 w-full items-center justify-center rounded-md border border-border bg-surface-0 text-xs font-medium text-text-secondary hover:bg-surface-2 hover:text-text-primary disabled:opacity-60"
+						disabled={isLoadingMore}
+						onClick={onLoadMore}
+					>
+						{isLoadingMore ? "Loading more commits..." : "Load more commits"}
+					</button>
 				</div>
 			) : null}
-		</Panel>
+		</div>
 	);
 }
 
-function CommitDiffPanel({
-	state,
-	selectedCommitHash,
-}: {
-	state: QueryState<RuntimeGitCommitDiffResponse>;
-	selectedCommitHash: string | null;
-}): React.ReactElement {
-	if (!selectedCommitHash) {
-		return (
-			<Panel title="Changes" className="min-h-[520px]">
-				<EmptyState title="Select a commit">Choose a commit in the graph to inspect its changes.</EmptyState>
-			</Panel>
-		);
-	}
+function CommitRowsSkeleton({ rows = 10 }: { rows?: number }): React.ReactElement {
 	return (
-		<Panel title="Changes" actions={<code className="text-xs text-text-tertiary">{selectedCommitHash.slice(0, 12)}</code>} className="min-h-[520px] overflow-hidden">
-			{state.status === "loading" ? <EmptyState title="Loading changes">Reading commit diff.</EmptyState> : null}
-			{state.status === "error" ? <EmptyState title="Diff unavailable">{state.message}</EmptyState> : null}
-			{state.status === "ready" && !state.data.ok ? (
-				<EmptyState title="Diff unavailable">{state.data.error ?? "The selected commit diff could not be read."}</EmptyState>
-			) : null}
-			{state.status === "ready" && state.data.ok && state.data.files.length === 0 ? (
-				<EmptyState title="No file changes">This commit did not return any file changes.</EmptyState>
-			) : null}
-			{state.status === "ready" && state.data.ok && state.data.files.length > 0 ? (
-				<div className="grid max-h-[calc(100vh-150px)] min-h-[480px] grid-rows-[auto_1fr] overflow-hidden">
-					<div className="flex flex-wrap gap-1.5 border-b border-border pb-3">
-						{state.data.files.map((file) => (
-							<div key={`${file.previousPath ?? ""}:${file.path}`} className="flex min-w-0 items-center gap-1 rounded-md border border-border bg-surface-0 px-2 py-1 text-xs">
-								<FileStatusChip status={file.status} />
-								<span className="max-w-[220px] truncate text-text-secondary">{file.path}</span>
-								<span className="text-status-green">+{file.additions}</span>
-								<span className="text-status-red">-{file.deletions}</span>
-							</div>
-						))}
+		<div className="py-1">
+			{Array.from({ length: rows }, (_, index) => (
+				<div key={index} className="flex min-w-0 gap-3 border-b border-divider px-3 py-3">
+					<div className="relative flex w-7 shrink-0 justify-center">
+						<span className="absolute bottom-[-13px] top-[-13px] w-px bg-border" />
+						<span className="kb-skeleton relative mt-1 h-3 w-3 rounded-full" />
 					</div>
-					<div className="overflow-auto pt-3">
-						{state.data.files.map((file) => (
-							<section key={`${file.previousPath ?? ""}:${file.path}`} className="mb-3 overflow-hidden rounded-md border border-border bg-surface-0">
-								<header className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
-									<div className="min-w-0 truncate text-xs font-medium text-text-primary">{file.path}</div>
-									<FileStatusChip status={file.status} />
-								</header>
-								<pre className="overflow-auto p-3 font-mono text-[11px] leading-5 text-text-secondary">
-									{file.patch || "No textual patch available."}
-								</pre>
-							</section>
-						))}
+					<div className="min-w-0 flex-1">
+						<div className="kb-skeleton h-4 w-4/5" />
+						<div className="mt-2 flex gap-2">
+							<div className="kb-skeleton h-3 w-14" />
+							<div className="kb-skeleton h-3 w-20" />
+							<div className="kb-skeleton h-3 w-16" />
+						</div>
 					</div>
 				</div>
-			) : null}
-		</Panel>
+			))}
+		</div>
 	);
 }

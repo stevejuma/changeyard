@@ -5,7 +5,7 @@ import { PreviewDialog } from "@/components/preview-dialog";
 import { SubmitStackDialog } from "@/components/submit-stack-dialog";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
-import { FileStatusChip, StatusChip } from "@/components/ui/status-chip";
+import { FileStatusGlyph, StatusChip } from "@/components/ui/status-chip";
 import { Tooltip } from "@/components/ui/tooltip";
 import { DiagnosticsPanel, EmptyState, KeyValue, PageBody, Panel, QueryGate, StatCard } from "@/components/vcs-panels";
 import { NoProjectSelected, SelectProjectButton, VcsShell, type VcsShellProjectState } from "@/components/vcs-shell";
@@ -757,7 +757,7 @@ function DetailsPanel({
 								<div className="rounded-md border border-border bg-surface-0 p-2" key={`${change.status}-${change.path}`}>
 									<div className="flex min-w-0 items-center justify-between gap-2">
 										<div className="min-w-0 truncate font-mono text-xs text-text-primary">{change.path}</div>
-										<FileStatusChip status={change.status} />
+										<FileStatusGlyph status={change.status} />
 									</div>
 									<div className="mt-2 flex flex-wrap gap-1.5">
 										<Button size="sm" variant="ghost" onClick={() => setDraft(draft?.kind === "absorb" && draft.paths[0] === change.path ? null : { kind: "absorb", paths: [change.path] })}>

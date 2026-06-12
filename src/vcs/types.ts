@@ -146,7 +146,21 @@ export interface VcsJjOperationEntry {
 
 export interface VcsJjOperationsResult {
 	operations: VcsJjOperationEntry[];
+	requestedLimit: number;
+	hasMore: boolean;
 	diagnostics: VcsDiagnostic[];
+}
+
+export interface VcsJjOperationCommit {
+	hash: string;
+	shortHash: string;
+	changeId?: string;
+	authorName: string;
+	authorEmail: string;
+	date: string;
+	message: string;
+	parentHashes: string[];
+	relation?: "selected" | "upstream" | "shared";
 }
 
 export interface VcsJjOperationDiffResult {
@@ -154,6 +168,11 @@ export interface VcsJjOperationDiffResult {
 	summary: string;
 	patch: string;
 	files: VcsJjOperationFile[];
+	commits: VcsJjOperationCommit[];
+	commitSkip: number;
+	commitLimit: number;
+	totalCommitCount: number;
+	hasMoreCommits: boolean;
 	diagnostics: VcsDiagnostic[];
 }
 

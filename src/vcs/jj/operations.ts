@@ -1,6 +1,7 @@
 import { detectVcsState, type VcsCommandRunner } from "../detect.js";
 import type {
 	VcsDiagnostic,
+	VcsJjOperationCommit,
 	VcsJjOperationDiffResult,
 	VcsJjOperationEntry,
 	VcsJjOperationFile,
@@ -99,15 +100,117 @@ async function readOperationFiles(cwd: string, operationId: string, runner: VcsC
 	return result.ok ? parseJjOperationFiles(result.stdout) : [];
 }
 
+async function readOperationCommits(
+	cwd: string,
+	operationId: string,
+	runner: VcsCommandRunner,
+	options: { skip?: number; limit?: number } = {},
+): Promise<{
+	commits: VcsJjOperationCommit[];
+	totalCommitCount: number;
+	hasMoreCommits: boolean;
+	diagnostic: VcsDiagnostic | null;
+}> {
+	const normalizedSkip = Math.max(0, options.skip ?? 0);
+	const normalizedLimit = Math.max(1, Math.min(options.limit ?? 50, 500));
+	const jjLimit = normalizedSkip + normalizedLimit;
+	const [countResult, result] = await Promise.all([
+		runner({
+			command: "jj",
+			args: ["log", "--ignore-working-copy", `--at-op=${operationId}`, "-r", "all()", "--no-graph", "--count"],
+			cwd,
+		}),
+		runner({
+			command: "jj",
+			args: [
+				"log",
+				"--ignore-working-copy",
+				`--at-op=${operationId}`,
+				"-r",
+				"all()",
+				"--no-graph",
+				"-n",
+				String(jjLimit),
+				"-T",
+				'change_id.short() ++ "\\t" ++ commit_id.short() ++ "\\t" ++ commit_id ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name() ++ "\\t" ++ author.email() ++ "\\t" ++ author.timestamp() ++ "\\t" ++ parents.map(|c| c.commit_id()).join("|") ++ "\\n"',
+			],
+			cwd,
+		}),
+	]);
+	if (!result.ok) {
+		return {
+			commits: [],
+			totalCommitCount: 0,
+			hasMoreCommits: false,
+			diagnostic: createDiagnostic(
+				"warning",
+				"jj_operation_commits_failed",
+				result.stderr || result.stdout || "JJ could not provide commit graph data for this operation.",
+			),
+		};
+	}
+
+	const commits: VcsJjOperationCommit[] = [];
+	for (const line of result.stdout.split("\n")) {
+		const trimmed = line.trim();
+		if (!trimmed) {
+			continue;
+		}
+		const [
+			changeId = "",
+			shortHash = "",
+			hash = "",
+			message = "",
+			authorName = "",
+			authorEmail = "",
+			date = "",
+			parentHashes = "",
+		] = trimmed.split(FIELD_SEPARATOR);
+		const normalizedHash = hash.trim();
+		if (!normalizedHash) {
+			continue;
+		}
+		commits.push({
+			hash: normalizedHash,
+			shortHash: shortHash.trim() || normalizedHash.slice(0, 12),
+			changeId: changeId.trim() || undefined,
+			authorName: authorName.trim() || "Unknown",
+			authorEmail: authorEmail.trim(),
+			date: date.trim(),
+			message: message.trim() || "(no description)",
+			parentHashes: parentHashes.split("|").map((entry) => entry.trim()).filter(Boolean),
+			relation: "selected",
+		});
+	}
+
+	const totalCommitCount = countResult.ok ? Math.max(0, Number.parseInt(countResult.stdout.trim(), 10) || 0) : commits.length;
+	const paginatedCommits = commits.slice(normalizedSkip, normalizedSkip + normalizedLimit);
+	return {
+		commits: paginatedCommits,
+		totalCommitCount,
+		hasMoreCommits: normalizedSkip + paginatedCommits.length < totalCommitCount,
+		diagnostic: countResult.ok
+			? null
+			: createDiagnostic(
+					"warning",
+					"jj_operation_commit_count_failed",
+					countResult.stderr || countResult.stdout || "JJ could not count commits for this operation.",
+				),
+	};
+}
+
 export async function loadJjOperations(
 	cwd: string,
 	runner: VcsCommandRunner,
 	limit = 30,
 ): Promise<VcsJjOperationsResult> {
 	const detect = await detectVcsState(cwd, runner);
+	const normalizedLimit = Math.max(1, Math.min(limit, 1000));
 	if (detect.repository.kind !== "jj") {
 		return {
 			operations: [],
+			requestedLimit: normalizedLimit,
+			hasMore: false,
 			diagnostics: [
 				...detect.diagnostics,
 				createDiagnostic("warning", "jj_repo_required", "JJ operation history is only available inside a JJ repository."),
@@ -115,7 +218,6 @@ export async function loadJjOperations(
 		};
 	}
 	const repoCwd = detect.repository.root ?? cwd;
-	const normalizedLimit = Math.max(1, Math.min(limit, 100));
 	const result = await runner({
 		command: "jj",
 		args: [
@@ -134,6 +236,8 @@ export async function loadJjOperations(
 	if (!result.ok) {
 		return {
 			operations: [],
+			requestedLimit: normalizedLimit,
+			hasMore: false,
 			diagnostics: [
 				...detect.diagnostics,
 				createDiagnostic("error", "jj_operations_failed", result.stderr || result.stdout || "Failed to read JJ operation history."),
@@ -171,6 +275,8 @@ export async function loadJjOperations(
 
 	return {
 		operations: operationsWithFiles,
+		requestedLimit: normalizedLimit,
+		hasMore: operationsWithFiles.length >= normalizedLimit,
 		diagnostics: detect.diagnostics,
 	};
 }
@@ -179,15 +285,23 @@ export async function loadJjOperationDiff(
 	cwd: string,
 	runner: VcsCommandRunner,
 	operationId: string,
+	options: { commitSkip?: number | null; commitLimit?: number | null } = {},
 ): Promise<VcsJjOperationDiffResult> {
 	const detect = await detectVcsState(cwd, runner);
 	const normalizedOperationId = operationId.trim();
+	const commitSkip = Math.max(0, options.commitSkip ?? 0);
+	const commitLimit = Math.max(1, Math.min(options.commitLimit ?? 50, 500));
 	if (!normalizedOperationId) {
 		return {
 			operationId,
 			summary: "",
 			patch: "",
 			files: [],
+			commits: [],
+			commitSkip,
+			commitLimit,
+			totalCommitCount: 0,
+			hasMoreCommits: false,
 			diagnostics: [createDiagnostic("error", "operation_required", "Choose an operation before loading details.")],
 		};
 	}
@@ -197,6 +311,11 @@ export async function loadJjOperationDiff(
 			summary: "",
 			patch: "",
 			files: [],
+			commits: [],
+			commitSkip,
+			commitLimit,
+			totalCommitCount: 0,
+			hasMoreCommits: false,
 			diagnostics: [
 				...detect.diagnostics,
 				createDiagnostic("warning", "jj_repo_required", "JJ operation details are only available inside a JJ repository."),
@@ -216,7 +335,14 @@ export async function loadJjOperationDiff(
 			cwd: repoCwd,
 		}),
 	]);
+	const operationCommits = await readOperationCommits(repoCwd, normalizedOperationId, runner, {
+		skip: commitSkip,
+		limit: commitLimit,
+	});
 	const diagnostics = [...detect.diagnostics];
+	if (operationCommits.diagnostic) {
+		diagnostics.push(operationCommits.diagnostic);
+	}
 	if (!summaryResult.ok) {
 		diagnostics.push(
 			createDiagnostic("error", "jj_operation_summary_failed", summaryResult.stderr || summaryResult.stdout || "Failed to read operation summary."),
@@ -238,6 +364,11 @@ export async function loadJjOperationDiff(
 		summary,
 		patch,
 		files: parseJjOperationFiles(`${summary}\n${patch}`),
+		commits: operationCommits.commits,
+		commitSkip,
+		commitLimit,
+		totalCommitCount: operationCommits.totalCommitCount,
+		hasMoreCommits: operationCommits.hasMoreCommits,
 		diagnostics,
 	};
 }

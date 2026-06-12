@@ -329,7 +329,7 @@ export function createChangeyardUiApi() {
     getJjOperations(repoRoot: string, input?: { limit?: number | null }) {
       return getJjOperations(repoRoot, input);
     },
-    getJjOperationDiff(repoRoot: string, input: { operationId: string }) {
+    getJjOperationDiff(repoRoot: string, input: { operationId: string; commitSkip?: number | null; commitLimit?: number | null }) {
       return getJjOperationDiff(repoRoot, input);
     },
     previewVcsOperation(repoRoot: string, input: VcsPreviewOperationInput) {

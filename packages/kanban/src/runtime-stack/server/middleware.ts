@@ -20,6 +20,31 @@ export interface CorsGateInput {
 
 const isDev = process.env.NODE_ENV === "development";
 
+function getDevWebUiPorts(): string[] {
+	const ports = new Set(["4173", "4174"]);
+	const configuredKanbanPort = process.env.KANBAN_WEB_UI_PORT?.trim();
+	const configuredVcsPort = process.env.VCS_WEB_UI_PORT?.trim();
+	if (configuredKanbanPort) {
+		ports.add(configuredKanbanPort);
+	}
+	if (configuredVcsPort) {
+		ports.add(configuredVcsPort);
+	}
+	return [...ports];
+}
+
+function isAllowedDevServerOrigin(origin: string): boolean {
+	if (!isDev) {
+		return false;
+	}
+	for (const port of getDevWebUiPorts()) {
+		if (origin === `http://localhost:${port}` || origin === `http://127.0.0.1:${port}`) {
+			return true;
+		}
+	}
+	return false;
+}
+
 export function evaluateCors(input: CorsGateInput): CorsDecision {
 	const origin = input.originHeader || null;
 	const isPreflight = input.method === "OPTIONS";
@@ -28,9 +53,7 @@ export function evaluateCors(input: CorsGateInput): CorsDecision {
 		return { kind: "allow", origin: null };
 	}
 
-	const isDevServer = isDev && (origin === "http://localhost:4173" || origin === "http://127.0.0.1:4173");
-
-	if (origin !== input.allowedOrigin && !isDevServer) {
+	if (origin !== input.allowedOrigin && !isAllowedDevServerOrigin(origin)) {
 		return { kind: "reject", origin };
 	}
 
@@ -76,9 +99,10 @@ export function getAllowedHostHeaders(): ReadonlySet<string> {
 	addHostPort("localhost");
 	addHostPort("127.0.0.1");
 	if (isDev) {
-		// Vite's default dev server host:port
-		allowed.add("localhost:4173");
-		allowed.add("127.0.0.1:4173");
+		for (const port of getDevWebUiPorts()) {
+			allowed.add(`localhost:${port}`);
+			allowed.add(`127.0.0.1:${port}`);
+		}
 	}
 	return allowed;
 }
