@@ -10,7 +10,7 @@ import { EmptyState } from "@/components/vcs-panels";
 import { buildFileTree, type FileTreeNode } from "@/utils/file-tree";
 import { clampNumber, type VcsFileViewMode } from "@/utils/vcs-ui-preferences";
 
-export type VcsColumnId = "refs" | "commits" | "operations";
+export type VcsColumnId = "refs" | "commits" | "operations" | "stack";
 
 export type VcsFileChange = {
 	path: string;
@@ -73,6 +73,8 @@ export function VcsColumn({
 	onCollapse,
 	onWidthChange,
 	onScrollNearEnd,
+	hideHeader = false,
+	headerContent,
 	children,
 }: {
 	id: VcsColumnId;
@@ -84,6 +86,8 @@ export function VcsColumn({
 	onCollapse: () => void;
 	onWidthChange?: (width: number) => void;
 	onScrollNearEnd?: () => void;
+	hideHeader?: boolean;
+	headerContent?: React.ReactNode;
 	children: React.ReactNode;
 }): React.ReactElement {
 	return (
@@ -93,10 +97,14 @@ export function VcsColumn({
 			style={{ width, minWidth: width }}
 		>
 			<header className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-divider px-3">
-				<div className="flex min-w-0 items-center gap-2">
-					<span className="truncate text-sm font-semibold text-text-primary">{title}</span>
-					{count === undefined ? null : <span className="text-xs text-text-secondary">{count}</span>}
-				</div>
+				{hideHeader ? (
+					<div className="min-w-0 flex-1">{headerContent}</div>
+				) : (
+					<div className="flex min-w-0 items-center gap-2">
+						<span className="truncate text-sm font-semibold text-text-primary">{title}</span>
+						{count === undefined ? null : <span className="text-xs text-text-secondary">{count}</span>}
+					</div>
+				)}
 				<Button
 					variant="ghost"
 					size="sm"

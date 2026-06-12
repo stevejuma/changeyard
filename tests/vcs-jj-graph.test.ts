@@ -82,6 +82,35 @@ test("buildJjStacks keeps sibling top-level bookmarks as separate stacks", () =>
 	);
 });
 
+test("buildJjStacks does not treat merge side parents as stack ancestors", () => {
+	const bookmarks = [bookmark("feature/query", "query"), bookmark("feature/merge-child", "merge-child")];
+	const changes = [
+		change("base", [], "base", ["main"]),
+		change("query-base", ["base"], "query base"),
+		change("query", ["query-base"], "query", ["feature/query"]),
+		change("primary", ["base"], "primary"),
+		change("merge-child", ["primary", "query"], "merge child", ["feature/merge-child"]),
+	];
+
+	const result = buildJjStacks(bookmarks, changes, { base: "main" });
+
+	const actual = result.stacks
+		.map((stack) => ({
+			id: stack.id,
+			heads: stack.heads.map((head) => head.bookmarkName),
+			changes: stack.changes.map((stackChange) => stackChange.changeId),
+		}))
+		.sort((left, right) => left.id.localeCompare(right.id));
+
+	assert.deepEqual(
+		actual,
+		[
+			{ id: "feature/merge-child", heads: ["feature/merge-child"], changes: ["base", "primary", "merge-child"] },
+			{ id: "feature/query", heads: ["feature/query"], changes: ["base", "query-base", "query"] },
+		],
+	);
+});
+
 test("buildJjStacks omits base and internal bookmarks", () => {
 	const bookmarks = [
 		bookmark("main", "main"),
@@ -98,4 +127,16 @@ test("buildJjStacks omits base and internal bookmarks", () => {
 
 	assert.deepEqual(result.stacks.map((stack) => stack.id), ["feature/top"]);
 	assert.deepEqual(result.stacks[0]?.heads.map((head) => head.bookmarkName), ["feature/top"]);
+});
+
+test("buildJjStacks does not omit trunk when another bookmark is the configured base", () => {
+	const bookmarks = [bookmark("main", "main"), bookmark("trunk", "c1")];
+	const changes = [
+		change("main", [], "main", ["main"]),
+		change("c1", ["main"], "trunk work", ["trunk"]),
+	];
+
+	const result = buildJjStacks(bookmarks, changes, { base: "main" });
+
+	assert.deepEqual(result.stacks.map((stack) => stack.id), ["trunk"]);
 });

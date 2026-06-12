@@ -13,7 +13,7 @@ test("readJjChangesForBookmarks batches large candidate bookmark sets", async ()
 
 	assert.equal(result.ok, true);
 	assert.equal(result.changes.length, 0);
-	assert.equal(calls.filter((call) => call.startsWith("jj log --revisions connected(")).length, 2);
+	assert.equal(calls.filter((call) => call.startsWith("jj log --revisions (::")).length, 2);
 });
 
 test("readJjChangesForBookmarks skips malformed template rows with diagnostics", async () => {

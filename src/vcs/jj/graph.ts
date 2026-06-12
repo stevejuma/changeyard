@@ -1,6 +1,5 @@
 import type { VcsDiagnostic, VcsJjBookmark, VcsJjChange, VcsJjStack, VcsJjStackChange, VcsJjStackHead } from "../types.js";
-
-const INTERNAL_BOOKMARK_PREFIXES = ["changeyard/", "_changeyard/"];
+import { isInternalJjBookmark } from "./bookmark-utils.js";
 
 interface BuildJjStacksOptions {
 	base: string;
@@ -14,12 +13,8 @@ function createDiagnostic(code: string, message: string): VcsDiagnostic {
 	};
 }
 
-function isInternalBookmark(name: string): boolean {
-	return INTERNAL_BOOKMARK_PREFIXES.some((prefix) => name.startsWith(prefix));
-}
-
 function isBaseBookmark(name: string, base: string): boolean {
-	return name === base || name === "trunk" || name === "trunk()";
+	return name === base || (base === "trunk" && name === "trunk()");
 }
 
 function findPrimaryPath(
@@ -75,10 +70,11 @@ function hasAncestor(
 		if (!current) {
 			continue;
 		}
-		for (const parentId of current.parentChangeIds) {
-			if (parentId === ancestorChangeId) {
-				return true;
-			}
+		const parentId = current.parentChangeIds[0];
+		if (parentId === ancestorChangeId) {
+			return true;
+		}
+		if (parentId) {
 			queue.push(parentId);
 		}
 	}
@@ -108,7 +104,7 @@ function findNearestAncestorBookmark(
 	if (!start) {
 		return null;
 	}
-	const queue = start.parentChangeIds.map((parentId) => ({ changeId: parentId, depth: 1 }));
+	const queue = start.parentChangeIds[0] ? [{ changeId: start.parentChangeIds[0], depth: 1 }] : [];
 	const seen = new Set<string>();
 	let best: { bookmark: VcsJjBookmark; depth: number } | null = null;
 
@@ -135,7 +131,7 @@ function findNearestAncestorBookmark(
 		if (!change) {
 			continue;
 		}
-		for (const parentId of change.parentChangeIds) {
+		for (const parentId of change.parentChangeIds.slice(0, 1)) {
 			queue.push({ changeId: parentId, depth: current.depth + 1 });
 		}
 	}
@@ -177,7 +173,7 @@ export function buildJjStacks(
 	const diagnostics: VcsDiagnostic[] = [];
 	const candidateBookmarks = bookmarks
 		.filter((bookmark) => !isBaseBookmark(bookmark.name, options.base))
-		.filter((bookmark) => !isInternalBookmark(bookmark.name))
+		.filter((bookmark) => !isInternalJjBookmark(bookmark.name))
 		.filter((bookmark) => changesById.has(bookmark.changeId))
 		.sort((a, b) => a.name.localeCompare(b.name));
 

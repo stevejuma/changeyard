@@ -48,6 +48,7 @@ export function createChangeyardUiApi() {
       providerType: config.provider.type,
       vcsEngine: config.vcs.engine,
       vcsFallback: config.vcs.fallback,
+      vcsTargetBranch: config.vcs.targetBranch ?? null,
       projectDefaultBase: config.project.defaultBase,
       planningDefaultProfile: config.planning?.defaultProfile,
       planningDefaultStrictness: config.planning?.defaultStrictness,
@@ -272,6 +273,7 @@ export function createChangeyardUiApi() {
       providerType?: "noop" | "local-folder" | "forgejo" | "github" | "gitlab";
       vcsEngine?: "plain-copy" | "jj" | "git-worktree";
       vcsFallback?: "plain-copy" | "jj" | "git-worktree";
+      vcsTargetBranch?: string | null;
       projectDefaultBase?: string;
       planningDefaultProfile?: "none" | "openspec-lite";
       planningDefaultStrictness?: "normal" | "strict";
@@ -281,10 +283,11 @@ export function createChangeyardUiApi() {
       const current = loadConfig(repoRoot);
       const patch: Parameters<typeof updateLocalConfig>[1] = {};
       if (input.providerType) patch.provider = { type: input.providerType };
-      if (input.vcsEngine || input.vcsFallback) {
+      if (input.vcsEngine || input.vcsFallback || input.vcsTargetBranch !== undefined) {
         patch.vcs = {
           engine: input.vcsEngine ?? current.vcs.engine,
           fallback: input.vcsFallback ?? input.vcsEngine ?? current.vcs.fallback,
+          targetBranch: input.vcsTargetBranch !== undefined ? input.vcsTargetBranch?.trim() || undefined : current.vcs.targetBranch,
         };
       }
       if (input.projectDefaultBase !== undefined) {

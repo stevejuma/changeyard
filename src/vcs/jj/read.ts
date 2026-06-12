@@ -47,6 +47,12 @@ export function createJjSymbolRevset(symbol: string | null | undefined): string 
 	return `"${value}"`;
 }
 
+export function createJjRemoteBookmarkRevset(bookmarkName: string, remoteName: string): string {
+	assertSafeBookmarkName(bookmarkName);
+	assertSafeBookmarkName(remoteName);
+	return `${bookmarkName}@${remoteName}`;
+}
+
 function createBookmarkUnionRevset(names: readonly string[]): string {
 	return names
 		.map((name) => {
@@ -57,14 +63,14 @@ function createBookmarkUnionRevset(names: readonly string[]): string {
 }
 
 function createBookmarksRevset(baseRevset: string): string {
-	return `mine() ~ ${baseRevset}`;
+	return `all() ~ ::${baseRevset}`;
 }
 
 function createGraphRevset(baseRevset: string, bookmarkNames: readonly string[]): string {
 	if (bookmarkNames.length === 1) {
-		return `connected(${baseRevset}::${createBookmarkUnionRevset(bookmarkNames)})`;
+		return `(::${createBookmarkUnionRevset(bookmarkNames)}) ~ ::${baseRevset}`;
 	}
-	return `connected(${baseRevset}::(${createBookmarkUnionRevset(bookmarkNames)}))`;
+	return `(::(${createBookmarkUnionRevset(bookmarkNames)})) ~ ::${baseRevset}`;
 }
 
 function mergeChanges(current: VcsJjChange | undefined, next: VcsJjChange): VcsJjChange {

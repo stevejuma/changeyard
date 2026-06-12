@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { detectVcsState, type VcsCommandRunner } from "../detect.js";
 import type {
 	VcsDiagnostic,
@@ -6,6 +8,8 @@ import type {
 	VcsJjInventoryItemType,
 	VcsJjInventoryResult,
 } from "../types.js";
+import { isInternalJjBookmark, normalizeRemoteTargetToLocalBookmark, remoteNameFromTarget } from "./bookmark-utils.js";
+import { createJjRemoteBookmarkRevset, createJjSymbolRevset } from "./read.js";
 
 const FIELD_SEPARATOR = "\t";
 
@@ -22,6 +26,15 @@ function normalizeCommitId(value: string | undefined): string | null {
 	return trimmed ? trimmed : null;
 }
 
+function gravatarUrlForEmail(email: string | null | undefined): string | null {
+	const normalized = email?.trim().toLowerCase();
+	if (!normalized) {
+		return null;
+	}
+	const hash = createHash("md5").update(normalized).digest("hex");
+	return `https://www.gravatar.com/avatar/${hash}?s=40&d=404`;
+}
+
 function makeItem(input: {
 	id: string;
 	name: string;
@@ -29,8 +42,14 @@ function makeItem(input: {
 	group: VcsJjInventoryItemGroup;
 	changeId?: string | null;
 	commitId?: string | null;
+	title?: string | null;
+	authorName?: string | null;
+	authorEmail?: string | null;
+	timestamp?: string | null;
 	target?: string | null;
 	remoteName?: string | null;
+	hasLocal?: boolean;
+	remotes?: string[];
 	synced?: boolean;
 	tracked?: boolean;
 	isCurrent?: boolean;
@@ -42,8 +61,15 @@ function makeItem(input: {
 		group: input.group,
 		changeId: input.changeId ?? null,
 		commitId: input.commitId ?? null,
+		title: input.title ?? null,
+		authorName: input.authorName ?? null,
+		authorEmail: input.authorEmail ?? null,
+		authorAvatarUrl: gravatarUrlForEmail(input.authorEmail),
+		timestamp: input.timestamp ?? null,
 		target: input.target ?? null,
 		remoteName: input.remoteName ?? null,
+		hasLocal: input.hasLocal ?? input.type !== "remote",
+		remotes: input.remotes ?? [],
 		synced: input.synced ?? false,
 		tracked: input.tracked ?? false,
 		isCurrent: input.isCurrent ?? false,
@@ -62,14 +88,14 @@ async function readCurrentTarget(cwd: string, runner: VcsCommandRunner): Promise
 			"@",
 			"--no-graph",
 			"-T",
-			'change_id.short() ++ "\\t" ++ commit_id.short() ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\n"',
+			'change_id.short() ++ "\\t" ++ commit_id.short() ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ author.timestamp().format("%Y-%m-%dT%H:%M:%SZ") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\n"',
 		],
 		cwd,
 	});
 	if (!result.ok) {
 		return null;
 	}
-	const [changeId, commitId, description, bookmarks] = result.stdout.trim().split(FIELD_SEPARATOR);
+	const [changeId, commitId, description, authorName, authorEmail, timestamp, bookmarks] = result.stdout.trim().split(FIELD_SEPARATOR);
 	const label = bookmarks?.split("|").find(Boolean) ?? description?.trim() ?? changeId ?? "Current workspace";
 	if (!changeId && !commitId) {
 		return null;
@@ -81,9 +107,165 @@ async function readCurrentTarget(cwd: string, runner: VcsCommandRunner): Promise
 		group: "current",
 		changeId: changeId ?? null,
 		commitId: normalizeCommitId(commitId),
+		title: description?.trim() || null,
+		authorName: authorName?.trim() || null,
+		authorEmail: authorEmail?.trim() || null,
+		timestamp: timestamp?.trim() || null,
 		target: "@",
 		isCurrent: true,
 	});
+}
+
+function defaultConfiguredTarget(detect: Awaited<ReturnType<typeof detectVcsState>>): string | null {
+	const base = detect.jj.defaultBase ?? detect.git.defaultBranch;
+	if (!base) {
+		return null;
+	}
+	return detect.git.remoteName ? `${detect.git.remoteName}/${base}` : base;
+}
+
+function createWorkspaceTargetItem(input: {
+	configuredTarget: string | null;
+	detect: Awaited<ReturnType<typeof detectVcsState>>;
+	bookmarkItems: readonly VcsJjInventoryItem[];
+	targetChangeId?: string | null;
+	targetCommitId?: string | null;
+	targetTitle?: string | null;
+	targetAuthorName?: string | null;
+	targetAuthorEmail?: string | null;
+	targetTimestamp?: string | null;
+}): VcsJjInventoryItem | null {
+	const configuredTarget = input.configuredTarget ?? defaultConfiguredTarget(input.detect);
+	const localName = normalizeRemoteTargetToLocalBookmark(configuredTarget, input.detect.git.remoteName);
+	if (!configuredTarget || !localName) {
+		return null;
+	}
+	const item = input.bookmarkItems.find((bookmark) => bookmark.name === localName) ?? null;
+	const remoteName = remoteNameFromTarget(configuredTarget, input.detect.git.remoteName);
+	return makeItem({
+		id: `workspace-target:${configuredTarget}`,
+		name: configuredTarget,
+		type: "workspace",
+		group: "current",
+		changeId: input.targetChangeId ?? item?.changeId ?? null,
+		commitId: input.targetCommitId ?? item?.commitId ?? null,
+		title: input.targetTitle ?? item?.title ?? null,
+		authorName: input.targetAuthorName ?? item?.authorName ?? null,
+		authorEmail: input.targetAuthorEmail ?? item?.authorEmail ?? null,
+		timestamp: input.targetTimestamp ?? item?.timestamp ?? null,
+		target: localName,
+		remoteName,
+		hasLocal: item?.hasLocal ?? false,
+		remotes: item?.remotes ?? (remoteName ? [remoteName] : []),
+		synced: item?.synced ?? false,
+		tracked: item?.tracked ?? false,
+		isCurrent: item?.isCurrent ?? false,
+	});
+}
+
+async function readWorkspaceTargetRevision(input: {
+	cwd: string;
+	configuredTarget: string | null;
+	detect: Awaited<ReturnType<typeof detectVcsState>>;
+	runner: VcsCommandRunner;
+}): Promise<{
+	changeId: string | null;
+	commitId: string | null;
+	title: string | null;
+	authorName: string | null;
+	authorEmail: string | null;
+	timestamp: string | null;
+}> {
+	const configuredTarget = input.configuredTarget ?? defaultConfiguredTarget(input.detect);
+	const localName = normalizeRemoteTargetToLocalBookmark(configuredTarget, input.detect.git.remoteName);
+	if (!localName) {
+		return { changeId: null, commitId: null, title: null, authorName: null, authorEmail: null, timestamp: null };
+	}
+	const remoteName = remoteNameFromTarget(configuredTarget, input.detect.git.remoteName);
+	const revset = remoteName ? createJjRemoteBookmarkRevset(localName, remoteName) : createJjSymbolRevset(localName);
+	const result = await input.runner({
+		command: "jj",
+		args: [
+			"log",
+			"--ignore-working-copy",
+			"--at-op=@",
+			"-r",
+			revset,
+			"--no-graph",
+			"-T",
+			'change_id.short() ++ "\\t" ++ commit_id.short() ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ author.timestamp().format("%Y-%m-%dT%H:%M:%SZ") ++ "\\n"',
+		],
+		cwd: input.cwd,
+	});
+	if (!result.ok) {
+		return { changeId: null, commitId: null, title: null, authorName: null, authorEmail: null, timestamp: null };
+	}
+	const [changeId, commitId, title, authorName, authorEmail, timestamp] = result.stdout.trim().split(FIELD_SEPARATOR);
+	return {
+		changeId: changeId || null,
+		commitId: normalizeCommitId(commitId),
+		title: title?.trim() || null,
+		authorName: authorName?.trim() || null,
+		authorEmail: authorEmail?.trim() || null,
+		timestamp: timestamp?.trim() || null,
+	};
+}
+
+type BookmarkInventoryGroup = {
+	name: string;
+	local: {
+		changeId: string | null;
+		commitId: string | null;
+		title: string | null;
+		authorName: string | null;
+		authorEmail: string | null;
+		timestamp: string | null;
+		synced: boolean;
+		tracked: boolean;
+	} | null;
+	remoteTargets: Map<string, {
+		changeId: string | null;
+		commitId: string | null;
+		title: string | null;
+		authorName: string | null;
+		authorEmail: string | null;
+		timestamp: string | null;
+		synced: boolean;
+		tracked: boolean;
+	}>;
+	tracked: boolean;
+	synced: boolean;
+};
+
+function sortInventoryItems(left: VcsJjInventoryItem, right: VcsJjInventoryItem): number {
+	const byGroup = GROUP_ORDER[left.group] - GROUP_ORDER[right.group];
+	return byGroup || left.name.localeCompare(right.name);
+}
+
+const GROUP_ORDER: Record<VcsJjInventoryItemGroup, number> = {
+	current: 0,
+	today: 1,
+	applied: 2,
+	local: 3,
+	older: 4,
+	remote: 5,
+	tags: 6,
+};
+
+function isTodayTimestamp(timestamp: string | null | undefined): boolean {
+	if (!timestamp) {
+		return false;
+	}
+	const date = new Date(timestamp);
+	if (Number.isNaN(date.getTime())) {
+		return false;
+	}
+	const now = new Date();
+	return (
+		date.getFullYear() === now.getFullYear() &&
+		date.getMonth() === now.getMonth() &&
+		date.getDate() === now.getDate()
+	);
 }
 
 async function readBookmarkInventory(cwd: string, currentCommitId: string | null, runner: VcsCommandRunner): Promise<VcsJjInventoryItem[]> {
@@ -92,96 +274,101 @@ async function readBookmarkInventory(cwd: string, currentCommitId: string | null
 		args: [
 			"bookmark",
 			"list",
+			"--all-remotes",
 			"--ignore-working-copy",
 			"--at-op=@",
 			"--template",
-			'name ++ "\\t" ++ self.normal_target().change_id().short() ++ "\\t" ++ self.normal_target().commit_id().short() ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"',
+			'name ++ "\\t" ++ if(self.remote(), self.remote(), "") ++ "\\t" ++ self.normal_target().change_id().short() ++ "\\t" ++ self.normal_target().commit_id().short() ++ "\\t" ++ self.normal_target().description().first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ self.normal_target().author().name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ self.normal_target().author().email() ++ "\\t" ++ self.normal_target().author().timestamp().format("%Y-%m-%dT%H:%M:%SZ") ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"',
 		],
 		cwd,
 	});
 	if (!result.ok) {
 		return [];
 	}
-	return result.stdout
-		.split("\n")
-		.map((line) => line.trim())
-		.filter(Boolean)
-		.map((line) => {
-			const [name = "", changeId = "", commitId = "", syncedFlag, trackedFlag] = line.split(FIELD_SEPARATOR);
-			const remoteMatch = /^(.+)@([^@]+)$/.exec(name);
-			const isRemote = Boolean(remoteMatch);
-			const normalizedCommitId = normalizeCommitId(commitId);
-			return makeItem({
-				id: `${isRemote ? "remote" : "bookmark"}:${name}`,
-				name,
-				type: isRemote ? "remote" : "bookmark",
-				group: isRemote ? "remote" : normalizedCommitId && normalizedCommitId === currentCommitId ? "applied" : "older",
-				changeId: changeId || null,
-				commitId: normalizedCommitId,
-				target: name,
-				remoteName: remoteMatch?.[2] ?? null,
-				synced: parseBooleanFlag(syncedFlag),
-				tracked: parseBooleanFlag(trackedFlag),
-				isCurrent: Boolean(normalizedCommitId && normalizedCommitId === currentCommitId),
-			});
-		})
-		.filter((item) => item.name.length > 0);
-}
-
-async function readGitRefInventory(cwd: string, knownNames: Set<string>, currentCommitId: string | null, runner: VcsCommandRunner): Promise<VcsJjInventoryItem[]> {
-	const result = await runner({
-		command: "git",
-		args: [
-			"for-each-ref",
-			"--format=%(refname)\t%(refname:short)\t%(objectname:short)\t%(upstream:short)",
-			"refs/heads",
-			"refs/remotes",
-			"refs/tags",
-		],
-		cwd,
-	});
-	if (!result.ok) {
-		return [];
-	}
-	const items: VcsJjInventoryItem[] = [];
+	const groups = new Map<string, BookmarkInventoryGroup>();
 	for (const line of result.stdout.split("\n")) {
 		const trimmed = line.trim();
 		if (!trimmed) {
 			continue;
 		}
-		const [fullName = "", shortName = "", commitId = "", upstreamName = ""] = trimmed.split(FIELD_SEPARATOR);
-		if (!fullName || !shortName || !commitId || fullName.endsWith("/HEAD")) {
+		const [name = "", remote = "", changeId = "", commitId = "", title = "", authorName = "", authorEmail = "", timestamp = "", syncedFlag, trackedFlag] = trimmed.split(FIELD_SEPARATOR);
+		if (!name || isInternalJjBookmark(name)) {
 			continue;
 		}
-		if (knownNames.has(shortName)) {
-			continue;
+		const group = groups.get(name) ?? {
+			name,
+			local: null,
+			remoteTargets: new Map(),
+			tracked: false,
+			synced: false,
+		};
+		const entry = {
+			changeId: changeId || null,
+			commitId: normalizeCommitId(commitId),
+			title: title.trim() || null,
+			authorName: authorName.trim() || null,
+			authorEmail: authorEmail.trim() || null,
+			timestamp: timestamp.trim() || null,
+			synced: parseBooleanFlag(syncedFlag),
+			tracked: parseBooleanFlag(trackedFlag),
+		};
+		if (!remote) {
+			group.local = entry;
+		} else if (remote === "git") {
+			group.tracked ||= entry.tracked;
+			group.synced ||= entry.synced;
+		} else {
+			group.remoteTargets.set(remote, entry);
 		}
-		const type: VcsJjInventoryItemType = fullName.startsWith("refs/remotes/")
-			? "remote"
-			: fullName.startsWith("refs/tags/")
-				? "tag"
-				: "branch";
-		const group: VcsJjInventoryItemGroup =
-			type === "remote" ? "remote" : type === "tag" ? "tags" : commitId === currentCommitId ? "applied" : "local";
-		const remoteName = type === "remote" ? shortName.split("/")[0] ?? null : null;
-		items.push(
-			makeItem({
-				id: `${type}:${shortName}`,
-				name: shortName,
-				type,
-				group,
-				commitId,
-				target: shortName,
-				remoteName,
-				tracked: upstreamName.length > 0,
-				isCurrent: commitId === currentCommitId,
-			}),
-		);
+		group.tracked ||= entry.tracked;
+		group.synced ||= entry.synced;
+		groups.set(name, group);
 	}
-	return items;
+
+	return [...groups.values()]
+		.map((group) => {
+			const remoteNames = [...group.remoteTargets.keys()].sort((a, b) => a.localeCompare(b));
+			const firstRemote = remoteNames[0] ? group.remoteTargets.get(remoteNames[0]) : null;
+			const target = group.local ?? firstRemote;
+			const hasLocal = Boolean(group.local);
+			const normalizedCommitId = target?.commitId ?? null;
+			const groupName = isTodayTimestamp(target?.timestamp)
+				? "today"
+				: hasLocal
+					? (normalizedCommitId && normalizedCommitId === currentCommitId ? "applied" : "older")
+					: "remote";
+			return makeItem({
+				id: `${hasLocal ? "bookmark" : "remote"}:${group.name}`,
+				name: group.name,
+				type: hasLocal ? "bookmark" : "remote",
+				group: groupName,
+				changeId: target?.changeId ?? null,
+				commitId: normalizedCommitId,
+				title: target?.title ?? null,
+				authorName: target?.authorName ?? null,
+				authorEmail: target?.authorEmail ?? null,
+				timestamp: target?.timestamp ?? null,
+				target: group.name,
+				remoteName: remoteNames[0] ?? null,
+				hasLocal,
+				remotes: remoteNames,
+				synced: group.synced,
+				tracked: group.tracked,
+				isCurrent: Boolean(normalizedCommitId && normalizedCommitId === currentCommitId),
+			});
+		})
+		.sort(sortInventoryItems);
 }
 
-export async function loadJjInventory(cwd: string, runner: VcsCommandRunner): Promise<VcsJjInventoryResult> {
+export interface LoadJjInventoryOptions {
+	targetBranch?: string | null;
+}
+
+export async function loadJjInventory(
+	cwd: string,
+	runner: VcsCommandRunner,
+	options: LoadJjInventoryOptions = {},
+): Promise<VcsJjInventoryResult> {
 	const detect = await detectVcsState(cwd, runner);
 	if (detect.repository.kind !== "jj") {
 		return {
@@ -196,19 +383,31 @@ export async function loadJjInventory(cwd: string, runner: VcsCommandRunner): Pr
 	}
 
 	const repoCwd = detect.repository.root ?? cwd;
-	const workspaceTarget = await readCurrentTarget(repoCwd, runner);
-	const currentCommitId = workspaceTarget?.commitId ?? null;
+	const currentTarget = await readCurrentTarget(repoCwd, runner);
+	const currentCommitId = currentTarget?.commitId ?? null;
 	const bookmarkItems = await readBookmarkInventory(repoCwd, currentCommitId, runner);
-	const knownNames = new Set(bookmarkItems.map((item) => item.name));
-	const gitRefItems = await readGitRefInventory(repoCwd, knownNames, currentCommitId, runner);
-	const items = [...(workspaceTarget ? [workspaceTarget] : []), ...bookmarkItems, ...gitRefItems];
+	const targetRevision = await readWorkspaceTargetRevision({
+		cwd: repoCwd,
+		configuredTarget: options.targetBranch ?? null,
+		detect,
+		runner,
+	});
+	const workspaceTarget = createWorkspaceTargetItem({
+		configuredTarget: options.targetBranch ?? null,
+		detect,
+		bookmarkItems,
+		targetChangeId: targetRevision.changeId,
+		targetCommitId: targetRevision.commitId,
+		targetTitle: targetRevision.title,
+		targetAuthorName: targetRevision.authorName,
+		targetAuthorEmail: targetRevision.authorEmail,
+		targetTimestamp: targetRevision.timestamp,
+	});
+	const items = bookmarkItems;
 	const diagnostics = [...detect.diagnostics];
 
 	if (items.length === 0) {
-		diagnostics.push(createDiagnostic("info", "jj_inventory_empty", "No JJ bookmarks or Git refs were detected."));
-	}
-	if (gitRefItems.length === 0) {
-		diagnostics.push(createDiagnostic("info", "git_refs_missing", "No Git branch, remote, or tag refs were available for this JJ repository."));
+		diagnostics.push(createDiagnostic("info", "jj_inventory_empty", "No JJ bookmarks were detected."));
 	}
 
 	return {

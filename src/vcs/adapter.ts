@@ -1,4 +1,5 @@
 import { detectVcsState } from "./detect.js";
+import { loadConfig } from "../config/loadConfig.js";
 import { applyJjOperation } from "./jj/apply.js";
 import { loadJjDiff } from "./jj/diff.js";
 import { loadJjInventory } from "./jj/inventory.js";
@@ -14,7 +15,8 @@ export async function detectVcs(repoRoot: string) {
 }
 
 export async function getJjState(repoRoot: string) {
-	return await loadJjState(repoRoot, runVcsCommand);
+	const config = loadConfig(repoRoot);
+	return await loadJjState(repoRoot, runVcsCommand, { targetBranch: config.vcs.targetBranch ?? null });
 }
 
 export async function getJjDiff(repoRoot: string) {
@@ -22,7 +24,8 @@ export async function getJjDiff(repoRoot: string) {
 }
 
 export async function getJjInventory(repoRoot: string) {
-	return await loadJjInventory(repoRoot, runVcsCommand);
+	const config = loadConfig(repoRoot);
+	return await loadJjInventory(repoRoot, runVcsCommand, { targetBranch: config.vcs.targetBranch ?? null });
 }
 
 export async function getJjOperations(repoRoot: string, input?: { limit?: number | null }) {

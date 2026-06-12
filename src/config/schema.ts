@@ -61,6 +61,7 @@ export const configSchema = {
       properties: {
         engine: { type: "string", enum: ["plain-copy", "jj", "git-worktree"] },
         fallback: { type: "string", enum: ["plain-copy", "jj", "git-worktree"] },
+        targetBranch: { type: "string", minLength: 1 },
       },
     },
     workspace: {

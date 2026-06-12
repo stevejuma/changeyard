@@ -25,6 +25,9 @@ export async function fetchTrpcQuery<T>(
 ): Promise<T> {
 	const searchParams = new URLSearchParams();
 	searchParams.set("input", JSON.stringify(input ?? {}));
+	if (workspaceId) {
+		searchParams.set("workspaceId", workspaceId);
+	}
 	const response = await fetch(`/api/trpc/${path}?${searchParams.toString()}`, {
 		headers: trpcHeaders(workspaceId),
 		signal: options.signal,
@@ -190,9 +193,10 @@ export function usePaginatedRepositoryLog({
 				setState({ status: "loading" });
 			}
 			try {
+				const requestInput = JSON.parse(inputKey) as Omit<RuntimeGitLogRequest, "maxCount" | "skip">;
 				const payload = await fetchTrpcQuery<RuntimeGitLogResponse>(
 					"workspace.getRepositoryLog",
-					{ ...input, maxCount: pageSize, skip },
+					{ ...requestInput, maxCount: pageSize, skip },
 					workspaceId,
 					{ signal: abortController.signal },
 				);
@@ -226,7 +230,7 @@ export function usePaginatedRepositoryLog({
 				}
 			}
 		},
-		[enabled, input, message, pageSize, workspaceId],
+		[enabled, inputKey, message, pageSize, workspaceId],
 	);
 
 	useEffect(() => {
