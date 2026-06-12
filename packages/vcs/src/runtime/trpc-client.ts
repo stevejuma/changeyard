@@ -9,10 +9,16 @@ import type {
 	VcsSubmitStackResponse,
 } from "@/runtime/types";
 
-export async function fetchTrpcQuery<T>(path: string, input?: unknown): Promise<T> {
+function trpcHeaders(workspaceId?: string | null): HeadersInit {
+	return workspaceId ? { "x-kanban-workspace-id": workspaceId } : {};
+}
+
+export async function fetchTrpcQuery<T>(path: string, input?: unknown, workspaceId?: string | null): Promise<T> {
 	const searchParams = new URLSearchParams();
 	searchParams.set("input", JSON.stringify(input ?? {}));
-	const response = await fetch(`/api/trpc/${path}?${searchParams.toString()}`);
+	const response = await fetch(`/api/trpc/${path}?${searchParams.toString()}`, {
+		headers: trpcHeaders(workspaceId),
+	});
 	if (!response.ok) {
 		throw new Error(`Request failed with status ${response.status}`);
 	}
@@ -23,11 +29,12 @@ export async function fetchTrpcQuery<T>(path: string, input?: unknown): Promise<
 	return payload.result?.data as T;
 }
 
-export async function postTrpcMutation<T>(path: string, input: unknown): Promise<T> {
+export async function postTrpcMutation<T>(path: string, input: unknown, workspaceId?: string | null): Promise<T> {
 	const response = await fetch(`/api/trpc/${path}`, {
 		method: "POST",
 		headers: {
 			"content-type": "application/json",
+			...trpcHeaders(workspaceId),
 		},
 		body: JSON.stringify(input),
 	});
@@ -38,13 +45,23 @@ export async function postTrpcMutation<T>(path: string, input: unknown): Promise
 	return payload.result?.data as T;
 }
 
-export function useTrpcQuery<T>(path: string, message: string): { state: QueryState<T>; refresh: () => void } {
+export function useTrpcQuery<T>(
+	path: string,
+	message: string,
+	workspaceId?: string | null,
+	enabled = true,
+): { state: QueryState<T>; refresh: () => void } {
 	const [state, setState] = useState<QueryState<T>>({ status: "loading" });
 	const [refreshToken, setRefreshToken] = useState(0);
 
 	useEffect(() => {
+		if (!enabled) {
+			setState({ status: "error", message });
+			return;
+		}
 		let cancelled = false;
-		void fetchTrpcQuery<T>(path)
+		setState({ status: "loading" });
+		void fetchTrpcQuery<T>(path, undefined, workspaceId)
 			.then((data) => {
 				if (!cancelled) {
 					setState({ status: "ready", data });
@@ -58,7 +75,7 @@ export function useTrpcQuery<T>(path: string, message: string): { state: QuerySt
 		return () => {
 			cancelled = true;
 		};
-	}, [message, path, refreshToken]);
+	}, [enabled, message, path, refreshToken, workspaceId]);
 
 	return {
 		state,
@@ -71,6 +88,7 @@ export function useTrpcInputQuery<T>(
 	input: unknown,
 	message: string,
 	enabled = true,
+	workspaceId?: string | null,
 ): { state: QueryState<T>; refresh: () => void } {
 	const [state, setState] = useState<QueryState<T>>({ status: "loading" });
 	const [refreshToken, setRefreshToken] = useState(0);
@@ -83,7 +101,7 @@ export function useTrpcInputQuery<T>(
 		}
 		let cancelled = false;
 		setState({ status: "loading" });
-		void fetchTrpcQuery<T>(path, input)
+		void fetchTrpcQuery<T>(path, input, workspaceId)
 			.then((data) => {
 				if (!cancelled) {
 					setState({ status: "ready", data });
@@ -97,7 +115,7 @@ export function useTrpcInputQuery<T>(
 		return () => {
 			cancelled = true;
 		};
-	}, [enabled, inputKey, message, path, refreshToken]);
+	}, [enabled, inputKey, message, path, refreshToken, workspaceId]);
 
 	return {
 		state,
@@ -105,13 +123,13 @@ export function useTrpcInputQuery<T>(
 	};
 }
 
-export function usePreviewOperation() {
+export function usePreviewOperation(workspaceId?: string | null) {
 	const [state, setState] = useState<QueryState<VcsPreviewOperationResponse>>({ status: "loading" });
 
 	async function preview(input: VcsOperationRequest): Promise<void> {
 		setState({ status: "loading" });
 		try {
-			const data = await fetchTrpcQuery<VcsPreviewOperationResponse>("vcs.previewOperation", input);
+			const data = await fetchTrpcQuery<VcsPreviewOperationResponse>("vcs.previewOperation", input, workspaceId);
 			setState({ status: "ready", data });
 		} catch (error) {
 			setState({
@@ -129,13 +147,13 @@ export function usePreviewOperation() {
 	};
 }
 
-export function useApplyOperation() {
+export function useApplyOperation(workspaceId?: string | null) {
 	const [state, setState] = useState<MutationState<VcsApplyOperationResponse>>({ status: "idle" });
 
 	async function apply(input: VcsOperationRequest): Promise<VcsApplyOperationResponse | null> {
 		setState({ status: "loading" });
 		try {
-			const data = await postTrpcMutation<VcsApplyOperationResponse>("vcs.applyOperation", input);
+			const data = await postTrpcMutation<VcsApplyOperationResponse>("vcs.applyOperation", input, workspaceId);
 			setState({ status: "ready", data });
 			return data;
 		} catch (error) {
@@ -154,13 +172,13 @@ export function useApplyOperation() {
 	};
 }
 
-export function useSubmitStack() {
+export function useSubmitStack(workspaceId?: string | null) {
 	const [state, setState] = useState<MutationState<VcsSubmitStackResponse>>({ status: "idle" });
 
 	async function submit(input: { targetBookmark?: string | null; remoteName?: string | null }): Promise<VcsSubmitStackResponse | null> {
 		setState({ status: "loading" });
 		try {
-			const data = await postTrpcMutation<VcsSubmitStackResponse>("vcs.submitStack", input);
+			const data = await postTrpcMutation<VcsSubmitStackResponse>("vcs.submitStack", input, workspaceId);
 			setState({ status: "ready", data });
 			return data;
 		} catch (error) {

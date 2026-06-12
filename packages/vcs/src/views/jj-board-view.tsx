@@ -8,7 +8,7 @@ import { cn } from "@/components/ui/cn";
 import { FileStatusChip, StatusChip } from "@/components/ui/status-chip";
 import { Tooltip } from "@/components/ui/tooltip";
 import { DiagnosticsPanel, EmptyState, KeyValue, PageBody, Panel, QueryGate, StatCard } from "@/components/vcs-panels";
-import { VcsShell } from "@/components/vcs-shell";
+import { NoProjectSelected, SelectProjectButton, VcsShell, type VcsShellProjectState } from "@/components/vcs-shell";
 import {
 	createReorderPreviewRequest,
 	initialPreviewUiState,
@@ -76,15 +76,30 @@ export function JjBoardView({
 	diffState,
 	refreshDiff,
 	currentPath,
+	projectState,
+	workspaceId,
 }: {
 	state: QueryState<VcsJjStateResponse>;
 	refreshState: () => void;
 	diffState: QueryState<VcsJjDiffResponse>;
 	refreshDiff: () => void;
 	currentPath: string;
+	projectState: VcsShellProjectState;
+	workspaceId: string | null;
 }): React.ReactElement {
 	return (
-		<VcsShell currentPath={currentPath} title="JJ Stack Board" subtitle="Stack lanes, previews, confirmed operations, and submit flow" kicker={<StatusChip label="Preview gated" tone="gold" />}>
+		<VcsShell
+			projectState={projectState}
+			currentPath={currentPath}
+			title="JJ Stack Board"
+			subtitle="Stack lanes, previews, confirmed operations, and submit flow"
+			kicker={<StatusChip label="Preview gated" tone="gold" />}
+		>
+			{!workspaceId ? (
+				<NoProjectSelected action={<SelectProjectButton onClick={projectState.onAddProject} />}>
+					Select a project to load JJ stack lanes and previewable VCS actions.
+				</NoProjectSelected>
+			) : (
 			<PageBody>
 				<QueryGate state={state} loading="Loading JJ stack lanes." errorTitle="JJ board failed">
 					{(data) => (
@@ -93,10 +108,12 @@ export function JjBoardView({
 							refreshState={refreshState}
 							diffState={diffState}
 							refreshDiff={refreshDiff}
+							workspaceId={workspaceId}
 						/>
 					)}
 				</QueryGate>
 			</PageBody>
+			)}
 		</VcsShell>
 	);
 }
@@ -106,16 +123,18 @@ function JjBoardReady({
 	refreshState,
 	diffState,
 	refreshDiff,
+	workspaceId,
 }: {
 	data: VcsJjStateResponse;
 	refreshState: () => void;
 	diffState: QueryState<VcsJjDiffResponse>;
 	refreshDiff: () => void;
+	workspaceId: string;
 }): React.ReactElement {
 	const [previewUiState, dispatchPreviewUi] = useReducer(previewUiReducer, initialPreviewUiState);
-	const previewOperation = usePreviewOperation();
-	const applyOperation = useApplyOperation();
-	const submitStack = useSubmitStack();
+	const previewOperation = usePreviewOperation(workspaceId);
+	const applyOperation = useApplyOperation(workspaceId);
+	const submitStack = useSubmitStack(workspaceId);
 	const [lastApplyResult, setLastApplyResult] = useState<VcsApplyOperationResponse | null>(null);
 	const [draft, setDraft] = useState<DraftState>(null);
 	const [submitTargetBookmark, setSubmitTargetBookmark] = useState("");
@@ -136,6 +155,7 @@ function JjBoardReady({
 		{ targetBookmark: submitTargetBookmark || undefined },
 		"Failed to load stacked PR preview.",
 		submitTargetBookmark.trim().length > 0,
+		workspaceId,
 	);
 
 	useEffect(() => {

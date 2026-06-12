@@ -93,10 +93,67 @@ export interface VcsJjStateResult extends VcsDetectResult {
 	unassignedChanges: VcsJjUnassignedChange[];
 }
 
+export type VcsJjInventoryItemType = "current" | "bookmark" | "remote" | "branch" | "tag" | "workspace";
+export type VcsJjInventoryItemGroup = "current" | "applied" | "remote" | "local" | "tags" | "older";
+
+export interface VcsJjInventoryPullRequest {
+	number: number;
+	url: string | null;
+	baseBranch: string | null;
+}
+
+export interface VcsJjInventoryItem {
+	id: string;
+	name: string;
+	type: VcsJjInventoryItemType;
+	group: VcsJjInventoryItemGroup;
+	changeId: string | null;
+	commitId: string | null;
+	target: string | null;
+	remoteName: string | null;
+	synced: boolean;
+	tracked: boolean;
+	isCurrent: boolean;
+	pr: VcsJjInventoryPullRequest | null;
+}
+
+export interface VcsJjInventoryResult extends VcsDetectResult {
+	workspaceTarget: VcsJjInventoryItem | null;
+	items: VcsJjInventoryItem[];
+}
+
 export interface VcsJjDiffResult {
 	changeId: string | null;
 	summary: string;
 	patch: string;
+	diagnostics: VcsDiagnostic[];
+}
+
+export interface VcsJjOperationFile {
+	path: string;
+	status: "modified" | "added" | "deleted" | "renamed" | "copied" | "unknown";
+}
+
+export interface VcsJjOperationEntry {
+	id: string;
+	shortId: string;
+	description: string;
+	user: string | null;
+	timestamp: string | null;
+	files: VcsJjOperationFile[];
+	restoreEligible: boolean;
+}
+
+export interface VcsJjOperationsResult {
+	operations: VcsJjOperationEntry[];
+	diagnostics: VcsDiagnostic[];
+}
+
+export interface VcsJjOperationDiffResult {
+	operationId: string;
+	summary: string;
+	patch: string;
+	files: VcsJjOperationFile[];
 	diagnostics: VcsDiagnostic[];
 }
 

@@ -17,7 +17,7 @@ import { isChangeyardInitialized, updateLocalConfig } from "../config/localConfi
 import { runInit } from "./init.js";
 import { runUpdate } from "./update.js";
 import { doctorReport } from "./doctor.js";
-import { applyVcsOperation, detectVcs, getJjDiff, getJjState, previewVcsOperation, submitVcsStack, submitVcsStackPreview } from "../vcs/adapter.js";
+import { applyVcsOperation, detectVcs, getJjDiff, getJjInventory, getJjOperationDiff, getJjOperations, getJjState, previewVcsOperation, submitVcsStack, submitVcsStackPreview } from "../vcs/adapter.js";
 import type { VcsApplyOperationInput, VcsPreviewOperationInput, VcsSubmitStackPreviewInput } from "../vcs/types.js";
 import { installCliShutdownHandlers } from "./gracefulShutdown.js";
 import { DEFAULT_PLANNING_SECTION_ORDER, STRICT_PLANNING_SECTION_ORDER, type PlanningSectionId } from "../planning/types.js";
@@ -322,6 +322,15 @@ export function createChangeyardUiApi() {
     },
     getJjDiff(repoRoot: string) {
       return getJjDiff(repoRoot);
+    },
+    getJjInventory(repoRoot: string) {
+      return getJjInventory(repoRoot);
+    },
+    getJjOperations(repoRoot: string, input?: { limit?: number | null }) {
+      return getJjOperations(repoRoot, input);
+    },
+    getJjOperationDiff(repoRoot: string, input: { operationId: string }) {
+      return getJjOperationDiff(repoRoot, input);
     },
     previewVcsOperation(repoRoot: string, input: VcsPreviewOperationInput) {
       return previewVcsOperation(repoRoot, input);

@@ -1,8 +1,11 @@
 import { GitBranch, History, Layers3, Settings, Workflow } from "lucide-react";
 import type { ReactNode } from "react";
 
+import { VcsProjectNavigationPanel } from "@/components/project-navigation-panel";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { StatusChip } from "@/components/ui/status-chip";
+import type { QueryState, RuntimeProjectSummary, RuntimeProjectsResponse } from "@/runtime/types";
 
 const navItems = [
 	{ href: "/vcs", label: "Overview", icon: Workflow },
@@ -12,7 +15,20 @@ const navItems = [
 	{ href: "/vcs/settings", label: "Settings", icon: Settings },
 ] as const;
 
+export type VcsShellProjectState = {
+	projectsState: QueryState<RuntimeProjectsResponse>;
+	currentProject: RuntimeProjectSummary | null;
+	currentProjectId: string | null;
+	removingProjectId: string | null;
+	isProjectNavCollapsed: boolean;
+	onProjectNavCollapsedChange: (collapsed: boolean) => void;
+	onSelectProject: (projectId: string) => void;
+	onAddProject: () => void;
+	onRemoveProject: (projectId: string) => void;
+};
+
 export function VcsShell({
+	projectState,
 	currentPath,
 	title,
 	subtitle,
@@ -20,6 +36,7 @@ export function VcsShell({
 	actions,
 	children,
 }: {
+	projectState: VcsShellProjectState;
 	currentPath: string;
 	title: string;
 	subtitle?: ReactNode;
@@ -29,68 +46,74 @@ export function VcsShell({
 }): React.ReactElement {
 	return (
 		<div className="flex h-screen min-h-0 bg-surface-0 text-text-primary">
-			<aside className="hidden w-[220px] shrink-0 flex-col border-r border-border bg-surface-1 md:flex">
-				<div className="border-b border-border px-3 py-3">
-					<div className="flex items-center gap-2">
-						<div className="flex h-8 w-8 items-center justify-center rounded-md border border-border-bright bg-surface-2 text-accent">
-							<Workflow size={16} />
-						</div>
-						<div className="min-w-0">
-							<div className="truncate text-sm font-semibold">Changeyard</div>
-							<div className="text-xs text-text-tertiary">VCS workspace</div>
-						</div>
-					</div>
-				</div>
-				<nav className="flex flex-col gap-1 p-2" aria-label="VCS routes">
-					{navItems.map((item) => {
-						const Icon = item.icon;
-						const active = currentPath === item.href || (item.href !== "/vcs" && currentPath.startsWith(`${item.href}/`));
-						return (
-							<a
-								key={item.href}
-								href={item.href}
-								aria-current={active ? "page" : undefined}
-								className={cn(
-									"flex h-8 items-center gap-2 rounded-md px-2 text-[13px] text-text-secondary hover:bg-surface-2 hover:text-text-primary",
-									active && "bg-accent text-accent-fg hover:bg-accent hover:text-accent-fg",
-								)}
-							>
-								<Icon size={14} />
-								<span className="truncate">{item.label}</span>
-							</a>
-						);
-					})}
-				</nav>
-				<div className="mt-auto border-t border-border p-3 text-xs text-text-tertiary">
-					<StatusChip label="Experimental" tone="gold" />
-					<p className="mt-2 leading-5">Enabled only when the runtime serves `CHANGEYARD_VCS=1`.</p>
-				</div>
-			</aside>
+			<VcsProjectNavigationPanel
+				projectsState={projectState.projectsState}
+				currentProjectId={projectState.currentProjectId}
+				removingProjectId={projectState.removingProjectId}
+				isCollapsed={projectState.isProjectNavCollapsed}
+				onCollapsedChange={projectState.onProjectNavCollapsedChange}
+				onSelectProject={projectState.onSelectProject}
+				onAddProject={projectState.onAddProject}
+				onRemoveProject={projectState.onRemoveProject}
+			/>
 			<div className="flex min-w-0 flex-1 flex-col">
 				<header className="flex min-h-[49px] shrink-0 items-center justify-between gap-3 border-b border-divider bg-surface-1 px-3">
-					<div className="flex min-w-0 items-center gap-2">
+					<div className="flex min-w-0 items-center gap-3">
 						<div className="min-w-0">
-							<div className="flex items-center gap-2">
+							<div className="flex min-w-0 items-center gap-2">
 								<h1 className="truncate text-sm font-semibold text-text-primary">{title}</h1>
 								{kicker}
 							</div>
-							{subtitle ? <div className="truncate text-xs text-text-tertiary">{subtitle}</div> : null}
+							<div className="truncate text-xs text-text-tertiary">
+								{projectState.currentProject ? (
+									<>
+										{projectState.currentProject.name}
+										{subtitle ? " · " : null}
+									</>
+								) : (
+									"No project selected"
+								)}
+								{subtitle}
+							</div>
 						</div>
 					</div>
-					<div className="flex shrink-0 items-center gap-2">{actions}</div>
+					<div className="flex shrink-0 items-center gap-2">
+						<nav className="hidden items-center gap-1 lg:flex" aria-label="VCS views">
+							{navItems.map((item) => {
+								const Icon = item.icon;
+								const active = currentPath === item.href || (item.href !== "/vcs" && currentPath.startsWith(`${item.href}/`));
+								return (
+									<a
+										key={item.href}
+										href={withWorkspaceParam(item.href, projectState.currentProjectId)}
+										aria-current={active ? "page" : undefined}
+										className={cn(
+											"inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-text-secondary hover:bg-surface-2 hover:text-text-primary",
+											active && "bg-surface-3 text-text-primary",
+										)}
+									>
+										<Icon size={14} />
+										<span>{item.label}</span>
+									</a>
+								);
+							})}
+						</nav>
+						{actions}
+						<StatusChip label="Experimental" tone="gold" />
+					</div>
 				</header>
-				<nav className="flex shrink-0 gap-1 overflow-x-auto border-b border-border bg-surface-1 px-2 py-2 md:hidden">
+				<nav className="flex shrink-0 gap-1 overflow-x-auto border-b border-border bg-surface-1 px-2 py-2 lg:hidden" aria-label="VCS views">
 					{navItems.map((item) => {
 						const Icon = item.icon;
 						const active = currentPath === item.href || (item.href !== "/vcs" && currentPath.startsWith(`${item.href}/`));
 						return (
 							<a
 								key={item.href}
-								href={item.href}
+								href={withWorkspaceParam(item.href, projectState.currentProjectId)}
 								className={cn(
 									"inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-md border px-2 text-xs font-medium",
 									active
-										? "border-transparent bg-accent text-accent-fg"
+										? "border-border-bright bg-surface-3 text-text-primary"
 										: "border-transparent bg-transparent text-text-secondary hover:bg-surface-3 hover:text-text-primary",
 								)}
 							>
@@ -100,8 +123,48 @@ export function VcsShell({
 						);
 					})}
 				</nav>
-				<main className="min-h-0 flex-1 overflow-auto bg-surface-0">{children}</main>
+				<main className="min-h-0 flex-1 overflow-hidden bg-surface-0">{children}</main>
 			</div>
 		</div>
 	);
+}
+
+export function NoProjectSelected({
+	title = "Select a project",
+	children = "Choose a Git or JJ project from the project rail to load VCS data.",
+	action,
+}: {
+	title?: string;
+	children?: ReactNode;
+	action?: ReactNode;
+}): React.ReactElement {
+	return (
+		<div className="flex h-full items-center justify-center p-4">
+			<div className="w-full max-w-md rounded-lg border border-border bg-surface-1 p-4 text-center shadow-sm">
+				<div className="mx-auto mb-3 grid h-10 w-10 place-items-center rounded-md border border-border bg-surface-2 text-accent">
+					<Workflow size={18} />
+				</div>
+				<h2 className="text-sm font-semibold text-text-primary">{title}</h2>
+				<div className="mt-2 text-[13px] leading-5 text-text-secondary">{children}</div>
+				{action ? <div className="mt-3 flex justify-center">{action}</div> : null}
+			</div>
+		</div>
+	);
+}
+
+export function SelectProjectButton({ onClick }: { onClick: () => void }): React.ReactElement {
+	return (
+		<Button variant="primary" size="sm" onClick={onClick}>
+			Add Project
+		</Button>
+	);
+}
+
+function withWorkspaceParam(path: string, workspaceId: string | null): string {
+	if (!workspaceId) {
+		return path;
+	}
+	const params = new URLSearchParams();
+	params.set("workspaceId", workspaceId);
+	return `${path}?${params.toString()}`;
 }
