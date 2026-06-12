@@ -1,0 +1,82 @@
+import { RefreshCw, RotateCcw, TriangleAlert } from "lucide-react";
+import { Component, type ErrorInfo, type ReactElement, type ReactNode } from "react";
+
+import { Button } from "@/components/ui/button";
+
+function AppErrorFallback({ error, resetError }: { error: unknown; resetError: () => void }): ReactElement {
+	const message = error instanceof Error ? error.message : "ChangeYard hit an unexpected UI error.";
+
+	return (
+		<div className="min-h-screen bg-surface-0 text-text-primary flex items-center justify-center p-6">
+			<div className="w-full max-w-lg rounded-xl border border-border bg-surface-1 p-6 shadow-2xl">
+				<div className="flex items-center gap-3 text-text-primary">
+					<div className="flex h-10 w-10 items-center justify-center rounded-lg border border-status-red/30 bg-status-red/10 text-status-red">
+						<TriangleAlert size={18} />
+					</div>
+					<div>
+						<h1 className="text-lg font-semibold">ChangeYard hit an unexpected UI error.</h1>
+						<p className="mt-1 text-sm text-text-secondary">
+							You can try rendering the app again or reload the page.
+						</p>
+					</div>
+				</div>
+				<div className="mt-4 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-text-secondary">
+					{message}
+				</div>
+				<div className="mt-5 flex flex-wrap gap-2">
+					<Button size="md" variant="default" icon={<RotateCcw size={16} />} onClick={resetError}>
+						Try again
+					</Button>
+					<Button
+						size="md"
+						variant="primary"
+						icon={<RefreshCw size={16} />}
+						onClick={() => {
+							window.location.reload();
+						}}
+					>
+						Reload page
+					</Button>
+				</div>
+			</div>
+		</div>
+	);
+}
+
+interface AppErrorBoundaryProps {
+	children: ReactNode;
+}
+
+interface AppErrorBoundaryState {
+	error: unknown;
+}
+
+class AppErrorBoundaryRoot extends Component<AppErrorBoundaryProps, AppErrorBoundaryState> {
+	override state: AppErrorBoundaryState = {
+		error: null,
+	};
+
+	static getDerivedStateFromError(error: unknown): AppErrorBoundaryState {
+		return { error };
+	}
+
+	override componentDidCatch(_error: unknown, _errorInfo: ErrorInfo): void {
+		// Keep the UI self-contained. Errors render locally and are not reported.
+	}
+
+	private readonly resetError = (): void => {
+		this.setState({ error: null });
+	};
+
+	override render(): ReactNode {
+		if (this.state.error !== null) {
+			return <AppErrorFallback error={this.state.error} resetError={this.resetError} />;
+		}
+
+		return this.props.children;
+	}
+}
+
+export function AppErrorBoundary({ children }: { children: ReactNode }): ReactElement {
+	return <AppErrorBoundaryRoot>{children}</AppErrorBoundaryRoot>;
+}

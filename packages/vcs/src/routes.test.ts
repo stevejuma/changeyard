@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { resolveVcsRoute } from "./App";
+import { resolveVcsRoute } from "./routes";
 
 test("resolveVcsRoute distinguishes the standalone VCS screens", () => {
 	assert.deepEqual(resolveVcsRoute("/vcs"), { kind: "landing" });
