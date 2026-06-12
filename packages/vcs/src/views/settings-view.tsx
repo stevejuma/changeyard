@@ -13,14 +13,21 @@ import {
 	Settings,
 	SlidersHorizontal,
 } from "lucide-react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Dialog, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { KeyValue } from "@/components/vcs-panels";
 import { SelectProjectButton, VcsShell, type VcsShellProjectState } from "@/components/vcs-shell";
-import type { QueryState, VcsDetectResponse } from "@/runtime/types";
+import type {
+	QueryState,
+	RuntimeProjectConfigResponse,
+	RuntimeProjectConfigUpdateRequest,
+	VcsDetectResponse,
+	VcsJjInventoryResponse,
+} from "@/runtime/types";
+import { postTrpcMutation, useTrpcQuery } from "@/runtime/trpc-client";
 import {
 	getBrowserNotificationPermission,
 	hasPromptedForBrowserNotificationPermission,
@@ -315,6 +322,101 @@ function ThemeSelect({
 	);
 }
 
+type TargetBranchOption = {
+	value: string;
+	label: string;
+};
+
+function addTargetBranchOption(options: Map<string, TargetBranchOption>, value: string | null | undefined): void {
+	const trimmed = value?.trim();
+	if (!trimmed) {
+		return;
+	}
+	options.set(trimmed, { value: trimmed, label: trimmed });
+}
+
+function createTargetBranchOptions({
+	detect,
+	inventory,
+	configuredTarget,
+}: {
+	detect: VcsDetectResponse | null;
+	inventory: VcsJjInventoryResponse | null;
+	configuredTarget: string | null;
+}): TargetBranchOption[] {
+	const options = new Map<string, TargetBranchOption>();
+	for (const item of inventory?.items ?? []) {
+		for (const remote of item.remotes) {
+			addTargetBranchOption(options, `${remote}/${item.name}`);
+		}
+	}
+
+	const defaultBase = detect?.jj.defaultBase ?? detect?.git.defaultBranch ?? null;
+	if (detect?.git.remoteName && defaultBase) {
+		addTargetBranchOption(options, `${detect.git.remoteName}/${defaultBase}`);
+	}
+	addTargetBranchOption(options, configuredTarget);
+
+	return [...options.values()].sort((left, right) => left.label.localeCompare(right.label));
+}
+
+function getDefaultTargetBranch(detect: VcsDetectResponse | null): string | null {
+	const base = detect?.jj.defaultBase ?? detect?.git.defaultBranch ?? null;
+	if (!base) {
+		return null;
+	}
+	return detect?.git.remoteName ? `${detect.git.remoteName}/${base}` : base;
+}
+
+function TargetBranchSelect({
+	value,
+	options,
+	disabled,
+	onChange,
+}: {
+	value: string;
+	options: readonly TargetBranchOption[];
+	disabled?: boolean;
+	onChange: (value: string) => void;
+}): React.ReactElement {
+	return (
+		<RadixSelect.Root value={value} onValueChange={onChange} disabled={disabled || options.length === 0}>
+			<RadixSelect.Trigger
+				className="flex h-9 min-w-[220px] cursor-pointer items-center justify-between rounded-md border border-border-bright bg-surface-2 px-3 text-[13px] text-text-primary outline-none hover:bg-surface-3 hover:border-border-bright focus:border-border-focus focus:outline-none disabled:cursor-default disabled:opacity-50"
+				aria-label="Workspace target branch"
+			>
+				<RadixSelect.Value placeholder="No remote branches" />
+				<RadixSelect.Icon>
+					<ChevronDown size={14} className="text-text-tertiary" />
+				</RadixSelect.Icon>
+			</RadixSelect.Trigger>
+			<RadixSelect.Portal>
+				<RadixSelect.Content
+					className="z-50 max-h-72 w-(--radix-select-trigger-width) overflow-auto rounded-lg border border-border bg-surface-1 p-1 shadow-xl"
+					position="popper"
+					sideOffset={4}
+					align="start"
+				>
+					<RadixSelect.Viewport>
+						{options.map((option) => (
+							<RadixSelect.Item
+								key={option.value}
+								value={option.value}
+								className="flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] text-text-secondary outline-none data-highlighted:bg-surface-3 data-highlighted:text-text-primary data-[state=checked]:text-text-primary"
+							>
+								<RadixSelect.ItemText>{option.label}</RadixSelect.ItemText>
+								<RadixSelect.ItemIndicator className="ml-auto">
+									<Check size={14} className="text-accent-2" />
+								</RadixSelect.ItemIndicator>
+							</RadixSelect.Item>
+						))}
+					</RadixSelect.Viewport>
+				</RadixSelect.Content>
+			</RadixSelect.Portal>
+		</RadixSelect.Root>
+	);
+}
+
 function EmptyProjectSettings({
 	children,
 	action,
@@ -332,29 +434,37 @@ function EmptyProjectSettings({
 
 function SettingsDialogContent({
 	state,
+	projectConfigState,
+	inventoryState,
 	workspaceId,
 	projectState,
 	draftFileViewMode,
 	themeId,
 	draftThemeId,
+	draftTargetBranch,
 	draftNotificationsEnabled,
 	notificationPermission,
 	onFileViewModeChange,
 	onThemeChange,
+	onTargetBranchChange,
 	onNotificationsEnabledChange,
 	onRequestNotificationPermission,
 	onResetLayout,
 }: {
 	state: QueryState<VcsDetectResponse>;
+	projectConfigState: QueryState<RuntimeProjectConfigResponse>;
+	inventoryState: QueryState<VcsJjInventoryResponse>;
 	workspaceId: string | null;
 	projectState: VcsShellProjectState;
 	draftFileViewMode: VcsFileViewMode;
 	themeId: ThemeId;
 	draftThemeId: ThemeId;
+	draftTargetBranch: string | null;
 	draftNotificationsEnabled: boolean;
 	notificationPermission: BrowserNotificationPermission;
 	onFileViewModeChange: (mode: VcsFileViewMode) => void;
 	onThemeChange: (themeId: ThemeId) => void;
+	onTargetBranchChange: (targetBranch: string) => void;
 	onNotificationsEnabledChange: (enabled: boolean) => void;
 	onRequestNotificationPermission: () => void;
 	onResetLayout: () => void;
@@ -364,6 +474,12 @@ function SettingsDialogContent({
 	const [activeSection, setActiveSection] = useState<SettingsNavId>("general");
 	const notificationStatus = formatNotificationPermission(notificationPermission);
 	const selectedTheme = THEMES.find((theme) => theme.id === themeId) ?? THEMES[0];
+	const targetBranchOptions = createTargetBranchOptions({
+		detect: state.status === "ready" ? state.data : null,
+		inventory: inventoryState.status === "ready" ? inventoryState.data : null,
+		configuredTarget: draftTargetBranch,
+	});
+	const selectedTargetBranch = draftTargetBranch ?? getDefaultTargetBranch(state.status === "ready" ? state.data : null) ?? targetBranchOptions[0]?.value ?? "";
 
 	const handleBodyScroll = useCallback(() => {
 		if (isScrollingProgrammatically.current) return;
@@ -424,17 +540,33 @@ function SettingsDialogContent({
 				</div>
 			);
 		}
-		return (
-			<>
-				<KeyValue label="Workspace cwd" value={state.data.cwd || "Unavailable"} />
-				<KeyValue label="Repository" value={state.data.repository.kind} />
-				<KeyValue label="Repository root" value={state.data.repository.root ?? "Unavailable"} />
-				<KeyValue label="JJ installed" value={state.data.jj.installed ? "yes" : "no"} />
-				<KeyValue label="JJ root" value={state.data.jj.repoRoot ?? "Unavailable"} />
-				<KeyValue label="Default base" value={<code>{state.data.jj.defaultBase ?? state.data.git.defaultBranch ?? "unknown"}</code>} />
-			</>
-		);
-	})();
+			return (
+				<>
+					<KeyValue label="Workspace cwd" value={state.data.cwd || "Unavailable"} />
+					<KeyValue label="Repository" value={state.data.repository.kind} />
+					<KeyValue label="Repository root" value={state.data.repository.root ?? "Unavailable"} />
+					<KeyValue label="JJ installed" value={state.data.jj.installed ? "yes" : "no"} />
+					<KeyValue label="JJ root" value={state.data.jj.repoRoot ?? "Unavailable"} />
+					<KeyValue label="Default base" value={<code>{state.data.jj.defaultBase ?? state.data.git.defaultBranch ?? "unknown"}</code>} />
+					<SettingsRow
+						label="Workspace target"
+						value={
+							projectConfigState.status === "error"
+								? projectConfigState.message
+								: selectedTargetBranch ? <code>{selectedTargetBranch}</code> : "No remote branch available"
+						}
+						action={
+							<TargetBranchSelect
+								value={selectedTargetBranch}
+								options={targetBranchOptions}
+								disabled={projectConfigState.status === "loading" || inventoryState.status === "loading" || selectedTargetBranch.length === 0}
+								onChange={onTargetBranchChange}
+							/>
+						}
+					/>
+				</>
+			);
+		})();
 
 	const providerSection = (() => {
 		if (!workspaceId) {
@@ -605,16 +737,49 @@ export function SettingsView({
 	const [draftFileViewMode, setDraftFileViewMode] = useState<VcsFileViewMode>(() => readVcsFileViewMode());
 	const [initialThemeId, setInitialThemeId] = useState<ThemeId>(() => readStoredThemeId());
 	const [draftThemeId, setDraftThemeId] = useState<ThemeId>(() => readStoredThemeId());
+	const [targetBranch, setTargetBranch] = useState<string | null>(null);
+	const [draftTargetBranch, setDraftTargetBranch] = useState<string | null>(null);
 	const [notificationsEnabled, setNotificationsEnabled] = useState(() => readBooleanStorage(VCS_NOTIFICATIONS_ENABLED_KEY, false));
 	const [draftNotificationsEnabled, setDraftNotificationsEnabled] = useState(() => readBooleanStorage(VCS_NOTIFICATIONS_ENABLED_KEY, false));
 	const [notificationPermission, setNotificationPermission] = useState<BrowserNotificationPermission>(() => getBrowserNotificationPermission());
+	const projectConfigQuery = useTrpcQuery<RuntimeProjectConfigResponse>(
+		"changes.getProjectConfig",
+		"Failed to load project configuration.",
+		workspaceId,
+		Boolean(workspaceId),
+	);
+	const inventoryQuery = useTrpcQuery<VcsJjInventoryResponse>(
+		"vcs.jjInventory",
+		"Failed to load JJ branch inventory.",
+		workspaceId,
+		Boolean(workspaceId),
+	);
 	const hasUnsavedChanges = useMemo(
 		() =>
 			draftFileViewMode !== fileViewMode ||
 			draftThemeId !== initialThemeId ||
+			draftTargetBranch !== targetBranch ||
 			draftNotificationsEnabled !== notificationsEnabled,
-		[draftFileViewMode, draftNotificationsEnabled, draftThemeId, fileViewMode, initialThemeId, notificationsEnabled],
+		[
+			draftFileViewMode,
+			draftNotificationsEnabled,
+			draftTargetBranch,
+			draftThemeId,
+			fileViewMode,
+			initialThemeId,
+			notificationsEnabled,
+			targetBranch,
+		],
 	);
+
+	useEffect(() => {
+		if (projectConfigQuery.state.status !== "ready") {
+			return;
+		}
+		const nextTargetBranch = projectConfigQuery.state.data.vcsTargetBranch ?? null;
+		setTargetBranch(nextTargetBranch);
+		setDraftTargetBranch(nextTargetBranch);
+	}, [projectConfigQuery.state]);
 
 	function closeSettings(): void {
 		setOpen(false);
@@ -625,6 +790,7 @@ export function SettingsView({
 		setDraftFileViewMode(fileViewMode);
 		setDraftThemeId(initialThemeId);
 		previewThemeId(initialThemeId);
+		setDraftTargetBranch(targetBranch);
 		setDraftNotificationsEnabled(notificationsEnabled);
 		closeSettings();
 	}
@@ -641,6 +807,15 @@ export function SettingsView({
 		if (draftThemeId !== initialThemeId) {
 			saveThemeId(draftThemeId);
 			setInitialThemeId(draftThemeId);
+		}
+		if (draftTargetBranch !== targetBranch) {
+			const nextConfig = await postTrpcMutation<RuntimeProjectConfigResponse>(
+				"changes.updateProjectConfig",
+				{ vcsTargetBranch: draftTargetBranch } satisfies RuntimeProjectConfigUpdateRequest,
+				workspaceId,
+			);
+			setTargetBranch(nextConfig.vcsTargetBranch ?? null);
+			setDraftTargetBranch(nextConfig.vcsTargetBranch ?? null);
 		}
 		setNotificationsEnabled(draftNotificationsEnabled);
 		writeBooleanStorage(VCS_NOTIFICATIONS_ENABLED_KEY, draftNotificationsEnabled);
@@ -675,15 +850,19 @@ export function SettingsView({
 				<DialogHeader title="Settings" icon={<Settings size={16} />} />
 				<SettingsDialogContent
 					state={state}
+					projectConfigState={projectConfigQuery.state}
+					inventoryState={inventoryQuery.state}
 					workspaceId={workspaceId}
 					projectState={projectState}
 					draftFileViewMode={draftFileViewMode}
 					themeId={initialThemeId}
 					draftThemeId={draftThemeId}
+					draftTargetBranch={draftTargetBranch}
 					draftNotificationsEnabled={draftNotificationsEnabled}
 					notificationPermission={notificationPermission}
 					onFileViewModeChange={setDraftFileViewMode}
 					onThemeChange={setDraftThemeId}
+					onTargetBranchChange={setDraftTargetBranch}
 					onNotificationsEnabledChange={setDraftNotificationsEnabled}
 					onRequestNotificationPermission={requestNotifications}
 					onResetLayout={resetLayout}

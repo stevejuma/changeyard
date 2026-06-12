@@ -92,6 +92,7 @@ export type ChangeyardConfig = {
   vcs: {
     engine: "plain-copy" | "jj" | "git-worktree" | string;
     fallback: "plain-copy" | "jj" | "git-worktree" | string;
+    targetBranch?: string;
   };
   workspace: {
     pathPattern: string;

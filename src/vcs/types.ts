@@ -107,7 +107,7 @@ export interface VcsJjStateResult extends VcsDetectResult {
 }
 
 export type VcsJjInventoryItemType = "current" | "bookmark" | "remote" | "branch" | "tag" | "workspace";
-export type VcsJjInventoryItemGroup = "current" | "applied" | "remote" | "local" | "tags" | "older";
+export type VcsJjInventoryItemGroup = "current" | "today" | "applied" | "remote" | "local" | "tags" | "older";
 
 export interface VcsJjInventoryPullRequest {
 	number: number;
@@ -122,8 +122,15 @@ export interface VcsJjInventoryItem {
 	group: VcsJjInventoryItemGroup;
 	changeId: string | null;
 	commitId: string | null;
+	title: string | null;
+	authorName: string | null;
+	authorEmail: string | null;
+	authorAvatarUrl: string | null;
+	timestamp: string | null;
 	target: string | null;
 	remoteName: string | null;
+	hasLocal: boolean;
+	remotes: string[];
 	synced: boolean;
 	tracked: boolean;
 	isCurrent: boolean;

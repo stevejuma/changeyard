@@ -1,7 +1,9 @@
 import { detectVcsState, type VcsCommandRunner } from "../detect.js";
 import type { VcsDiagnostic, VcsJjStateResult } from "../types.js";
+import { isInternalJjBookmark, normalizeRemoteTargetToLocalBookmark, remoteNameFromTarget } from "./bookmark-utils.js";
 import { buildJjStacks } from "./graph.js";
 import {
+	createJjRemoteBookmarkRevset,
 	createJjSymbolRevset,
 	readJjBookmarksWithBase,
 	readJjChangesForBookmarks,
@@ -12,7 +14,15 @@ function createDiagnostic(level: VcsDiagnostic["level"], code: string, message: 
 	return { level, code, message };
 }
 
-export async function loadJjState(cwd: string, runner: VcsCommandRunner): Promise<VcsJjStateResult> {
+export interface LoadJjStateOptions {
+	targetBranch?: string | null;
+}
+
+export async function loadJjState(
+	cwd: string,
+	runner: VcsCommandRunner,
+	options: LoadJjStateOptions = {},
+): Promise<VcsJjStateResult> {
 	const detect = await detectVcsState(cwd, runner);
 	if (detect.repository.kind !== "jj") {
 		return {
@@ -30,13 +40,33 @@ export async function loadJjState(cwd: string, runner: VcsCommandRunner): Promis
 
 	const repoCwd = detect.repository.root ?? cwd;
 	const diagnostics = [...detect.diagnostics];
-	const preferredBase = detect.jj.defaultBase ?? detect.git.defaultBranch ?? null;
+	const detectedBase = detect.jj.defaultBase ?? detect.git.defaultBranch ?? null;
+	const defaultTarget = detect.git.remoteName && detectedBase ? `${detect.git.remoteName}/${detectedBase}` : detectedBase;
+	const configuredTarget = options.targetBranch?.trim() || defaultTarget;
+	const configuredBase = normalizeRemoteTargetToLocalBookmark(configuredTarget, detect.git.remoteName);
+	const configuredRemote = remoteNameFromTarget(configuredTarget, detect.git.remoteName);
+	const preferredBase = configuredBase ?? detectedBase;
 	let base = preferredBase ?? "trunk";
-	const preferredBaseRevset = createJjSymbolRevset(preferredBase);
+	const localBaseRevset = createJjSymbolRevset(preferredBase);
+	const preferredBaseRevset = configuredBase && configuredRemote
+		? createJjRemoteBookmarkRevset(configuredBase, configuredRemote)
+		: localBaseRevset;
 	let activeBaseRevset = preferredBaseRevset;
 	let bookmarkRead = await readJjBookmarksWithBase(repoCwd, preferredBaseRevset, runner);
 
-	if (!bookmarkRead.ok && preferredBaseRevset !== "trunk()") {
+	if (!bookmarkRead.ok && preferredBaseRevset !== localBaseRevset) {
+		diagnostics.push(
+			createDiagnostic(
+				"warning",
+				"jj_remote_base_unavailable",
+				`Could not read JJ bookmarks relative to ${configuredTarget}; falling back to ${base}.`,
+			),
+		);
+		bookmarkRead = await readJjBookmarksWithBase(repoCwd, localBaseRevset, runner);
+		activeBaseRevset = localBaseRevset;
+	}
+
+	if (!bookmarkRead.ok && activeBaseRevset !== "trunk()") {
 		diagnostics.push(
 			createDiagnostic(
 				"warning",
@@ -49,7 +79,7 @@ export async function loadJjState(cwd: string, runner: VcsCommandRunner): Promis
 		base = "trunk";
 	}
 
-	const bookmarks = bookmarkRead.bookmarks;
+	const bookmarks = bookmarkRead.bookmarks.filter((bookmark) => !isInternalJjBookmark(bookmark.name));
 	const graphRead = await readJjChangesForBookmarks(
 		repoCwd,
 		bookmarks.map((bookmark) => bookmark.name),

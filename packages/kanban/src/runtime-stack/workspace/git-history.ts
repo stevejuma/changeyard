@@ -289,6 +289,10 @@ function normalizeRequestedRefs(refs: string[] | null | undefined, fallbackRef?:
 	return Array.from(new Set(candidates.map((candidate) => candidate.trim()).filter(Boolean)));
 }
 
+function excludeJjRoot(revset: string): string {
+	return `(${revset}) ~ root()`;
+}
+
 async function buildCommitRelationMap(repoRoot: string, refs: string[]): Promise<Map<string, CommitRelation> | null> {
 	if (refs.length !== 2) {
 		return null;
@@ -600,11 +604,16 @@ async function getJjLog(options: {
 		return { ok: false, commits: [], totalCount: 0, error: "No jj repository detected." };
 	}
 	const requestedRefs = normalizeRequestedRefs(refs, ref);
-	const revset =
-		requestedRefs.length > 0 ? requestedRefs.map((candidate) => `::${candidate}`).join("|") : "::@";
+	const revset = excludeJjRoot(
+		requestedRefs.length > 0 ? requestedRefs.map((candidate) => `::${candidate}`).join("|") : "::@",
+	);
+	const logArgs = ["log", "-r", revset, "--no-graph", "-T", JJ_LOG_TEMPLATE];
+	if (Number.isFinite(maxCount) && maxCount > 0) {
+		logArgs.push("--limit", String(skip + maxCount));
+	}
 
 	const [logResult, countResult] = await Promise.all([
-		runJj(repoRoot, ["log", "-r", revset, "--no-graph", "-T", JJ_LOG_TEMPLATE], { trimStdout: false }),
+		runJj(repoRoot, logArgs, { trimStdout: false }),
 		runJj(repoRoot, ["log", "-r", revset, "--count"]),
 	]);
 	if (!logResult.ok) {
@@ -659,7 +668,7 @@ async function getJjLogRange(options: {
 	}
 	const trimmedBase = baseRef?.trim();
 	const trimmedHead = headRef?.trim() || "@";
-	const revset = trimmedBase ? `${trimmedBase}..${trimmedHead}` : `::${trimmedHead}`;
+	const revset = excludeJjRoot(trimmedBase ? `${trimmedBase}..${trimmedHead}` : `::${trimmedHead}`);
 	const [logResult, countResult] = await Promise.all([
 		runJj(repoRoot, ["log", "-r", revset, "--no-graph", "-T", JJ_LOG_TEMPLATE], { trimStdout: false }),
 		runJj(repoRoot, ["log", "-r", revset, "--count"]),

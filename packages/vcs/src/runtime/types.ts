@@ -113,11 +113,18 @@ export type VcsJjInventoryItem = {
 	id: string;
 	name: string;
 	type: "current" | "bookmark" | "remote" | "branch" | "tag" | "workspace";
-	group: "current" | "applied" | "remote" | "local" | "tags" | "older";
+	group: "current" | "today" | "applied" | "remote" | "local" | "tags" | "older";
 	changeId: string | null;
 	commitId: string | null;
+	title: string | null;
+	authorName: string | null;
+	authorEmail: string | null;
+	authorAvatarUrl: string | null;
+	timestamp: string | null;
 	target: string | null;
 	remoteName: string | null;
+	hasLocal: boolean;
+	remotes: string[];
 	synced: boolean;
 	tracked: boolean;
 	isCurrent: boolean;
@@ -131,6 +138,23 @@ export type VcsJjInventoryItem = {
 export type VcsJjInventoryResponse = VcsDetectResponse & {
 	workspaceTarget: VcsJjInventoryItem | null;
 	items: VcsJjInventoryItem[];
+};
+
+export type RuntimeProjectConfigResponse = {
+	initialized: boolean;
+	providerType: "noop" | "local-folder" | "forgejo" | "github" | "gitlab";
+	vcsEngine: "plain-copy" | "jj" | "git-worktree";
+	vcsFallback: "plain-copy" | "jj" | "git-worktree";
+	vcsTargetBranch?: string | null;
+	projectDefaultBase: string;
+	planningDefaultProfile?: "none" | "openspec-lite";
+	planningDefaultStrictness?: "normal" | "strict";
+	planningAllowQuickChanges?: boolean;
+	planningQuickChangeCheckProfile?: string;
+};
+
+export type RuntimeProjectConfigUpdateRequest = {
+	vcsTargetBranch?: string | null;
 };
 
 export type VcsJjDiffResponse = {

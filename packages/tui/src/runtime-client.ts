@@ -82,6 +82,7 @@ export type ProjectConfigResponse = {
   providerType: string;
   vcsEngine: string;
   vcsFallback: string;
+  vcsTargetBranch?: string | null;
   planningDefaultProfile?: string;
 };
 
@@ -224,6 +225,7 @@ export class RuntimeClient {
     providerType?: ProjectConfigResponse["providerType"];
     vcsEngine?: string;
     vcsFallback?: string;
+    vcsTargetBranch?: string | null;
   }): Promise<ProjectConfigResponse> {
     await this.ensureWorkspace();
     return await this.mutation<ProjectConfigResponse>("changes.updateProjectConfig", input);

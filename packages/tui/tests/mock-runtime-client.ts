@@ -99,12 +99,13 @@ export function createMockRuntimeClient(overrides: Partial<RuntimeClient> = {}):
       }) satisfies ProjectConfigResponse,
     initProject: async () => ({ message: "Initialized Changeyard in .changeyard" }),
     updateProject: async () => ({ message: "Updated Changeyard scaffold in .changeyard" }),
-    updateProjectConfig: async (input: { providerType?: string; vcsEngine?: string; vcsFallback?: string }) =>
+    updateProjectConfig: async (input: { providerType?: string; vcsEngine?: string; vcsFallback?: string; vcsTargetBranch?: string | null }) =>
       ({
         initialized: true,
         providerType: input.providerType ?? "noop",
         vcsEngine: input.vcsEngine ?? "plain-copy",
         vcsFallback: input.vcsFallback ?? "plain-copy",
+        vcsTargetBranch: input.vcsTargetBranch ?? null,
       }) satisfies ProjectConfigResponse,
     doctorProject: async () =>
       ({
