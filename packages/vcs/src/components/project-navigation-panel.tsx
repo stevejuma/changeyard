@@ -1,7 +1,17 @@
-import { ChevronLeft, ChevronRight, FolderGit2, Plus, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Ellipsis, FolderGit2, Plus, Trash2 } from "lucide-react";
+import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
+import {
+	AlertDialog,
+	AlertDialogBody,
+	AlertDialogCancel,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
 import type { QueryState, RuntimeProjectSummary } from "@/runtime/types";
 
@@ -26,6 +36,7 @@ export function VcsProjectNavigationPanel({
 	onSelectProject,
 	onAddProject,
 	onRemoveProject,
+	onClearOtherProjects,
 }: {
 	projectsState: QueryState<{ currentProjectId: string | null; projects: RuntimeProjectSummary[] }>;
 	currentProjectId: string | null;
@@ -34,12 +45,28 @@ export function VcsProjectNavigationPanel({
 	onCollapsedChange: (collapsed: boolean) => void;
 	onSelectProject: (projectId: string) => void;
 	onAddProject: () => void;
-	onRemoveProject: (projectId: string) => void;
+	onRemoveProject: (projectId: string) => Promise<boolean>;
+	onClearOtherProjects: () => Promise<boolean>;
 }): React.ReactElement {
+	const [isHeaderMenuOpen, setHeaderMenuOpen] = useState(false);
+	const [pendingProjectRemoval, setPendingProjectRemoval] = useState<RuntimeProjectSummary | null>(null);
+	const [isClearOtherProjectsOpen, setClearOtherProjectsOpen] = useState(false);
+	const [isClearingOtherProjects, setClearingOtherProjects] = useState(false);
 	const currentProject =
 		projectsState.status === "ready"
 			? projectsState.data.projects.find((project) => project.id === currentProjectId) ?? null
 			: null;
+	const removableProjectCount =
+		projectsState.status === "ready"
+			? projectsState.data.projects.filter((project) => project.id !== currentProjectId).length
+			: 0;
+	const isProjectRemovalPending = pendingProjectRemoval !== null && removingProjectId === pendingProjectRemoval.id;
+	const pendingProjectTaskCount = pendingProjectRemoval
+		? pendingProjectRemoval.taskCounts.backlog +
+			pendingProjectRemoval.taskCounts.in_progress +
+			pendingProjectRemoval.taskCounts.review +
+			pendingProjectRemoval.taskCounts.trash
+		: 0;
 
 	if (isCollapsed) {
 		return (
@@ -94,14 +121,40 @@ export function VcsProjectNavigationPanel({
 						<div className="text-xs text-text-tertiary">Projects</div>
 					</div>
 				</div>
-				<Button
-					variant="ghost"
-					size="sm"
-					icon={<ChevronLeft size={16} />}
-					aria-label="Collapse project navigation"
-					title="Collapse projects"
-					onClick={() => onCollapsedChange(true)}
-				/>
+				<div className="relative flex items-center gap-1">
+					<Button
+						variant="ghost"
+						size="sm"
+						icon={<Ellipsis size={16} />}
+						aria-label="Project navigation menu"
+						title="Project menu"
+						onClick={() => setHeaderMenuOpen((open) => !open)}
+					/>
+					<Button
+						variant="ghost"
+						size="sm"
+						icon={<ChevronLeft size={16} />}
+						aria-label="Collapse project navigation"
+						title="Collapse projects"
+						onClick={() => onCollapsedChange(true)}
+					/>
+					{isHeaderMenuOpen ? (
+						<div className="absolute right-0 top-9 z-50 w-56 rounded-md border border-border bg-surface-2 p-1 shadow-xl">
+							<button
+								type="button"
+								className="flex w-full items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-left text-xs text-text-secondary hover:bg-surface-3 hover:text-text-primary disabled:cursor-default disabled:opacity-50"
+								disabled={!currentProjectId || removableProjectCount === 0}
+								onClick={() => {
+									setHeaderMenuOpen(false);
+									setClearOtherProjectsOpen(true);
+								}}
+							>
+								<span>Clear all but current</span>
+								<span className="text-text-tertiary">{removableProjectCount}</span>
+							</button>
+						</div>
+					) : null}
+				</div>
 			</header>
 			<div className="min-h-0 flex-1 overflow-y-auto p-2">
 				{projectsState.status === "loading" ? (
@@ -163,7 +216,7 @@ export function VcsProjectNavigationPanel({
 												disabled={isRemoving}
 												aria-label={`Remove ${project.name}`}
 												title={`Remove ${project.name}`}
-												onClick={() => onRemoveProject(project.id)}
+												onClick={() => setPendingProjectRemoval(project)}
 											/>
 										</div>
 									</div>
@@ -176,6 +229,129 @@ export function VcsProjectNavigationPanel({
 					Add Project
 				</Button>
 			</footer>
+			<AlertDialog
+				open={pendingProjectRemoval !== null}
+				onOpenChange={(open) => {
+					if (!open && !isProjectRemovalPending) {
+						setPendingProjectRemoval(null);
+					}
+				}}
+			>
+				<AlertDialogHeader>
+					<AlertDialogTitle>Remove Project</AlertDialogTitle>
+				</AlertDialogHeader>
+				<AlertDialogBody>
+					<AlertDialogDescription asChild>
+						<div className="flex flex-col gap-3">
+							<p>{pendingProjectRemoval ? pendingProjectRemoval.name : "This project"}</p>
+							<p className="text-text-primary">
+								This will delete all project tasks ({pendingProjectTaskCount}), remove task workspaces/worktrees,
+								and stop any running processes for this project.
+							</p>
+							<p className="text-text-primary">This action cannot be undone.</p>
+						</div>
+					</AlertDialogDescription>
+				</AlertDialogBody>
+				<AlertDialogFooter>
+					<AlertDialogCancel asChild>
+						<Button
+							variant="default"
+							disabled={isProjectRemovalPending}
+							onClick={() => {
+								if (!isProjectRemovalPending) {
+									setPendingProjectRemoval(null);
+								}
+							}}
+						>
+							Cancel
+						</Button>
+					</AlertDialogCancel>
+					<Button
+						variant="danger"
+						disabled={isProjectRemovalPending}
+						onClick={async () => {
+							if (!pendingProjectRemoval) {
+								return;
+							}
+							const removed = await onRemoveProject(pendingProjectRemoval.id);
+							if (removed) {
+								setPendingProjectRemoval(null);
+							}
+						}}
+					>
+						{isProjectRemovalPending ? (
+							<>
+								<Spinner size={14} />
+								Removing...
+							</>
+						) : (
+							"Remove Project"
+						)}
+					</Button>
+				</AlertDialogFooter>
+			</AlertDialog>
+			<AlertDialog
+				open={isClearOtherProjectsOpen}
+				onOpenChange={(open) => {
+					if (!open && !isClearingOtherProjects) {
+						setClearOtherProjectsOpen(false);
+					}
+				}}
+			>
+				<AlertDialogHeader>
+					<AlertDialogTitle>Clear Other Projects</AlertDialogTitle>
+				</AlertDialogHeader>
+				<AlertDialogBody>
+					<AlertDialogDescription asChild>
+						<div className="flex flex-col gap-3">
+							<p className="text-text-primary">
+								This will remove {removableProjectCount} other project{removableProjectCount === 1 ? "" : "s"} from
+								ChangeYard. The current project will stay selected.
+							</p>
+							<p className="text-text-primary">This action cannot be undone.</p>
+						</div>
+					</AlertDialogDescription>
+				</AlertDialogBody>
+				<AlertDialogFooter>
+					<AlertDialogCancel asChild>
+						<Button
+							variant="default"
+							disabled={isClearingOtherProjects}
+							onClick={() => {
+								if (!isClearingOtherProjects) {
+									setClearOtherProjectsOpen(false);
+								}
+							}}
+						>
+							Cancel
+						</Button>
+					</AlertDialogCancel>
+					<Button
+						variant="danger"
+						disabled={isClearingOtherProjects || removableProjectCount === 0}
+						onClick={async () => {
+							setClearingOtherProjects(true);
+							try {
+								const cleared = await onClearOtherProjects();
+								if (cleared) {
+									setClearOtherProjectsOpen(false);
+								}
+							} finally {
+								setClearingOtherProjects(false);
+							}
+						}}
+					>
+						{isClearingOtherProjects ? (
+							<>
+								<Spinner size={14} />
+								Removing...
+							</>
+						) : (
+							"Clear Other Projects"
+						)}
+					</Button>
+				</AlertDialogFooter>
+			</AlertDialog>
 		</aside>
 	);
 }

@@ -1,19 +1,31 @@
-import { GitBranch, History, Layers3, Settings, Workflow } from "lucide-react";
+import { GitBranch, History, Layers3, Settings, Terminal, Workflow } from "lucide-react";
 import type { ReactNode } from "react";
+import { useState } from "react";
 
 import { VcsProjectNavigationPanel } from "@/components/project-navigation-panel";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { StatusChip } from "@/components/ui/status-chip";
+import { VcsConsolePanel } from "@/components/vcs-console-panel";
+import { ResizableBottomPane } from "@/resize/resizable-bottom-pane";
 import type { QueryState, RuntimeProjectSummary, RuntimeProjectsResponse } from "@/runtime/types";
+import { readVcsNumberPreference, VCS_LAYOUT_STORAGE_KEYS, writeVcsNumberPreference } from "@/utils/vcs-ui-preferences";
+import { isVcsNavItemActive, withWorkspaceParam } from "@/utils/vcs-navigation";
 
 const navItems = [
-	{ href: "/vcs", label: "Overview", icon: Workflow },
+	{ href: "/vcs/", label: "Overview", icon: Workflow },
 	{ href: "/vcs/jj", label: "JJ Board", icon: Layers3 },
 	{ href: "/vcs/jj/branches", label: "Branches", icon: GitBranch },
 	{ href: "/vcs/jj/history", label: "History", icon: History },
 	{ href: "/vcs/settings", label: "Settings", icon: Settings },
 ] as const;
+
+const CONSOLE_HEIGHT_LIMITS = {
+	min: 220,
+	max: 760,
+	fallback: 280,
+	key: VCS_LAYOUT_STORAGE_KEYS.consoleHeight,
+} as const;
 
 export type VcsShellProjectState = {
 	projectsState: QueryState<RuntimeProjectsResponse>;
@@ -24,7 +36,8 @@ export type VcsShellProjectState = {
 	onProjectNavCollapsedChange: (collapsed: boolean) => void;
 	onSelectProject: (projectId: string) => void;
 	onAddProject: () => void;
-	onRemoveProject: (projectId: string) => void;
+	onRemoveProject: (projectId: string) => Promise<boolean>;
+	onClearOtherProjects: () => Promise<boolean>;
 };
 
 export function VcsShell({
@@ -44,6 +57,11 @@ export function VcsShell({
 	actions?: ReactNode;
 	children: ReactNode;
 }): React.ReactElement {
+	const [isConsoleOpen, setConsoleOpen] = useState(false);
+	const [consoleHeight, setConsoleHeight] = useState(() =>
+		readVcsNumberPreference(CONSOLE_HEIGHT_LIMITS.key, CONSOLE_HEIGHT_LIMITS.fallback, CONSOLE_HEIGHT_LIMITS.min, CONSOLE_HEIGHT_LIMITS.max),
+	);
+
 	return (
 		<div className="flex h-screen min-h-0 bg-surface-0 text-text-primary">
 			<VcsProjectNavigationPanel
@@ -55,6 +73,7 @@ export function VcsShell({
 				onSelectProject={projectState.onSelectProject}
 				onAddProject={projectState.onAddProject}
 				onRemoveProject={projectState.onRemoveProject}
+				onClearOtherProjects={projectState.onClearOtherProjects}
 			/>
 			<div className="flex min-w-0 flex-1 flex-col">
 				<header className="flex min-h-[49px] shrink-0 items-center justify-between gap-3 border-b border-divider bg-surface-1 px-3">
@@ -81,7 +100,7 @@ export function VcsShell({
 						<nav className="hidden items-center gap-1 lg:flex" aria-label="VCS views">
 							{navItems.map((item) => {
 								const Icon = item.icon;
-								const active = currentPath === item.href || (item.href !== "/vcs" && currentPath.startsWith(`${item.href}/`));
+								const active = isVcsNavItemActive(item.href, currentPath);
 								return (
 									<a
 										key={item.href}
@@ -99,13 +118,22 @@ export function VcsShell({
 							})}
 						</nav>
 						{actions}
+						<Button
+							variant="default"
+							size="sm"
+							icon={<Terminal size={14} />}
+							disabled={!projectState.currentProjectId}
+							aria-label={isConsoleOpen ? "Close console" : "Open console"}
+							title={projectState.currentProjectId ? (isConsoleOpen ? "Close console" : "Open console") : "Select a project to open console"}
+							onClick={() => setConsoleOpen((current) => !current)}
+						/>
 						<StatusChip label="Experimental" tone="gold" />
 					</div>
 				</header>
 				<nav className="flex shrink-0 gap-1 overflow-x-auto border-b border-border bg-surface-1 px-2 py-2 lg:hidden" aria-label="VCS views">
 					{navItems.map((item) => {
 						const Icon = item.icon;
-						const active = currentPath === item.href || (item.href !== "/vcs" && currentPath.startsWith(`${item.href}/`));
+						const active = isVcsNavItemActive(item.href, currentPath);
 						return (
 							<a
 								key={item.href}
@@ -124,6 +152,27 @@ export function VcsShell({
 					})}
 				</nav>
 				<main className="min-h-0 flex-1 overflow-hidden bg-surface-0">{children}</main>
+				{isConsoleOpen ? (
+					<ResizableBottomPane
+						minHeight={CONSOLE_HEIGHT_LIMITS.min}
+						initialHeight={consoleHeight}
+						onHeightChange={(height) => {
+							const normalized = writeVcsNumberPreference(
+								CONSOLE_HEIGHT_LIMITS.key,
+								height,
+								CONSOLE_HEIGHT_LIMITS.min,
+								CONSOLE_HEIGHT_LIMITS.max,
+							);
+							setConsoleHeight(normalized);
+						}}
+					>
+						<VcsConsolePanel
+							workspaceId={projectState.currentProjectId}
+							workspaceName={projectState.currentProject?.name ?? null}
+							onClose={() => setConsoleOpen(false)}
+						/>
+					</ResizableBottomPane>
+				) : null}
 			</div>
 		</div>
 	);
@@ -158,13 +207,4 @@ export function SelectProjectButton({ onClick }: { onClick: () => void }): React
 			Add Project
 		</Button>
 	);
-}
-
-function withWorkspaceParam(path: string, workspaceId: string | null): string {
-	if (!workspaceId) {
-		return path;
-	}
-	const params = new URLSearchParams();
-	params.set("workspaceId", workspaceId);
-	return `${path}?${params.toString()}`;
 }

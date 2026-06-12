@@ -146,3 +146,26 @@ export function FileStatusChip({ status, className }: { status: string; classNam
 	const Icon = meta.icon;
 	return <StatusChip label={meta.label} tone={meta.tone} icon={<Icon size={12} />} className={className} />;
 }
+
+export function FileStatusGlyph({ status, className }: { status: string; className?: string }): ReactElement {
+	const meta = fileStatusMeta[status] ?? { label: formatStatusLabel(status), tone: "neutral" as const, icon: FileDiff };
+	const label = meta.label.charAt(0).toUpperCase();
+	const tone =
+		status === "added" || status === "untracked"
+			? "bg-green-100 text-green-700"
+			: status === "deleted"
+				? "bg-red-100 text-red-700"
+				: status === "renamed" || status === "copied"
+					? "bg-amber-100 text-amber-700"
+					: "bg-surface-2 text-text-secondary";
+
+	return (
+		<span
+			className={cn("grid h-5 w-5 shrink-0 place-items-center rounded-full text-[10px] font-semibold", tone, className)}
+			title={meta.label}
+			aria-label={meta.label}
+		>
+			{label}
+		</span>
+	);
+}

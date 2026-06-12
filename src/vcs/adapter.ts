@@ -29,8 +29,14 @@ export async function getJjOperations(repoRoot: string, input?: { limit?: number
 	return await loadJjOperations(repoRoot, runVcsCommand, input?.limit ?? 30);
 }
 
-export async function getJjOperationDiff(repoRoot: string, input: { operationId: string }) {
-	return await loadJjOperationDiff(repoRoot, runVcsCommand, input.operationId);
+export async function getJjOperationDiff(
+	repoRoot: string,
+	input: { operationId: string; commitSkip?: number | null; commitLimit?: number | null },
+) {
+	return await loadJjOperationDiff(repoRoot, runVcsCommand, input.operationId, {
+		commitSkip: input.commitSkip,
+		commitLimit: input.commitLimit,
+	});
 }
 
 export async function previewVcsOperation(repoRoot: string, input: VcsPreviewOperationInput) {

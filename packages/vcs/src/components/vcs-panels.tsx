@@ -89,15 +89,20 @@ export function DiagnosticsPanel({ diagnostics }: { diagnostics: VcsDiagnostic[]
 export function QueryGate<T>({
 	state,
 	loading,
+	loadingFallback,
 	errorTitle,
 	children,
 }: {
 	state: QueryState<T>;
 	loading: string;
+	loadingFallback?: React.ReactElement;
 	errorTitle: string;
 	children: (data: T) => React.ReactElement;
 }): React.ReactElement {
 	if (state.status === "loading") {
+		if (loadingFallback) {
+			return loadingFallback;
+		}
 		return (
 			<Panel>
 				<div className="flex items-center gap-2 text-sm text-text-secondary">
