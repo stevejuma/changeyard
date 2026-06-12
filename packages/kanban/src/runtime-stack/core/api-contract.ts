@@ -442,11 +442,15 @@ export const runtimeVcsJjOperationCommitSchema = z.object({
 	hash: z.string(),
 	shortHash: z.string(),
 	changeId: z.string().optional(),
+	changeIdUniquePrefix: z.string().optional(),
 	authorName: z.string(),
 	authorEmail: z.string(),
+	authorAvatarUrl: z.string().nullable(),
 	date: z.string(),
 	message: z.string(),
 	parentHashes: z.array(z.string()),
+	bookmarks: z.array(z.string()),
+	labels: z.array(z.string()),
 	relation: z.enum(["selected", "upstream", "shared"]).optional(),
 });
 export type RuntimeVcsJjOperationCommit = z.infer<typeof runtimeVcsJjOperationCommitSchema>;

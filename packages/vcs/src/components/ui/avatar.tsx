@@ -25,6 +25,7 @@ export function Avatar({ src, name, email, initials, className }: AvatarProps): 
 		>
 			{src ? (
 				<AvatarPrimitive.Image
+					data-vcs-avatar-image
 					src={src}
 					alt={name ?? ""}
 					referrerPolicy="no-referrer"
@@ -32,6 +33,7 @@ export function Avatar({ src, name, email, initials, className }: AvatarProps): 
 				/>
 			) : null}
 			<AvatarPrimitive.Fallback
+				data-vcs-avatar-fallback
 				delayMs={150}
 				className="grid h-full w-full place-items-center text-[10px] font-semibold text-text-secondary"
 			>

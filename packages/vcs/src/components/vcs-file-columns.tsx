@@ -368,19 +368,29 @@ export function VcsInlineFileSection({
 
 	return (
 		<div className="mx-2 mb-2 rounded-lg border border-divider bg-surface-0">
-			{onCollapsedChange ? (
-				<button
-					type="button"
-					className="flex w-full items-center gap-2 px-2 py-2 text-left"
-					onClick={(event) => {
-						event.stopPropagation();
-						onCollapsedChange(!collapsed);
-					}}
-					aria-expanded={!collapsed}
-				>
-					{headerContent}
-				</button>
-			) : (
+				{onCollapsedChange ? (
+					<div
+						role="button"
+						tabIndex={0}
+						className="flex w-full cursor-pointer items-center gap-2 px-2 py-2 text-left"
+						onClick={(event) => {
+							event.stopPropagation();
+							onCollapsedChange(!collapsed);
+						}}
+						onKeyDown={(event) => {
+							if (event.target !== event.currentTarget) {
+								return;
+							}
+							if (event.key === "Enter" || event.key === " ") {
+								event.preventDefault();
+								onCollapsedChange(!collapsed);
+							}
+						}}
+						aria-expanded={!collapsed}
+					>
+						{headerContent}
+					</div>
+				) : (
 				<div className="flex w-full items-center gap-2 px-2 py-2 text-left">{headerContent}</div>
 			)}
 			{collapsed ? null : <div className="border-t border-divider">
@@ -455,9 +465,9 @@ export function VcsFileDiffColumn({
 					aria-orientation="vertical"
 					aria-label="Resize diff column"
 					title="Resize diff"
-					className="absolute left-0 top-0 z-20 h-full w-1 cursor-col-resize touch-none bg-transparent transition-colors hover:bg-accent/40"
+					className="absolute right-0 top-0 z-20 h-full w-1 cursor-col-resize touch-none bg-transparent transition-colors hover:bg-accent/40"
 					onPointerDown={(event) => {
-						startHorizontalResize({ event, width, minWidth, maxWidth, resizeFrom: "left", onWidthChange });
+						startHorizontalResize({ event, width, minWidth, maxWidth, resizeFrom: "right", onWidthChange });
 					}}
 				/>
 			) : null}

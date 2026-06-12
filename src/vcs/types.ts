@@ -175,11 +175,15 @@ export interface VcsJjOperationCommit {
 	hash: string;
 	shortHash: string;
 	changeId?: string;
+	changeIdUniquePrefix?: string;
 	authorName: string;
 	authorEmail: string;
+	authorAvatarUrl: string | null;
 	date: string;
 	message: string;
 	parentHashes: string[];
+	bookmarks: string[];
+	labels: string[];
 	relation?: "selected" | "upstream" | "shared";
 }
 

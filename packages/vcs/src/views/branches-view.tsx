@@ -56,6 +56,7 @@ const BRANCH_COLUMN_LIMITS = {
 	stack: { min: 380, max: 760, fallback: 500, key: VCS_LAYOUT_STORAGE_KEYS.branchesCommitsWidth },
 	diff: { min: 420, max: 980, fallback: 640, key: VCS_LAYOUT_STORAGE_KEYS.branchesDiffWidth },
 } as const;
+const BRANCH_TRAILING_SPACER_WIDTH = BRANCH_COLUMN_LIMITS.diff.fallback;
 
 const GROUP_LABELS: Record<VcsJjInventoryItem["group"], string> = {
 	current: "Current workspace target",
@@ -424,6 +425,11 @@ function BranchesLoadingLayout({
 				>
 					<StackDetailSkeleton />
 				</VcsColumn>
+				<div
+					aria-hidden
+					className="h-full shrink-0"
+					style={{ width: BRANCH_TRAILING_SPACER_WIDTH, minWidth: BRANCH_TRAILING_SPACER_WIDTH }}
+				/>
 			</div>
 		</div>
 	);
@@ -647,6 +653,11 @@ function BranchesReady({
 						onClose={onCloseDiff}
 					/>
 				) : null}
+				<div
+					aria-hidden
+					className="h-full shrink-0"
+					style={{ width: BRANCH_TRAILING_SPACER_WIDTH, minWidth: BRANCH_TRAILING_SPACER_WIDTH }}
+				/>
 			</div>
 			<DiagnosticsPanel diagnostics={diagnostics} />
 		</div>
@@ -790,7 +801,7 @@ function BranchRow({
 		<button
 			type="button"
 			className={cn(
-				"flex w-full min-w-0 flex-col border-b border-border px-3 py-3 text-left last:border-b-0 hover:bg-surface-2",
+				"flex w-full min-w-0 cursor-pointer flex-col border-b border-border px-3 py-3 text-left transition-colors last:border-b-0 hover:bg-surface-2",
 				selected && "bg-surface-2",
 				selected && SELECTED_REF_MARKER_CLASS,
 			)}
@@ -1117,10 +1128,16 @@ function WorkspaceTargetCommitRow({
 				: null;
 
 	return (
-		<div className={cn("overflow-hidden border-b border-border bg-surface-0 last:border-b-0", selected && "bg-surface-2")}>
+		<div
+			className={cn(
+				"overflow-hidden border-b border-border bg-surface-0 last:border-b-0",
+				selected && "bg-surface-2",
+				selected && SELECTED_REF_MARKER_CLASS,
+			)}
+		>
 			<button
 				type="button"
-				className="flex w-full min-w-0 items-center gap-3 px-3 py-3 text-left hover:bg-surface-2"
+				className="flex w-full min-w-0 cursor-pointer items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-surface-2"
 				onClick={() => onSelectCommitHash(commit.hash)}
 			>
 				<div className="relative flex w-6 shrink-0 justify-center self-stretch">
@@ -1277,11 +1294,12 @@ function StackChangeRow({
 				"overflow-hidden border-b border-border bg-surface-0 last:border-b-0",
 				change.isCurrent && "border-l-4 border-l-accent",
 				selected && "bg-surface-2",
+				selected && SELECTED_REF_MARKER_CLASS,
 			)}
 		>
 			<button
 				type="button"
-				className="flex w-full min-w-0 items-center gap-3 px-3 py-3 text-left hover:bg-surface-2"
+				className="flex w-full min-w-0 cursor-pointer items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-surface-2"
 				onClick={() => onSelectStackChange(change)}
 			>
 				<div className="relative flex w-6 shrink-0 justify-center self-stretch">

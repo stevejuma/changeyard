@@ -436,6 +436,14 @@ body,
 	background: var(--color-text-tertiary);
 }
 
+.kb-scrollbar-hidden {
+	scrollbar-width: none;
+}
+
+.kb-scrollbar-hidden::-webkit-scrollbar {
+	display: none;
+}
+
 /* -- Card shell -- */
 
 .kb-board-card-shell {
