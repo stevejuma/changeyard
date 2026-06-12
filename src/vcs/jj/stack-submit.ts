@@ -106,14 +106,14 @@ function createUnavailableSubmitResult(preview: VcsSubmitStackPreviewResult): Vc
 	};
 }
 
-function findLaneBookmarks(state: VcsJjStateResult, targetBookmark: string, defaultBranchName: string | null): {
+function findStackBookmarks(state: VcsJjStateResult, targetBookmark: string, defaultBranchName: string | null): {
 	items: Array<{ bookmark: VcsJjBookmark; changeId: string; title: string; baseBranch: string }>;
 	diagnostics: VcsDiagnostic[];
 } | null {
-	const lane = state.lanes.find((candidate) =>
-		candidate.segments.some((segment) => segment.bookmarks.includes(targetBookmark)),
+	const stack = state.stacks.find((candidate) =>
+		candidate.heads.some((head) => head.bookmarkName === targetBookmark),
 	);
-	if (!lane) {
+	if (!stack) {
 		return null;
 	}
 
@@ -121,42 +121,28 @@ function findLaneBookmarks(state: VcsJjStateResult, targetBookmark: string, defa
 	const items: Array<{ bookmark: VcsJjBookmark; changeId: string; title: string; baseBranch: string }> = [];
 	let previousBookmarkName: string | null = null;
 
-	for (const segment of lane.segments) {
-		const localBookmarks = segment.bookmarks
-			.map((bookmarkName) => state.bookmarks.find((bookmark) => bookmark.name === bookmarkName) ?? null)
-			.filter((bookmark): bookmark is VcsJjBookmark => Boolean(bookmark));
-		const stackBookmarks =
-			defaultBranchName === null
-				? localBookmarks
-				: localBookmarks.filter((bookmark) => bookmark.name !== defaultBranchName);
-
-		if (stackBookmarks.length === 0) {
+	for (const head of [...stack.heads].reverse()) {
+		if (defaultBranchName !== null && head.bookmarkName === defaultBranchName) {
 			continue;
 		}
-
-		if (stackBookmarks.length > 1) {
+		const bookmark = state.bookmarks.find((candidate) => candidate.name === head.bookmarkName) ?? null;
+		if (!bookmark) {
 			diagnostics.push(
 				createDiagnostic(
 					"warning",
-					"submit_segment_ambiguous",
-					`Segment ${segment.changeId} has multiple local bookmarks (${stackBookmarks.map((bookmark) => bookmark.name).join(", ")}). Submit preview requires a single bookmark per segment.`,
+					"submit_head_missing",
+					`Stack head ${head.bookmarkName} is missing from local JJ bookmarks.`,
 				),
 			);
 			return { items: [], diagnostics };
 		}
-
-		const bookmark = stackBookmarks[0];
 		items.push({
 			bookmark,
-			changeId: segment.changeId,
-			title: segment.title,
+			changeId: head.changeId,
+			title: head.title,
 			baseBranch: previousBookmarkName ?? state.git.defaultBranch ?? state.jj.defaultBase ?? "main",
 		});
 		previousBookmarkName = bookmark.name;
-
-		if (bookmark.name === targetBookmark) {
-			break;
-		}
 	}
 
 	if (!items.some((item) => item.bookmark.name === targetBookmark)) {
@@ -516,8 +502,8 @@ export async function previewJjStackSubmit(
 	}
 
 	const defaultBranchName = detect.git.defaultBranch ?? detect.jj.defaultBase ?? config.project.defaultBase ?? "main";
-	const laneInfo = findLaneBookmarks(state, targetBookmark, defaultBranchName);
-	if (!laneInfo) {
+	const stackInfo = findStackBookmarks(state, targetBookmark, defaultBranchName);
+	if (!stackInfo) {
 		return createUnavailableResult(
 			`Bookmark ${targetBookmark} is not part of a detected JJ stack.`,
 			[
@@ -526,16 +512,16 @@ export async function previewJjStackSubmit(
 			],
 		);
 	}
-	if (laneInfo.diagnostics.length > 0) {
-		return createUnavailableResult("Stacked PR preview requires unambiguous bookmark segments.", [
+	if (stackInfo.diagnostics.length > 0) {
+		return createUnavailableResult("Stacked PR preview requires complete stack bookmark heads.", [
 			...state.diagnostics,
-			...laneInfo.diagnostics,
+			...stackInfo.diagnostics,
 		]);
 	}
 
 	const commands: VcsPreviewCommand[] = [];
 	const items: VcsSubmitStackItem[] = [];
-	for (const item of laneInfo.items) {
+	for (const item of stackInfo.items) {
 		const existingPr = await findExistingPr(repoInfo, token, item.bookmark.name);
 		const needsPush = !item.bookmark.synced;
 		if (needsPush) {

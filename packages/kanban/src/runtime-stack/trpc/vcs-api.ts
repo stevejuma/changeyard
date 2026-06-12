@@ -67,7 +67,7 @@ function createUnavailableJjStateResponse(reason: string): RuntimeVcsJjStateResp
 		...createUnavailableResponse(reason),
 		bookmarks: [],
 		changes: [],
-		lanes: [],
+		stacks: [],
 		unassignedChanges: [],
 	};
 }

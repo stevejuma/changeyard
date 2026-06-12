@@ -78,10 +78,21 @@ export type VcsJjStateResponse = VcsDetectResponse & {
 		remoteBookmarks: string[];
 		isCurrent: boolean;
 	}>;
-	lanes: Array<{
+	stacks: Array<{
 		id: string;
-		headBookmark: string;
-		segments: Array<{
+		tip: string;
+		base: string;
+		order: number;
+		isCheckedOut: boolean;
+		heads: Array<{
+			id: string;
+			bookmarkName: string;
+			changeId: string;
+			commitId: string;
+			title: string;
+			isCheckedOut: boolean;
+		}>;
+		changes: Array<{
 			id: string;
 			changeId: string;
 			commitId: string;

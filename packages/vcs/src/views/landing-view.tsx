@@ -61,7 +61,7 @@ export function LandingView({
 										</div>
 										<div className="grid gap-2 text-[13px] text-text-secondary">
 											<p>The VCS surface now uses copied Kanban primitives and shell styling while keeping VCS code isolated in `packages/vcs`.</p>
-											<p>Use the JJ board for stack lanes, previews, confirmed operations, file restore, and stacked PR submission.</p>
+											<p>Use the JJ board for grouped stacks, previews, confirmed operations, file restore, and stacked PR submission.</p>
 										</div>
 									</div>
 								</Panel>

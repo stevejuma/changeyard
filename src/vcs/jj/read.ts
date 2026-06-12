@@ -1,9 +1,21 @@
 import type { VcsCommandRunner } from "../detect.js";
-import type { VcsJjBookmark, VcsJjChange, VcsJjUnassignedChange } from "../types.js";
+import type { VcsDiagnostic, VcsJjBookmark, VcsJjChange, VcsJjUnassignedChange } from "../types.js";
 
 const BOOKMARK_LINE_SEPARATOR = "\t";
 const LIST_SEPARATOR = "|";
 const SAFE_SYMBOL_PATTERN = /^[A-Za-z0-9._/-]+$/;
+const GRAPH_BOOKMARK_BATCH_SIZE = 60;
+
+export interface VcsJjBookmarksReadResult {
+	bookmarks: VcsJjBookmark[];
+	ok: boolean;
+}
+
+export interface VcsJjChangesReadResult {
+	changes: VcsJjChange[];
+	diagnostics: VcsDiagnostic[];
+	ok: boolean;
+}
 
 function parseBooleanFlag(value: string): boolean {
 	return value.trim() === "1";
@@ -22,42 +34,154 @@ function assertSafeBookmarkName(name: string): void {
 	}
 }
 
-function createBookmarkRevset(name: string): string {
-	assertSafeBookmarkName(name);
-	return `connected(trunk()::"${name}")`;
+function createDiagnostic(level: VcsDiagnostic["level"], code: string, message: string): VcsDiagnostic {
+	return { level, code, message };
 }
 
-export async function readJjBookmarks(cwd: string, runner: VcsCommandRunner): Promise<VcsJjBookmark[]> {
+export function createJjSymbolRevset(symbol: string | null | undefined): string {
+	const value = symbol?.trim();
+	if (!value || value === "trunk()") {
+		return "trunk()";
+	}
+	assertSafeBookmarkName(value);
+	return `"${value}"`;
+}
+
+function createBookmarkUnionRevset(names: readonly string[]): string {
+	return names
+		.map((name) => {
+			assertSafeBookmarkName(name);
+			return `"${name}"`;
+		})
+		.join(" | ");
+}
+
+function createBookmarksRevset(baseRevset: string): string {
+	return `mine() ~ ${baseRevset}`;
+}
+
+function createGraphRevset(baseRevset: string, bookmarkNames: readonly string[]): string {
+	if (bookmarkNames.length === 1) {
+		return `connected(${baseRevset}::${createBookmarkUnionRevset(bookmarkNames)})`;
+	}
+	return `connected(${baseRevset}::(${createBookmarkUnionRevset(bookmarkNames)}))`;
+}
+
+function mergeChanges(current: VcsJjChange | undefined, next: VcsJjChange): VcsJjChange {
+	return {
+		...next,
+		bookmarks: mergeLists(current?.bookmarks, next.bookmarks),
+		remoteBookmarks: mergeLists(current?.remoteBookmarks, next.remoteBookmarks),
+		isCurrent: current?.isCurrent || next.isCurrent || false,
+	};
+}
+
+export async function readJjBookmarksWithBase(
+	cwd: string,
+	baseRevset: string,
+	runner: VcsCommandRunner,
+): Promise<VcsJjBookmarksReadResult> {
 	const result = await runner({
 		command: "jj",
 		args: [
 			"bookmark",
 			"list",
 			"--revisions",
-			"mine() ~ trunk()",
+			createBookmarksRevset(baseRevset),
 			"--template",
 			'name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"',
 		],
 		cwd,
 	});
 	if (!result.ok) {
-		return [];
+		return { bookmarks: [], ok: false };
 	}
-	return result.stdout
-		.split("\n")
-		.map((line) => line.trim())
-		.filter(Boolean)
-		.map((line) => {
-			const [name, changeId, commitId, syncedFlag, trackedFlag] = line.split(BOOKMARK_LINE_SEPARATOR);
-			return {
-				name,
-				changeId,
-				commitId,
-				synced: parseBooleanFlag(syncedFlag ?? "0"),
-				tracked: parseBooleanFlag(trackedFlag ?? "0"),
-			};
-		})
-		.filter((bookmark) => bookmark.name && bookmark.changeId && bookmark.commitId);
+	return {
+		ok: true,
+		bookmarks: result.stdout
+			.split("\n")
+			.map((line) => line.trim())
+			.filter(Boolean)
+			.map((line) => {
+				const [name, changeId, commitId, syncedFlag, trackedFlag] = line.split(BOOKMARK_LINE_SEPARATOR);
+				return {
+					name,
+					changeId,
+					commitId,
+					synced: parseBooleanFlag(syncedFlag ?? "0"),
+					tracked: parseBooleanFlag(trackedFlag ?? "0"),
+				};
+			})
+			.filter((bookmark) => bookmark.name && bookmark.changeId && bookmark.commitId),
+	};
+}
+
+export async function readJjBookmarks(cwd: string, runner: VcsCommandRunner): Promise<VcsJjBookmark[]> {
+	const result = await readJjBookmarksWithBase(cwd, "trunk()", runner);
+	return result.bookmarks;
+}
+
+function parseChangeRow(line: string): VcsJjChange | null {
+	const [changeId, commitId, description, parents, bookmarks, remoteBookmarks, currentFlag] =
+		line.split(BOOKMARK_LINE_SEPARATOR);
+	if (!changeId || !commitId || currentFlag === undefined) {
+		return null;
+	}
+	return {
+		changeId,
+		commitId,
+		description: description || "(empty description)",
+		parentChangeIds: parseList(parents ?? ""),
+		bookmarks: parseList(bookmarks ?? ""),
+		remoteBookmarks: parseList(remoteBookmarks ?? ""),
+		isCurrent: parseBooleanFlag(currentFlag),
+	};
+}
+
+export async function readJjChangesForBookmarks(
+	cwd: string,
+	bookmarkNames: readonly string[],
+	baseRevset: string,
+	runner: VcsCommandRunner,
+): Promise<VcsJjChangesReadResult> {
+	const diagnostics: VcsDiagnostic[] = [];
+	const changesById = new Map<string, VcsJjChange>();
+	if (bookmarkNames.length === 0) {
+		return { changes: [], diagnostics, ok: true };
+	}
+
+	for (let start = 0; start < bookmarkNames.length; start += GRAPH_BOOKMARK_BATCH_SIZE) {
+		const batch = bookmarkNames.slice(start, start + GRAPH_BOOKMARK_BATCH_SIZE);
+		const result = await runner({
+			command: "jj",
+			args: [
+				"log",
+				"--revisions",
+				createGraphRevset(baseRevset, batch),
+				"--no-graph",
+				"--template",
+				'change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"',
+			],
+			cwd,
+		});
+		if (!result.ok) {
+			return { changes: [...changesById.values()], diagnostics, ok: false };
+		}
+		for (const rawLine of result.stdout.split("\n")) {
+			const line = rawLine.trim();
+			if (!line) {
+				continue;
+			}
+			const change = parseChangeRow(line);
+			if (!change) {
+				diagnostics.push(createDiagnostic("warning", "jj_log_row_skipped", "Skipped malformed JJ log template row."));
+				continue;
+			}
+			changesById.set(change.changeId, mergeChanges(changesById.get(change.changeId), change));
+		}
+	}
+
+	return { changes: [...changesById.values()], diagnostics, ok: true };
 }
 
 export async function readJjChangesForBookmark(
@@ -65,39 +189,8 @@ export async function readJjChangesForBookmark(
 	bookmarkName: string,
 	runner: VcsCommandRunner,
 ): Promise<VcsJjChange[]> {
-	const result = await runner({
-		command: "jj",
-		args: [
-			"log",
-			"--revisions",
-			createBookmarkRevset(bookmarkName),
-			"--no-graph",
-			"--template",
-			'change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"',
-		],
-		cwd,
-	});
-	if (!result.ok) {
-		return [];
-	}
-	return result.stdout
-		.split("\n")
-		.map((line) => line.trim())
-		.filter(Boolean)
-		.map((line) => {
-			const [changeId, commitId, description, parents, bookmarks, remoteBookmarks, currentFlag] =
-				line.split(BOOKMARK_LINE_SEPARATOR);
-			return {
-				changeId,
-				commitId,
-				description: description || "(empty description)",
-				parentChangeIds: parseList(parents ?? ""),
-				bookmarks: parseList(bookmarks ?? ""),
-				remoteBookmarks: parseList(remoteBookmarks ?? ""),
-				isCurrent: parseBooleanFlag(currentFlag ?? "0"),
-			};
-		})
-		.filter((change) => change.changeId && change.commitId);
+	const result = await readJjChangesForBookmarks(cwd, [bookmarkName], "trunk()", runner);
+	return result.changes;
 }
 
 function normalizeStatus(code: string): VcsJjUnassignedChange["status"] {
@@ -141,4 +234,8 @@ export async function readJjUnassignedChanges(cwd: string, runner: VcsCommandRun
 			};
 		})
 		.filter((entry): entry is VcsJjUnassignedChange => Boolean(entry?.path));
+}
+
+function mergeLists(current: readonly string[] | undefined, next: readonly string[]): string[] {
+	return [...new Set([...(current ?? []), ...next])];
 }

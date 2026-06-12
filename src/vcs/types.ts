@@ -64,7 +64,7 @@ export interface VcsJjChange {
 	isCurrent: boolean;
 }
 
-export interface VcsJjBranchSegment {
+export interface VcsJjStackChange {
 	id: string;
 	changeId: string;
 	commitId: string;
@@ -75,10 +75,23 @@ export interface VcsJjBranchSegment {
 	isHead: boolean;
 }
 
-export interface VcsJjStackLane {
+export interface VcsJjStackHead {
 	id: string;
-	headBookmark: string;
-	segments: VcsJjBranchSegment[];
+	bookmarkName: string;
+	changeId: string;
+	commitId: string;
+	title: string;
+	isCheckedOut: boolean;
+}
+
+export interface VcsJjStack {
+	id: string;
+	tip: string;
+	base: string;
+	order: number;
+	isCheckedOut: boolean;
+	heads: VcsJjStackHead[];
+	changes: VcsJjStackChange[];
 }
 
 export interface VcsJjUnassignedChange {
@@ -89,7 +102,7 @@ export interface VcsJjUnassignedChange {
 export interface VcsJjStateResult extends VcsDetectResult {
 	bookmarks: VcsJjBookmark[];
 	changes: VcsJjChange[];
-	lanes: VcsJjStackLane[];
+	stacks: VcsJjStack[];
 	unassignedChanges: VcsJjUnassignedChange[];
 }
 
