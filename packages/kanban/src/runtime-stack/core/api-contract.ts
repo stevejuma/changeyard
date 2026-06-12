@@ -310,7 +310,7 @@ export const runtimeVcsJjChangeSchema = z.object({
 });
 export type RuntimeVcsJjChange = z.infer<typeof runtimeVcsJjChangeSchema>;
 
-export const runtimeVcsJjBranchSegmentSchema = z.object({
+export const runtimeVcsJjStackChangeSchema = z.object({
 	id: z.string(),
 	changeId: z.string(),
 	commitId: z.string(),
@@ -320,14 +320,28 @@ export const runtimeVcsJjBranchSegmentSchema = z.object({
 	isCurrent: z.boolean(),
 	isHead: z.boolean(),
 });
-export type RuntimeVcsJjBranchSegment = z.infer<typeof runtimeVcsJjBranchSegmentSchema>;
+export type RuntimeVcsJjStackChange = z.infer<typeof runtimeVcsJjStackChangeSchema>;
 
-export const runtimeVcsJjStackLaneSchema = z.object({
+export const runtimeVcsJjStackHeadSchema = z.object({
 	id: z.string(),
-	headBookmark: z.string(),
-	segments: z.array(runtimeVcsJjBranchSegmentSchema),
+	bookmarkName: z.string(),
+	changeId: z.string(),
+	commitId: z.string(),
+	title: z.string(),
+	isCheckedOut: z.boolean(),
 });
-export type RuntimeVcsJjStackLane = z.infer<typeof runtimeVcsJjStackLaneSchema>;
+export type RuntimeVcsJjStackHead = z.infer<typeof runtimeVcsJjStackHeadSchema>;
+
+export const runtimeVcsJjStackSchema = z.object({
+	id: z.string(),
+	tip: z.string(),
+	base: z.string(),
+	order: z.number().int(),
+	isCheckedOut: z.boolean(),
+	heads: z.array(runtimeVcsJjStackHeadSchema),
+	changes: z.array(runtimeVcsJjStackChangeSchema),
+});
+export type RuntimeVcsJjStack = z.infer<typeof runtimeVcsJjStackSchema>;
 
 export const runtimeVcsJjUnassignedChangeSchema = z.object({
 	path: z.string(),
@@ -338,7 +352,7 @@ export type RuntimeVcsJjUnassignedChange = z.infer<typeof runtimeVcsJjUnassigned
 export const runtimeVcsJjStateResponseSchema = runtimeVcsDetectResponseSchema.extend({
 	bookmarks: z.array(runtimeVcsJjBookmarkSchema),
 	changes: z.array(runtimeVcsJjChangeSchema),
-	lanes: z.array(runtimeVcsJjStackLaneSchema),
+	stacks: z.array(runtimeVcsJjStackSchema),
 	unassignedChanges: z.array(runtimeVcsJjUnassignedChangeSchema),
 });
 export type RuntimeVcsJjStateResponse = z.infer<typeof runtimeVcsJjStateResponseSchema>;

@@ -92,16 +92,16 @@ export function JjBoardView({
 			projectState={projectState}
 			currentPath={currentPath}
 			title="JJ Stack Board"
-			subtitle="Stack lanes, previews, confirmed operations, and submit flow"
+			subtitle="Grouped bookmark stacks, previews, confirmed operations, and submit flow"
 			kicker={<StatusChip label="Preview gated" tone="gold" />}
 		>
 			{!workspaceId ? (
 				<NoProjectSelected action={<SelectProjectButton onClick={projectState.onAddProject} />}>
-					Select a project to load JJ stack lanes and previewable VCS actions.
+					Select a project to load JJ stacks and previewable VCS actions.
 				</NoProjectSelected>
 			) : (
 			<PageBody>
-				<QueryGate state={state} loading="Loading JJ stack lanes." errorTitle="JJ board failed">
+				<QueryGate state={state} loading="Loading JJ stacks." errorTitle="JJ board failed">
 					{(data) => (
 						<JjBoardReady
 							data={data}
@@ -309,26 +309,33 @@ function JjBoardReady({
 					openUndo={() => openOperationPreview(createUndoLastPreviewRequest())}
 					openRedo={() => openOperationPreview(createRedoLastPreviewRequest())}
 				/>
-				<Panel title="Stack lanes" className="min-h-0">
-					{data.lanes.length === 0 ? (
-						<EmptyState title="No bookmark-backed stacks">Create or import local JJ bookmarks to populate stack lanes here.</EmptyState>
+				<Panel title="Stacks" className="min-h-0">
+					{data.stacks.length === 0 ? (
+						<EmptyState title="No bookmark-backed stacks">Create or import local JJ bookmarks to populate stacks here.</EmptyState>
 					) : (
 						<div className="grid auto-cols-[minmax(260px,1fr)] grid-flow-col gap-3 overflow-x-auto pb-1">
-							{data.lanes.map((lane) => (
-								<section className="min-w-[260px] rounded-lg border border-border bg-surface-0" key={lane.id}>
-									<header className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
-										<StatusChip label={lane.headBookmark} tone="blue" icon={<GitBranch size={12} />} />
-										<span className="text-xs text-text-tertiary">{lane.segments.length} changes</span>
+							{data.stacks.map((stack) => (
+								<section className="min-w-[260px] rounded-lg border border-border bg-surface-0" key={stack.id}>
+									<header className="grid gap-2 border-b border-border px-3 py-2">
+										<div className="flex items-center justify-between gap-2">
+											<StatusChip label={stack.id} tone="blue" icon={<GitBranch size={12} />} />
+											<span className="text-xs text-text-tertiary">{stack.changes.length} changes</span>
+										</div>
+										<div className="flex flex-wrap gap-1.5">
+											{stack.heads.map((head) => (
+												<StatusChip key={head.id} label={head.bookmarkName} tone={head.isCheckedOut ? "green" : "neutral"} />
+											))}
+										</div>
 									</header>
 									<div className="grid gap-2 p-2">
-										{lane.segments.map((segment) => (
+										{stack.changes.map((segment) => (
 											<article
 												className={cn(
 													"rounded-lg border border-border bg-surface-1 p-3",
 													segment.isCurrent && "border-accent",
 													activeSourceId === segment.changeId && "ring-1 ring-accent",
 												)}
-												key={`${lane.id}-${segment.id}`}
+												key={`${stack.id}-${segment.id}`}
 												draggable
 												onDragStart={() => dispatchPreviewUi({ type: "start-drag", sourceChangeId: segment.changeId })}
 												onDragEnd={() => dispatchPreviewUi({ type: "end-drag" })}
@@ -560,7 +567,7 @@ function DraftPanel({
 	previewAbsorb,
 }: {
 	draft: DraftState;
-	segment: VcsJjStateResponse["lanes"][number]["segments"][number];
+	segment: VcsJjStateResponse["stacks"][number]["changes"][number];
 	changes: VcsJjStateResponse["changes"];
 	bookmarks: VcsJjStateResponse["bookmarks"];
 	currentChangeId: string | null;
