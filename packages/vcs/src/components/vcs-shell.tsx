@@ -14,7 +14,7 @@ import { isVcsNavItemActive, withWorkspaceParam } from "@/utils/vcs-navigation";
 
 const navItems = [
 	{ href: "/vcs/", label: "Overview", icon: Workflow },
-	{ href: "/vcs/jj", label: "JJ Board", icon: Layers3 },
+	{ href: "/vcs/jj", label: "Workspace", icon: Layers3 },
 	{ href: "/vcs/jj/branches", label: "Branches", icon: GitBranch },
 	{ href: "/vcs/jj/history", label: "History", icon: History },
 	{ href: "/vcs/settings", label: "Settings", icon: Settings },

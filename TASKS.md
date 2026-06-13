@@ -14,7 +14,11 @@
 - [x] Milestone 1 implementation completed.
 - [x] STOP: Verify Branches Stack Layout.
 - [x] Milestone 2 implementation completed.
-- [ ] STOP: Verify Branches File/Diff Interaction.
+- [x] STOP: Verify Branches File/Diff Interaction.
+- [x] Milestone 3 implementation completed.
+- [x] STOP: Verify Workspace Page.
+- [x] Milestone 4 implementation completed.
+- [x] STOP: Verify Applied Workspace Stack Lanes.
 
 ## Milestone 0: Planning Files First
 
@@ -32,7 +36,7 @@ Verification notes:
 
 ## Milestone 1: Branches Page Stack Layout
 
-Status: implementation complete, stopped for checkpoint verification
+Status: completed
 
 - [x] Keep the current left branch/bookmark list and current workspace target.
 - [x] Query or pass `vcs.jjState` so Branches can use `data.stacks`.
@@ -78,10 +82,10 @@ Status: implementation complete, stopped for checkpoint verification
 ### STOP: Verify Branches File/Diff Interaction
 
 - [x] Run focused VCS tests.
-- [ ] Open `/vcs/jj/branches`.
-- [ ] Select a stack, select a change, select a file.
-- [ ] Verify changed files render inline and the diff column opens correctly.
-- [ ] Record verification notes below before continuing.
+- [x] Open `/vcs/jj/branches`.
+- [x] Select a stack, select a change, select a file.
+- [x] Verify changed files render inline and the diff column opens correctly.
+- [x] Record verification notes below before continuing.
 
 Verification notes:
 
@@ -179,52 +183,140 @@ Verification notes:
     - Branch rows now show non-expensive commit metadata from the existing JJ bookmark template:
       - target commit message remains visible
       - author name, author email, timestamp, and Gravatar URL are returned by the backend inventory
-      - branch rows render the author avatar through a reusable Radix Avatar wrapper with initials fallback
-      - relative time and author are displayed without adding per-branch diff/stat calls
+    - branch rows render the author avatar through a reusable Radix Avatar wrapper with initials fallback
+    - relative time and author are displayed without adding per-branch diff/stat calls
+  - User verified the History and Branches pages are now behaving as expected, including the final column resize/spacer behavior.
 
 ## Milestone 3: Workspace Page UI Rename And Layout
 
-Status: blocked on Milestone 2 checkpoint
+Status: completed
 
-- [ ] Rename user-facing "JJ Board" navigation/title to "Workspace".
-- [ ] Keep `/vcs/jj` route behavior.
-- [ ] Reframe existing `data.stacks` rendering as workspace stack lanes.
-- [ ] Keep existing preview/apply/submit controls.
-- [ ] Keep unassigned working-copy changes visible using `data.unassignedChanges`.
+- [x] Rename user-facing "JJ Board" navigation/title to "Workspace".
+- [x] Keep `/vcs/jj` route behavior.
+- [x] Reframe existing `data.stacks` rendering as workspace stack lanes.
+- [x] Keep existing preview/apply/submit controls.
+- [x] Keep unassigned working-copy changes visible using `data.unassignedChanges`.
 
 ### STOP: Verify Workspace Page
 
-- [ ] Run route/nav tests.
-- [ ] Open `/vcs/jj`.
-- [ ] Verify navigation says "Workspace".
-- [ ] Verify stack lanes render correctly.
-- [ ] Verify existing operation controls still appear.
-- [ ] Verify unassigned work remains visible.
-- [ ] Record verification notes below before continuing.
+- [x] Run route/nav tests.
+- [x] Open `/vcs/jj`.
+- [x] Verify navigation says "Workspace".
+- [x] Verify stack lanes render correctly.
+- [x] Verify existing operation controls still appear.
+- [x] Verify unassigned work remains visible.
+- [x] Record verification notes below before continuing.
+- [x] Wait for user confirmation that the page is looking okay before proceeding.
+Verification notes:
+
+- User-facing JJ Board labels were renamed to Workspace in the shared VCS shell navigation, Workspace page header, loading/error text, stack panel title, and overview entry point.
+- The `/vcs/jj` route behavior was kept intact; internal route kind remains `jj-board`.
+- Existing `data.stacks` rendering now presents as `Workspace stacks` without replacing the existing mutation controls.
+- Existing preview/apply/submit controls remain visible in the Repository panel and each stack change card.
+- Existing `data.unassignedChanges` rendering remains visible in the Details panel as the Working copy section.
+- Automated checks passed:
+  - `npm --workspace @changeyard/vcs run typecheck`
+  - `npm --workspace @changeyard/vcs run test -- routes.test.ts branches-stack-model.test.ts`
+- Browser verification passed at `/vcs/jj?workspaceId=jj-sample-but`:
+  - navigation link and page heading show `Workspace`
+  - `Workspace stacks` renders stack lanes from `data.stacks`
+  - Repository panel still shows submit preview controls
+  - stack change cards still show Bookmark, Insert, Message, Move ref, Squash, Abandon, and Move controls
+  - Details panel still shows Working copy from `data.unassignedChanges`
+
+## Milestone 4: Applied Workspace Stack Lanes
+
+Status: completed
+
+- [x] Add durable `vcsAppliedStacks` project config backed by local `vcs.appliedStacks`.
+- [x] Wire Branches `Apply to workspace` to persist the selected branch's containing derived stack id.
+- [x] Allow applied stacks to be unapplied without mutating JJ repository state.
+- [x] Replace the Workspace page with a focused Working Copy column plus only applied stack lanes.
+- [x] Remove old Workspace stats, repository, preview/apply/submit, mutation-control, details, and current-diff panels.
+- [x] Reuse shared UI primitives for buttons, status, avatars, copy values, file status glyphs, and stack cards.
+
+### STOP: Verify Applied Workspace Stack Lanes
+
+- [x] Run focused config, branch, and Workspace tests.
+- [x] Open `/vcs/jj/branches`.
+- [x] Apply one stack.
+- [x] Open `/vcs/jj`.
+- [x] Verify only the applied stack appears in Workspace.
+- [x] Unapply the stack.
+- [x] Verify the Workspace empty state returns.
+- [x] Verify the Working Copy column renders working-copy changes.
+- [x] Record verification notes below before continuing.
 
 Verification notes:
 
-- Pending.
-
-## Milestone 4: Workspace Files And Diff Flow
-
-Status: blocked on Milestone 3 checkpoint
-
-- [ ] Add the same change-to-files-to-diff interaction used on Branches.
-- [ ] Reuse existing file list/tree and diff components.
-- [ ] Ensure selecting stack changes and files does not interfere with preview/apply flows.
-
-### STOP: Verify Workspace File/Diff Interaction
-
-- [ ] Run focused VCS tests.
-- [ ] Open `/vcs/jj`.
-- [ ] Select a stack change and file.
-- [ ] Verify the file list and diff pane work while existing mutation preview controls still behave.
-- [ ] Record verification notes below before continuing.
-
-Verification notes:
-
-- Pending.
+- Added `vcsAppliedStacks` to the project config API and persisted it in local config as `vcs.appliedStacks`.
+- Added applied-stack helper coverage for canonical containing-stack selection, apply dedupe/order, unapply, and render-order filtering.
+- Branches now loads project config, resolves selected inner bookmarks to their containing stack id, and toggles Apply/Unapply against `vcsAppliedStacks`.
+- Branch rows show a `Workspace` chip when their canonical stack id is applied.
+- Workspace now renders a focused `Working Copy` column plus only applied stack lanes, using the existing stack derivation output.
+- Old Workspace stats, repository panel, preview/apply/submit controls, mutation controls, details panel, and current diff panel were removed from the Workspace route.
+- Automated checks passed:
+  - `npm --workspace @changeyard/vcs run test -- branches-stack-model.test.ts routes.test.ts`
+  - `npm --workspace @changeyard/vcs run typecheck`
+  - `npm --workspace @changeyard/kanban run typecheck`
+  - `npm run build:cli`
+  - `npm --workspace @changeyard/kanban run build`
+- `node --test --import tsx tests/ui-server.test.ts` failed in the sandbox before config assertions because runtime port allocation was unavailable and JJ config access under `~/.config/jj` was blocked.
+- Retried the targeted `changes project config` test unsandboxed after rebuilding dist; it hung in the runtime server test harness and was stopped after roughly two minutes.
+- Browser verification used the VCS dev server at `http://127.0.0.1:4274/vcs/` because stale listeners occupied lower ports.
+  - Browser verification passed:
+    - `/vcs/jj` initially showed the `Unstaged` column and `No stacks applied`.
+    - `/vcs/jj/branches` applied `feature/cloud-observability`; the row showed the `Workspace` chip and the header button changed to `Unapply from workspace`.
+    - `/vcs/jj` then showed only the `feature/cloud-observability` applied lane.
+    - Unapplying from the Workspace lane returned `/vcs/jj` to the `No stacks applied` empty state.
+    - The `Unstaged` column remained visible throughout.
+  - Follow-up Workspace file/diff interaction:
+    - Workspace stack commit rows now select like Branches stack rows.
+    - Selecting a Workspace stack commit renders the inline `Changed files` section.
+    - Selecting a changed file opens the shared diff column.
+    - Workspace preserves `commit` and `file` URL params for the selected change/file.
+    - Browser verification passed at `/vcs/jj?workspaceId=jj-sample-but&commit=51b8a2b97d56&file=src%2Foutput.rs`.
+    - Diff columns now render immediately after the selected stack lane, so with multiple applied stacks the diff appears between stack columns instead of after all stacks.
+    - Browser verification confirmed the order: `feature/cloud-observability`, `src/output.rs` diff column, then `feature/export-json`.
+    - Workspace stack lanes now use the shared resizable/collapsible VCS column shell.
+    - Unstaged files now use the shared changed-files section with list/folder view toggles and row hover behavior.
+    - Workspace loading now uses a page-shaped skeleton instead of the generic loading panel.
+    - Browser verification confirmed:
+      - Unstaged shows `Show files as list` and `Show files as folders`.
+      - Applied stack lanes expose collapse controls and resize separators.
+      - Collapsing and expanding `feature/cloud-observability` works.
+    - Follow-up Unstaged column refinement:
+      - Replaced the inline changed-files wrapper with a custom Unstaged file-list component.
+      - The Unstaged header owns the count and list/folder view actions.
+      - The Unstaged body now renders only the file tree/list rows.
+      - The Unstaged column is resizable and collapsible through the shared VCS column shell.
+      - Selecting an unstaged file opens the shared diff column immediately to the right of Unstaged.
+      - Browser verification confirmed `.changeyard/config.local.jsonc` opens between the Unstaged column and applied stack lanes.
+    - Follow-up stack author avatars:
+      - JJ stack graph reads now include author name and email in the bounded template output.
+      - Stack changes expose `authorName`, `authorEmail`, and `authorAvatarUrl`.
+      - Workspace stack rows use the shared Gravatar-backed `Avatar` component instead of the placeholder `A`.
+      - Browser verification confirmed the `add json report mode` row renders an image avatar for Steve Juma with a Gravatar URL and no placeholder `A`.
+    - Follow-up Working Copy rename, diff, and fold persistence:
+      - User-facing `Unstaged` labels on the Workspace page were renamed to `Working Copy`.
+      - The Workspace working-copy URL param now writes `workingCopyFile` while still reading legacy `unstagedFile` links.
+      - Selecting a Working Copy file clears selected stack commit/file URL state so the active diff is unambiguous.
+      - `vcs.jjDiff` now requests `jj show --git`, allowing the Workspace Working Copy file parser to return per-file patches for added/modified files.
+      - Collapse state is persisted as browser UI preferences in `vcs-ui-preferences`, not project config:
+        - project picker
+        - Branches refs and stack columns
+        - History operations and commits columns
+        - Workspace Working Copy column
+        - Workspace stack columns by stack id
+      - Browser verification passed at `/vcs/jj?workspaceId=jj-sample-but&workingCopyFile=.changeyard%2Fconfig.local.jsonc`:
+        - the column header shows `Working Copy`
+        - `.changeyard/config.local.jsonc` renders a real diff/file body rather than an empty/no-diff state
+        - collapsing Working Copy persisted after reload
+        - Working Copy was expanded again after verification for continued review
+      - Automated checks passed:
+        - `node --test --import tsx tests/vcs-jj-diff.test.ts`
+        - `npm --workspace @changeyard/vcs run typecheck`
+        - `npm run build:cli`
 
 ## Final Verification
 

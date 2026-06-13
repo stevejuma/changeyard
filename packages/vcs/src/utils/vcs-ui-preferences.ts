@@ -1,12 +1,19 @@
 export type VcsFileViewMode = "list" | "tree";
 
 export const VCS_LAYOUT_STORAGE_KEYS = {
+	projectNavCollapsed: "changeyard.vcs.project-nav.collapsed",
 	branchesRefsWidth: "changeyard.vcs.branches.refs.width",
 	branchesCommitsWidth: "changeyard.vcs.branches.commits.width",
 	branchesDiffWidth: "changeyard.vcs.branches.diff.width",
+	branchesRefsCollapsed: "changeyard.vcs.branches.refs.collapsed",
+	branchesStackCollapsed: "changeyard.vcs.branches.stack.collapsed",
 	historyOperationsWidth: "changeyard.vcs.history.operations.width",
 	historyCommitsWidth: "changeyard.vcs.history.commits.width",
 	historyDiffWidth: "changeyard.vcs.history.diff.width",
+	historyOperationsCollapsed: "changeyard.vcs.history.operations.collapsed",
+	historyCommitsCollapsed: "changeyard.vcs.history.commits.collapsed",
+	workspaceUnstagedWidth: "changeyard.vcs.workspace.unstaged.width",
+	workspaceWorkingCopyCollapsed: "changeyard.vcs.workspace.working-copy.collapsed",
 	consoleHeight: "changeyard.vcs.console.height",
 	fileViewMode: "changeyard.vcs.file-view-mode",
 } as const;
@@ -40,6 +47,27 @@ export function writeVcsNumberPreference(key: string, value: number, min: number
 	return normalized;
 }
 
+export function readVcsBooleanPreference(key: string, fallback = false): boolean {
+	if (typeof window === "undefined") {
+		return fallback;
+	}
+	const storedValue = window.localStorage.getItem(key);
+	if (storedValue === "1" || storedValue === "true") {
+		return true;
+	}
+	if (storedValue === "0" || storedValue === "false") {
+		return false;
+	}
+	return fallback;
+}
+
+export function writeVcsBooleanPreference(key: string, value: boolean): boolean {
+	if (typeof window !== "undefined") {
+		window.localStorage.setItem(key, value ? "1" : "0");
+	}
+	return value;
+}
+
 export function readVcsFileViewMode(): VcsFileViewMode {
 	if (typeof window === "undefined") {
 		return "tree";
@@ -59,6 +87,16 @@ export function resetVcsLayoutPreferences(): void {
 		return;
 	}
 	for (const key of VCS_LAYOUT_STORAGE_KEY_VALUES) {
+		window.localStorage.removeItem(key);
+	}
+	const dynamicKeys: string[] = [];
+	for (let index = 0; index < window.localStorage.length; index += 1) {
+		const key = window.localStorage.key(index);
+		if (key && key.startsWith("changeyard.vcs.workspace.stack.") && key.endsWith(".collapsed")) {
+			dynamicKeys.push(key);
+		}
+	}
+	for (const key of dynamicKeys) {
 		window.localStorage.removeItem(key);
 	}
 }

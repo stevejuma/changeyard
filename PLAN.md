@@ -67,24 +67,34 @@ The implementation must stop at explicit verification checkpoints before continu
 - Verify navigation says "Workspace", stack lanes render correctly, existing operation controls still appear, and unassigned work remains visible.
 - Record notes in `TASKS.md` before continuing.
 
-## Milestone 4: Workspace Files And Diff Flow
+## Milestone 4: Applied Workspace Stack Lanes
 
-- Add the same change-to-files-to-diff interaction used on Branches.
-- Reuse existing file list/tree and diff components.
-- Ensure selecting stack changes and files does not interfere with preview/apply flows.
+- Add durable `vcsAppliedStacks` project config backed by local `vcs.appliedStacks`.
+- Wire Branches `Apply to workspace` to persist the selected branch's containing derived stack id.
+- Allow applied stacks to be unapplied without mutating JJ repository state.
+- Replace the Workspace page with a focused Working Copy column plus only applied stack lanes.
+- Persist fold/collapse state as browser-local VCS UI preferences, not project config:
+  - project picker
+  - Branches columns
+  - History columns
+  - Workspace Working Copy column
+  - Workspace stack columns by stack id
+- Remove old Workspace stats, repository, preview/apply/submit, mutation-control, details, and current-diff panels.
+- Reuse shared UI primitives for buttons, status, avatars, copy values, file status glyphs, and stack cards.
 
-### STOP: Verify Workspace File/Diff Interaction
+### STOP: Verify Applied Workspace Stack Lanes
 
-- Run focused VCS tests.
-- Open `/vcs/jj`.
-- Select a stack change and file.
-- Verify the file list and diff pane work while existing mutation preview controls still behave.
+- Run focused config, branch, and Workspace tests.
+- Open `/vcs/jj/branches`, apply one stack, then open `/vcs/jj`.
+- Verify only the applied stack appears in Workspace.
+- Unapply the stack and verify the Workspace empty state returns.
+- Verify the Working Copy column renders working-copy changes and its file diffs.
+- Verify relevant collapsed columns remain collapsed after reload.
 - Record notes in `TASKS.md` before continuing.
 
 ## Later Milestones: Full JJ Workspace Model
 
-- Add durable applied-stack workspace configuration.
-- Add apply/unapply stack APIs.
+- Add repository-mutating apply/unapply stack APIs.
 - Add internal workspace merge and WIP bookmarks.
 - Rebuild workspace merge from base plus applied stack tips.
 - Preserve unrelated WIP changes.

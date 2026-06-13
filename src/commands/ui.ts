@@ -41,6 +41,15 @@ const PLANNING_SECTION_TITLES: Record<PlanningSectionId, string> = {
   analysis: "Consistency Analysis",
 };
 
+function normalizeAppliedStackIds(values: string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function normalizeAppliedStackIdsForConfig(values: string[]): string[] | undefined {
+  const normalized = normalizeAppliedStackIds(values);
+  return normalized.length > 0 ? normalized : undefined;
+}
+
 export function createChangeyardUiApi() {
   function toProjectConfig(repoRoot: string, config = loadConfig(repoRoot)) {
     return {
@@ -49,6 +58,7 @@ export function createChangeyardUiApi() {
       vcsEngine: config.vcs.engine,
       vcsFallback: config.vcs.fallback,
       vcsTargetBranch: config.vcs.targetBranch ?? null,
+      vcsAppliedStacks: config.vcs.appliedStacks ?? [],
       projectDefaultBase: config.project.defaultBase,
       planningDefaultProfile: config.planning?.defaultProfile,
       planningDefaultStrictness: config.planning?.defaultStrictness,
@@ -274,6 +284,7 @@ export function createChangeyardUiApi() {
       vcsEngine?: "plain-copy" | "jj" | "git-worktree";
       vcsFallback?: "plain-copy" | "jj" | "git-worktree";
       vcsTargetBranch?: string | null;
+      vcsAppliedStacks?: string[];
       projectDefaultBase?: string;
       planningDefaultProfile?: "none" | "openspec-lite";
       planningDefaultStrictness?: "normal" | "strict";
@@ -283,11 +294,12 @@ export function createChangeyardUiApi() {
       const current = loadConfig(repoRoot);
       const patch: Parameters<typeof updateLocalConfig>[1] = {};
       if (input.providerType) patch.provider = { type: input.providerType };
-      if (input.vcsEngine || input.vcsFallback || input.vcsTargetBranch !== undefined) {
+      if (input.vcsEngine || input.vcsFallback || input.vcsTargetBranch !== undefined || input.vcsAppliedStacks !== undefined) {
         patch.vcs = {
           engine: input.vcsEngine ?? current.vcs.engine,
           fallback: input.vcsFallback ?? input.vcsEngine ?? current.vcs.fallback,
           targetBranch: input.vcsTargetBranch !== undefined ? input.vcsTargetBranch?.trim() || undefined : current.vcs.targetBranch,
+          appliedStacks: input.vcsAppliedStacks !== undefined ? normalizeAppliedStackIdsForConfig(input.vcsAppliedStacks) : current.vcs.appliedStacks,
         };
       }
       if (input.projectDefaultBase !== undefined) {

@@ -28,7 +28,7 @@ export function LandingView({
 				<Button variant="primary" size="sm" icon={<Layers3 size={14} />} onClick={() => {
 					window.location.href = "/vcs/jj";
 				}}>
-					Open JJ board
+					Open Workspace
 				</Button>
 			}
 		>
@@ -48,7 +48,7 @@ export function LandingView({
 							</div>
 							<div className="grid gap-3 lg:grid-cols-[1.2fr_0.8fr]">
 								<Panel
-									title="JJ stack view"
+									title="Workspace"
 									actions={
 										<a className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border-bright bg-surface-2 px-2 text-xs font-medium text-text-primary hover:bg-surface-3" href="/vcs/jj">
 											Open <ArrowRight size={12} />
@@ -61,7 +61,7 @@ export function LandingView({
 										</div>
 										<div className="grid gap-2 text-[13px] text-text-secondary">
 											<p>The VCS surface now uses copied Kanban primitives and shell styling while keeping VCS code isolated in `packages/vcs`.</p>
-											<p>Use the JJ board for grouped stacks, previews, confirmed operations, file restore, and stacked PR submission.</p>
+											<p>Use the Workspace for grouped stack lanes, previews, confirmed operations, file restore, and stacked PR submission.</p>
 										</div>
 									</div>
 								</Panel>

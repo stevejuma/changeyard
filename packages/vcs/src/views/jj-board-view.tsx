@@ -1,80 +1,179 @@
-import { GitBranch, GitPullRequest, Plus, RotateCcw, RotateCw, Save, Scissors, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useReducer, useState } from "react";
+import { FileText, Folder, FolderTree, GitBranch, List, MoreHorizontal, PanelLeft, Sparkles, Upload, X } from "lucide-react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 
-import { PreviewDialog } from "@/components/preview-dialog";
-import { SubmitStackDialog } from "@/components/submit-stack-dialog";
+import {
+	groupStackChangesByHead,
+	selectAppliedWorkspaceStacks,
+	type BranchesStack,
+	type BranchesStackChange,
+	type StackChangeGroup,
+} from "@/branches-stack-model";
+import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
+import { CopyValueButton } from "@/components/ui/copy-value-button";
 import { FileStatusGlyph, StatusChip } from "@/components/ui/status-chip";
-import { Tooltip } from "@/components/ui/tooltip";
-import { DiagnosticsPanel, EmptyState, KeyValue, PageBody, Panel, QueryGate, StatCard } from "@/components/vcs-panels";
-import { NoProjectSelected, SelectProjectButton, VcsShell, type VcsShellProjectState } from "@/components/vcs-shell";
 import {
-	createReorderPreviewRequest,
-	initialPreviewUiState,
-	type PreviewPlacement,
-	previewUiReducer,
-	validateReorderPreviewRequest,
-} from "@/preview-state";
+	findFileByPath,
+	getFirstFilePath,
+	VcsCollapsedColumn,
+	VcsColumn,
+	VcsFileDiffColumn,
+	VcsInlineFileSection,
+	type VcsFileChange,
+} from "@/components/vcs-file-columns";
+import { DiagnosticsPanel, EmptyState, QueryGate } from "@/components/vcs-panels";
+import { NoProjectSelected, SelectProjectButton, VcsShell, type VcsShellProjectState } from "@/components/vcs-shell";
 import type {
 	QueryState,
-	VcsApplyOperationResponse,
+	RuntimeGitCommitDiffResponse,
+	RuntimeProjectConfigResponse,
+	RuntimeProjectConfigUpdateRequest,
 	VcsJjDiffResponse,
 	VcsJjStateResponse,
-	VcsOperationRequest,
-	VcsPreviewOperationResponse,
-	VcsSubmitStackPreviewResponse,
 } from "@/runtime/types";
-import { useApplyOperation, usePreviewOperation, useSubmitStack, useTrpcInputQuery } from "@/runtime/trpc-client";
+import { postTrpcMutation, useTrpcInputQuery, useTrpcQuery } from "@/runtime/trpc-client";
+import { buildFileTree, type FileTreeNode } from "@/utils/file-tree";
 import {
-	commandPreview,
-	createAbandonChangePreviewRequest,
-	createAbsorbFilePreviewRequest,
-	createBookmarkPreviewRequest,
-	createChangePreviewRequest,
-	createEditMessagePreviewRequest,
-	createMoveBookmarkPreviewRequest,
-	createRedoLastPreviewRequest,
-	createRestoreFilePreviewRequest,
-	createSquashChangePreviewRequest,
-	createUndoLastPreviewRequest,
-} from "@/vcs-operations";
+	readVcsBooleanPreference,
+	readVcsFileViewMode,
+	readVcsNumberPreference,
+	VCS_LAYOUT_STORAGE_KEYS,
+	writeVcsBooleanPreference,
+	writeVcsFileViewMode,
+	writeVcsNumberPreference,
+	type VcsFileViewMode,
+} from "@/utils/vcs-ui-preferences";
 
-type DraftState =
-	| { kind: "bookmark"; changeId: string; name: string }
-	| { kind: "message"; changeId: string; message: string }
-	| { kind: "insert"; anchorChangeId: string; placement: PreviewPlacement; message: string }
-	| { kind: "move-bookmark"; sourceChangeId: string; bookmarkName: string; targetChangeId: string }
-	| { kind: "squash"; sourceChangeId: string }
-	| { kind: "absorb"; paths: string[] }
-	| null;
+const SELECTED_CHANGE_MARKER_CLASS =
+	"relative before:absolute before:left-0 before:top-1/2 before:h-12 before:w-1 before:-translate-y-1/2 before:rounded-r-full before:bg-accent before:content-['']";
 
-function invalidPreview(operation: VcsOperationRequest, message: string, affectedChangeIds: string[] = []): VcsPreviewOperationResponse {
-	return {
-		valid: false,
-		operation,
-		title: "Preview unavailable",
-		description: message,
-		risk: "high",
-		commands: [],
-		affectedChangeIds,
-		affectedBookmarks: [],
-		diagnostics: [{ level: "error", code: "preview_invalid", message }],
-	};
+const WORKSPACE_COLUMN_LIMITS = {
+	unstaged: { min: 240, max: 520, fallback: 300, key: VCS_LAYOUT_STORAGE_KEYS.workspaceUnstagedWidth },
+	stack: { min: 320, max: 680, fallback: 380 },
+	diff: { min: 420, max: 980, fallback: 640, key: VCS_LAYOUT_STORAGE_KEYS.branchesDiffWidth },
+} as const;
+const WORKSPACE_TRAILING_SPACER_WIDTH = WORKSPACE_COLUMN_LIMITS.diff.fallback;
+
+function stackColumnWidthKey(stackId: string): string {
+	return `changeyard.vcs.workspace.stack.${stackId}.width`;
 }
 
-function textInputClassName(extra?: string): string {
-	return cn(
-		"w-full rounded-md border border-border bg-surface-2 px-2 py-1.5 font-mono text-xs text-text-primary placeholder:text-text-tertiary focus:border-accent focus:outline-none",
-		extra,
-	);
+function stackColumnCollapsedKey(stackId: string): string {
+	return `changeyard.vcs.workspace.stack.${stackId}.collapsed`;
+}
+
+function readQueryParam(name: string): string | null {
+	return new URLSearchParams(window.location.search).get(name)?.trim() || null;
+}
+
+function writeQueryParam(name: string, value: string | null): void {
+	const url = new URL(window.location.href);
+	if (value) {
+		url.searchParams.set(name, value);
+	} else {
+		url.searchParams.delete(name);
+	}
+	window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+}
+
+function readWorkingCopyFileQueryParam(): string | null {
+	return readQueryParam("workingCopyFile") ?? readQueryParam("unstagedFile");
+}
+
+function writeWorkingCopyFileQueryParam(value: string | null): void {
+	writeQueryParam("workingCopyFile", value);
+	writeQueryParam("unstagedFile", null);
+}
+
+function toFileChanges(diffState: QueryState<RuntimeGitCommitDiffResponse>): VcsFileChange[] {
+	if (diffState.status !== "ready" || !diffState.data.ok) {
+		return [];
+	}
+	return diffState.data.files;
+}
+
+function countPatchLineChanges(patch: string): { additions: number; deletions: number } {
+	let additions = 0;
+	let deletions = 0;
+	let inHunk = false;
+	for (const line of patch.split("\n")) {
+		if (line.startsWith("@@")) {
+			inHunk = true;
+			continue;
+		}
+		if (!inHunk) {
+			continue;
+		}
+		if (line.startsWith("diff --git ")) {
+			inHunk = false;
+			continue;
+		}
+		if (line.startsWith("+++") || line.startsWith("---")) {
+			continue;
+		}
+		if (line.startsWith("+")) {
+			additions += 1;
+		} else if (line.startsWith("-")) {
+			deletions += 1;
+		}
+	}
+	return { additions, deletions };
+}
+
+function parseWorkingCopyPatchFiles(patch: string): VcsFileChange[] {
+	const patchSegments = patch.split(/^diff --git /m);
+	const files: VcsFileChange[] = [];
+	for (const segment of patchSegments) {
+		if (!segment.trim()) {
+			continue;
+		}
+		const fullPatch = `diff --git ${segment}`;
+		const headerMatch = fullPatch.match(/^diff --git a\/(.+) b\/(.+)$/m);
+		if (!headerMatch?.[1] || !headerMatch[2]) {
+			continue;
+		}
+		let previousPath: string | undefined = headerMatch[1] !== headerMatch[2] ? headerMatch[1] : undefined;
+		let path = headerMatch[2];
+		let status: VcsFileChange["status"] = "modified";
+		const renameFromMatch = fullPatch.match(/^rename from (.+)$/m);
+		const renameToMatch = fullPatch.match(/^rename to (.+)$/m);
+		if (renameFromMatch?.[1] && renameToMatch?.[1]) {
+			status = "renamed";
+			previousPath = renameFromMatch[1];
+			path = renameToMatch[1];
+		} else if (/^new file mode /m.test(fullPatch)) {
+			status = "added";
+		} else if (/^deleted file mode /m.test(fullPatch)) {
+			status = "deleted";
+		}
+		const { additions, deletions } = countPatchLineChanges(fullPatch);
+		files.push({ path, previousPath, status, additions, deletions, patch: fullPatch });
+	}
+	return files;
+}
+
+function toWorkingCopyDiffFiles(diffState: QueryState<VcsJjDiffResponse>): VcsFileChange[] {
+	if (diffState.status !== "ready") {
+		return [];
+	}
+	return parseWorkingCopyPatchFiles(diffState.data.patch);
+}
+
+function authorInitials(name: string | null): string {
+	const trimmed = name?.trim();
+	if (!trimmed) {
+		return "?";
+	}
+	const parts = trimmed.split(/\s+/).filter(Boolean);
+	const first = parts[0]?.[0] ?? "";
+	const second = parts.length > 1 ? (parts[parts.length - 1]?.[0] ?? "") : "";
+	return `${first}${second}`.toUpperCase() || "?";
 }
 
 export function JjBoardView({
 	state,
-	refreshState,
 	diffState,
-	refreshDiff,
 	currentPath,
 	projectState,
 	workspaceId,
@@ -87,699 +186,946 @@ export function JjBoardView({
 	projectState: VcsShellProjectState;
 	workspaceId: string | null;
 }): React.ReactElement {
+	const projectConfigQuery = useTrpcQuery<RuntimeProjectConfigResponse>(
+		"changes.getProjectConfig",
+		"Failed to load project configuration.",
+		workspaceId,
+		Boolean(workspaceId),
+	);
+
 	return (
 		<VcsShell
 			projectState={projectState}
 			currentPath={currentPath}
-			title="JJ Stack Board"
-			subtitle="Grouped bookmark stacks, previews, confirmed operations, and submit flow"
-			kicker={<StatusChip label="Preview gated" tone="gold" />}
+			title="Workspace"
+			subtitle="Applied stack lanes and working-copy changes"
+			kicker={<StatusChip label="Read only" tone="blue" />}
 		>
 			{!workspaceId ? (
 				<NoProjectSelected action={<SelectProjectButton onClick={projectState.onAddProject} />}>
-					Select a project to load JJ stacks and previewable VCS actions.
+					Select a project to show applied workspace stacks.
 				</NoProjectSelected>
 			) : (
-			<PageBody>
-				<QueryGate state={state} loading="Loading JJ stacks." errorTitle="JJ board failed">
+				<QueryGate
+					state={state}
+					loading="Loading workspace."
+					loadingFallback={<WorkspacePageSkeleton />}
+					errorTitle="Workspace failed"
+				>
 					{(data) => (
-						<JjBoardReady
-							data={data}
-							refreshState={refreshState}
-							diffState={diffState}
-							refreshDiff={refreshDiff}
-							workspaceId={workspaceId}
-						/>
+						<QueryGate
+							state={projectConfigQuery.state}
+							loading="Loading workspace configuration."
+							loadingFallback={<WorkspacePageSkeleton />}
+							errorTitle="Workspace configuration failed"
+						>
+							{(projectConfig) => (
+								<WorkspaceReady
+									data={data}
+									diffState={diffState}
+									projectConfig={projectConfig}
+									refreshProjectConfig={projectConfigQuery.refresh}
+									workspaceId={workspaceId}
+								/>
+							)}
+						</QueryGate>
 					)}
 				</QueryGate>
-			</PageBody>
 			)}
 		</VcsShell>
 	);
 }
 
-function JjBoardReady({
+function WorkspacePageSkeleton(): React.ReactElement {
+	return (
+		<div className="h-full min-h-0 overflow-hidden bg-surface-0 p-3">
+			<div className="flex h-full min-h-0 gap-3">
+				<section className="flex h-full min-h-0 w-[300px] shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-surface-1">
+					<header className="flex h-12 shrink-0 items-center gap-2 border-b border-divider px-3">
+						<div className="kb-skeleton h-4 w-4 rounded" />
+						<div className="kb-skeleton h-4 w-24" />
+						<div className="kb-skeleton ml-auto h-5 w-7 rounded-full" />
+					</header>
+					<div className="grid gap-2 p-3">
+						{Array.from({ length: 5 }, (_, index) => (
+							<div key={index} className="flex items-center gap-2">
+								<div className="kb-skeleton h-4 w-4 rounded" />
+								<div className="kb-skeleton h-4 min-w-0 flex-1" />
+							</div>
+						))}
+					</div>
+				</section>
+				{Array.from({ length: 2 }, (_, laneIndex) => (
+					<section
+						key={laneIndex}
+						className="flex h-full min-h-0 w-[380px] shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-surface-1"
+					>
+						<header className="flex h-10 shrink-0 items-center gap-2 border-b border-divider px-3">
+							<div className="kb-skeleton h-4 w-4 rounded" />
+							<div className="kb-skeleton h-4 w-44" />
+							<div className="kb-skeleton ml-auto h-6 w-6 rounded" />
+						</header>
+						<div className="min-h-0 flex-1 bg-[radial-gradient(circle,_rgba(125,125,125,0.18)_1px,_transparent_1px)] [background-size:10px_10px] p-3">
+							<div className="mb-3 h-11 rounded-lg border border-dashed border-border bg-surface-0/80" />
+							<div className="rounded-lg border border-border bg-surface-0">
+								<div className="border-b border-divider p-3">
+									<div className="kb-skeleton h-5 w-48" />
+									<div className="kb-skeleton mt-2 h-3 w-24" />
+								</div>
+								<div className="border-b border-divider bg-surface-1 p-2">
+									<div className="kb-skeleton h-7 w-28" />
+								</div>
+								<div className="grid gap-3 p-3">
+									{Array.from({ length: 3 }, (_, rowIndex) => (
+										<div key={rowIndex} className="flex items-center gap-3">
+											<div className="kb-skeleton h-3 w-3 rotate-45 rounded-[2px]" />
+											<div className="kb-skeleton h-5 w-5 rounded-full" />
+											<div className="kb-skeleton h-4 min-w-0 flex-1" />
+										</div>
+									))}
+								</div>
+							</div>
+						</div>
+					</section>
+				))}
+			</div>
+		</div>
+	);
+}
+
+function WorkspaceReady({
 	data,
-	refreshState,
 	diffState,
-	refreshDiff,
+	projectConfig,
+	refreshProjectConfig,
 	workspaceId,
 }: {
 	data: VcsJjStateResponse;
-	refreshState: () => void;
 	diffState: QueryState<VcsJjDiffResponse>;
-	refreshDiff: () => void;
+	projectConfig: RuntimeProjectConfigResponse;
+	refreshProjectConfig: () => void;
 	workspaceId: string;
 }): React.ReactElement {
-	const [previewUiState, dispatchPreviewUi] = useReducer(previewUiReducer, initialPreviewUiState);
-	const previewOperation = usePreviewOperation(workspaceId);
-	const applyOperation = useApplyOperation(workspaceId);
-	const submitStack = useSubmitStack(workspaceId);
-	const [lastApplyResult, setLastApplyResult] = useState<VcsApplyOperationResponse | null>(null);
-	const [draft, setDraft] = useState<DraftState>(null);
-	const [submitTargetBookmark, setSubmitTargetBookmark] = useState("");
-	const [submitDialogOpen, setSubmitDialogOpen] = useState(false);
-	const activeSourceId = previewUiState.dragSourceId ?? previewUiState.armedSourceId;
-
-	const summary = useMemo(
-		() => ({
-			repository: data.jj.currentBookmark ?? data.jj.currentChangeId ?? "JJ detected",
-			base: data.jj.defaultBase ?? data.git.defaultBranch ?? "Unknown",
-			bookmarks: `${data.bookmarks.length} local`,
-		}),
-		[data],
+	const [updatingStackId, setUpdatingStackId] = useState<string | null>(null);
+	const [fileViewMode, setFileViewMode] = useState<VcsFileViewMode>(() => readVcsFileViewMode());
+	const [selectedCommitHash, setSelectedCommitHash] = useState<string | null>(() => readQueryParam("commit"));
+	const [selectedFilePath, setSelectedFilePath] = useState<string | null>(() => readQueryParam("file"));
+	const [selectedUnstagedFilePath, setSelectedUnstagedFilePath] = useState<string | null>(() => readWorkingCopyFileQueryParam());
+	const [hasUserClearedFile, setHasUserClearedFile] = useState(false);
+	const [isFileSectionCollapsed, setFileSectionCollapsed] = useState(false);
+	const [isUnstagedCollapsed, setUnstagedCollapsed] = useState(() =>
+		readVcsBooleanPreference(VCS_LAYOUT_STORAGE_KEYS.workspaceWorkingCopyCollapsed, false),
 	);
-
-	const submitPreviewQuery = useTrpcInputQuery<VcsSubmitStackPreviewResponse>(
-		"vcs.submitStackPreview",
-		{ targetBookmark: submitTargetBookmark || undefined },
-		"Failed to load stacked PR preview.",
-		submitTargetBookmark.trim().length > 0,
+	const [collapsedStackIds, setCollapsedStackIds] = useState<Record<string, boolean>>({});
+	const [stackColumnWidths, setStackColumnWidths] = useState<Record<string, number>>({});
+	const [unstagedColumnWidth, setUnstagedColumnWidth] = useState(() =>
+		readVcsNumberPreference(
+			WORKSPACE_COLUMN_LIMITS.unstaged.key,
+			WORKSPACE_COLUMN_LIMITS.unstaged.fallback,
+			WORKSPACE_COLUMN_LIMITS.unstaged.min,
+			WORKSPACE_COLUMN_LIMITS.unstaged.max,
+		),
+	);
+	const [diffColumnWidth, setDiffColumnWidth] = useState(() =>
+		readVcsNumberPreference(
+			WORKSPACE_COLUMN_LIMITS.diff.key,
+			WORKSPACE_COLUMN_LIMITS.diff.fallback,
+			WORKSPACE_COLUMN_LIMITS.diff.min,
+			WORKSPACE_COLUMN_LIMITS.diff.max,
+		),
+	);
+	const appliedStackIds = projectConfig.vcsAppliedStacks ?? [];
+	const appliedStacks = useMemo(
+		() => selectAppliedWorkspaceStacks(data.stacks, appliedStackIds),
+		[data.stacks, appliedStackIds],
+	);
+	const selectedStackId = useMemo(() => {
+		if (!selectedCommitHash) {
+			return null;
+		}
+		return appliedStacks.find((stack) => stack.changes.some((change) => change.commitId === selectedCommitHash))?.id ?? null;
+	}, [appliedStacks, selectedCommitHash]);
+	const commitDiffQuery = useTrpcInputQuery<RuntimeGitCommitDiffResponse>(
+		"workspace.getRepositoryCommitDiff",
+		{ commitHash: selectedCommitHash ?? "" },
+		"Failed to load commit diff.",
+		Boolean(workspaceId && selectedCommitHash),
 		workspaceId,
 	);
+	const files = toFileChanges(commitDiffQuery.state);
+	const selectedFile = findFileByPath(files, selectedFilePath);
+	const unstagedDiffFiles = useMemo(() => toWorkingCopyDiffFiles(diffState), [diffState]);
+	const selectedUnstagedFallbackFile = data.unassignedChanges.find((change) => change.path === selectedUnstagedFilePath);
+	const selectedUnstagedFile =
+		findFileByPath(unstagedDiffFiles, selectedUnstagedFilePath) ??
+		(selectedUnstagedFallbackFile
+			? { path: selectedUnstagedFallbackFile.path, status: selectedUnstagedFallbackFile.status }
+			: null);
 
 	useEffect(() => {
-		if (!submitTargetBookmark) {
-			setSubmitTargetBookmark(data.jj.currentBookmark ?? data.bookmarks[0]?.name ?? "");
-		}
-	}, [data.bookmarks, data.jj.currentBookmark, submitTargetBookmark]);
-
-	function openOperationPreview(request: VcsOperationRequest, local?: VcsPreviewOperationResponse): void {
-		dispatchPreviewUi({ type: "preview", request });
-		if (local) {
-			previewOperation.showLocal(local);
+		if (isFileSectionCollapsed || commitDiffQuery.state.status !== "ready" || !commitDiffQuery.state.data.ok) {
 			return;
 		}
-		void previewOperation.preview(request);
+		if (hasUserClearedFile) {
+			return;
+		}
+		const nextFiles = commitDiffQuery.state.data.files;
+		if (nextFiles.length === 0) {
+			if (selectedFilePath) {
+				setSelectedFilePath(null);
+				writeQueryParam("file", null);
+			}
+			return;
+		}
+		if (selectedFilePath && nextFiles.some((file) => file.path === selectedFilePath)) {
+			return;
+		}
+		const nextFilePath = getFirstFilePath(nextFiles);
+		setSelectedFilePath(nextFilePath);
+		writeQueryParam("file", nextFilePath);
+	}, [commitDiffQuery.state, hasUserClearedFile, isFileSectionCollapsed, selectedFilePath]);
+
+	async function unapplyStack(stackId: string): Promise<void> {
+		const nextStackIds = appliedStackIds.filter((candidate) => candidate !== stackId);
+		setUpdatingStackId(stackId);
+		try {
+			await postTrpcMutation<RuntimeProjectConfigResponse>(
+				"changes.updateProjectConfig",
+				{ vcsAppliedStacks: nextStackIds } satisfies RuntimeProjectConfigUpdateRequest,
+				workspaceId,
+			);
+			refreshProjectConfig();
+		} finally {
+			setUpdatingStackId(null);
+		}
 	}
 
-	function openReorderPreview(sourceChangeId: string, targetChangeId: string, placement: PreviewPlacement): void {
-		const request = createReorderPreviewRequest(sourceChangeId, targetChangeId, placement);
-		const validation = validateReorderPreviewRequest(data.changes, sourceChangeId, targetChangeId, placement);
-		openOperationPreview(
-			request,
-			validation.valid ? undefined : invalidPreview(request, validation.reason ?? "This reorder is not valid.", [sourceChangeId, targetChangeId]),
+	function selectStackChange(change: BranchesStackChange): void {
+		if (selectedCommitHash === change.commitId) {
+			setSelectedCommitHash(null);
+			setSelectedFilePath(null);
+			setHasUserClearedFile(true);
+			setFileSectionCollapsed(false);
+			writeQueryParam("commit", null);
+			writeQueryParam("file", null);
+			return;
+		}
+		setSelectedCommitHash(change.commitId);
+		setSelectedFilePath(null);
+		setSelectedUnstagedFilePath(null);
+		setHasUserClearedFile(false);
+		setFileSectionCollapsed(false);
+		writeQueryParam("commit", change.commitId);
+		writeQueryParam("file", null);
+		writeWorkingCopyFileQueryParam(null);
+	}
+
+	function selectFile(path: string): void {
+		if (selectedFilePath === path) {
+			setSelectedFilePath(null);
+			setHasUserClearedFile(true);
+			writeQueryParam("file", null);
+			return;
+		}
+		setSelectedFilePath(path);
+		setSelectedUnstagedFilePath(null);
+		setHasUserClearedFile(false);
+		writeQueryParam("file", path);
+		writeWorkingCopyFileQueryParam(null);
+	}
+
+	function selectUnstagedFile(path: string): void {
+		if (selectedUnstagedFilePath === path) {
+			setSelectedUnstagedFilePath(null);
+			writeWorkingCopyFileQueryParam(null);
+			return;
+		}
+		setSelectedUnstagedFilePath(path);
+		setSelectedCommitHash(null);
+		setSelectedFilePath(null);
+		setHasUserClearedFile(true);
+		writeQueryParam("commit", null);
+		writeWorkingCopyFileQueryParam(path);
+		writeQueryParam("file", null);
+	}
+
+	function changeFileViewMode(mode: VcsFileViewMode): void {
+		setFileViewMode(writeVcsFileViewMode(mode));
+	}
+
+	function changeFileSectionCollapsed(collapsed: boolean): void {
+		setFileSectionCollapsed(collapsed);
+		if (collapsed) {
+			setSelectedFilePath(null);
+			setHasUserClearedFile(true);
+			writeQueryParam("file", null);
+			return;
+		}
+		setHasUserClearedFile(false);
+		const nextFilePath = getFirstFilePath(files);
+		if (nextFilePath) {
+			setSelectedFilePath(nextFilePath);
+			writeQueryParam("file", nextFilePath);
+		}
+	}
+
+	function changeDiffColumnWidth(width: number): void {
+		setDiffColumnWidth(
+			writeVcsNumberPreference(
+				WORKSPACE_COLUMN_LIMITS.diff.key,
+				width,
+				WORKSPACE_COLUMN_LIMITS.diff.min,
+				WORKSPACE_COLUMN_LIMITS.diff.max,
+			),
 		);
 	}
 
-	function previewBookmark(changeId: string, bookmarkName: string): void {
-		const normalizedName = bookmarkName.trim();
-		const request = createBookmarkPreviewRequest(changeId, normalizedName);
-		if (!normalizedName) {
-			openOperationPreview(request, invalidPreview(request, "Enter a bookmark name before previewing.", [changeId]));
-			return;
-		}
-		if (data.bookmarks.some((bookmark) => bookmark.name === normalizedName)) {
-			openOperationPreview(request, invalidPreview(request, `Bookmark ${normalizedName} already exists.`, [changeId]));
-			return;
-		}
-		openOperationPreview(request);
-	}
-
-	function previewMessage(changeId: string, message: string): void {
-		const normalizedMessage = message.trim();
-		const request = createEditMessagePreviewRequest(changeId, normalizedMessage);
-		openOperationPreview(
-			request,
-			normalizedMessage.length === 0 ? invalidPreview(request, "Enter a non-empty change description before previewing.", [changeId]) : undefined,
+	function changeUnstagedColumnWidth(width: number): void {
+		setUnstagedColumnWidth(
+			writeVcsNumberPreference(
+				WORKSPACE_COLUMN_LIMITS.unstaged.key,
+				width,
+				WORKSPACE_COLUMN_LIMITS.unstaged.min,
+				WORKSPACE_COLUMN_LIMITS.unstaged.max,
+			),
 		);
 	}
 
-	function previewInsert(anchorChangeId: string, placement: PreviewPlacement, message: string): void {
-		const normalizedMessage = message.trim();
-		const request = createChangePreviewRequest(anchorChangeId, placement, normalizedMessage);
-		openOperationPreview(
-			request,
-			normalizedMessage.length === 0 ? invalidPreview(request, "Enter a non-empty change description before previewing.", [anchorChangeId]) : undefined,
+	function changeUnstagedCollapsed(collapsed: boolean): void {
+		setUnstagedCollapsed(
+			writeVcsBooleanPreference(VCS_LAYOUT_STORAGE_KEYS.workspaceWorkingCopyCollapsed, collapsed),
 		);
 	}
 
-	function previewMoveBookmark(bookmarkName: string, sourceChangeId: string, targetChangeId: string): void {
-		const normalizedName = bookmarkName.trim();
-		const request = createMoveBookmarkPreviewRequest(normalizedName, targetChangeId);
-		if (!normalizedName) {
-			openOperationPreview(request, invalidPreview(request, "Choose a bookmark before previewing.", [sourceChangeId]));
-			return;
-		}
-		if (sourceChangeId === targetChangeId) {
-			openOperationPreview(request, invalidPreview(request, `Bookmark ${normalizedName} already points to ${targetChangeId}.`, [sourceChangeId]));
-			return;
-		}
-		openOperationPreview(request);
+	function closeDiff(): void {
+		setSelectedFilePath(null);
+		setHasUserClearedFile(true);
+		writeQueryParam("file", null);
 	}
 
-	function previewAbsorb(targetChangeId: string, paths: string[]): void {
-		const normalizedPaths = [...new Set(paths.map((path) => path.trim()).filter(Boolean))];
-		const request = createAbsorbFilePreviewRequest(targetChangeId, normalizedPaths);
-		openOperationPreview(
-			request,
-			normalizedPaths.length === 0 ? invalidPreview(request, "Choose at least one working-copy file before previewing.", [targetChangeId]) : undefined,
+	function closeUnstagedDiff(): void {
+		setSelectedUnstagedFilePath(null);
+		writeWorkingCopyFileQueryParam(null);
+	}
+
+	function setStackCollapsed(stackId: string, collapsed: boolean): void {
+		writeVcsBooleanPreference(stackColumnCollapsedKey(stackId), collapsed);
+		setCollapsedStackIds((current) => ({ ...current, [stackId]: collapsed }));
+	}
+
+	function isStackCollapsed(stackId: string): boolean {
+		return collapsedStackIds[stackId] ?? readVcsBooleanPreference(stackColumnCollapsedKey(stackId), false);
+	}
+
+	function getStackColumnWidth(stackId: string): number {
+		return (
+			stackColumnWidths[stackId] ??
+			readVcsNumberPreference(
+				stackColumnWidthKey(stackId),
+				WORKSPACE_COLUMN_LIMITS.stack.fallback,
+				WORKSPACE_COLUMN_LIMITS.stack.min,
+				WORKSPACE_COLUMN_LIMITS.stack.max,
+			)
 		);
 	}
 
-	function previewRestore(paths: string[]): void {
-		const normalizedPaths = [...new Set(paths.map((path) => path.trim()).filter(Boolean))];
-		const request = createRestoreFilePreviewRequest(normalizedPaths);
-		openOperationPreview(
-			request,
-			normalizedPaths.length === 0
-				? invalidPreview(request, "Choose at least one working-copy file before previewing.", data.jj.currentChangeId ? [data.jj.currentChangeId] : [])
-				: undefined,
+	function changeStackColumnWidth(stackId: string, width: number): void {
+		const normalized = writeVcsNumberPreference(
+			stackColumnWidthKey(stackId),
+			width,
+			WORKSPACE_COLUMN_LIMITS.stack.min,
+			WORKSPACE_COLUMN_LIMITS.stack.max,
 		);
+		setStackColumnWidths((current) => ({ ...current, [stackId]: normalized }));
 	}
 
-	async function applyPreview(): Promise<void> {
-		if (!previewUiState.pendingRequest) {
-			return;
-		}
-		const result = await applyOperation.apply(previewUiState.pendingRequest);
-		if (!result?.ok) {
-			return;
-		}
-		setLastApplyResult(result);
-		refreshState();
-		refreshDiff();
-		dispatchPreviewUi({ type: "close-preview" });
-		dispatchPreviewUi({ type: "clear-arm" });
-		setDraft(null);
-		previewOperation.clear();
-		applyOperation.clear();
-	}
-
-	async function handleSubmitStack(): Promise<void> {
-		if (submitPreviewQuery.state.status !== "ready" || !submitPreviewQuery.state.data.available) {
-			return;
-		}
-		const result = await submitStack.submit({ targetBookmark: submitTargetBookmark || undefined });
-		if (result?.ok) {
-			setSubmitDialogOpen(false);
-			refreshState();
-			refreshDiff();
-			submitPreviewQuery.refresh();
-		}
-	}
-
-	function clearPreview(): void {
-		dispatchPreviewUi({ type: "close-preview" });
-		dispatchPreviewUi({ type: "clear-arm" });
-		setDraft(null);
-		previewOperation.clear();
-		applyOperation.clear();
-	}
+	const diffColumn = selectedFile ? (
+		<VcsFileDiffColumn
+			file={selectedFile}
+			width={diffColumnWidth}
+			minWidth={WORKSPACE_COLUMN_LIMITS.diff.min}
+			maxWidth={WORKSPACE_COLUMN_LIMITS.diff.max}
+			onWidthChange={changeDiffColumnWidth}
+			onClose={closeDiff}
+		/>
+	) : null;
+	const unstagedDiffColumn = selectedUnstagedFilePath ? (
+		<VcsFileDiffColumn
+			file={selectedUnstagedFile}
+			isLoading={diffState.status === "loading"}
+			width={diffColumnWidth}
+			minWidth={WORKSPACE_COLUMN_LIMITS.diff.min}
+			maxWidth={WORKSPACE_COLUMN_LIMITS.diff.max}
+			onWidthChange={changeDiffColumnWidth}
+			onClose={closeUnstagedDiff}
+		/>
+	) : null;
 
 	return (
-		<>
-			<div className="grid gap-3 md:grid-cols-4">
-				<StatCard label="Current" value={summary.repository} />
-				<StatCard label="Base" value={summary.base} />
-				<StatCard label="Bookmarks" value={summary.bookmarks} />
-				<StatCard label="Publishing" tone={data.publishing.authenticated ? "green" : "orange"} value={data.publishing.authenticated ? "GitHub ready" : data.publishing.reason ?? "Unavailable"} />
-			</div>
-			<div className="grid min-h-[620px] gap-3 xl:grid-cols-[280px_minmax(0,1fr)_360px]">
-				<RepositoryPanel
-					data={data}
-					lastApplyResult={lastApplyResult}
-					submitTargetBookmark={submitTargetBookmark}
-					setSubmitTargetBookmark={setSubmitTargetBookmark}
-					submitPreviewState={submitPreviewQuery.state}
-					refreshSubmitPreview={submitPreviewQuery.refresh}
-					submitState={submitStack.state}
-					clearSubmit={submitStack.clear}
-					openSubmitDialog={() => setSubmitDialogOpen(true)}
-					openUndo={() => openOperationPreview(createUndoLastPreviewRequest())}
-					openRedo={() => openOperationPreview(createRedoLastPreviewRequest())}
-				/>
-				<Panel title="Stacks" className="min-h-0">
-					{data.stacks.length === 0 ? (
-						<EmptyState title="No bookmark-backed stacks">Create or import local JJ bookmarks to populate stacks here.</EmptyState>
-					) : (
-						<div className="grid auto-cols-[minmax(260px,1fr)] grid-flow-col gap-3 overflow-x-auto pb-1">
-							{data.stacks.map((stack) => (
-								<section className="min-w-[260px] rounded-lg border border-border bg-surface-0" key={stack.id}>
-									<header className="grid gap-2 border-b border-border px-3 py-2">
-										<div className="flex items-center justify-between gap-2">
-											<StatusChip label={stack.id} tone="blue" icon={<GitBranch size={12} />} />
-											<span className="text-xs text-text-tertiary">{stack.changes.length} changes</span>
-										</div>
-										<div className="flex flex-wrap gap-1.5">
-											{stack.heads.map((head) => (
-												<StatusChip key={head.id} label={head.bookmarkName} tone={head.isCheckedOut ? "green" : "neutral"} />
-											))}
-										</div>
-									</header>
-									<div className="grid gap-2 p-2">
-										{stack.changes.map((segment) => (
-											<article
-												className={cn(
-													"rounded-lg border border-border bg-surface-1 p-3",
-													segment.isCurrent && "border-accent",
-													activeSourceId === segment.changeId && "ring-1 ring-accent",
-												)}
-												key={`${stack.id}-${segment.id}`}
-												draggable
-												onDragStart={() => dispatchPreviewUi({ type: "start-drag", sourceChangeId: segment.changeId })}
-												onDragEnd={() => dispatchPreviewUi({ type: "end-drag" })}
-											>
-												<div className="flex min-w-0 items-start justify-between gap-2">
-													<div className="min-w-0">
-														<div className="truncate text-sm font-medium text-text-primary">{segment.title}</div>
-														<div className="mt-1 font-mono text-[11px] text-text-tertiary">
-															{segment.changeId} · {segment.commitId}
-														</div>
-													</div>
-													{segment.isHead ? <StatusChip label="head" tone="green" /> : null}
-												</div>
-												{segment.remoteBookmarks.length > 0 ? (
-													<div className="mt-2 text-xs text-text-secondary">Remote: {segment.remoteBookmarks.join(", ")}</div>
-												) : null}
-												<div className="mt-3 flex flex-wrap gap-1.5">
-													<Tooltip content="Create a bookmark at this change">
-														<Button size="sm" variant="ghost" icon={<GitBranch size={12} />} onClick={() => setDraft({ kind: "bookmark", changeId: segment.changeId, name: "" })}>
-															Bookmark
-														</Button>
-													</Tooltip>
-													<Button size="sm" variant="ghost" icon={<Plus size={12} />} onClick={() => setDraft({ kind: "insert", anchorChangeId: segment.changeId, placement: "after", message: "New change" })}>
-														Insert
-													</Button>
-													<Button size="sm" variant="ghost" icon={<Save size={12} />} onClick={() => setDraft({ kind: "message", changeId: segment.changeId, message: segment.title })}>
-														Message
-													</Button>
-													<Button
-														size="sm"
-														variant="ghost"
-														disabled={segment.bookmarks.length === 0}
-														onClick={() => setDraft({ kind: "move-bookmark", sourceChangeId: segment.changeId, bookmarkName: segment.bookmarks[0] ?? "", targetChangeId: segment.changeId })}
-													>
-														Move ref
-													</Button>
-													<Button size="sm" variant="ghost" icon={<Scissors size={12} />} onClick={() => setDraft({ kind: "squash", sourceChangeId: segment.changeId })}>
-														Squash
-													</Button>
-													<Button size="sm" variant="danger" icon={<Trash2 size={12} />} onClick={() => openOperationPreview(createAbandonChangePreviewRequest(segment.changeId))}>
-														Abandon
-													</Button>
-													<Button size="sm" variant={previewUiState.armedSourceId === segment.changeId ? "primary" : "ghost"} onClick={() => dispatchPreviewUi({ type: "arm-source", sourceChangeId: segment.changeId })}>
-														{previewUiState.armedSourceId === segment.changeId ? "Cancel move" : "Move"}
-													</Button>
-												</div>
-												<DraftPanel
-													draft={draft}
-													segment={segment}
-													changes={data.changes}
-													bookmarks={data.bookmarks}
-													currentChangeId={data.jj.currentChangeId}
-													setDraft={setDraft}
-													previewBookmark={previewBookmark}
-													previewMessage={previewMessage}
-													previewInsert={previewInsert}
-													previewMoveBookmark={previewMoveBookmark}
-													previewSquash={(sourceChangeId, targetChangeId) => openOperationPreview(createSquashChangePreviewRequest(sourceChangeId, targetChangeId), sourceChangeId === targetChangeId ? invalidPreview(createSquashChangePreviewRequest(sourceChangeId, targetChangeId), "Source and target changes must be different.", [sourceChangeId]) : undefined)}
-													previewAbsorb={previewAbsorb}
-												/>
-												{activeSourceId && activeSourceId !== segment.changeId ? (
-													<MoveTargets
-														sourceChangeId={activeSourceId}
-														targetChangeId={segment.changeId}
-														changes={data.changes}
-														openReorderPreview={openReorderPreview}
-													/>
-												) : null}
-											</article>
-										))}
-									</div>
-								</section>
-							))}
-						</div>
-					)}
-				</Panel>
-				<DetailsPanel
-					data={data}
-					diffState={diffState}
-					draft={draft}
-					setDraft={setDraft}
-					previewRestore={previewRestore}
+		<div className="h-full min-h-0 overflow-x-auto overflow-y-hidden bg-surface-0 p-3">
+			<div className="flex h-full min-h-0 gap-3">
+				{isUnstagedCollapsed ? (
+					<VcsCollapsedColumn
+						label="Working Copy"
+						count={data.unassignedChanges.length}
+						onExpand={() => changeUnstagedCollapsed(false)}
+					/>
+				) : (
+					<UnstagedColumn
+						changes={data.unassignedChanges}
+						width={unstagedColumnWidth}
+						fileViewMode={fileViewMode}
+						selectedPath={selectedUnstagedFilePath}
+						onCollapse={() => changeUnstagedCollapsed(true)}
+						onWidthChange={changeUnstagedColumnWidth}
+						onFileViewModeChange={changeFileViewMode}
+						onSelectPath={selectUnstagedFile}
+					/>
+				)}
+				{unstagedDiffColumn}
+				{appliedStacks.length === 0 ? (
+					<EmptyWorkspaceLanes />
+				) : (
+					appliedStacks.map((stack) => (
+						<Fragment key={stack.id}>
+							{isStackCollapsed(stack.id) ? (
+								<VcsCollapsedColumn
+									label={stack.id}
+									count={stack.heads.length}
+									onExpand={() => setStackCollapsed(stack.id, false)}
+								/>
+							) : (
+								<WorkspaceStackLane
+									stack={stack}
+									width={getStackColumnWidth(stack.id)}
+									isUpdating={updatingStackId === stack.id}
+									onCollapse={() => setStackCollapsed(stack.id, true)}
+									onWidthChange={(width) => changeStackColumnWidth(stack.id, width)}
+									onUnapply={() => void unapplyStack(stack.id)}
+									selectedCommitHash={selectedCommitHash}
+									selectedFilePath={selectedFilePath}
+									selectedFiles={files}
+									diffState={commitDiffQuery.state}
+									fileViewMode={fileViewMode}
+									isFileSectionCollapsed={isFileSectionCollapsed}
+									onFileViewModeChange={changeFileViewMode}
+									onFileSectionCollapsedChange={changeFileSectionCollapsed}
+									onSelectStackChange={selectStackChange}
+									onSelectFile={selectFile}
+								/>
+							)}
+							{selectedStackId === stack.id ? diffColumn : null}
+						</Fragment>
+					))
+				)}
+				{selectedFile && !selectedStackId ? diffColumn : null}
+				<div
+					aria-hidden
+					className="h-full shrink-0"
+					style={{ width: WORKSPACE_TRAILING_SPACER_WIDTH, minWidth: WORKSPACE_TRAILING_SPACER_WIDTH }}
 				/>
 			</div>
 			<DiagnosticsPanel diagnostics={data.diagnostics} />
-			<PreviewDialog
-				request={previewUiState.pendingRequest}
-				previewState={previewOperation.state}
-				applyState={applyOperation.state}
-				onApply={() => void applyPreview()}
-				onClose={clearPreview}
-			/>
-			<SubmitStackDialog
-				preview={submitDialogOpen && submitPreviewQuery.state.status === "ready" ? submitPreviewQuery.state.data : null}
-				submitState={submitStack.state}
-				onSubmit={() => void handleSubmitStack()}
-				onClose={() => setSubmitDialogOpen(false)}
-			/>
-		</>
+		</div>
 	);
 }
 
-function RepositoryPanel({
-	data,
-	lastApplyResult,
-	submitTargetBookmark,
-	setSubmitTargetBookmark,
-	submitPreviewState,
-	refreshSubmitPreview,
-	submitState,
-	clearSubmit,
-	openSubmitDialog,
-	openUndo,
-	openRedo,
+function UnstagedColumn({
+	changes,
+	width,
+	fileViewMode,
+	selectedPath,
+	onCollapse,
+	onWidthChange,
+	onFileViewModeChange,
+	onSelectPath,
 }: {
-	data: VcsJjStateResponse;
-	lastApplyResult: VcsApplyOperationResponse | null;
-	submitTargetBookmark: string;
-	setSubmitTargetBookmark: (value: string) => void;
-	submitPreviewState: QueryState<VcsSubmitStackPreviewResponse>;
-	refreshSubmitPreview: () => void;
-	submitState: ReturnType<typeof useSubmitStack>["state"];
-	clearSubmit: () => void;
-	openSubmitDialog: () => void;
-	openUndo: () => void;
-	openRedo: () => void;
+	changes: VcsJjStateResponse["unassignedChanges"];
+	width: number;
+	fileViewMode: VcsFileViewMode;
+	selectedPath: string | null;
+	onCollapse: () => void;
+	onWidthChange: (width: number) => void;
+	onFileViewModeChange: (mode: VcsFileViewMode) => void;
+	onSelectPath: (path: string) => void;
+}): React.ReactElement {
+	const files: VcsFileChange[] = changes.map((change) => ({ path: change.path, status: change.status }));
+	return (
+		<VcsColumn
+			id="unstaged"
+			title="Working Copy"
+			count={changes.length}
+			width={width}
+			minWidth={WORKSPACE_COLUMN_LIMITS.unstaged.min}
+			maxWidth={WORKSPACE_COLUMN_LIMITS.unstaged.max}
+			onCollapse={onCollapse}
+			onWidthChange={onWidthChange}
+			hideHeader
+			headerContent={
+				<UnstagedColumnHeader
+					count={changes.length}
+					fileViewMode={fileViewMode}
+					onFileViewModeChange={onFileViewModeChange}
+				/>
+			}
+		>
+			<div className="h-full min-h-0">
+				{changes.length === 0 ? (
+					<div className="flex h-full items-center justify-center p-6 text-center">
+						<div>
+							<div className="mx-auto grid h-14 w-14 place-items-center rounded-lg border border-border bg-surface-0 text-accent">
+								<Sparkles size={22} />
+							</div>
+			<div className="mt-4 text-sm font-medium text-text-primary">You're all caught up</div>
+			<p className="mt-1 text-sm text-text-secondary">No files need committing.</p>
+						</div>
+					</div>
+				) : (
+					<UnstagedFileList
+						files={files}
+						viewMode={fileViewMode}
+						selectedPath={selectedPath}
+						onSelectPath={onSelectPath}
+					/>
+				)}
+			</div>
+		</VcsColumn>
+	);
+}
+
+function UnstagedColumnHeader({
+	count,
+	fileViewMode,
+	onFileViewModeChange,
+}: {
+	count: number;
+	fileViewMode: VcsFileViewMode;
+	onFileViewModeChange: (mode: VcsFileViewMode) => void;
 }): React.ReactElement {
 	return (
-		<Panel title="Repository">
-			<div className="grid gap-2">
-				{lastApplyResult ? (
-					<KeyValue
-						label="Last operation"
-						value={
-							<div className="grid gap-2">
-								<span>{lastApplyResult.ok ? "Applied" : "Failed"} {lastApplyResult.command ? `${lastApplyResult.command.command} ${lastApplyResult.command.args.join(" ")}` : ""}</span>
-								<div className="flex gap-1.5">
-									{lastApplyResult.ok && lastApplyResult.operation.kind === "undo_last" ? (
-										<Button size="sm" variant="ghost" icon={<RotateCw size={12} />} onClick={openRedo}>Redo</Button>
-									) : lastApplyResult.ok ? (
-										<Button size="sm" variant="ghost" icon={<RotateCcw size={12} />} onClick={openUndo}>Undo</Button>
-									) : null}
-								</div>
-							</div>
-						}
-					/>
-				) : null}
-				<KeyValue label="Current" value={data.jj.currentBookmark ?? data.jj.currentChangeId ?? "JJ detected"} />
-				<KeyValue label="Base" value={data.jj.defaultBase ?? data.git.defaultBranch ?? "Unknown"} />
-				<KeyValue label="Bookmarks" value={`${data.bookmarks.length} local`} />
-				<KeyValue label="Publishing" value={data.publishing.authenticated ? "GitHub ready" : data.publishing.reason ?? "Unavailable"} />
-				<KeyValue
-					label="Stack submit preview"
-					value={
-						<div className="grid gap-2">
-							<select className={textInputClassName()} value={submitTargetBookmark} onChange={(event) => setSubmitTargetBookmark(event.target.value)}>
-								<option value="" disabled>Select a bookmark</option>
-								{data.bookmarks.map((bookmark) => (
-									<option key={bookmark.name} value={bookmark.name}>{bookmark.name}</option>
-								))}
-							</select>
-							<div className="flex flex-wrap gap-1.5">
-								<Button size="sm" variant="ghost" onClick={refreshSubmitPreview}>Refresh</Button>
-								<Button
-									size="sm"
-									variant="primary"
-									icon={<GitPullRequest size={12} />}
-									disabled={submitPreviewState.status !== "ready" || !submitPreviewState.data.available || submitState.status === "loading"}
-									onClick={() => {
-										clearSubmit();
-										openSubmitDialog();
-									}}
-								>
-									Submit stack
-								</Button>
-							</div>
-							<SubmitPreviewSummary state={submitPreviewState} />
-						</div>
-					}
-				/>
-			</div>
-		</Panel>
+		<div className="flex min-w-0 items-center gap-2">
+			<PanelLeft size={15} className="shrink-0 text-text-tertiary" />
+			<span className="min-w-0 flex-1 truncate text-sm font-semibold text-text-primary">Working Copy</span>
+			<StatusChip label={String(count)} tone="neutral" />
+			<FileViewToggle mode={fileViewMode} onModeChange={onFileViewModeChange} />
+		</div>
 	);
 }
 
-function SubmitPreviewSummary({ state }: { state: QueryState<VcsSubmitStackPreviewResponse> }): React.ReactElement {
-	if (state.status === "loading") {
-		return <p className="text-xs text-text-tertiary">Loading submit preview.</p>;
-	}
-	if (state.status === "error") {
-		return <p className="text-xs text-status-orange">{state.message}</p>;
-	}
-	if (!state.data.available) {
-		return <p className="text-xs text-text-tertiary">{state.data.diagnostics[0]?.message ?? "Stack submit preview is unavailable."}</p>;
-	}
+function FileViewToggle({
+	mode,
+	onModeChange,
+}: {
+	mode: VcsFileViewMode;
+	onModeChange: (mode: VcsFileViewMode) => void;
+}): React.ReactElement {
 	return (
-		<div className="grid gap-2">
-			<div className="rounded-md border border-border bg-surface-0 p-2 text-xs text-text-secondary">
-				{state.data.repoOwner}/{state.data.repoName}
-				{state.data.remoteName ? ` via ${state.data.remoteName}` : ""}
-			</div>
-			{state.data.items.map((item) => (
-				<div className="rounded-md border border-border bg-surface-0 p-2 text-xs" key={`${item.bookmarkName}-${item.changeId}`}>
-					<div className="font-medium text-text-primary">{item.bookmarkName}</div>
-					<div className="text-text-tertiary">{item.action.replaceAll("_", " ")} · base <code>{item.baseBranch}</code></div>
+		<div className="inline-flex shrink-0 rounded-md border border-divider bg-surface-0 p-0.5">
+			<button
+				type="button"
+				aria-label="Show files as list"
+				title="List"
+				className={cn(
+					"grid h-6 w-6 place-items-center rounded border border-transparent text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary",
+					mode === "list" && "border-accent/30 bg-accent/15 text-accent",
+				)}
+				onClick={(event) => {
+					event.stopPropagation();
+					onModeChange("list");
+				}}
+			>
+				<List size={14} />
+			</button>
+			<button
+				type="button"
+				aria-label="Show files as folders"
+				title="Folder tree"
+				className={cn(
+					"grid h-6 w-6 place-items-center rounded border border-transparent text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary",
+					mode === "tree" && "border-accent/30 bg-accent/15 text-accent",
+				)}
+				onClick={(event) => {
+					event.stopPropagation();
+					onModeChange("tree");
+				}}
+			>
+				<FolderTree size={14} />
+			</button>
+		</div>
+	);
+}
+
+function UnstagedFileList({
+	files,
+	viewMode,
+	selectedPath,
+	onSelectPath,
+}: {
+	files: VcsFileChange[];
+	viewMode: VcsFileViewMode;
+	selectedPath: string | null;
+	onSelectPath: (path: string) => void;
+}): React.ReactElement {
+	const filesByPath = useMemo(() => new Map(files.map((file) => [file.path, file])), [files]);
+	const tree = useMemo(() => buildFileTree(files.map((file) => file.path)), [files]);
+	return (
+		<div className="px-1 py-1">
+			{viewMode === "tree"
+				? tree.map((node) => (
+						<UnstagedFileTreeRow
+							key={node.path}
+							node={node}
+							depth={0}
+							selectedPath={selectedPath}
+							onSelectPath={onSelectPath}
+							filesByPath={filesByPath}
+						/>
+					))
+				: files.map((file) => (
+						<UnstagedFileRow
+							key={`${file.status}:${file.path}`}
+							file={file}
+							selected={file.path === selectedPath}
+							onSelectPath={onSelectPath}
+						/>
+					))}
+		</div>
+	);
+}
+
+function UnstagedFileTreeRow({
+	node,
+	depth,
+	selectedPath,
+	onSelectPath,
+	filesByPath,
+}: {
+	node: FileTreeNode;
+	depth: number;
+	selectedPath: string | null;
+	onSelectPath: (path: string) => void;
+	filesByPath: Map<string, VcsFileChange>;
+}): React.ReactElement {
+	const isDirectory = node.type === "directory";
+	const file = filesByPath.get(node.path);
+	const selected = !isDirectory && node.path === selectedPath;
+	return (
+		<div>
+			<button
+				type="button"
+				disabled={isDirectory}
+				className={cn(
+					"kb-file-tree-row",
+					isDirectory && "kb-file-tree-row-directory",
+					!isDirectory && "cursor-pointer hover:bg-surface-2",
+					selected && "kb-file-tree-row-selected",
+				)}
+				style={{ paddingLeft: depth * 12 + 8 }}
+				onClick={() => {
+					if (!isDirectory) {
+						onSelectPath(node.path);
+					}
+				}}
+			>
+				{isDirectory ? <Folder size={14} /> : <FileText size={14} />}
+				{file ? <FileStatusGlyph status={file.status} /> : null}
+				<span className="min-w-0 flex-1 truncate">{node.name}</span>
+			</button>
+			{node.children.length > 0 ? (
+				<div>
+					{node.children.map((child) => (
+						<UnstagedFileTreeRow
+							key={child.path}
+							node={child}
+							depth={depth + 1}
+							selectedPath={selectedPath}
+							onSelectPath={onSelectPath}
+							filesByPath={filesByPath}
+						/>
+					))}
 				</div>
-			))}
-			{state.data.commands.length > 0 ? (
-				<pre className="max-h-32 overflow-auto rounded-md border border-border bg-surface-0 p-2 font-mono text-[11px] text-text-secondary">
-					{commandPreview(state.data.commands)}
-				</pre>
 			) : null}
 		</div>
 	);
 }
 
-function DraftPanel({
-	draft,
-	segment,
-	changes,
-	bookmarks,
-	currentChangeId,
-	setDraft,
-	previewBookmark,
-	previewMessage,
-	previewInsert,
-	previewMoveBookmark,
-	previewSquash,
-	previewAbsorb,
+function UnstagedFileRow({
+	file,
+	selected,
+	onSelectPath,
 }: {
-	draft: DraftState;
-	segment: VcsJjStateResponse["stacks"][number]["changes"][number];
-	changes: VcsJjStateResponse["changes"];
-	bookmarks: VcsJjStateResponse["bookmarks"];
-	currentChangeId: string | null;
-	setDraft: (draft: DraftState) => void;
-	previewBookmark: (changeId: string, bookmarkName: string) => void;
-	previewMessage: (changeId: string, message: string) => void;
-	previewInsert: (anchorChangeId: string, placement: PreviewPlacement, message: string) => void;
-	previewMoveBookmark: (bookmarkName: string, sourceChangeId: string, targetChangeId: string) => void;
-	previewSquash: (sourceChangeId: string, targetChangeId: string) => void;
-	previewAbsorb: (targetChangeId: string, paths: string[]) => void;
-}): React.ReactElement | null {
-	if (!draft) {
-		return null;
-	}
-	if (draft.kind === "bookmark" && draft.changeId === segment.changeId) {
-		return (
-			<div className="mt-3 grid gap-2 rounded-md border border-border bg-surface-0 p-2">
-				<input className={textInputClassName()} value={draft.name} placeholder="feature/new-bookmark" onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
-				<div className="flex gap-1.5">
-					<Button size="sm" variant="primary" disabled={draft.name.trim().length === 0} onClick={() => previewBookmark(segment.changeId, draft.name)}>Preview bookmark</Button>
-					<Button size="sm" variant="ghost" onClick={() => setDraft(null)}>Cancel</Button>
-				</div>
-			</div>
-		);
-	}
-	if (draft.kind === "message" && draft.changeId === segment.changeId) {
-		return (
-			<div className="mt-3 grid gap-2 rounded-md border border-border bg-surface-0 p-2">
-				<textarea className={textInputClassName("min-h-20 resize-y")} value={draft.message} onChange={(event) => setDraft({ ...draft, message: event.target.value })} />
-				<div className="flex gap-1.5">
-					<Button size="sm" variant="primary" disabled={draft.message.trim().length === 0} onClick={() => previewMessage(segment.changeId, draft.message)}>Preview message</Button>
-					<Button size="sm" variant="ghost" onClick={() => setDraft(null)}>Cancel</Button>
-				</div>
-			</div>
-		);
-	}
-	if (draft.kind === "insert" && draft.anchorChangeId === segment.changeId) {
-		return (
-			<div className="mt-3 grid gap-2 rounded-md border border-border bg-surface-0 p-2">
-				<div className="flex gap-1.5">
-					<Button size="sm" variant={draft.placement === "before" ? "primary" : "ghost"} onClick={() => setDraft({ ...draft, placement: "before" })}>Before</Button>
-					<Button size="sm" variant={draft.placement === "after" ? "primary" : "ghost"} onClick={() => setDraft({ ...draft, placement: "after" })}>After</Button>
-				</div>
-				<textarea className={textInputClassName("min-h-20 resize-y")} value={draft.message} onChange={(event) => setDraft({ ...draft, message: event.target.value })} />
-				<div className="flex gap-1.5">
-					<Button size="sm" variant="primary" disabled={draft.message.trim().length === 0} onClick={() => previewInsert(segment.changeId, draft.placement, draft.message)}>Preview insert</Button>
-					<Button size="sm" variant="ghost" onClick={() => setDraft(null)}>Cancel</Button>
-				</div>
-			</div>
-		);
-	}
-	if (draft.kind === "move-bookmark" && draft.sourceChangeId === segment.changeId) {
-		return (
-			<div className="mt-3 grid gap-2 rounded-md border border-border bg-surface-0 p-2">
-				<select className={textInputClassName()} value={draft.bookmarkName} onChange={(event) => setDraft({ ...draft, bookmarkName: event.target.value })}>
-					{segment.bookmarks.map((bookmarkName) => <option key={bookmarkName} value={bookmarkName}>{bookmarkName}</option>)}
-				</select>
-				<select className={textInputClassName()} value={draft.targetChangeId} onChange={(event) => setDraft({ ...draft, targetChangeId: event.target.value })}>
-					{changes.map((change) => <option key={change.changeId} value={change.changeId}>{change.changeId} - {change.description}</option>)}
-				</select>
-				<div className="flex gap-1.5">
-					<Button size="sm" variant="primary" disabled={!draft.bookmarkName.trim() || draft.targetChangeId === segment.changeId} onClick={() => previewMoveBookmark(draft.bookmarkName, segment.changeId, draft.targetChangeId)}>Preview move</Button>
-					<Button size="sm" variant="ghost" onClick={() => setDraft(null)}>Cancel</Button>
-				</div>
-			</div>
-		);
-	}
-	if (draft.kind === "squash" && draft.sourceChangeId && draft.sourceChangeId !== segment.changeId) {
-		return (
-			<div className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-border bg-surface-0 p-2 text-xs text-text-secondary">
-				<Button size="sm" variant="primary" onClick={() => previewSquash(draft.sourceChangeId, segment.changeId)}>Preview squash here</Button>
-				Source: <code>{draft.sourceChangeId}</code>
-			</div>
-		);
-	}
-	if (draft.kind === "absorb" && draft.paths.length > 0) {
-		return (
-			<div className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-border bg-surface-0 p-2 text-xs text-text-secondary">
-				<Button size="sm" variant="primary" disabled={currentChangeId === segment.changeId} onClick={() => previewAbsorb(segment.changeId, draft.paths)}>Preview absorb here</Button>
-				Files: {draft.paths.join(", ")}
-			</div>
-		);
-	}
-	void bookmarks;
-	return null;
-}
-
-function MoveTargets({
-	sourceChangeId,
-	targetChangeId,
-	changes,
-	openReorderPreview,
-}: {
-	sourceChangeId: string;
-	targetChangeId: string;
-	changes: VcsJjStateResponse["changes"];
-	openReorderPreview: (sourceChangeId: string, targetChangeId: string, placement: PreviewPlacement) => void;
+	file: VcsFileChange;
+	selected: boolean;
+	onSelectPath: (path: string) => void;
 }): React.ReactElement {
-	const beforeValidation = validateReorderPreviewRequest(changes, sourceChangeId, targetChangeId, "before");
-	const afterValidation = validateReorderPreviewRequest(changes, sourceChangeId, targetChangeId, "after");
-	const allowDrop = beforeValidation.valid || afterValidation.valid;
 	return (
-		<div
-			className="mt-3 flex flex-wrap gap-1.5 rounded-md border border-border bg-surface-0 p-2"
-			onDragOver={(event) => {
-				if (allowDrop) {
-					event.preventDefault();
-				}
-			}}
+		<button
+			type="button"
+			className={cn("kb-file-tree-row cursor-pointer hover:bg-surface-2", selected && "kb-file-tree-row-selected")}
+			onClick={() => onSelectPath(file.path)}
 		>
-			<Button
-				size="sm"
-				variant="primary"
-				disabled={!beforeValidation.valid}
-				title={beforeValidation.reason ?? undefined}
-				onClick={() => openReorderPreview(sourceChangeId, targetChangeId, "before")}
-				onDrop={(event) => {
-					if (!beforeValidation.valid) {
-						return;
-					}
-					event.preventDefault();
-					openReorderPreview(sourceChangeId, targetChangeId, "before");
-				}}
-			>
-				Preview before
-			</Button>
-			<Button
-				size="sm"
-				variant="primary"
-				disabled={!afterValidation.valid}
-				title={afterValidation.reason ?? undefined}
-				onClick={() => openReorderPreview(sourceChangeId, targetChangeId, "after")}
-				onDrop={(event) => {
-					if (!afterValidation.valid) {
-						return;
-					}
-					event.preventDefault();
-					openReorderPreview(sourceChangeId, targetChangeId, "after");
-				}}
-			>
-				Preview after
-			</Button>
-			{!allowDrop ? <div className="text-xs text-text-tertiary">{beforeValidation.reason ?? afterValidation.reason}</div> : null}
-		</div>
+			<FileText size={14} />
+			<FileStatusGlyph status={file.status} />
+			<span className="min-w-0 flex-1 truncate">{file.path}</span>
+		</button>
 	);
 }
 
-function DetailsPanel({
-	data,
+function EmptyWorkspaceLanes(): React.ReactElement {
+	return (
+		<section className="flex h-full min-h-0 w-[520px] shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-surface-1">
+			<div className="flex h-full items-center justify-center bg-[radial-gradient(circle,_rgba(125,125,125,0.18)_1px,_transparent_1px)] [background-size:10px_10px] p-8 text-center">
+				<EmptyState title="No stacks applied">
+					Open Branches and apply a local stack to show it in this workspace.
+				</EmptyState>
+			</div>
+		</section>
+	);
+}
+
+function WorkspaceStackLane({
+	stack,
+	width,
+	isUpdating,
+	onCollapse,
+	onWidthChange,
+	onUnapply,
+	selectedCommitHash,
+	selectedFilePath,
+	selectedFiles,
 	diffState,
-	draft,
-	setDraft,
-	previewRestore,
+	fileViewMode,
+	isFileSectionCollapsed,
+	onFileViewModeChange,
+	onFileSectionCollapsedChange,
+	onSelectStackChange,
+	onSelectFile,
 }: {
-	data: VcsJjStateResponse;
-	diffState: QueryState<VcsJjDiffResponse>;
-	draft: DraftState;
-	setDraft: (draft: DraftState) => void;
-	previewRestore: (paths: string[]) => void;
+	stack: BranchesStack;
+	width: number;
+	isUpdating: boolean;
+	onCollapse: () => void;
+	onWidthChange: (width: number) => void;
+	onUnapply: () => void;
+	selectedCommitHash: string | null;
+	selectedFilePath: string | null;
+	selectedFiles: VcsFileChange[];
+	diffState: QueryState<RuntimeGitCommitDiffResponse>;
+	fileViewMode: VcsFileViewMode;
+	isFileSectionCollapsed: boolean;
+	onFileViewModeChange: (mode: VcsFileViewMode) => void;
+	onFileSectionCollapsedChange: (collapsed: boolean) => void;
+	onSelectStackChange: (change: BranchesStackChange) => void;
+	onSelectFile: (path: string) => void;
+}): React.ReactElement {
+	const groups = groupStackChangesByHead(stack);
+	return (
+		<VcsColumn
+			id="stack"
+			title={stack.id}
+			count={stack.heads.length}
+			width={width}
+			minWidth={WORKSPACE_COLUMN_LIMITS.stack.min}
+			maxWidth={WORKSPACE_COLUMN_LIMITS.stack.max}
+			onCollapse={onCollapse}
+			onWidthChange={onWidthChange}
+			hideHeader
+			headerContent={
+				<div className="flex min-w-0 items-center gap-2">
+					<GitBranch size={15} className="text-accent" />
+					<span className="min-w-0 flex-1 truncate text-sm font-semibold text-text-primary">{stack.id}</span>
+					<Button
+						variant="ghost"
+						size="sm"
+						icon={<X size={14} />}
+						disabled={isUpdating}
+						aria-label={`Unapply ${stack.id}`}
+						title={`Unapply ${stack.id}`}
+						onClick={onUnapply}
+					/>
+				</div>
+			}
+		>
+			<div className="min-h-0 flex-1 overflow-y-auto bg-[radial-gradient(circle,_rgba(125,125,125,0.18)_1px,_transparent_1px)] [background-size:10px_10px] p-3">
+				<div className="mb-3 rounded-lg border border-dashed border-border bg-surface-0/80 px-3 py-3 text-center text-sm text-text-tertiary">
+					Drop files to stage or commit directly
+				</div>
+				<div className="grid gap-3">
+					{groups.map((group) => (
+						<WorkspaceStackCard
+							key={group.head.bookmarkName}
+							group={group}
+							selectedCommitHash={selectedCommitHash}
+							selectedFilePath={selectedFilePath}
+							selectedFiles={selectedFiles}
+							diffState={diffState}
+							fileViewMode={fileViewMode}
+							isFileSectionCollapsed={isFileSectionCollapsed}
+							onFileViewModeChange={onFileViewModeChange}
+							onFileSectionCollapsedChange={onFileSectionCollapsedChange}
+							onSelectStackChange={onSelectStackChange}
+							onSelectFile={onSelectFile}
+						/>
+					))}
+				</div>
+			</div>
+		</VcsColumn>
+	);
+}
+
+function WorkspaceStackCard({
+	group,
+	selectedCommitHash,
+	selectedFilePath,
+	selectedFiles,
+	diffState,
+	fileViewMode,
+	isFileSectionCollapsed,
+	onFileViewModeChange,
+	onFileSectionCollapsedChange,
+	onSelectStackChange,
+	onSelectFile,
+}: {
+	group: StackChangeGroup;
+	selectedCommitHash: string | null;
+	selectedFilePath: string | null;
+	selectedFiles: VcsFileChange[];
+	diffState: QueryState<RuntimeGitCommitDiffResponse>;
+	fileViewMode: VcsFileViewMode;
+	isFileSectionCollapsed: boolean;
+	onFileViewModeChange: (mode: VcsFileViewMode) => void;
+	onFileSectionCollapsedChange: (collapsed: boolean) => void;
+	onSelectStackChange: (change: BranchesStackChange) => void;
+	onSelectFile: (path: string) => void;
 }): React.ReactElement {
 	return (
-		<Panel title="Details">
-			<div className="grid gap-3">
-				<section>
-					<div className="mb-2 flex items-center justify-between">
-						<StatusChip label="Current diff" tone="purple" />
-						<span className="text-xs text-text-tertiary">{diffState.status === "ready" ? diffState.data.changeId ?? "none" : "loading"}</span>
+		<section className="overflow-hidden rounded-lg border border-border bg-surface-0 shadow-sm">
+			<header className="border-b border-divider px-3 py-3">
+				<div className="flex min-w-0 items-center gap-2">
+					<div className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-accent text-accent-fg">
+						<GitBranch size={14} />
 					</div>
-					{diffState.status === "ready" ? (
-						<div className="rounded-md border border-border bg-surface-0 p-2">
-							<div className="mb-2 font-mono text-xs text-text-tertiary">{diffState.data.changeId ?? "No current change selected."}</div>
-							{diffState.data.summary ? (
-								<pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-md bg-surface-1 p-2 font-mono text-xs text-text-secondary">{diffState.data.summary}</pre>
-							) : (
-								<p className="text-sm text-text-secondary">No diff summary available.</p>
-							)}
-						</div>
-					) : diffState.status === "error" ? (
-						<p className="text-sm text-status-orange">{diffState.message}</p>
-					) : (
-						<p className="text-sm text-text-secondary">Loading diff.</p>
-					)}
-				</section>
-				<section>
-					<div className="mb-2 flex items-center justify-between">
-						<StatusChip label="Working copy" tone="cyan" />
-						<span className="text-xs text-text-tertiary">{data.unassignedChanges.length} files</span>
+					<div className="min-w-0 flex-1">
+						<div className="truncate text-sm font-semibold text-text-primary">{group.head.bookmarkName}</div>
+						<div className="mt-1 text-xs text-text-secondary">Nothing to push</div>
 					</div>
-					{data.unassignedChanges.length === 0 ? (
-						<EmptyState title="Clean working copy">No unassigned file changes are pending in the current JJ working copy.</EmptyState>
-					) : (
-						<div className="grid gap-2">
-							{data.unassignedChanges.map((change) => (
-								<div className="rounded-md border border-border bg-surface-0 p-2" key={`${change.status}-${change.path}`}>
-									<div className="flex min-w-0 items-center justify-between gap-2">
-										<div className="min-w-0 truncate font-mono text-xs text-text-primary">{change.path}</div>
-										<FileStatusGlyph status={change.status} />
-									</div>
-									<div className="mt-2 flex flex-wrap gap-1.5">
-										<Button size="sm" variant="ghost" onClick={() => setDraft(draft?.kind === "absorb" && draft.paths[0] === change.path ? null : { kind: "absorb", paths: [change.path] })}>
-											{draft?.kind === "absorb" && draft.paths[0] === change.path ? "Cancel absorb" : "Absorb into..."}
-										</Button>
-										<Button size="sm" variant="ghost" onClick={() => previewRestore([change.path])}>
-											Restore
-										</Button>
-									</div>
-								</div>
-							))}
-						</div>
-					)}
-				</section>
+				</div>
+			</header>
+			<div className="flex items-center gap-1.5 border-b border-divider bg-surface-1 px-3 py-2">
+				<Button variant="default" size="sm" icon={<Upload size={13} />} disabled>
+					Push
+				</Button>
+				<Button variant="ghost" size="sm" icon={<Sparkles size={13} />} aria-label="Stack actions" title="Stack actions" />
+				<Button variant="ghost" size="sm" icon={<MoreHorizontal size={14} />} aria-label="More stack actions" title="More stack actions" className="ml-auto" />
 			</div>
-		</Panel>
+			<div>
+				{group.changes.length === 0 ? (
+					<div className="px-3 py-4 text-sm text-text-secondary">No visible changes were returned for this stack head.</div>
+				) : (
+					group.changes.map((change) => (
+						<WorkspaceStackChangeRow
+							key={`${group.head.bookmarkName}-${change.changeId}`}
+							change={change}
+							selected={selectedCommitHash === change.commitId}
+							selectedFilePath={selectedFilePath}
+							selectedFiles={selectedFiles}
+							diffState={diffState}
+							fileViewMode={fileViewMode}
+							isFileSectionCollapsed={isFileSectionCollapsed}
+							onFileViewModeChange={onFileViewModeChange}
+							onFileSectionCollapsedChange={onFileSectionCollapsedChange}
+							onSelectStackChange={onSelectStackChange}
+							onSelectFile={onSelectFile}
+						/>
+					))
+				)}
+			</div>
+		</section>
+	);
+}
+
+function WorkspaceStackChangeRow({
+	change,
+	selected,
+	selectedFilePath,
+	selectedFiles,
+	diffState,
+	fileViewMode,
+	isFileSectionCollapsed,
+	onFileViewModeChange,
+	onFileSectionCollapsedChange,
+	onSelectStackChange,
+	onSelectFile,
+}: {
+	change: BranchesStack["changes"][number];
+	selected: boolean;
+	selectedFilePath: string | null;
+	selectedFiles: VcsFileChange[];
+	diffState: QueryState<RuntimeGitCommitDiffResponse>;
+	fileViewMode: VcsFileViewMode;
+	isFileSectionCollapsed: boolean;
+	onFileViewModeChange: (mode: VcsFileViewMode) => void;
+	onFileSectionCollapsedChange: (collapsed: boolean) => void;
+	onSelectStackChange: (change: BranchesStackChange) => void;
+	onSelectFile: (path: string) => void;
+}): React.ReactElement {
+	const selectedError =
+		diffState.status === "error"
+			? diffState.message
+			: diffState.status === "ready" && !diffState.data.ok
+				? diffState.data.error ?? "The selected change diff could not be read."
+				: null;
+	const authorName = change.authorName?.trim() || null;
+
+	return (
+		<div
+			className={cn(
+				"overflow-hidden border-b border-divider bg-surface-0 last:border-b-0",
+				change.isCurrent && "border-l-4 border-l-accent",
+				selected && "bg-surface-2",
+				selected && SELECTED_CHANGE_MARKER_CLASS,
+			)}
+		>
+			<button
+				type="button"
+				className="flex w-full min-w-0 cursor-pointer items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-surface-2"
+				onClick={() => onSelectStackChange(change)}
+			>
+				<div className="relative flex w-6 shrink-0 justify-center self-stretch">
+					<span className="absolute bottom-[-13px] top-[-13px] w-px bg-accent" />
+					<span className="relative mt-1 h-2.5 w-2.5 rotate-45 rounded-[2px] bg-accent" />
+				</div>
+				<Avatar
+					src={change.authorAvatarUrl}
+					name={authorName}
+					email={change.authorEmail}
+					initials={authorInitials(authorName)}
+					className="h-5 w-5 shrink-0"
+				/>
+				<div className="min-w-0 flex-1">
+					<div className="truncate text-sm font-medium text-text-primary">{change.title}</div>
+					<div className="mt-1 flex min-w-0 items-center gap-2">
+						<CopyValueButton displayValue={change.commitId.slice(0, 8)} copyValue={change.commitId} />
+						<span className="text-text-tertiary">·</span>
+						<CopyValueButton label="Change" displayValue={change.changeId} copyValue={change.changeId} />
+					</div>
+				</div>
+				{change.isHead ? <StatusChip label="head" tone="green" /> : null}
+			</button>
+			{selected ? (
+				<VcsInlineFileSection
+					title="Changed files"
+					files={selectedFiles}
+					selectedPath={selectedFilePath}
+					isLoading={diffState.status === "loading"}
+					errorMessage={selectedError}
+					viewMode={fileViewMode}
+					onViewModeChange={onFileViewModeChange}
+					collapsed={isFileSectionCollapsed}
+					onCollapsedChange={onFileSectionCollapsedChange}
+					onSelectPath={onSelectFile}
+				/>
+			) : null}
+		</div>
 	);
 }

@@ -20,6 +20,11 @@ import { JjBoardView } from "@/views/jj-board-view";
 import { LandingView } from "@/views/landing-view";
 import { SettingsView } from "@/views/settings-view";
 import { isLocalhostAccess } from "@/utils/localhost-detection";
+import {
+	readVcsBooleanPreference,
+	VCS_LAYOUT_STORAGE_KEYS,
+	writeVcsBooleanPreference,
+} from "@/utils/vcs-ui-preferences";
 
 const DIRECTORY_PICKER_UNAVAILABLE_MARKERS = [
 	"could not open directory picker",
@@ -58,7 +63,9 @@ export default function App(): React.ReactElement {
 	const currentPath = window.location.pathname;
 	const route = resolveVcsRoute(currentPath);
 	const [selectedProjectId, setSelectedProjectId] = useState<string | null>(() => readWorkspaceIdFromLocation());
-	const [isProjectNavCollapsed, setProjectNavCollapsed] = useState(false);
+	const [isProjectNavCollapsed, setProjectNavCollapsedState] = useState(() =>
+		readVcsBooleanPreference(VCS_LAYOUT_STORAGE_KEYS.projectNavCollapsed, false),
+	);
 	const [removingProjectId, setRemovingProjectId] = useState<string | null>(null);
 	const [optimisticallyRemovedProjectIds, setOptimisticallyRemovedProjectIds] = useState<Set<string>>(() => new Set());
 	const [isAddProjectDialogOpen, setAddProjectDialogOpen] = useState(false);
@@ -116,6 +123,10 @@ export default function App(): React.ReactElement {
 	function selectProject(projectId: string): void {
 		setSelectedProjectId(projectId);
 		writeWorkspaceIdToLocation(projectId);
+	}
+
+	function setProjectNavCollapsed(collapsed: boolean): void {
+		setProjectNavCollapsedState(writeVcsBooleanPreference(VCS_LAYOUT_STORAGE_KEYS.projectNavCollapsed, collapsed));
 	}
 
 	function handleAddProjectSuccess(projectId: string): void {
