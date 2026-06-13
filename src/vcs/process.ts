@@ -56,6 +56,7 @@ export function redactSecrets(text: string): string {
 
 export async function runVcsCommand(input: RunVcsCommandInput): Promise<VcsCommandResult> {
 	validateArgv(input);
+	const startedAt = Date.now();
 	try {
 		const { stdout, stderr } = await execFileAsync(input.command, input.args, {
 			cwd: input.cwd,
@@ -63,6 +64,7 @@ export async function runVcsCommand(input: RunVcsCommandInput): Promise<VcsComma
 			maxBuffer: MAX_BUFFER_BYTES,
 			env: process.env,
 		});
+		logVcsTiming(input, startedAt);
 		return {
 			ok: true,
 			stdout: redactSecrets(String(stdout ?? "").trim()),
@@ -70,6 +72,7 @@ export async function runVcsCommand(input: RunVcsCommandInput): Promise<VcsComma
 			exitCode: 0,
 		};
 	} catch (error) {
+		logVcsTiming(input, startedAt);
 		const candidate = error as {
 			code?: string | number | null;
 			stdout?: unknown;
@@ -82,4 +85,11 @@ export async function runVcsCommand(input: RunVcsCommandInput): Promise<VcsComma
 			exitCode: normalizeExitCode(candidate.code),
 		};
 	}
+}
+
+function logVcsTiming(input: RunVcsCommandInput, startedAt: number): void {
+	if (process.env.NODE_ENV === "production" || input.command !== "jj") {
+		return;
+	}
+	console.debug(`[vcs timing] jj ${input.args.join(" ")} ${Date.now() - startedAt}ms`);
 }

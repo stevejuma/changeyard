@@ -146,6 +146,11 @@ export type VcsJjInventoryResponse = VcsDetectResponse & {
 	items: VcsJjInventoryItem[];
 };
 
+export type VcsJjBranchesDataResponse = {
+	inventory: VcsJjInventoryResponse;
+	state: VcsJjStateResponse;
+};
+
 export type RuntimeProjectConfigResponse = {
 	initialized: boolean;
 	providerType: "noop" | "local-folder" | "forgejo" | "github" | "gitlab";

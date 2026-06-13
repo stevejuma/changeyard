@@ -370,6 +370,15 @@ export async function loadJjInventory(
 	options: LoadJjInventoryOptions = {},
 ): Promise<VcsJjInventoryResult> {
 	const detect = await detectVcsState(cwd, runner);
+	return await loadJjInventoryFromDetect(cwd, runner, detect, options);
+}
+
+export async function loadJjInventoryFromDetect(
+	cwd: string,
+	runner: VcsCommandRunner,
+	detect: Awaited<ReturnType<typeof detectVcsState>>,
+	options: LoadJjInventoryOptions = {},
+): Promise<VcsJjInventoryResult> {
 	if (detect.repository.kind !== "jj") {
 		return {
 			...detect,

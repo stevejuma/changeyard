@@ -399,6 +399,12 @@ export const runtimeVcsJjInventoryResponseSchema = runtimeVcsDetectResponseSchem
 });
 export type RuntimeVcsJjInventoryResponse = z.infer<typeof runtimeVcsJjInventoryResponseSchema>;
 
+export const runtimeVcsJjBranchesDataResponseSchema = z.object({
+	inventory: runtimeVcsJjInventoryResponseSchema,
+	state: runtimeVcsJjStateResponseSchema,
+});
+export type RuntimeVcsJjBranchesDataResponse = z.infer<typeof runtimeVcsJjBranchesDataResponseSchema>;
+
 export const runtimeVcsJjDiffResponseSchema = z.object({
 	changeId: z.string().nullable(),
 	summary: z.string(),

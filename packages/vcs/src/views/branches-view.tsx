@@ -37,6 +37,7 @@ import type {
 	RuntimeGitCommitDiffResponse,
 	RuntimeGitLogResponse,
 	RuntimeProjectConfigResponse,
+	VcsJjBranchesDataResponse,
 	VcsJjInventoryItem,
 	VcsJjInventoryResponse,
 	VcsJjStateResponse,
@@ -45,8 +46,7 @@ import { useRtkPaginatedRepositoryLog } from "@/runtime/repository-log-api";
 import {
 	toRuntimeQueryState,
 	useGetProjectConfigQuery,
-	useGetJjInventoryQuery,
-	useGetJjStateQuery,
+	useGetJjBranchesDataQuery,
 	useGetRepositoryCommitDiffQuery,
 	useUpdateProjectConfigMutation,
 } from "@/runtime/vcs-api";
@@ -175,15 +175,24 @@ export function BranchesView({
 		setQueryParam(name, value, { replace: true });
 	}
 	const hasWorkspace = Boolean(workspaceId);
-	const inventoryResult = useGetJjInventoryQuery({ workspaceId: workspaceId ?? "" }, { skip: !hasWorkspace });
-	const stackResult = useGetJjStateQuery({ workspaceId: workspaceId ?? "" }, { skip: !hasWorkspace });
+	const branchesDataResult = useGetJjBranchesDataQuery({ workspaceId: workspaceId ?? "" }, { skip: !hasWorkspace });
+	const branchesDataState = toRuntimeQueryState<VcsJjBranchesDataResponse>(
+		branchesDataResult,
+		"Failed to load branch data.",
+	);
 	const inventoryQuery = {
-		state: toRuntimeQueryState<VcsJjInventoryResponse>(inventoryResult, "Failed to load branch inventory."),
-		refresh: () => void inventoryResult.refetch(),
+		state:
+			branchesDataState.status === "ready"
+				? ({ status: "ready", data: branchesDataState.data.inventory } as const)
+				: branchesDataState,
+		refresh: () => void branchesDataResult.refetch(),
 	};
 	const stackQuery = {
-		state: toRuntimeQueryState<VcsJjStateResponse>(stackResult, "Failed to load JJ stacks."),
-		refresh: () => void stackResult.refetch(),
+		state:
+			branchesDataState.status === "ready"
+				? ({ status: "ready", data: branchesDataState.data.state } as const)
+				: branchesDataState,
+		refresh: () => void branchesDataResult.refetch(),
 	};
 	const projectConfigResult = useGetProjectConfigQuery({ workspaceId: workspaceId ?? "" }, { skip: !hasWorkspace });
 	const [updateProjectConfig] = useUpdateProjectConfigMutation();
@@ -603,7 +612,7 @@ function BranchesReady({
 	const workspaceTargetLogQuery = useRtkPaginatedRepositoryLog({
 		input: workspaceTargetLogInput,
 		message: "Failed to load workspace target commits.",
-		enabled: Boolean(workspaceId && workspaceTargetLogRef),
+		enabled: Boolean(workspaceId && workspaceTargetLogRef && !collapsedColumns.stack),
 		workspaceId,
 		pageSize: 50,
 	});

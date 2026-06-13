@@ -2,11 +2,11 @@ import { detectVcsState } from "./detect.js";
 import { loadConfig } from "../config/loadConfig.js";
 import { applyJjOperation } from "./jj/apply.js";
 import { loadJjDiff } from "./jj/diff.js";
-import { loadJjInventory } from "./jj/inventory.js";
+import { loadJjInventory, loadJjInventoryFromDetect } from "./jj/inventory.js";
 import { loadJjOperationDiff, loadJjOperations } from "./jj/operations.js";
 import { previewJjOperation } from "./jj/preview.js";
 import { previewJjStackSubmit, submitJjStack } from "./jj/stack-submit.js";
-import { loadJjState } from "./jj/state.js";
+import { loadJjState, loadJjStateFromDetect } from "./jj/state.js";
 import { runVcsCommand } from "./process.js";
 import type { VcsApplyOperationInput, VcsPreviewOperationInput, VcsSubmitStackPreviewInput } from "./types.js";
 
@@ -26,6 +26,17 @@ export async function getJjDiff(repoRoot: string) {
 export async function getJjInventory(repoRoot: string) {
 	const config = loadConfig(repoRoot);
 	return await loadJjInventory(repoRoot, runVcsCommand, { targetBranch: config.vcs.targetBranch ?? null });
+}
+
+export async function getJjBranchesData(repoRoot: string) {
+	const config = loadConfig(repoRoot);
+	const detect = await detectVcsState(repoRoot, runVcsCommand);
+	const options = { targetBranch: config.vcs.targetBranch ?? null };
+	const [inventory, state] = await Promise.all([
+		loadJjInventoryFromDetect(repoRoot, runVcsCommand, detect, options),
+		loadJjStateFromDetect(repoRoot, runVcsCommand, detect, options),
+	]);
+	return { inventory, state };
 }
 
 export async function getJjOperations(repoRoot: string, input?: { limit?: number | null; cursor?: string | null; pageSize?: number | null }) {

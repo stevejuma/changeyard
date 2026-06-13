@@ -478,7 +478,14 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 			});
 		},
 		loadRepositoryLog: async (workspaceScope, input) => {
-			return await getWorkspaceApiRepositoryLog(workspaceScope, input);
+			const startedAt = Date.now();
+			try {
+				return await getWorkspaceApiRepositoryLog(workspaceScope, input);
+			} finally {
+				if (process.env.NODE_ENV !== "production") {
+					console.debug(`[vcs timing] workspace.getRepositoryLog ${Date.now() - startedAt}ms`);
+				}
+			}
 		},
 		loadGitRefs: async (workspaceScope, input) => {
 			const taskScope = normalizeOptionalTaskWorkspaceScopeInput(input ?? null);

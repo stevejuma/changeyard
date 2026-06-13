@@ -17,7 +17,7 @@ import { isChangeyardInitialized, updateLocalConfig } from "../config/localConfi
 import { runInit } from "./init.js";
 import { runUpdate } from "./update.js";
 import { doctorReport } from "./doctor.js";
-import { applyVcsOperation, detectVcs, getJjDiff, getJjInventory, getJjOperationDiff, getJjOperations, getJjState, previewVcsOperation, submitVcsStack, submitVcsStackPreview } from "../vcs/adapter.js";
+import { applyVcsOperation, detectVcs, getJjBranchesData, getJjDiff, getJjInventory, getJjOperationDiff, getJjOperations, getJjState, previewVcsOperation, submitVcsStack, submitVcsStackPreview } from "../vcs/adapter.js";
 import type { VcsApplyOperationInput, VcsPreviewOperationInput, VcsSubmitStackPreviewInput } from "../vcs/types.js";
 import { installCliShutdownHandlers } from "./gracefulShutdown.js";
 import { DEFAULT_PLANNING_SECTION_ORDER, STRICT_PLANNING_SECTION_ORDER, type PlanningSectionId } from "../planning/types.js";
@@ -340,6 +340,9 @@ export function createChangeyardUiApi() {
     },
     getJjInventory(repoRoot: string) {
       return getJjInventory(repoRoot);
+    },
+    getJjBranchesData(repoRoot: string) {
+      return getJjBranchesData(repoRoot);
     },
     getJjOperations(repoRoot: string, input?: { limit?: number | null; cursor?: string | null; pageSize?: number | null }) {
       return getJjOperations(repoRoot, input);
