@@ -79,11 +79,16 @@ export type RuntimeConfigResponse = {
 
 export type ProjectConfigResponse = {
   initialized: boolean;
-  providerType: string;
-  vcsEngine: string;
-  vcsFallback: string;
+  providerType: "noop" | "local-folder" | "forgejo" | "github" | "gitlab";
+  vcsEngine: "plain-copy" | "jj" | "git-worktree";
+  vcsFallback: "plain-copy" | "jj" | "git-worktree";
   vcsTargetBranch?: string | null;
-  planningDefaultProfile?: string;
+  vcsAppliedStacks?: string[];
+  projectDefaultBase: string;
+  planningDefaultProfile?: "none" | "openspec-lite";
+  planningDefaultStrictness?: "normal" | "strict";
+  planningAllowQuickChanges?: boolean;
+  planningQuickChangeCheckProfile?: string;
 };
 
 export type DoctorResponse = {
@@ -223,9 +228,15 @@ export class RuntimeClient {
 
   async updateProjectConfig(input: {
     providerType?: ProjectConfigResponse["providerType"];
-    vcsEngine?: string;
-    vcsFallback?: string;
+    vcsEngine?: ProjectConfigResponse["vcsEngine"];
+    vcsFallback?: ProjectConfigResponse["vcsFallback"];
     vcsTargetBranch?: string | null;
+    vcsAppliedStacks?: string[];
+    projectDefaultBase?: string;
+    planningDefaultProfile?: ProjectConfigResponse["planningDefaultProfile"];
+    planningDefaultStrictness?: ProjectConfigResponse["planningDefaultStrictness"];
+    planningAllowQuickChanges?: boolean;
+    planningQuickChangeCheckProfile?: string;
   }): Promise<ProjectConfigResponse> {
     await this.ensureWorkspace();
     return await this.mutation<ProjectConfigResponse>("changes.updateProjectConfig", input);

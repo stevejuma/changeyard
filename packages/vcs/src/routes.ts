@@ -1,5 +1,4 @@
 export type VcsRoute =
-	| { kind: "landing" }
 	| { kind: "jj-board" }
 	| { kind: "jj-branches" }
 	| { kind: "jj-history" }
@@ -18,5 +17,5 @@ export function resolveVcsRoute(pathname: string): VcsRoute {
 	if (pathname.startsWith("/vcs/settings")) {
 		return { kind: "settings" };
 	}
-	return { kind: "landing" };
+	return { kind: "jj-board" };
 }

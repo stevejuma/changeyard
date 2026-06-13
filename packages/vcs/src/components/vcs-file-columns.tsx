@@ -75,6 +75,7 @@ export function VcsColumn({
 	onScrollNearEnd,
 	hideHeader = false,
 	headerContent,
+	headerActions,
 	children,
 }: {
 	id: VcsColumnId;
@@ -88,6 +89,7 @@ export function VcsColumn({
 	onScrollNearEnd?: () => void;
 	hideHeader?: boolean;
 	headerContent?: React.ReactNode;
+	headerActions?: React.ReactNode;
 	children: React.ReactNode;
 }): React.ReactElement {
 	return (
@@ -105,6 +107,7 @@ export function VcsColumn({
 						{count === undefined ? null : <span className="text-xs text-text-secondary">{count}</span>}
 					</div>
 				)}
+				{headerActions ? <div className="ml-auto flex shrink-0 items-center gap-2">{headerActions}</div> : null}
 				<Button
 					variant="ghost"
 					size="sm"
@@ -202,6 +205,8 @@ function FileTreeRow({
 		<div>
 			<button
 				type="button"
+				data-testid={isDirectory ? "vcs-directory-row" : "vcs-file-row"}
+				data-file-path={isDirectory ? undefined : node.path}
 				className={cn(
 					"kb-file-tree-row",
 					isDirectory && "kb-file-tree-row-directory",
@@ -257,6 +262,8 @@ function FileListRow({
 	return (
 		<button
 			type="button"
+			data-testid="vcs-file-row"
+			data-file-path={file.path}
 			className={cn("kb-file-tree-row", isSelected && "kb-file-tree-row-selected")}
 			onClick={() => onSelectPath(file.path)}
 		>

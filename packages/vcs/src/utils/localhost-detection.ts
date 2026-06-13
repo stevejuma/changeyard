@@ -6,3 +6,10 @@ export function isLocalhostAccess(): boolean {
 	}
 	return LOCALHOST_HOSTS.includes(window.location.hostname);
 }
+
+export function shouldUseNativeDirectoryPicker(): boolean {
+	if (typeof navigator !== "undefined" && navigator.webdriver) {
+		return false;
+	}
+	return isLocalhostAccess();
+}

@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import type { RuntimeShellSessionStartResponse, RuntimeTaskSessionSummary } from "@/runtime/types";
-import { postTrpcMutation } from "@/runtime/trpc-client";
+import { useStartShellSessionMutation } from "@/runtime/vcs-api";
 import { usePersistentTerminalSession } from "@/terminal/use-persistent-terminal-session";
 import { getTerminalThemeColors, useTheme } from "@/utils/vcs-theme";
 
@@ -27,6 +27,7 @@ export function VcsConsolePanel({
 	const [summary, setSummary] = useState<RuntimeTaskSessionSummary | null>(null);
 	const [startError, setStartError] = useState<string | null>(null);
 	const [isStarting, setIsStarting] = useState(false);
+	const [startShellSession] = useStartShellSessionMutation();
 
 	useEffect(() => {
 		let cancelled = false;
@@ -37,16 +38,16 @@ export function VcsConsolePanel({
 			return;
 		}
 		setIsStarting(true);
-		void postTrpcMutation<RuntimeShellSessionStartResponse>(
-			"runtime.startShellSession",
-			{
+		void startShellSession({
+			workspaceId,
+			input: {
 				taskId: VCS_CONSOLE_TASK_ID,
 				baseRef: "HEAD",
 				cols: 120,
 				rows: 28,
 			},
-			workspaceId,
-		)
+		})
+			.unwrap()
 			.then((response) => {
 				if (cancelled) {
 					return;
@@ -69,7 +70,7 @@ export function VcsConsolePanel({
 		return () => {
 			cancelled = true;
 		};
-	}, [workspaceId]);
+	}, [startShellSession, workspaceId]);
 
 	const terminal = usePersistentTerminalSession({
 		taskId: VCS_CONSOLE_TASK_ID,

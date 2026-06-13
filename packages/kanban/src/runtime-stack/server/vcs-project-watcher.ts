@@ -24,6 +24,9 @@ interface WatchedProject {
 	projectId: string;
 	root: string;
 	watcher: FSWatcher;
+	usesPolling: boolean;
+	isStarting: boolean;
+	isRestarting: boolean;
 	pending: Map<VcsProjectEventKind, Set<string>>;
 	timers: Map<VcsProjectEventKind, NodeJS.Timeout>;
 	version: number;
@@ -31,6 +34,8 @@ interface WatchedProject {
 
 const WATCH_DEBOUNCE_MS = 150;
 const WATCH_READY_TIMEOUT_MS = 5_000;
+const WATCH_POLL_INTERVAL_MS = 700;
+const WATCH_BINARY_POLL_INTERVAL_MS = 1_500;
 const IGNORED_DIRECTORY_NAMES = new Set([
 	"node_modules",
 	".cache",
@@ -69,6 +74,7 @@ export function shouldIgnoreVcsWatchPath(root: string, candidatePath: string): b
 		relativePath === ".jj" ||
 		relativePath === ".jj/repo" ||
 		relativePath === ".jj/repo/op_heads" ||
+		isPathInside(relativePath, ".jj/repo/op_heads") ||
 		relativePath === ".jj/working_copy" ||
 		isPathInside(relativePath, ".jj/working_copy")
 	) {
@@ -90,7 +96,7 @@ export function shouldIgnoreVcsWatchPath(root: string, candidatePath: string): b
 }
 
 export function classifyVcsWatchPath(relativePath: string): VcsProjectEventKind {
-	if (relativePath === ".jj/repo/op_heads") {
+	if (relativePath === ".jj/repo/op_heads" || isPathInside(relativePath, ".jj/repo/op_heads")) {
 		return "vcs/activity";
 	}
 	if (relativePath === ".jj/working_copy" || isPathInside(relativePath, ".jj/working_copy")) {
@@ -100,6 +106,11 @@ export function classifyVcsWatchPath(relativePath: string): VcsProjectEventKind 
 		return "vcs/fetch";
 	}
 	return "worktree_changes";
+}
+
+function isWatcherLimitError(error: unknown): boolean {
+	const message = error instanceof Error ? error.message : String(error);
+	return message.includes("EMFILE") || message.includes("ENOSPC");
 }
 
 export function createChokidarVcsProjectWatcher(): VcsProjectWatcher {
@@ -156,6 +167,62 @@ export function createChokidarVcsProjectWatcher(): VcsProjectWatcher {
 		project.timers.set(kind, timer);
 	}
 
+	function createWatcher(root: string, usePolling: boolean): FSWatcher {
+		return chokidar.watch(root, {
+			ignoreInitial: true,
+			persistent: true,
+			ignored: (candidatePath) => shouldIgnoreVcsWatchPath(root, candidatePath),
+			usePolling,
+			interval: WATCH_POLL_INTERVAL_MS,
+			binaryInterval: WATCH_BINARY_POLL_INTERVAL_MS,
+			awaitWriteFinish: {
+				stabilityThreshold: 80,
+				pollInterval: 20,
+			},
+		});
+	}
+
+	function attachWatcher(project: WatchedProject): void {
+		const { watcher } = project;
+		watcher.on("add", (filePath) => queue(project, filePath));
+		watcher.on("change", (filePath) => queue(project, filePath));
+		watcher.on("unlink", (filePath) => queue(project, filePath));
+		watcher.on("addDir", (filePath) => queue(project, filePath));
+		watcher.on("unlinkDir", (filePath) => queue(project, filePath));
+		watcher.on("error", (error) => {
+			if (project.isStarting) {
+				return;
+			}
+			if (isWatcherLimitError(error) && !project.usesPolling && !project.isRestarting) {
+				project.isRestarting = true;
+				void restartWithPolling(project).catch((restartError) => {
+					project.isRestarting = false;
+					project.version += 1;
+					emit({
+						projectId: project.projectId,
+						topic: `project://${project.projectId}/vcs/activity`,
+						kind: "vcs/activity",
+						root: project.root,
+						paths: [`watcher-error:${restartError instanceof Error ? restartError.message : String(restartError)}`],
+						changedAt: Date.now(),
+						version: project.version,
+					});
+				});
+				return;
+			}
+			project.version += 1;
+			emit({
+				projectId: project.projectId,
+				topic: `project://${project.projectId}/vcs/activity`,
+				kind: "vcs/activity",
+				root: project.root,
+				paths: [`watcher-error:${error instanceof Error ? error.message : String(error)}`],
+				changedAt: Date.now(),
+				version: project.version,
+			});
+		});
+	}
+
 	function waitUntilReady(watcher: FSWatcher): Promise<void> {
 		return new Promise((resolve, reject) => {
 			let settled = false;
@@ -185,6 +252,28 @@ export function createChokidarVcsProjectWatcher(): VcsProjectWatcher {
 		});
 	}
 
+	async function restartWithPolling(project: WatchedProject): Promise<void> {
+		const previousWatcher = project.watcher;
+		const nextWatcher = createWatcher(project.root, true);
+		project.watcher = nextWatcher;
+		project.usesPolling = true;
+		attachWatcher(project);
+		await previousWatcher.close();
+		await waitUntilReady(nextWatcher);
+		project.isStarting = false;
+		project.isRestarting = false;
+		project.version += 1;
+		emit({
+			projectId: project.projectId,
+			topic: `project://${project.projectId}/vcs/activity`,
+			kind: "vcs/activity",
+			root: project.root,
+			paths: ["watcher-fallback:polling"],
+			changedAt: Date.now(),
+			version: project.version,
+		});
+	}
+
 	async function stop(projectId: string): Promise<void> {
 		const project = projects.get(projectId);
 		if (!project) {
@@ -208,47 +297,52 @@ export function createChokidarVcsProjectWatcher(): VcsProjectWatcher {
 			if (existing) {
 				await stop(projectId);
 			}
-			const watcher = chokidar.watch(root, {
-				ignoreInitial: true,
-				persistent: true,
-				ignored: (candidatePath) => shouldIgnoreVcsWatchPath(root, candidatePath),
-				awaitWriteFinish: {
-					stabilityThreshold: 80,
-					pollInterval: 20,
-				},
-			});
+			const watcher = createWatcher(root, false);
 			const project: WatchedProject = {
 				projectId,
 				root,
 				watcher,
+				usesPolling: false,
+				isStarting: true,
+				isRestarting: false,
 				pending: new Map(),
 				timers: new Map(),
 				version: 0,
 			};
-			watcher.on("add", (filePath) => queue(project, filePath));
-			watcher.on("change", (filePath) => queue(project, filePath));
-			watcher.on("unlink", (filePath) => queue(project, filePath));
-			watcher.on("addDir", (filePath) => queue(project, filePath));
-			watcher.on("unlinkDir", (filePath) => queue(project, filePath));
-			watcher.on("error", (error) => {
-				project.version += 1;
-				emit({
-					projectId: project.projectId,
-					topic: `project://${project.projectId}/vcs/activity`,
-					kind: "vcs/activity",
-					root: project.root,
-					paths: [`watcher-error:${error instanceof Error ? error.message : String(error)}`],
-					changedAt: Date.now(),
-					version: project.version,
-				});
-			});
+			attachWatcher(project);
 			projects.set(projectId, project);
 			try {
 				await waitUntilReady(watcher);
+				project.isStarting = false;
 			} catch (error) {
-				projects.delete(projectId);
 				await watcher.close();
-				throw error;
+				if (!isWatcherLimitError(error)) {
+					projects.delete(projectId);
+					throw error;
+				}
+				const fallbackWatcher = createWatcher(root, true);
+				project.watcher = fallbackWatcher;
+				project.usesPolling = true;
+				project.isStarting = true;
+				attachWatcher(project);
+				try {
+					await waitUntilReady(fallbackWatcher);
+					project.isStarting = false;
+					project.version += 1;
+					emit({
+						projectId: project.projectId,
+						topic: `project://${project.projectId}/vcs/activity`,
+						kind: "vcs/activity",
+						root: project.root,
+						paths: ["watcher-fallback:polling"],
+						changedAt: Date.now(),
+						version: project.version,
+					});
+				} catch (fallbackError) {
+					projects.delete(projectId);
+					await fallbackWatcher.close();
+					throw fallbackError;
+				}
 			}
 		},
 		stop,

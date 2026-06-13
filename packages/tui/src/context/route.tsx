@@ -1,9 +1,11 @@
 import { createStore } from "solid-js/store";
 import { createSimpleContext } from "./helper";
+import type { ConfigTabId } from "../views/config-data";
 
 export type RouteData =
   | { type: "home" }
-  | { type: "workspace"; changeId?: string };
+  | { type: "workspace"; changeId?: string }
+  | { type: "config"; tab?: ConfigTabId };
 
 export const { use: useRoute, provider: RouteProvider } = createSimpleContext({
   name: "Route",
@@ -21,6 +23,9 @@ export const { use: useRoute, provider: RouteProvider } = createSimpleContext({
       },
       workspace(changeId?: string) {
         setStore("route", { type: "workspace", changeId });
+      },
+      config(tab?: ConfigTabId) {
+        setStore("route", { type: "config", tab });
       },
     };
   },

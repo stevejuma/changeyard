@@ -6,6 +6,8 @@ import { findRepoRoot } from "../config/loadConfig.js";
 import { createChangeyardUiApi, importKanbanServerModule } from "./ui.js";
 import { repoFileUrl } from "../dev/paths.js";
 
+export type TuiMode = "board" | "config";
+
 export type TuiOptions = {
   connect?: string;
   host?: string;
@@ -14,6 +16,8 @@ export type TuiOptions = {
   debug?: boolean;
   smokeTest?: boolean;
   smokeCreateAll?: boolean;
+  mode?: TuiMode;
+  configTab?: string;
 };
 
 function resolveTuiEntrypoint(): string {
@@ -66,6 +70,8 @@ function runBunTui(input: {
   debug?: boolean;
   smokeTest?: boolean;
   smokeCreateAll?: boolean;
+  mode?: TuiMode;
+  configTab?: string;
 }): Promise<number> {
   return awaitableChild("bun", [
     "--preload",
@@ -75,6 +81,8 @@ function runBunTui(input: {
     input.runtimeUrl,
     "--project",
     input.projectRoot,
+    ...(input.mode === "config" ? ["--mode", "config"] : []),
+    ...(input.configTab ? ["--config-tab", input.configTab] : []),
     ...(input.debug ? ["--debug"] : []),
     ...(input.smokeTest ? ["--smoke-test"] : []),
     ...(input.smokeCreateAll ? ["--smoke-create-all"] : []),
@@ -110,6 +118,8 @@ export async function runTui(options: TuiOptions = {}, cwd = process.cwd()): Pro
       debug: options.debug,
       smokeTest: options.smokeTest,
       smokeCreateAll: options.smokeCreateAll,
+      mode: options.mode,
+      configTab: options.configTab,
     });
     if (code !== 0) {
       throw new Error([
@@ -120,7 +130,7 @@ export async function runTui(options: TuiOptions = {}, cwd = process.cwd()): Pro
         "- inspect changes with `cy list` and `cy status <id>`",
       ].join("\n"));
     }
-    return "Changeyard TUI closed.";
+    return options.mode === "config" ? "Changeyard config closed." : "Changeyard TUI closed.";
   } finally {
     if (embedded) {
       await embedded.close();

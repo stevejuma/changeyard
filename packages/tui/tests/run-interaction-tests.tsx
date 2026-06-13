@@ -31,6 +31,23 @@ async function mountHomeApp(): Promise<TestRendererSetup> {
   return setup;
 }
 
+async function mountConfigApp(): Promise<TestRendererSetup> {
+  const setup = await testRender(
+    () => (
+      <App
+        client={createMockRuntimeClient()}
+        project="/tmp/changeyard-test"
+        mode="config"
+        smokeTest={false}
+        smokeCreateAll={false}
+      />
+    ),
+    { width: TEST_WIDTH, height: TEST_HEIGHT },
+  );
+  await setup.flush();
+  return setup;
+}
+
 const cases: TestCase[] = [
   {
     name: "renders home screen with composer",
@@ -131,29 +148,42 @@ const cases: TestCase[] = [
     },
   },
   {
-    name: "opens agents dialog via /agents slash command",
+    name: "opens config view via /config slash command",
+    async run({ mockInput, waitForFrame, flush }) {
+      await mockInput.typeText("/config");
+      mockInput.pressEnter();
+      await flush();
+      mockInput.pressEnter();
+      const frame = await waitForFrame((text) => text.includes("Changeyard Config") && text.includes("Provider"), {
+        maxPasses: 40,
+      });
+      assert(frame.includes("Planning"), "expected config tabs");
+    },
+  },
+  {
+    name: "opens agent tab via /agents slash command",
     async run({ mockInput, waitForFrame, flush }) {
       await mockInput.typeText("/agents");
       mockInput.pressEnter();
       await flush();
       mockInput.pressEnter();
-      const frame = await waitForFrame((text) => text.includes("Agents") && text.includes("Claude"), {
+      const frame = await waitForFrame((text) => text.includes("Changeyard Config") && text.includes("Launch agent"), {
         maxPasses: 40,
       });
-      assert(frame.includes("Codex"), "expected agent options");
+      assert(frame.includes("Claude"), "expected selected agent label");
     },
   },
   {
-    name: "opens theme selector via /themes slash command",
+    name: "opens appearance tab via /themes slash command",
     async run({ mockInput, waitForFrame, flush }) {
       await mockInput.typeText("/themes");
       mockInput.pressEnter();
       await flush();
       mockInput.pressEnter();
-      const frame = await waitForFrame((text) => text.includes("Themes") && text.includes("dracula"), {
+      const frame = await waitForFrame((text) => text.includes("Changeyard Config") && text.includes("Theme"), {
         maxPasses: 40,
       });
-      assert(frame.includes("aura"), "expected bundled themes in selector");
+      assert(frame.includes("Create preset"), "expected appearance settings");
     },
   },
   {
@@ -167,6 +197,33 @@ const cases: TestCase[] = [
 ];
 
 let failed = 0;
+
+const standaloneCases: TestCase[] = [
+  {
+    name: "renders standalone config mode with project tab",
+    async run({ captureCharFrame }) {
+      const frame = captureCharFrame();
+      assert(frame.includes("Changeyard Config"), "expected config header");
+      assert(frame.includes("Provider"), "expected provider row");
+      assert(frame.includes("VCS engine"), "expected vcs row");
+    },
+  },
+];
+
+for (const testCase of standaloneCases) {
+  let setup: TestRendererSetup | null = null;
+  try {
+    setup = await mountConfigApp();
+    await testCase.run(setup);
+    process.stdout.write(`ok - ${testCase.name}\n`);
+  } catch (error) {
+    failed += 1;
+    const message = error instanceof Error ? error.stack ?? error.message : String(error);
+    process.stderr.write(`not ok - ${testCase.name}\n${message}\n`);
+  } finally {
+    setup?.renderer.destroy();
+  }
+}
 
 for (const testCase of cases) {
   let setup: TestRendererSetup | null = null;

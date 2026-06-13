@@ -299,10 +299,28 @@ export type RuntimeTaskSessionSummary = {
 	warningMessage?: string | null;
 };
 
+export type RuntimeShellSessionStartRequest = {
+	taskId: string;
+	cols?: number;
+	rows?: number;
+	workspaceTaskId?: string;
+	baseRef: string;
+};
+
 export type RuntimeShellSessionStartResponse = {
 	ok: boolean;
 	summary: RuntimeTaskSessionSummary | null;
 	shellBinary?: string | null;
+	error?: string;
+};
+
+export type RuntimeTaskSessionStopRequest = {
+	taskId: string;
+};
+
+export type RuntimeTaskSessionStopResponse = {
+	ok: boolean;
+	summary: RuntimeTaskSessionSummary | null;
 	error?: string;
 };
 

@@ -135,10 +135,68 @@ The implementation must stop at explicit verification checkpoints before continu
 - Verify repeated navigation does not create duplicate visible active requests.
 - Record notes in `TASKS.md` before continuing.
 
+## Milestone 6: Deterministic VCS E2E Harness And RTK Adoption
+
+- Treat the RTK Query spike as successful and close it as the chosen VCS server-state direction.
+- Add a deterministic JJ fixture generator that can create a real JJ/Git repository from scratch at any path.
+- The fixture must include:
+  - configured target/base `origin/main`
+  - independent active stacks
+  - dependent multi-head stacks
+  - a remote-only branch
+  - a file-backed Git remote for push/fetch behavior
+  - an optional dirty working-copy change
+- Wire fixture generation into package scripts so it can be run with npm or pnpm:
+  - `npm run vcs:fixture -- <path> --force`
+  - `pnpm vcs:fixture -- <path> --force`
+- Add VCS package Playwright E2E coverage against the generated fixture.
+- Cover the current critical routes before continuing migration:
+  - Branches stack derivation and remote-only rows
+  - Workspace apply-to-workspace, changed-files, and diff flow
+  - History operation log and commit graph rendering
+- Add `packages/vcs/AGENTS.md` documenting:
+  - RTK Query as the VCS data boundary
+  - service-owned event subscriptions and tag invalidation
+  - shared UI primitives that agents must reuse
+  - column/stack/file interaction patterns
+- Complete the remaining VCS read and mutation migration to RTK Query.
+- Keep any direct TRPC fetch/post helpers contained inside the RTK service layer.
+- Each migration step must add or update E2E coverage and pass the VCS E2E suite before moving on.
+
+### STOP: Verify VCS E2E Harness And RTK Adoption
+
+- Run fixture generation with a temp path.
+- Run `npm --workspace @changeyard/vcs run test`.
+- Run `npm --workspace @changeyard/vcs run typecheck`.
+- Run `npm --workspace @changeyard/vcs run e2e`.
+- Open the generated fixture manually with `npm run vcs:fixture -- <path> --force` when visual verification is needed.
+- Record notes in `TASKS.md` after verification.
+
+## Milestone 7: VCS SPA Routing
+
+- Add a lightweight internal router for the VCS app instead of adding `react-router-dom`.
+- Track browser `pathname`, `search`, and `hash` in React state.
+- Navigate Workspace, Branches, History, and Overview through `pushState`/`popstate` so the Redux provider and RTK Query cache remain mounted.
+- Open Settings as a dialog over the current page without changing the URL or unmounting the active route.
+- Preserve `workspaceId` across top-level VCS navigation.
+- Keep route selection URL params such as `ref`, `commit`, `file`, `operation`, and `workingCopyFile` working through router-backed query updates.
+- Keep direct browser loads of `/vcs`, `/vcs/jj`, `/vcs/jj/branches`, `/vcs/jj/history`, and legacy `/vcs/settings` supported.
+
+### STOP: Verify VCS SPA Routing
+
+- Run VCS unit tests.
+- Run VCS typecheck.
+- Run fixture-backed VCS E2E.
+- Verify Workspace -> Branches -> History navigation does not reload the browser document.
+- Verify opening Settings does not change the current route URL.
+- Verify browser back/forward updates the displayed VCS route.
+- Record notes in `TASKS.md` after verification.
+
 ## Final Verification
 
 - Run focused JJ/VCS tests.
 - Run `npm --workspace @changeyard/vcs run test`.
+- Run `npm --workspace @changeyard/vcs run e2e`.
 - Run `npm test`.
 - Manually inspect `/vcs/jj/branches` and `/vcs/jj`.
 - Update `TASKS.md` with final verification results.

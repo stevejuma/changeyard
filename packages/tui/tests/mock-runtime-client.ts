@@ -96,16 +96,33 @@ export function createMockRuntimeClient(overrides: Partial<RuntimeClient> = {}):
         providerType: "noop",
         vcsEngine: "plain-copy",
         vcsFallback: "plain-copy",
+        projectDefaultBase: "main",
+        planningDefaultProfile: "none",
+        planningDefaultStrictness: "normal",
+        planningAllowQuickChanges: true,
       }) satisfies ProjectConfigResponse,
     initProject: async () => ({ message: "Initialized Changeyard in .changeyard" }),
     updateProject: async () => ({ message: "Updated Changeyard scaffold in .changeyard" }),
-    updateProjectConfig: async (input: { providerType?: string; vcsEngine?: string; vcsFallback?: string; vcsTargetBranch?: string | null }) =>
+    updateProjectConfig: async (input: {
+      providerType?: string;
+      vcsEngine?: string;
+      vcsFallback?: string;
+      vcsTargetBranch?: string | null;
+      projectDefaultBase?: string;
+      planningDefaultProfile?: "none" | "openspec-lite";
+      planningDefaultStrictness?: "normal" | "strict";
+      planningAllowQuickChanges?: boolean;
+    }) =>
       ({
         initialized: true,
-        providerType: input.providerType ?? "noop",
-        vcsEngine: input.vcsEngine ?? "plain-copy",
-        vcsFallback: input.vcsFallback ?? "plain-copy",
+        providerType: (input.providerType ?? "noop") as ProjectConfigResponse["providerType"],
+        vcsEngine: (input.vcsEngine ?? "plain-copy") as ProjectConfigResponse["vcsEngine"],
+        vcsFallback: (input.vcsFallback ?? "plain-copy") as ProjectConfigResponse["vcsFallback"],
         vcsTargetBranch: input.vcsTargetBranch ?? null,
+        projectDefaultBase: input.projectDefaultBase ?? "main",
+        planningDefaultProfile: input.planningDefaultProfile ?? "none",
+        planningDefaultStrictness: input.planningDefaultStrictness ?? "normal",
+        planningAllowQuickChanges: input.planningAllowQuickChanges ?? true,
       }) satisfies ProjectConfigResponse,
     doctorProject: async () =>
       ({

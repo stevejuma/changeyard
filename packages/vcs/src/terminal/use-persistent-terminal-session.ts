@@ -2,6 +2,7 @@ import type { MutableRefObject } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { RuntimeTaskSessionSummary } from "@/runtime/types";
+import { useStopTaskSessionMutation } from "@/runtime/vcs-api";
 import { disposePersistentTerminal, ensurePersistentTerminal } from "@/terminal/persistent-terminal-manager";
 import { getTerminalThemeColors, useTheme } from "@/utils/vcs-theme";
 
@@ -44,6 +45,7 @@ export function usePersistentTerminalSession({
 	const previousSessionRef = useRef<{ workspaceId: string; taskId: string; sessionStartedAt: number | null } | null>(null);
 	const [lastError, setLastError] = useState<string | null>(null);
 	const [isStopping, setIsStopping] = useState(false);
+	const [stopTaskSession] = useStopTaskSessionMutation();
 	callbackRef.current = { onSummary };
 
 	useEffect(() => {
@@ -124,16 +126,21 @@ export function usePersistentTerminalSession({
 
 	const stopTerminal = useCallback(async () => {
 		const terminal = terminalRef.current;
-		if (!terminal) {
+		if (!terminal || !workspaceId) {
 			return;
 		}
 		setIsStopping(true);
 		try {
-			await terminal.stop();
+			await terminal.stop(() =>
+				stopTaskSession({
+					workspaceId,
+					input: { taskId },
+				}).unwrap(),
+			);
 		} finally {
 			setIsStopping(false);
 		}
-	}, []);
+	}, [stopTaskSession, taskId, workspaceId]);
 
 	const clearTerminal = useCallback(() => {
 		terminalRef.current?.clear();

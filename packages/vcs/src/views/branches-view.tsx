@@ -36,17 +36,18 @@ import type {
 	RuntimeGitCommitDiffResponse,
 	RuntimeGitLogResponse,
 	RuntimeProjectConfigResponse,
-	RuntimeProjectConfigUpdateRequest,
 	VcsJjInventoryItem,
 	VcsJjInventoryResponse,
 	VcsJjStateResponse,
 } from "@/runtime/types";
-import { postTrpcMutation, usePaginatedRepositoryLog, useTrpcQuery } from "@/runtime/trpc-client";
+import { useRtkPaginatedRepositoryLog } from "@/runtime/repository-log-api";
 import {
 	toRuntimeQueryState,
+	useGetProjectConfigQuery,
 	useGetJjInventoryQuery,
 	useGetJjStateQuery,
 	useGetRepositoryCommitDiffQuery,
+	useUpdateProjectConfigMutation,
 } from "@/runtime/vcs-api";
 import {
 	readVcsBooleanPreference,
@@ -58,6 +59,7 @@ import {
 	writeVcsNumberPreference,
 	type VcsFileViewMode,
 } from "@/utils/vcs-ui-preferences";
+import { readVcsQueryParam, useVcsRouter } from "@/utils/vcs-router";
 
 type BranchFilter = "all" | "prs" | "local";
 type BranchColumnId = "refs" | "stack";
@@ -85,20 +87,6 @@ const GROUP_LABELS: Record<VcsJjInventoryItem["group"], string> = {
 	tags: "Tags",
 	older: "Older",
 };
-
-function readQueryParam(name: string): string | null {
-	return new URLSearchParams(window.location.search).get(name)?.trim() || null;
-}
-
-function writeQueryParam(name: string, value: string | null): void {
-	const url = new URL(window.location.href);
-	if (value) {
-		url.searchParams.set(name, value);
-	} else {
-		url.searchParams.delete(name);
-	}
-	window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
-}
 
 function itemIcon(item: VcsJjInventoryItem): React.ReactElement {
 	if (item.type === "tag") {
@@ -178,6 +166,13 @@ export function BranchesView({
 	projectState: VcsShellProjectState;
 	workspaceId: string | null;
 }): React.ReactElement {
+	const { location, setQueryParam } = useVcsRouter();
+	function readQueryParam(name: string): string | null {
+		return readVcsQueryParam(location.search, name);
+	}
+	function writeQueryParam(name: string, value: string | null): void {
+		setQueryParam(name, value, { replace: true });
+	}
 	const hasWorkspace = Boolean(workspaceId);
 	const inventoryResult = useGetJjInventoryQuery({ workspaceId: workspaceId ?? "" }, { skip: !hasWorkspace });
 	const stackResult = useGetJjStateQuery({ workspaceId: workspaceId ?? "" }, { skip: !hasWorkspace });
@@ -189,12 +184,12 @@ export function BranchesView({
 		state: toRuntimeQueryState<VcsJjStateResponse>(stackResult, "Failed to load JJ stacks."),
 		refresh: () => void stackResult.refetch(),
 	};
-	const projectConfigQuery = useTrpcQuery<RuntimeProjectConfigResponse>(
-		"changes.getProjectConfig",
-		"Failed to load project configuration.",
-		workspaceId,
-		hasWorkspace,
-	);
+	const projectConfigResult = useGetProjectConfigQuery({ workspaceId: workspaceId ?? "" }, { skip: !hasWorkspace });
+	const [updateProjectConfig] = useUpdateProjectConfigMutation();
+	const projectConfigQuery = {
+		state: toRuntimeQueryState<RuntimeProjectConfigResponse>(projectConfigResult, "Failed to load project configuration."),
+		refresh: () => void projectConfigResult.refetch(),
+	};
 	const [filter, setFilter] = useState<BranchFilter>("all");
 	const [search, setSearch] = useState("");
 	const [collapsedColumns, setCollapsedColumns] = useState<Record<BranchColumnId, boolean>>({
@@ -224,6 +219,12 @@ export function BranchesView({
 	};
 	const files = toFileChanges(commitDiffQuery.state);
 	const selectedFile = findFileByPath(files, selectedFilePath);
+
+	useEffect(() => {
+		setSelectedRefName(readVcsQueryParam(location.search, "ref"));
+		setSelectedCommitHash(readVcsQueryParam(location.search, "commit"));
+		setSelectedFilePath(readVcsQueryParam(location.search, "file"));
+	}, [location.search]);
 
 	useEffect(() => {
 		if (selectedRefName || hasUserClearedRef || inventoryQuery.state.status !== "ready") {
@@ -362,12 +363,10 @@ export function BranchesView({
 				: unapplyWorkspaceStackId(currentStackIds, stackId);
 		setUpdatingAppliedStackId(stackId);
 		try {
-			await postTrpcMutation<RuntimeProjectConfigResponse>(
-				"changes.updateProjectConfig",
-				{ vcsAppliedStacks: nextStackIds } satisfies RuntimeProjectConfigUpdateRequest,
+			await updateProjectConfig({
 				workspaceId,
-			);
-			projectConfigQuery.refresh();
+				input: { vcsAppliedStacks: nextStackIds },
+			}).unwrap();
 		} finally {
 			setUpdatingAppliedStackId(null);
 		}
@@ -600,7 +599,7 @@ function BranchesReady({
 		selectedRefName ? selectableItems.find((item) => getItemTarget(item) === selectedRefName) ?? null : null;
 	const workspaceTargetLogRef = getWorkspaceTargetLogRef(activeItem);
 	const workspaceTargetLogInput = useMemo(() => ({ ref: workspaceTargetLogRef }), [workspaceTargetLogRef]);
-	const workspaceTargetLogQuery = usePaginatedRepositoryLog({
+	const workspaceTargetLogQuery = useRtkPaginatedRepositoryLog({
 		input: workspaceTargetLogInput,
 		message: "Failed to load workspace target commits.",
 		enabled: Boolean(workspaceId && workspaceTargetLogRef),
@@ -772,6 +771,7 @@ function BranchesColumnContent({
 			<div className="border-b border-border px-3 py-3">
 				<button
 					type="button"
+					data-testid="vcs-current-workspace-target"
 					disabled={!workspaceTarget}
 					onClick={() => {
 						if (workspaceTarget) {

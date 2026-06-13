@@ -10,8 +10,8 @@ import {
 } from "react";
 
 import { cn } from "@/components/ui/cn";
-import { fetchTrpcQuery } from "@/runtime/trpc-client";
-import type { RuntimeDirectoryListEntry, RuntimeDirectoryListResponse } from "@/runtime/types";
+import type { RuntimeDirectoryListEntry } from "@/runtime/types";
+import { useLazyGetProjectDirectoryContentsQuery } from "@/runtime/vcs-api";
 import { toUiRelative } from "@/utils/server-path";
 
 export interface DirectoryAutocompleteProps {
@@ -46,6 +46,7 @@ export function DirectoryAutocomplete({
 	const userInteractedRef = useRef(false);
 	const inputRefToUse = externalInputRef ?? internalInputRef;
 	const listboxId = id ? `${id}-listbox` : undefined;
+	const [getDirectoryContents] = useLazyGetProjectDirectoryContentsQuery();
 
 	const displayValue = value.replace(/^[\\/]+/, "");
 
@@ -79,11 +80,10 @@ export function DirectoryAutocomplete({
 
 		const fetchSuggestions = async () => {
 			try {
-				const response = await fetchTrpcQuery<RuntimeDirectoryListResponse>(
-					"projects.listDirectoryContents",
-					parentDir ? { path: parentDir } : {},
+				const response = await getDirectoryContents({
 					workspaceId,
-				);
+					input: parentDir ? { path: parentDir } : {},
+				}).unwrap();
 				if (fetchId !== fetchIdRef.current) {
 					return;
 				}
@@ -118,7 +118,7 @@ export function DirectoryAutocomplete({
 		};
 
 		void fetchSuggestions();
-	}, [debouncedValue, disabled, workspaceId]);
+	}, [debouncedValue, disabled, getDirectoryContents, workspaceId]);
 
 	useEffect(() => {
 		const handleClickOutside = (event: MouseEvent) => {

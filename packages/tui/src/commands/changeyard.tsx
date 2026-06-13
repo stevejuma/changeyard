@@ -9,11 +9,8 @@ import { DialogAlert } from "../ui/dialog-alert";
 import { useToast } from "../ui/toast";
 import { CreateDialog } from "../dialogs/create";
 import { PlanningPromptDialog } from "../dialogs/planning-prompt";
-import { DialogThemeList } from "../component/dialog-theme-list";
-import { DialogAgentList } from "../component/dialog-agent-list";
-import { DialogProviderList } from "../component/dialog-provider-list";
-import { DialogVcsList } from "../component/dialog-vcs-list";
 import { DialogMessage } from "../ui/dialog-message";
+import { configTabFromArg } from "../views/config-view";
 import { useTheme } from "../context/theme";
 import { useComposerSettings } from "../context/composer-settings";
 import { firstPromptSection } from "../context/app-state";
@@ -185,10 +182,11 @@ export function useChangeyardActions() {
       workspace: () => setPreviewTab("workspace"),
       "review-view": () => setPreviewTab("review"),
       reviewview: () => setPreviewTab("review"),
-      themes: () => dialog.replace(() => <DialogThemeList />),
-      agents: () => dialog.replace(() => <DialogAgentList />),
-      provider: () => dialog.replace(() => <DialogProviderList />),
-      vcs: () => dialog.replace(() => <DialogVcsList />),
+      themes: () => route.config("appearance"),
+      config: (args) => route.config(configTabFromArg(args)),
+      agents: () => route.config("agent"),
+      provider: () => route.config("project"),
+      vcs: () => route.config("project"),
       init: () => {
         void composerSettings.initProject().then((result) => {
           void composerSettings.refreshProjectConfig();
@@ -280,18 +278,26 @@ export function RegisterChangeyardCommands() {
       onSelect: () => route.home(),
     },
     {
+      title: "Configure Changeyard",
+      value: "project.config",
+      category: "Setup",
+      suggested: true,
+      slash: { name: "config" },
+      onSelect: () => route.config(),
+    },
+    {
       title: "Switch theme",
       value: "theme.switch",
       category: "System",
       slash: { name: "themes" },
-      onSelect: () => dialog.replace(() => <DialogThemeList />),
+      onSelect: () => route.config("appearance"),
     },
     {
       title: "Select agent",
       value: "agents.select",
       category: "System",
       slash: { name: "agents" },
-      onSelect: () => dialog.replace(() => <DialogAgentList />),
+      onSelect: () => route.config("agent"),
     },
     {
       title: "Initialize Changeyard",
@@ -312,14 +318,14 @@ export function RegisterChangeyardCommands() {
       value: "project.provider",
       category: "Setup",
       slash: { name: "provider" },
-      onSelect: () => dialog.replace(() => <DialogProviderList />),
+      onSelect: () => route.config("project"),
     },
     {
       title: "Configure VCS",
       value: "project.vcs",
       category: "Setup",
       slash: { name: "vcs" },
-      onSelect: () => dialog.replace(() => <DialogVcsList />),
+      onSelect: () => route.config("project"),
     },
     {
       title: "Run doctor",

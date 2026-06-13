@@ -15,8 +15,8 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Dialog, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
-import { fetchTrpcQuery, postTrpcMutation } from "@/runtime/trpc-client";
-import type { RuntimeDirectoryListResponse, RuntimeProjectAddRequest, RuntimeProjectAddResponse } from "@/runtime/types";
+import type { RuntimeProjectAddRequest } from "@/runtime/types";
+import { useAddProjectMutation, useLazyGetProjectDirectoryContentsQuery } from "@/runtime/vcs-api";
 import { toServerAbsolute } from "@/utils/server-path";
 
 type AddProjectTab = "path" | "clone";
@@ -48,6 +48,8 @@ export function AddProjectDialog({
 	const [serverRootPath, setServerRootPath] = useState<string | null>(null);
 	const pathInputRef = useRef<HTMLInputElement>(null);
 	const gitUrlInputRef = useRef<HTMLInputElement>(null);
+	const [getDirectoryContents] = useLazyGetProjectDirectoryContentsQuery();
+	const [addProjectMutation] = useAddProjectMutation();
 
 	useEffect(() => {
 		if (!open) {
@@ -65,11 +67,7 @@ export function AddProjectDialog({
 
 		const fetchRoot = async () => {
 			try {
-				const response = await fetchTrpcQuery<RuntimeDirectoryListResponse>(
-					"projects.listDirectoryContents",
-					{},
-					currentProjectId,
-				);
+				const response = await getDirectoryContents({ workspaceId: currentProjectId, input: {} }).unwrap();
 				if (response.ok && response.rootPath) {
 					setServerRootPath(response.rootPath);
 				}
@@ -78,7 +76,7 @@ export function AddProjectDialog({
 			}
 		};
 		void fetchRoot();
-	}, [currentProjectId, initialGitInitPath, open]);
+	}, [currentProjectId, getDirectoryContents, initialGitInitPath, open]);
 
 	useEffect(() => {
 		if (!open || activeTab !== "clone") {
@@ -113,11 +111,10 @@ export function AddProjectDialog({
 				setIsAddingByPath(true);
 			}
 			try {
-				const added = await postTrpcMutation<RuntimeProjectAddResponse>(
-					"projects.add",
-					{ path: absolutePath, initializeGit } satisfies RuntimeProjectAddRequest,
-					currentProjectId,
-				);
+				const added = await addProjectMutation({
+					workspaceId: currentProjectId,
+					input: { path: absolutePath, initializeGit } satisfies RuntimeProjectAddRequest,
+				}).unwrap();
 				if (!added.ok || !added.project) {
 					if (added.requiresGitInitialization) {
 						setPendingGitInitPath(absolutePath);
@@ -136,18 +133,17 @@ export function AddProjectDialog({
 				setIsInitializingGit(false);
 			}
 		},
-		[currentProjectId, onOpenChange, onProjectAdded, resolveToAbsolutePath],
+		[addProjectMutation, currentProjectId, onOpenChange, onProjectAdded, resolveToAbsolutePath],
 	);
 
 	const handleInitializeGit = useCallback(
 		async (absolutePath: string) => {
 			setIsInitializingGit(true);
 			try {
-				const added = await postTrpcMutation<RuntimeProjectAddResponse>(
-					"projects.add",
-					{ path: absolutePath, initializeGit: true } satisfies RuntimeProjectAddRequest,
-					currentProjectId,
-				);
+				const added = await addProjectMutation({
+					workspaceId: currentProjectId,
+					input: { path: absolutePath, initializeGit: true } satisfies RuntimeProjectAddRequest,
+				}).unwrap();
 				if (!added.ok || !added.project) {
 					throw new Error(added.error ?? "Could not add project.");
 				}
@@ -161,7 +157,7 @@ export function AddProjectDialog({
 				setIsInitializingGit(false);
 			}
 		},
-		[currentProjectId, onOpenChange, onProjectAdded],
+		[addProjectMutation, currentProjectId, onOpenChange, onProjectAdded],
 	);
 
 	const handleClone = useCallback(async () => {
@@ -180,7 +176,7 @@ export function AddProjectDialog({
 			} else if (trimmedFolder) {
 				mutationInput.path = serverRootPath ? toServerAbsolute(serverRootPath, trimmedFolder) : trimmedFolder;
 			}
-			const added = await postTrpcMutation<RuntimeProjectAddResponse>("projects.add", mutationInput, currentProjectId);
+			const added = await addProjectMutation({ workspaceId: currentProjectId, input: mutationInput }).unwrap();
 			if (!added.ok || !added.project) {
 				throw new Error(added.error ?? "Clone failed.");
 			}
@@ -196,6 +192,7 @@ export function AddProjectDialog({
 	}, [
 		cloneDestInput,
 		cloneFolderName,
+		addProjectMutation,
 		currentProjectId,
 		gitUrlInput,
 		onOpenChange,
