@@ -5,27 +5,33 @@ import { notifyError, showAppToast } from "@/components/app-toaster";
 import { resolveVcsRoute } from "@/routes";
 import type {
 	RuntimeProjectAddRequest,
-	RuntimeProjectAddResponse,
-	RuntimeProjectDirectoryPickerResponse,
-	RuntimeProjectRemoveResponse,
 	RuntimeProjectsResponse,
 	VcsDetectResponse,
 	VcsJjDiffResponse,
 	VcsJjStateResponse,
 } from "@/runtime/types";
-import { postTrpcMutation, useTrpcQuery } from "@/runtime/trpc-client";
-import { toRuntimeQueryState, useGetJjDiffQuery, useGetJjStateQuery } from "@/runtime/vcs-api";
+import {
+	toRuntimeQueryState,
+	useAddProjectMutation,
+	useGetJjDiffQuery,
+	useGetJjStateQuery,
+	useGetProjectsQuery,
+	useGetVcsDetectQuery,
+	usePickProjectDirectoryMutation,
+	useRemoveProjectMutation,
+} from "@/runtime/vcs-api";
 import { BranchesView } from "@/views/branches-view";
 import { HistoryView } from "@/views/history-view";
 import { JjBoardView } from "@/views/jj-board-view";
-import { LandingView } from "@/views/landing-view";
-import { SettingsView } from "@/views/settings-view";
-import { isLocalhostAccess } from "@/utils/localhost-detection";
+import { SettingsDialog } from "@/views/settings-view";
+import { shouldUseNativeDirectoryPicker } from "@/utils/localhost-detection";
+import { withWorkspaceParam } from "@/utils/vcs-navigation";
 import {
 	readVcsBooleanPreference,
 	VCS_LAYOUT_STORAGE_KEYS,
 	writeVcsBooleanPreference,
 } from "@/utils/vcs-ui-preferences";
+import { readVcsQueryParam, useVcsRouter } from "@/utils/vcs-router";
 
 const DIRECTORY_PICKER_UNAVAILABLE_MARKERS = [
 	"could not open directory picker",
@@ -45,38 +51,33 @@ function isDirectoryPickerUnavailableError(message: string | null | undefined): 
 	return DIRECTORY_PICKER_UNAVAILABLE_MARKERS.some((marker) => normalized.includes(marker));
 }
 
-function readWorkspaceIdFromLocation(): string | null {
-	const params = new URLSearchParams(window.location.search);
-	return params.get("workspaceId")?.trim() || null;
-}
-
-function writeWorkspaceIdToLocation(workspaceId: string | null): void {
-	const url = new URL(window.location.href);
-	if (workspaceId) {
-		url.searchParams.set("workspaceId", workspaceId);
-	} else {
-		url.searchParams.delete("workspaceId");
-	}
-	window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
-}
-
 export default function App(): React.ReactElement {
-	const currentPath = window.location.pathname;
+	const { location, navigate, setQueryParam } = useVcsRouter();
+	const currentPath = location.pathname;
 	const route = resolveVcsRoute(currentPath);
-	const [selectedProjectId, setSelectedProjectId] = useState<string | null>(() => readWorkspaceIdFromLocation());
+	const urlWorkspaceId = readVcsQueryParam(location.search, "workspaceId");
+	const [selectedProjectId, setSelectedProjectId] = useState<string | null>(() => urlWorkspaceId);
 	const [isProjectNavCollapsed, setProjectNavCollapsedState] = useState(() =>
 		readVcsBooleanPreference(VCS_LAYOUT_STORAGE_KEYS.projectNavCollapsed, false),
 	);
 	const [removingProjectId, setRemovingProjectId] = useState<string | null>(null);
 	const [optimisticallyRemovedProjectIds, setOptimisticallyRemovedProjectIds] = useState<Set<string>>(() => new Set());
 	const [isAddProjectDialogOpen, setAddProjectDialogOpen] = useState(false);
+	const [isSettingsOpen, setSettingsOpen] = useState(false);
 	const [pendingNativeGitInitPath, setPendingNativeGitInitPath] = useState<string | null>(null);
 
-	const projectsQuery = useTrpcQuery<RuntimeProjectsResponse>(
-		"projects.list",
-		"Failed to load projects.",
-		selectedProjectId,
-	);
+	useEffect(() => {
+		setSelectedProjectId(urlWorkspaceId);
+	}, [urlWorkspaceId]);
+
+	const projectsResult = useGetProjectsQuery({ preferredWorkspaceId: selectedProjectId });
+	const [pickProjectDirectory] = usePickProjectDirectoryMutation();
+	const [addProjectMutation] = useAddProjectMutation();
+	const [removeProjectMutation] = useRemoveProjectMutation();
+	const projectsQuery = {
+		state: toRuntimeQueryState<RuntimeProjectsResponse>(projectsResult, "Failed to load projects."),
+		refresh: () => void projectsResult.refetch(),
+	};
 	const workspaceId = selectedProjectId ?? (projectsQuery.state.status === "ready" ? projectsQuery.state.data.currentProjectId : null);
 	const currentProject = useMemo(() => {
 		if (projectsQuery.state.status !== "ready" || !workspaceId) {
@@ -98,15 +99,23 @@ export default function App(): React.ReactElement {
 	}, [optimisticallyRemovedProjectIds, projectsQuery.state]);
 
 	useEffect(() => {
+		if (route.kind !== "settings") {
+			return;
+		}
+		setSettingsOpen(true);
+		navigate(withWorkspaceParam("/vcs", workspaceId), { replace: true });
+	}, [navigate, route.kind, workspaceId]);
+
+	useEffect(() => {
 		if (selectedProjectId || projectsQuery.state.status !== "ready") {
 			return;
 		}
 		const nextProjectId = projectsQuery.state.data.currentProjectId ?? projectsQuery.state.data.projects[0]?.id ?? null;
 		if (nextProjectId) {
 			setSelectedProjectId(nextProjectId);
-			writeWorkspaceIdToLocation(nextProjectId);
+			setQueryParam("workspaceId", nextProjectId, { replace: true });
 		}
-	}, [projectsQuery.state, selectedProjectId]);
+	}, [projectsQuery.state, selectedProjectId, setQueryParam]);
 
 	useEffect(() => {
 		if (projectsQuery.state.status !== "ready" || optimisticallyRemovedProjectIds.size === 0) {
@@ -123,7 +132,7 @@ export default function App(): React.ReactElement {
 
 	function selectProject(projectId: string): void {
 		setSelectedProjectId(projectId);
-		writeWorkspaceIdToLocation(projectId);
+		setQueryParam("workspaceId", projectId, { replace: true });
 	}
 
 	function setProjectNavCollapsed(collapsed: boolean): void {
@@ -138,23 +147,18 @@ export default function App(): React.ReactElement {
 
 	async function addProject(): Promise<void> {
 		setPendingNativeGitInitPath(null);
-		if (!isLocalhostAccess()) {
+		if (!shouldUseNativeDirectoryPicker()) {
 			setAddProjectDialogOpen(true);
 			return;
 		}
 
 		try {
-			const picked = await postTrpcMutation<RuntimeProjectDirectoryPickerResponse>(
-				"projects.pickDirectory",
-				{},
-				workspaceId,
-			);
+			const picked = await pickProjectDirectory({ workspaceId }).unwrap();
 			if (picked.ok && picked.path) {
-				const added = await postTrpcMutation<RuntimeProjectAddResponse>(
-					"projects.add",
-					{ path: picked.path } satisfies RuntimeProjectAddRequest,
+				const added = await addProjectMutation({
 					workspaceId,
-				);
+					input: { path: picked.path } satisfies RuntimeProjectAddRequest,
+				}).unwrap();
 				if (!added.ok || !added.project) {
 					if (added.requiresGitInitialization) {
 						setPendingNativeGitInitPath(picked.path);
@@ -190,17 +194,13 @@ export default function App(): React.ReactElement {
 		}
 		setRemovingProjectId(projectId);
 		try {
-			const result = await postTrpcMutation<RuntimeProjectRemoveResponse>(
-				"projects.remove",
-				{ projectId },
-				workspaceId,
-			);
+			const result = await removeProjectMutation({ projectId, workspaceId }).unwrap();
 			if (!result.ok) {
 				throw new Error(result.error ?? "Could not remove project.");
 			}
 			if (workspaceId === projectId) {
 				setSelectedProjectId(null);
-				writeWorkspaceIdToLocation(null);
+				setQueryParam("workspaceId", null, { replace: true });
 			}
 			projectsQuery.refresh();
 			return true;
@@ -221,17 +221,13 @@ export default function App(): React.ReactElement {
 			return false;
 		}
 		setSelectedProjectId(workspaceId);
-		writeWorkspaceIdToLocation(workspaceId);
+		setQueryParam("workspaceId", workspaceId, { replace: true });
 		const projectIdsToRemove = new Set(projectsToRemove.map((project) => project.id));
 		setOptimisticallyRemovedProjectIds(projectIdsToRemove);
 		try {
 			for (const project of projectsToRemove) {
 				setRemovingProjectId(project.id);
-				const result = await postTrpcMutation<RuntimeProjectRemoveResponse>(
-					"projects.remove",
-					{ projectId: project.id },
-					workspaceId,
-				);
+				const result = await removeProjectMutation({ projectId: project.id, workspaceId }).unwrap();
 				if (!result.ok) {
 					throw new Error(result.error ?? `Could not remove ${project.name}.`);
 				}
@@ -259,18 +255,20 @@ export default function App(): React.ReactElement {
 		onAddProject: () => void addProject(),
 		onRemoveProject: removeProject,
 		onClearOtherProjects: clearOtherProjects,
+		onOpenSettings: () => setSettingsOpen(true),
 	};
 	const hasWorkspace = Boolean(workspaceId);
-	const detectQuery = useTrpcQuery<VcsDetectResponse>("vcs.detect", "Failed to load VCS detection.", workspaceId, hasWorkspace);
+	const detectResult = useGetVcsDetectQuery({ workspaceId: workspaceId ?? "" }, { skip: !hasWorkspace });
 	const jjDiffResult = useGetJjDiffQuery({ workspaceId: workspaceId ?? "" }, { skip: !hasWorkspace });
 	const jjStateResult = useGetJjStateQuery({ workspaceId: workspaceId ?? "" }, { skip: !hasWorkspace });
+	const detectQuery = {
+		state: toRuntimeQueryState<VcsDetectResponse>(detectResult, "Failed to load VCS detection."),
+	};
 	const jjDiffQuery = {
 		state: toRuntimeQueryState<VcsJjDiffResponse>(jjDiffResult, "Failed to load JJ diff."),
-		refresh: () => void jjDiffResult.refetch(),
 	};
 	const jjStateQuery = {
 		state: toRuntimeQueryState<VcsJjStateResponse>(jjStateResult, "Failed to load JJ state."),
-		refresh: () => void jjStateResult.refetch(),
 	};
 
 	let routedView: React.ReactElement;
@@ -282,9 +280,7 @@ export default function App(): React.ReactElement {
 					projectState={projectState}
 					workspaceId={workspaceId}
 					state={jjStateQuery.state}
-					refreshState={jjStateQuery.refresh}
 					diffState={jjDiffQuery.state}
-					refreshDiff={jjDiffQuery.refresh}
 				/>
 			);
 			break;
@@ -307,22 +303,14 @@ export default function App(): React.ReactElement {
 			);
 			break;
 		case "settings":
-			routedView = (
-				<SettingsView
-					currentPath={currentPath}
-					projectState={projectState}
-					workspaceId={workspaceId}
-					state={detectQuery.state}
-				/>
-			);
-			break;
 		default:
 			routedView = (
-				<LandingView
+				<JjBoardView
 					currentPath={currentPath}
 					projectState={projectState}
 					workspaceId={workspaceId}
-					state={detectQuery.state}
+					state={jjStateQuery.state}
+					diffState={jjDiffQuery.state}
 				/>
 			);
 			break;
@@ -342,6 +330,13 @@ export default function App(): React.ReactElement {
 				onProjectAdded={handleAddProjectSuccess}
 				currentProjectId={workspaceId}
 				initialGitInitPath={pendingNativeGitInitPath}
+			/>
+			<SettingsDialog
+				open={isSettingsOpen}
+				onOpenChange={setSettingsOpen}
+				projectState={projectState}
+				workspaceId={workspaceId}
+				state={detectQuery.state}
 			/>
 		</>
 	);

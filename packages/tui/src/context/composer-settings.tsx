@@ -106,11 +106,32 @@ export const { use: useComposerSettings, provider: ComposerSettingsProvider } = 
         setProject({ loaded: true, config: projectConfig });
         return projectConfig;
       },
-      async updateVcs(vcsEngine: string, vcsFallback?: string) {
+      async updateVcs(
+        vcsEngine: ProjectConfigResponse["vcsEngine"],
+        vcsFallback?: ProjectConfigResponse["vcsFallback"],
+      ) {
         const projectConfig = await client.updateProjectConfig({
           vcsEngine,
           ...(vcsFallback ? { vcsFallback } : {}),
         });
+        setProject({ loaded: true, config: projectConfig });
+        return projectConfig;
+      },
+      async updatePlanning(input: {
+        defaultProfile?: "none" | "openspec-lite";
+        defaultStrictness?: "normal" | "strict";
+        allowQuickChanges?: boolean;
+      }) {
+        const projectConfig = await client.updateProjectConfig({
+          planningDefaultProfile: input.defaultProfile,
+          planningDefaultStrictness: input.defaultStrictness,
+          planningAllowQuickChanges: input.allowQuickChanges,
+        });
+        setProject({ loaded: true, config: projectConfig });
+        return projectConfig;
+      },
+      async updateDefaultBase(projectDefaultBase: string) {
+        const projectConfig = await client.updateProjectConfig({ projectDefaultBase });
         setProject({ loaded: true, config: projectConfig });
         return projectConfig;
       },

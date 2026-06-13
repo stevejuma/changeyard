@@ -18,8 +18,8 @@ function normalizeVcsPath(path: string): string {
 export function isVcsNavItemActive(itemHref: string, currentPath: string): boolean {
 	const itemPath = normalizeVcsPath(itemHref);
 	const path = normalizeVcsPath(currentPath);
-	if (itemPath === "/vcs") {
-		return path === "/vcs";
+	if (itemPath === "/vcs/jj") {
+		return path === "/vcs" || path === "/vcs/jj";
 	}
 	return path === itemPath;
 }

@@ -10,7 +10,6 @@ import type {
 	RuntimeTerminalWsClientMessage,
 	RuntimeTerminalWsServerMessage,
 } from "@/runtime/types";
-import { postTrpcMutation } from "@/runtime/trpc-client";
 import { clearTerminalGeometry, reportTerminalGeometry } from "@/terminal/terminal-geometry-registry";
 import { createVcsTerminalOptions } from "@/terminal/terminal-options";
 import { estimateTaskSessionGeometry } from "@/terminal/task-session-geometry";
@@ -41,6 +40,8 @@ type EnsurePersistentTerminalInput = PersistentTerminalAppearance & {
 	taskId: string;
 	workspaceId: string;
 };
+
+type StopTaskSession = () => Promise<unknown>;
 
 function generateTerminalClientId(): string {
 	if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -485,9 +486,9 @@ class PersistentTerminal {
 		});
 	}
 
-	async stop(): Promise<void> {
+	async stop(stopTaskSession: StopTaskSession): Promise<void> {
 		this.sendControlMessage({ type: "stop" });
-		await postTrpcMutation("runtime.stopTaskSession", { taskId: this.taskId }, this.workspaceId);
+		await stopTaskSession();
 	}
 
 	dispose(): void {

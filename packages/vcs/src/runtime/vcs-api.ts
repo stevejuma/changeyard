@@ -1,13 +1,31 @@
 import { createApi, fakeBaseQuery } from "@reduxjs/toolkit/query/react";
 
-import { fetchTrpcQuery } from "@/runtime/trpc-client";
+import { fetchTrpcQuery, postTrpcMutation } from "@/runtime/trpc-client";
 import type {
 	QueryState,
+	RuntimeDirectoryListRequest,
+	RuntimeDirectoryListResponse,
 	RuntimeGitCommitDiffResponse,
+	RuntimeGitLogRequest,
+	RuntimeGitLogResponse,
+	RuntimeProjectAddRequest,
+	RuntimeProjectAddResponse,
+	RuntimeProjectDirectoryPickerResponse,
+	RuntimeProjectConfigResponse,
+	RuntimeProjectConfigUpdateRequest,
+	RuntimeProjectRemoveResponse,
+	RuntimeProjectsResponse,
+	RuntimeShellSessionStartRequest,
+	RuntimeShellSessionStartResponse,
 	RuntimeStateStreamVcsProjectEventMessage,
+	RuntimeTaskSessionStopRequest,
+	RuntimeTaskSessionStopResponse,
 	RuntimeVcsProjectEventKind,
+	VcsDetectResponse,
 	VcsJjDiffResponse,
 	VcsJjInventoryResponse,
+	VcsJjOperationDiffResponse,
+	VcsJjOperationsResponse,
 	VcsJjStateResponse,
 } from "@/runtime/types";
 import { subscribeToVcsProjectEvents } from "@/runtime/vcs-events";
@@ -22,7 +40,13 @@ export type VcsApiTag =
 	| "BaseBranchData"
 	| "DivergentBookmarks"
 	| "Diff"
-	| "CommitChanges";
+	| "CommitChanges"
+	| "ProjectConfig"
+	| "VcsDetection"
+	| "OperationHistory"
+	| "OperationDetails"
+	| "RepositoryLog"
+	| "Projects";
 
 type WorkspaceQueryArg = {
 	workspaceId: string;
@@ -30,6 +54,55 @@ type WorkspaceQueryArg = {
 
 type CommitDiffQueryArg = WorkspaceQueryArg & {
 	commitHash: string;
+};
+
+type UpdateProjectConfigArg = WorkspaceQueryArg & {
+	input: RuntimeProjectConfigUpdateRequest;
+};
+
+type JjOperationsQueryArg = WorkspaceQueryArg & {
+	limit: number;
+};
+
+type JjOperationDiffQueryArg = WorkspaceQueryArg & {
+	operationId: string;
+	commitSkip: number;
+	commitLimit: number;
+};
+
+type RepositoryLogQueryArg = WorkspaceQueryArg & {
+	input: RuntimeGitLogRequest;
+};
+
+type ProjectsQueryArg = {
+	preferredWorkspaceId?: string | null;
+};
+
+type PickProjectDirectoryArg = {
+	workspaceId?: string | null;
+};
+
+type AddProjectArg = {
+	workspaceId?: string | null;
+	input: RuntimeProjectAddRequest;
+};
+
+type RemoveProjectArg = {
+	workspaceId?: string | null;
+	projectId: string;
+};
+
+type ProjectDirectoryQueryArg = {
+	workspaceId?: string | null;
+	input?: RuntimeDirectoryListRequest;
+};
+
+type StartShellSessionArg = WorkspaceQueryArg & {
+	input: RuntimeShellSessionStartRequest;
+};
+
+type StopTaskSessionArg = WorkspaceQueryArg & {
+	input: RuntimeTaskSessionStopRequest;
 };
 
 type RtkResult<T> = {
@@ -63,13 +136,38 @@ export function toRuntimeQueryState<T>(result: RtkResult<T>, message: string): Q
 function tagsForVcsEvent(kind: RuntimeVcsProjectEventKind): VcsApiTag[] {
 	switch (kind) {
 		case "worktree_changes":
-			return ["WorktreeChanges", "Diff", "CommitChanges", "Stacks", "StackDetails", "BranchListing", "BranchDetails", "DivergentBookmarks"];
+			return [
+				"WorktreeChanges",
+				"Diff",
+				"CommitChanges",
+				"Stacks",
+				"StackDetails",
+				"BranchListing",
+				"BranchDetails",
+				"DivergentBookmarks",
+				"ProjectConfig",
+				"VcsDetection",
+				"OperationDetails",
+				"RepositoryLog",
+			];
 		case "vcs/head":
-			return ["HeadSha", "Stacks", "StackDetails", "BranchDetails", "Diff", "CommitChanges"];
+			return ["HeadSha", "Stacks", "StackDetails", "BranchDetails", "Diff", "CommitChanges", "VcsDetection"];
 		case "vcs/activity":
-			return ["Stacks", "StackDetails", "BranchListing", "BranchDetails", "BaseBranchData", "DivergentBookmarks", "HeadSha"];
+			return [
+				"Stacks",
+				"StackDetails",
+				"BranchListing",
+				"BranchDetails",
+				"BaseBranchData",
+				"DivergentBookmarks",
+				"HeadSha",
+				"VcsDetection",
+				"OperationHistory",
+				"OperationDetails",
+				"RepositoryLog",
+			];
 		case "vcs/fetch":
-			return ["BranchListing", "BaseBranchData", "DivergentBookmarks"];
+			return ["BranchListing", "BaseBranchData", "DivergentBookmarks", "VcsDetection"];
 	}
 }
 
@@ -108,8 +206,181 @@ export const vcsApi = createApi({
 		"DivergentBookmarks",
 		"Diff",
 		"CommitChanges",
+		"ProjectConfig",
+		"VcsDetection",
+		"OperationHistory",
+		"OperationDetails",
+		"RepositoryLog",
+		"Projects",
 	],
 	endpoints: (builder) => ({
+		getProjects: builder.query<RuntimeProjectsResponse, ProjectsQueryArg | void>({
+			queryFn: async (arg, { signal }) => {
+				try {
+					return {
+						data: await fetchTrpcQuery<RuntimeProjectsResponse>(
+							"projects.list",
+							undefined,
+							arg?.preferredWorkspaceId ?? null,
+							{ signal },
+						),
+					};
+				} catch (error) {
+					return { error };
+				}
+			},
+			providesTags: ["Projects"],
+		}),
+		pickProjectDirectory: builder.mutation<RuntimeProjectDirectoryPickerResponse, PickProjectDirectoryArg | void>({
+			queryFn: async (arg) => {
+				try {
+					return {
+						data: await postTrpcMutation<RuntimeProjectDirectoryPickerResponse>(
+							"projects.pickDirectory",
+							{},
+							arg?.workspaceId ?? null,
+						),
+					};
+				} catch (error) {
+					return { error };
+				}
+			},
+		}),
+		addProject: builder.mutation<RuntimeProjectAddResponse, AddProjectArg>({
+			queryFn: async ({ workspaceId, input }) => {
+				try {
+					return {
+						data: await postTrpcMutation<RuntimeProjectAddResponse>(
+							"projects.add",
+							input,
+							workspaceId,
+						),
+					};
+				} catch (error) {
+					return { error };
+				}
+			},
+			invalidatesTags: ["Projects"],
+		}),
+		removeProject: builder.mutation<RuntimeProjectRemoveResponse, RemoveProjectArg>({
+			queryFn: async ({ workspaceId, projectId }) => {
+				try {
+					return {
+						data: await postTrpcMutation<RuntimeProjectRemoveResponse>(
+							"projects.remove",
+							{ projectId },
+							workspaceId,
+						),
+					};
+				} catch (error) {
+					return { error };
+				}
+			},
+			invalidatesTags: ["Projects"],
+		}),
+		getProjectDirectoryContents: builder.query<RuntimeDirectoryListResponse, ProjectDirectoryQueryArg>({
+			queryFn: async ({ workspaceId, input }, { signal }) => {
+				try {
+					return {
+						data: await fetchTrpcQuery<RuntimeDirectoryListResponse>(
+							"projects.listDirectoryContents",
+							input ?? {},
+							workspaceId ?? null,
+							{ signal },
+						),
+					};
+				} catch (error) {
+					return { error };
+				}
+			},
+		}),
+		startShellSession: builder.mutation<RuntimeShellSessionStartResponse, StartShellSessionArg>({
+			queryFn: async ({ workspaceId, input }) => {
+				try {
+					return {
+						data: await postTrpcMutation<RuntimeShellSessionStartResponse>(
+							"runtime.startShellSession",
+							input,
+							workspaceId,
+						),
+					};
+				} catch (error) {
+					return { error };
+				}
+			},
+		}),
+		stopTaskSession: builder.mutation<RuntimeTaskSessionStopResponse, StopTaskSessionArg>({
+			queryFn: async ({ workspaceId, input }) => {
+				try {
+					return {
+						data: await postTrpcMutation<RuntimeTaskSessionStopResponse>(
+							"runtime.stopTaskSession",
+							input,
+							workspaceId,
+						),
+					};
+				} catch (error) {
+					return { error };
+				}
+			},
+		}),
+		getVcsDetect: builder.query<VcsDetectResponse, WorkspaceQueryArg>({
+			queryFn: async ({ workspaceId }, { signal }) => {
+				try {
+					return {
+						data: await fetchTrpcQuery<VcsDetectResponse>("vcs.detect", undefined, workspaceId, { signal }),
+					};
+				} catch (error) {
+					return { error };
+				}
+			},
+			providesTags: ["VcsDetection", "BaseBranchData"],
+			onCacheEntryAdded: ({ workspaceId }, { dispatch, cacheDataLoaded, cacheEntryRemoved }) =>
+				subscribeToWorkspaceEvents(workspaceId, dispatch, cacheDataLoaded, cacheEntryRemoved),
+		}),
+		getProjectConfig: builder.query<RuntimeProjectConfigResponse, WorkspaceQueryArg>({
+			queryFn: async ({ workspaceId }, { signal }) => {
+				try {
+					return {
+						data: await fetchTrpcQuery<RuntimeProjectConfigResponse>(
+							"changes.getProjectConfig",
+							undefined,
+							workspaceId,
+							{ signal },
+						),
+					};
+				} catch (error) {
+					return { error };
+				}
+			},
+			providesTags: ["ProjectConfig"],
+			onCacheEntryAdded: ({ workspaceId }, { dispatch, cacheDataLoaded, cacheEntryRemoved }) =>
+				subscribeToWorkspaceEvents(workspaceId, dispatch, cacheDataLoaded, cacheEntryRemoved),
+		}),
+		updateProjectConfig: builder.mutation<RuntimeProjectConfigResponse, UpdateProjectConfigArg>({
+			queryFn: async ({ workspaceId, input }) => {
+				try {
+					return {
+						data: await postTrpcMutation<RuntimeProjectConfigResponse>(
+							"changes.updateProjectConfig",
+							input,
+							workspaceId,
+						),
+					};
+				} catch (error) {
+					return { error };
+				}
+			},
+			invalidatesTags: [
+				"ProjectConfig",
+				"Stacks",
+				"StackDetails",
+				"BranchListing",
+				"BranchDetails",
+				"BaseBranchData",
+				"DivergentBookmarks",
+			],
+		}),
 		getJjState: builder.query<VcsJjStateResponse, WorkspaceQueryArg>({
 			queryFn: async ({ workspaceId }, { signal }) => {
 				try {
@@ -169,12 +440,124 @@ export const vcsApi = createApi({
 			onCacheEntryAdded: ({ workspaceId }, { dispatch, cacheDataLoaded, cacheEntryRemoved }) =>
 				subscribeToWorkspaceEvents(workspaceId, dispatch, cacheDataLoaded, cacheEntryRemoved),
 		}),
+		getRepositoryLog: builder.query<RuntimeGitLogResponse, RepositoryLogQueryArg>({
+			serializeQueryArgs: ({ endpointName, queryArgs }) => {
+				const { maxCount: _maxCount, skip: _skip, ...baseInput } = queryArgs.input;
+				return `${endpointName}:${queryArgs.workspaceId}:${JSON.stringify(baseInput)}`;
+			},
+			forceRefetch: ({ currentArg, previousArg }) =>
+				currentArg?.input.maxCount !== previousArg?.input.maxCount ||
+				currentArg?.input.skip !== previousArg?.input.skip ||
+				JSON.stringify(currentArg?.input ?? {}) !== JSON.stringify(previousArg?.input ?? {}),
+			merge: (currentCache, response, { arg }) => {
+				if (!arg.input.skip || arg.input.skip <= 0 || !currentCache.ok || !response.ok) {
+					Object.assign(currentCache, response);
+					return;
+				}
+				const existingHashes = new Set(currentCache.commits.map((commit) => commit.hash));
+				const nextCommits = response.commits.filter((commit) => !existingHashes.has(commit.hash));
+				Object.assign(currentCache, {
+					...response,
+					commits: [...currentCache.commits, ...nextCommits],
+				});
+			},
+			queryFn: async ({ workspaceId, input }, { signal }) => {
+				try {
+					return {
+						data: await fetchTrpcQuery<RuntimeGitLogResponse>(
+							"workspace.getRepositoryLog",
+							input,
+							workspaceId,
+							{ signal },
+						),
+					};
+				} catch (error) {
+					return { error };
+				}
+			},
+			providesTags: ["RepositoryLog"],
+			onCacheEntryAdded: ({ workspaceId }, { dispatch, cacheDataLoaded, cacheEntryRemoved }) =>
+				subscribeToWorkspaceEvents(workspaceId, dispatch, cacheDataLoaded, cacheEntryRemoved),
+		}),
+		getJjOperations: builder.query<VcsJjOperationsResponse, JjOperationsQueryArg>({
+			serializeQueryArgs: ({ endpointName, queryArgs }) => `${endpointName}:${queryArgs.workspaceId}`,
+			forceRefetch: ({ currentArg, previousArg }) => currentArg?.limit !== previousArg?.limit,
+			merge: (currentCache, response) => {
+				Object.assign(currentCache, response);
+			},
+			queryFn: async ({ workspaceId, limit }, { signal }) => {
+				try {
+					const payload = await fetchTrpcQuery<VcsJjOperationsResponse>(
+						"vcs.jjOperations",
+						{ limit },
+						workspaceId,
+						{ signal },
+					);
+					const seen = new Set<string>();
+					const operations = payload.operations.filter((operation) => {
+						if (seen.has(operation.id)) {
+							return false;
+						}
+						seen.add(operation.id);
+						return true;
+					});
+					return { data: { ...payload, operations } };
+				} catch (error) {
+					return { error };
+				}
+			},
+			providesTags: ["OperationHistory"],
+			onCacheEntryAdded: ({ workspaceId }, { dispatch, cacheDataLoaded, cacheEntryRemoved }) =>
+				subscribeToWorkspaceEvents(workspaceId, dispatch, cacheDataLoaded, cacheEntryRemoved),
+		}),
+		getJjOperationDiff: builder.query<VcsJjOperationDiffResponse, JjOperationDiffQueryArg>({
+			serializeQueryArgs: ({ endpointName, queryArgs }) => `${endpointName}:${queryArgs.workspaceId}:${queryArgs.operationId}`,
+			forceRefetch: ({ currentArg, previousArg }) =>
+				currentArg?.commitSkip !== previousArg?.commitSkip ||
+				currentArg?.commitLimit !== previousArg?.commitLimit,
+			merge: (currentCache, response) => {
+				Object.assign(currentCache, response);
+			},
+			queryFn: async ({ workspaceId, operationId, commitSkip, commitLimit }, { signal }) => {
+				try {
+					return {
+						data: await fetchTrpcQuery<VcsJjOperationDiffResponse>(
+							"vcs.jjOperationDiff",
+							{ operationId, commitSkip, commitLimit },
+							workspaceId,
+							{ signal },
+						),
+					};
+				} catch (error) {
+					return { error };
+				}
+			},
+			providesTags: (_result, _error, arg) => [
+				"OperationDetails",
+				{ type: "OperationDetails", id: arg.operationId },
+			],
+			onCacheEntryAdded: ({ workspaceId }, { dispatch, cacheDataLoaded, cacheEntryRemoved }) =>
+				subscribeToWorkspaceEvents(workspaceId, dispatch, cacheDataLoaded, cacheEntryRemoved),
+		}),
 	}),
 });
 
 export const {
+	useGetProjectsQuery,
+	usePickProjectDirectoryMutation,
+	useAddProjectMutation,
+	useRemoveProjectMutation,
+	useLazyGetProjectDirectoryContentsQuery,
+	useStartShellSessionMutation,
+	useStopTaskSessionMutation,
+	useGetVcsDetectQuery,
+	useGetProjectConfigQuery,
+	useUpdateProjectConfigMutation,
 	useGetJjStateQuery,
 	useGetJjDiffQuery,
 	useGetJjInventoryQuery,
 	useGetRepositoryCommitDiffQuery,
+	useGetRepositoryLogQuery,
+	useGetJjOperationsQuery,
+	useGetJjOperationDiffQuery,
 } = vcsApi;

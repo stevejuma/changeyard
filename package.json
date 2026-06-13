@@ -23,6 +23,8 @@
     "cy:dev": "CHANGEYARD_DEV=1 node scripts/cy.mjs",
     "ui:dev": "node --import tsx scripts/ui-dev.ts",
     "ui:vcs:dev": "node --import tsx scripts/ui-vcs-dev.ts",
+    "vcs:fixture": "node --import tsx scripts/create-vcs-jj-fixture.ts",
+    "vcs:e2e": "npm --workspace @changeyard/vcs run e2e",
     "cy:install": "npm run cy:dev -- install",
     "cy:uninstall": "npm run cy:dev -- uninstall",
     "test": "npm run build && node --test --test-force-exit dist/tests/*.test.js",

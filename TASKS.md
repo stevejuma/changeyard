@@ -21,6 +21,10 @@
 - [x] STOP: Verify Applied Workspace Stack Lanes.
 - [x] Milestone 5 implementation completed.
 - [ ] STOP: Verify Event-Driven VCS Cache.
+- [x] Milestone 6 E2E harness and RTK adoption completed.
+- [x] STOP: Verify VCS E2E Harness and RTK adoption.
+- [x] Milestone 7 SPA routing completed.
+- [x] STOP: Verify VCS SPA Routing.
 
 ## Milestone 0: Planning Files First
 
@@ -308,17 +312,20 @@ Verification notes:
 
 - Added `packages/kanban/src/runtime-stack/server/vcs-project-watcher.ts`.
 - Added deterministic watcher tests for path classification and ignore behavior.
+- Fixed JJ activity watching for the real `.jj/repo/op_heads/heads/*` layout so external JJ operations such as `jj status` can invalidate VCS caches.
 - Added runtime stream message type `vcs_project_event`.
 - Runtime WebSocket clients now start and stop project VCS watchers.
 - Added RTK Query dependencies and a contained VCS service layer in `packages/vcs/src/runtime/vcs-api.ts`.
 - Added a shared VCS runtime WebSocket subscription helper in `packages/vcs/src/runtime/vcs-events.ts`.
 - Shared Workspace/Branches JJ state, inventory, diff, and commit-diff reads now go through RTK Query.
+- Added a Playwright regression that opens Workspace, edits a JJ fixture file externally, and verifies the Working Copy list updates without a page reload.
 - Automated checks passed:
   - `node --import tsx --test packages/kanban/src/runtime-stack/server/vcs-project-watcher.test.ts`
   - `node --import tsx --test tests/vcs-detect.test.ts tests/vcs-jj-state.test.ts tests/vcs-jj-preview.test.ts tests/vcs-jj-apply.test.ts tests/vcs-jj-diff.test.ts tests/vcs-jj-read.test.ts tests/vcs-jj-inventory.test.ts`
   - `npm --workspace @changeyard/vcs run test`
   - `npm --workspace @changeyard/vcs run typecheck`
   - `npm --workspace @changeyard/kanban run runtime:typecheck`
+  - `npm --workspace @changeyard/vcs run e2e`
 - `npm test` passed all 187 tests when rerun outside the sandbox; the first sandboxed run built successfully but failed runtime/JJ integration tests because it could not bind runtime ports or access JJ secure config under `~/.config/jj/repos`.
 - VCS dev server is running at `http://127.0.0.1:4374/vcs/` for manual verification. Ports `4174` and `4274` were already occupied by existing node listeners that did not respond to HTTP.
   - `npm --workspace @changeyard/kanban run typecheck`
@@ -383,6 +390,12 @@ Verification notes:
         - Runtime watcher startup failures now write a diagnostic to stderr instead of being silently swallowed.
         - Added a frontend VCS event-service fallback that treats existing `workspace_metadata_updated` runtime messages as worktree cache invalidations. This covers active dev runtimes that emit metadata updates before the newer semantic `vcs_project_event` stream is available.
         - Verified the active Workspace page at `http://127.0.0.1:4274/vcs/jj?workspaceId=jj-sample-but&workingCopyFile=.changeyard%2Fconfig.local.jsonc` updated without a manual browser reload and now shows `README.md` as the Working Copy entry.
+        - Rechecked the live runtime stream after a README change was not reflected immediately:
+          - a local WebSocket probe received `workspace_metadata_updated` events
+          - the active page refreshed from that event path and showed `Modified README.md` without a browser reload
+          - the dedicated Chokidar watcher path was separately reproduced failing with `EMFILE: too many open files, watch`
+        - Added Chokidar native-watcher fallback to polling for `EMFILE`/`ENOSPC`, while keeping the watcher abstraction open for a later Watchman backend.
+        - Added watcher coverage for semantic worktree, JJ activity, and JJ head events after startup.
       - Automated checks passed:
         - `node --test --import tsx tests/vcs-jj-diff.test.ts`
         - `npm --workspace @changeyard/vcs run typecheck`
@@ -391,12 +404,166 @@ Verification notes:
         - `npm --workspace @changeyard/kanban run runtime:typecheck`
         - `npm --workspace @changeyard/vcs run test -- branches-stack-model.test.ts routes.test.ts`
 
+## Milestone 6: Deterministic VCS E2E Harness And RTK Adoption
+
+Status: completed
+
+- [x] Treat the RTK Query spike as successful and document RTK Query as the VCS data boundary.
+- [x] Add deterministic JJ fixture generator script.
+- [x] Fixture creates a real JJ/Git repository from scratch at a caller-provided path.
+- [x] Fixture creates a file-backed Git remote.
+- [x] Fixture creates a configured target/base of `origin/main`.
+- [x] Fixture creates independent local stacks.
+- [x] Fixture creates a dependent multi-head stack.
+- [x] Fixture creates a remote-only branch.
+- [x] Fixture can leave a dirty working-copy `README.md` for Working Copy coverage.
+- [x] Wire fixture generation into root package scripts for npm and pnpm usage.
+- [x] Add VCS-local Playwright config.
+- [x] Add initial fixture-backed E2E coverage for Branches.
+- [x] Add initial fixture-backed E2E coverage for Workspace apply/files/diff flow.
+- [x] Add initial fixture-backed E2E coverage for History.
+- [x] Add stable shared file-row test selectors to `VcsInlineFileSection`.
+- [x] Add `packages/vcs/AGENTS.md` with RTK Query and shared UI guidance.
+- [x] Continue migrating remaining VCS reads to RTK Query component by component.
+- [x] Continue migrating VCS mutations to RTK Query mutations with explicit invalidation tags.
+- [x] Add/update E2E coverage for each migration step before moving to the next component.
+- [x] Remove obsolete manual refresh props and legacy query hooks once equivalent RTK coverage exists.
+
+### STOP: Verify VCS E2E Harness
+
+- [x] Run fixture generation with a temp path.
+- [x] Run `npm --workspace @changeyard/vcs run test`.
+- [x] Run `npm --workspace @changeyard/vcs run typecheck`.
+- [x] Run `npm --workspace @changeyard/vcs run e2e`.
+- [x] Record verification notes below before continuing deeper RTK migration.
+
+Verification notes:
+
+- Added `scripts/create-vcs-jj-fixture.ts`.
+- Root script added:
+  - `npm run vcs:fixture -- <path> --force`
+  - `pnpm vcs:fixture -- <path> --force`
+- The fixture generator was verified at `/private/tmp/changeyard-vcs-fixture-script-check`.
+- Added `packages/vcs/playwright.config.ts`.
+- Added `packages/vcs/tests/vcs-jj-fixture.spec.ts`.
+- Added `@playwright/test` to the VCS workspace.
+- Added shared `data-testid="vcs-file-row"` and `data-file-path` attributes to `VcsInlineFileSection` file rows for stable E2E selectors.
+- Added `packages/vcs/AGENTS.md` documenting:
+  - RTK Query as the VCS server-state boundary
+  - service-layer runtime event subscriptions
+  - existing query tag vocabulary
+  - required shared UI primitives such as `Avatar`, `CopyValueButton`, `StatusChip`, `Button`, `VcsColumnShell`, and `VcsInlineFileSection`
+- First follow-up RTK migration after the initial harness:
+  - Added `getProjectConfig` and `updateProjectConfig` endpoints to `packages/vcs/src/runtime/vcs-api.ts`.
+  - Added a `ProjectConfig` RTK tag and invalidation from project-config mutations.
+  - Project-config queries now subscribe to VCS project events so worktree changes to config files can invalidate active config caches.
+  - Branches now applies/unapplies stacks through the RTK project-config mutation.
+  - Workspace now unapplies stacks through the RTK project-config mutation.
+  - Settings now reads project config and JJ inventory through RTK Query.
+  - Removed component-local `changes.getProjectConfig`, `changes.updateProjectConfig`, and Settings `vcs.jjInventory` query usage.
+  - Added fixture-backed E2E coverage that opens Settings and verifies the target branch inventory/config path.
+  - Second follow-up RTK migration:
+    - Added `getVcsDetect` to `packages/vcs/src/runtime/vcs-api.ts`.
+    - Added a `VcsDetection` RTK tag and event invalidation for worktree, head, activity, and fetch events.
+    - `App.tsx` now reads `vcs.detect` through RTK Query instead of the legacy `useTrpcQuery` hook.
+    - Existing fixture-backed Settings E2E covers the RTK-backed detection/config/inventory path.
+  - Third follow-up RTK migration:
+    - Added `getJjOperations` and `getJjOperationDiff` to `packages/vcs/src/runtime/vcs-api.ts`.
+    - Added `OperationHistory` and `OperationDetails` tags with VCS activity/worktree invalidation.
+    - Added `packages/vcs/src/runtime/history-api.ts` with RTK-backed pagination wrappers matching the previous History hook contract.
+    - `HistoryView` now reads JJ operation history and operation commit graphs through RTK Query instead of the legacy paginated TRPC hooks.
+    - Existing fixture-backed History E2E covers the RTK-backed operations and operation-diff path.
+  - Fourth follow-up RTK migration:
+    - Added `getRepositoryLog` to `packages/vcs/src/runtime/vcs-api.ts`.
+    - Added a `RepositoryLog` tag with worktree/activity invalidation.
+    - Added `packages/vcs/src/runtime/repository-log-api.ts` with an RTK-backed pagination wrapper matching the previous repository-log contract.
+    - Branches now reads workspace-target commit history through RTK Query instead of the legacy paginated repository-log hook.
+    - Extended fixture-backed Branches E2E to open `ref=origin/main` and verify target-history commits render.
+  - Fifth follow-up RTK migration:
+    - Added `getProjectDirectoryContents` to `packages/vcs/src/runtime/vcs-api.ts`.
+    - `DirectoryAutocomplete` now uses an RTK lazy query instead of direct TRPC fetches.
+    - `AddProjectDialog` now uses RTK lazy directory browsing plus the RTK `addProject` mutation for path, git-init, and clone flows.
+    - `App.tsx` now opens the path dialog in automated browsers instead of trying to use the native directory picker, keeping the native picker path for normal localhost use.
+    - Extended fixture-backed E2E to create a second deterministic JJ fixture and add it through the visible Add Project dialog/autocomplete flow.
+  - Sixth follow-up RTK migration:
+    - Added `startShellSession` and `stopTaskSession` mutations to `packages/vcs/src/runtime/vcs-api.ts`.
+    - `VcsConsolePanel` now starts the console shell through RTK Query instead of direct TRPC mutation calls.
+    - `usePersistentTerminalSession` now owns the RTK stop mutation and injects it into the persistent terminal manager.
+    - `PersistentTerminal` no longer imports TRPC helpers directly; it keeps WebSocket control and delegates backend stop to the caller.
+    - Removed obsolete legacy query/mutation hooks from `packages/vcs/src/runtime/trpc-client.ts`; that file is now only the low-level RTK transport helper boundary.
+    - Extended fixture-backed E2E to open the console, wait for the runtime shell session, stop it, and close the console panel.
+- Automated checks passed:
+  - `npm run vcs:fixture -- /private/tmp/changeyard-vcs-fixture-script-check --force --json`
+  - `npm run vcs:fixture -- /private/tmp/changeyard-vcs-npm-check --force --clean --json`
+  - `pnpm vcs:fixture -- /private/tmp/changeyard-vcs-pnpm-check --force --clean --json`
+  - `npm --workspace @changeyard/vcs run e2e -- --list`
+  - `npm --workspace @changeyard/vcs run e2e`
+  - `npm --workspace @changeyard/vcs run test`
+  - `npm --workspace @changeyard/vcs run typecheck`
+  - `npm --workspace @changeyard/vcs run e2e` (7 fixture-backed tests, including console start/stop)
+  - Final RTK adoption check:
+    - `rg` found no VCS component imports of legacy TRPC hooks or direct TRPC mutations.
+    - `packages/vcs/src/runtime/trpc-client.ts` now only exports low-level fetch/post helpers used by the RTK service layer.
+    - Obsolete Workspace `refreshState` / `refreshDiff` props were removed.
+    - `npm --workspace @changeyard/vcs run typecheck` passed.
+    - `npm --workspace @changeyard/vcs run test` passed.
+    - `npm --workspace @changeyard/vcs run e2e` passed with 7 fixture-backed tests.
+  - `npm --workspace @changeyard/vcs run typecheck`
+  - `npm --workspace @changeyard/vcs run test -- branches-stack-model.test.ts routes.test.ts`
+- E2E sandbox note:
+  - The sandboxed E2E run failed before tests because the runtime could not bind a local port.
+  - The same suite passed outside the sandbox, where the runtime server and Chromium could start normally.
+- `pnpm install` completed outside the sandbox with `CI=true`; the pnpm lockfile was already up to date.
+- `npm install` was rerun afterward to restore the npm workspace `node_modules` layout used by the repository's npm scripts.
+
+## Milestone 7: VCS SPA Routing
+
+Status: completed
+
+- [x] Add a lightweight internal VCS router.
+- [x] Track browser `pathname`, `search`, and `hash` in React state.
+- [x] Expose client-side navigation backed by `pushState`, `replaceState`, and `popstate`.
+- [x] Keep the Redux provider and RTK Query store mounted across VCS route changes.
+- [x] Replace top-level VCS page anchors with client-side navigation.
+- [x] Preserve `workspaceId` across Workspace, Branches, History, and Overview navigation.
+- [x] Open Settings as a dialog without changing or replacing the current route URL.
+- [x] Move Workspace, Branches, and History selection URL params onto router-backed query updates.
+- [x] Keep `commit`, `file`, `operation`, `ref`, and `workingCopyFile` URL params addressable without full document reloads.
+
+### STOP: Verify VCS SPA Routing
+
+- [x] Run VCS unit tests.
+- [x] Run VCS typecheck.
+- [x] Run fixture-backed VCS E2E.
+- [x] Verify top-level navigation keeps the same browser document alive.
+- [x] Verify browser back returns to the previous VCS route.
+- [x] Record verification notes below.
+
+Verification notes:
+
+- Added `packages/vcs/src/utils/vcs-router.tsx`.
+- `App.tsx` now derives the active route from router state instead of reading `window.location.pathname` once.
+- `VcsShell`, Overview, and Settings now navigate with the internal router instead of document-level navigation.
+- Workspace, Branches, and History still write their selection URL params, but those writes now flow through the router helper.
+- Settings now opens as a dialog from the current VCS page instead of navigating to a separate Settings page.
+- Added unit coverage for URL resolution and query-param preservation.
+- Added fixture-backed E2E coverage that sets a browser-document probe, navigates Workspace -> Branches -> History -> Settings, and verifies the probe survives route changes and browser back.
+- Updated fixture-backed E2E coverage so Settings opens over History without changing the URL.
+- Automated checks passed:
+  - `npm --workspace @changeyard/vcs run test`
+  - `npm --workspace @changeyard/vcs run typecheck`
+  - `npm --workspace @changeyard/vcs run e2e` outside the sandbox, with 8 fixture-backed tests
+- The sandboxed E2E run failed before tests because local runtime port binding is restricted; the escalated run passed.
+- In-app browser was connected and showed the VCS app, but browser-control clicking timed out in the extension. The same route-switch behavior passed in the Playwright E2E browser.
+- Follow-up in-app browser verification passed on `http://127.0.0.1:4274/vcs/jj/branches?workspaceId=jj-sample-but&ref=origin%2Ftrunk`: clicking the Settings button opened the Settings dialog and left the URL unchanged.
+
 ## Final Verification
 
 Status: pending
 
 - [ ] Run focused JJ/VCS tests.
 - [ ] Run `npm --workspace @changeyard/vcs run test`.
+- [ ] Run `npm --workspace @changeyard/vcs run e2e`.
 - [ ] Run `npm test`.
 - [ ] Manually inspect `/vcs/jj/branches`.
 - [ ] Manually inspect `/vcs/jj`.

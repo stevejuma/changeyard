@@ -5,19 +5,17 @@ import { useState } from "react";
 import { VcsProjectNavigationPanel } from "@/components/project-navigation-panel";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
-import { StatusChip } from "@/components/ui/status-chip";
 import { VcsConsolePanel } from "@/components/vcs-console-panel";
 import { ResizableBottomPane } from "@/resize/resizable-bottom-pane";
 import type { QueryState, RuntimeProjectSummary, RuntimeProjectsResponse } from "@/runtime/types";
 import { readVcsNumberPreference, VCS_LAYOUT_STORAGE_KEYS, writeVcsNumberPreference } from "@/utils/vcs-ui-preferences";
 import { isVcsNavItemActive, withWorkspaceParam } from "@/utils/vcs-navigation";
+import { shouldHandleVcsLinkClick, useVcsRouter } from "@/utils/vcs-router";
 
 const navItems = [
-	{ href: "/vcs/", label: "Overview", icon: Workflow },
 	{ href: "/vcs/jj", label: "Workspace", icon: Layers3 },
 	{ href: "/vcs/jj/branches", label: "Branches", icon: GitBranch },
 	{ href: "/vcs/jj/history", label: "History", icon: History },
-	{ href: "/vcs/settings", label: "Settings", icon: Settings },
 ] as const;
 
 const CONSOLE_HEIGHT_LIMITS = {
@@ -38,14 +36,15 @@ export type VcsShellProjectState = {
 	onAddProject: () => void;
 	onRemoveProject: (projectId: string) => Promise<boolean>;
 	onClearOtherProjects: () => Promise<boolean>;
+	onOpenSettings: () => void;
 };
 
 export function VcsShell({
 	projectState,
 	currentPath,
-	title,
-	subtitle,
-	kicker,
+	title: _title,
+	subtitle: _subtitle,
+	kicker: _kicker,
 	actions,
 	children,
 }: {
@@ -57,10 +56,12 @@ export function VcsShell({
 	actions?: ReactNode;
 	children: ReactNode;
 }): React.ReactElement {
+	const { navigate } = useVcsRouter();
 	const [isConsoleOpen, setConsoleOpen] = useState(false);
 	const [consoleHeight, setConsoleHeight] = useState(() =>
 		readVcsNumberPreference(CONSOLE_HEIGHT_LIMITS.key, CONSOLE_HEIGHT_LIMITS.fallback, CONSOLE_HEIGHT_LIMITS.min, CONSOLE_HEIGHT_LIMITS.max),
 	);
+	const projectName = projectState.currentProject?.name ?? "No project selected";
 
 	return (
 		<div className="flex h-screen min-h-0 bg-surface-0 text-text-primary">
@@ -79,21 +80,7 @@ export function VcsShell({
 				<header className="flex min-h-[49px] shrink-0 items-center justify-between gap-3 border-b border-divider bg-surface-1 px-3">
 					<div className="flex min-w-0 items-center gap-3">
 						<div className="min-w-0">
-							<div className="flex min-w-0 items-center gap-2">
-								<h1 className="truncate text-sm font-semibold text-text-primary">{title}</h1>
-								{kicker}
-							</div>
-							<div className="truncate text-xs text-text-tertiary">
-								{projectState.currentProject ? (
-									<>
-										{projectState.currentProject.name}
-										{subtitle ? " · " : null}
-									</>
-								) : (
-									"No project selected"
-								)}
-								{subtitle}
-							</div>
+							<h1 className="truncate text-sm font-semibold text-text-primary">{projectName}</h1>
 						</div>
 					</div>
 					<div className="flex shrink-0 items-center gap-2">
@@ -101,10 +88,18 @@ export function VcsShell({
 							{navItems.map((item) => {
 								const Icon = item.icon;
 								const active = isVcsNavItemActive(item.href, currentPath);
+								const href = withWorkspaceParam(item.href, projectState.currentProjectId);
 								return (
 									<a
 										key={item.href}
-										href={withWorkspaceParam(item.href, projectState.currentProjectId)}
+										href={href}
+										onClick={(event) => {
+											if (!shouldHandleVcsLinkClick(event)) {
+												return;
+											}
+											event.preventDefault();
+											navigate(href);
+										}}
 										aria-current={active ? "page" : undefined}
 										className={cn(
 											"inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-text-secondary hover:bg-surface-2 hover:text-text-primary",
@@ -119,6 +114,16 @@ export function VcsShell({
 						</nav>
 						{actions}
 						<Button
+							variant="ghost"
+							size="sm"
+							icon={<Settings size={14} />}
+							aria-label="Open settings"
+							title="Open settings"
+							onClick={projectState.onOpenSettings}
+						>
+							Settings
+						</Button>
+						<Button
 							variant="default"
 							size="sm"
 							icon={<Terminal size={14} />}
@@ -127,17 +132,24 @@ export function VcsShell({
 							title={projectState.currentProjectId ? (isConsoleOpen ? "Close console" : "Open console") : "Select a project to open console"}
 							onClick={() => setConsoleOpen((current) => !current)}
 						/>
-						<StatusChip label="Experimental" tone="gold" />
 					</div>
 				</header>
 				<nav className="flex shrink-0 gap-1 overflow-x-auto border-b border-border bg-surface-1 px-2 py-2 lg:hidden" aria-label="VCS views">
 					{navItems.map((item) => {
 						const Icon = item.icon;
 						const active = isVcsNavItemActive(item.href, currentPath);
+						const href = withWorkspaceParam(item.href, projectState.currentProjectId);
 						return (
 							<a
 								key={item.href}
-								href={withWorkspaceParam(item.href, projectState.currentProjectId)}
+								href={href}
+								onClick={(event) => {
+									if (!shouldHandleVcsLinkClick(event)) {
+										return;
+									}
+									event.preventDefault();
+									navigate(href);
+								}}
 								className={cn(
 									"inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-md border px-2 text-xs font-medium",
 									active
@@ -150,6 +162,14 @@ export function VcsShell({
 							</a>
 						);
 					})}
+					<button
+						type="button"
+						onClick={projectState.onOpenSettings}
+						className="inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-md border border-transparent bg-transparent px-2 text-xs font-medium text-text-secondary hover:bg-surface-3 hover:text-text-primary"
+					>
+						<Settings size={14} />
+						Settings
+					</button>
 				</nav>
 				<main className="min-h-0 flex-1 overflow-hidden bg-surface-0">{children}</main>
 				{isConsoleOpen ? (

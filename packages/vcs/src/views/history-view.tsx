@@ -26,7 +26,7 @@ import type {
 	VcsJjOperationFile,
 	VcsJjOperationsResponse,
 } from "@/runtime/types";
-import { usePaginatedJjOperationDiff, usePaginatedJjOperations } from "@/runtime/trpc-client";
+import { useRtkPaginatedJjOperationDiff, useRtkPaginatedJjOperations } from "@/runtime/history-api";
 import { toRuntimeQueryState, useGetRepositoryCommitDiffQuery } from "@/runtime/vcs-api";
 import {
 	readVcsBooleanPreference,
@@ -38,6 +38,7 @@ import {
 	writeVcsNumberPreference,
 	type VcsFileViewMode,
 } from "@/utils/vcs-ui-preferences";
+import { readVcsQueryParam, useVcsRouter } from "@/utils/vcs-router";
 
 type HistoryColumnId = "operations" | "commits";
 
@@ -240,20 +241,6 @@ function CommitGraphSvg({ row, maxLanes }: { row: CommitGraphRow; maxLanes: numb
 	);
 }
 
-function readQueryParam(name: string): string | null {
-	return new URLSearchParams(window.location.search).get(name)?.trim() || null;
-}
-
-function writeQueryParam(name: string, value: string | null): void {
-	const url = new URL(window.location.href);
-	if (value) {
-		url.searchParams.set(name, value);
-	} else {
-		url.searchParams.delete(name);
-	}
-	window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
-}
-
 function formatDateGroup(timestamp: string | null): string {
 	if (!timestamp) {
 		return "Unknown date";
@@ -338,7 +325,14 @@ export function HistoryView({
 	projectState: VcsShellProjectState;
 	workspaceId: string | null;
 }): React.ReactElement {
-	const operationsQuery = usePaginatedJjOperations({
+	const { location, setQueryParam } = useVcsRouter();
+	function readQueryParam(name: string): string | null {
+		return readVcsQueryParam(location.search, name);
+	}
+	function writeQueryParam(name: string, value: string | null): void {
+		setQueryParam(name, value, { replace: true });
+	}
+	const operationsQuery = useRtkPaginatedJjOperations({
 		message: "Failed to load JJ operation history.",
 		enabled: Boolean(workspaceId),
 		workspaceId,
@@ -361,7 +355,7 @@ export function HistoryView({
 	const [hasUserClearedFile, setHasUserClearedFile] = useState(false);
 	const [isFileSectionCollapsed, setFileSectionCollapsed] = useState(false);
 
-	const operationDiffQuery = usePaginatedJjOperationDiff({
+	const operationDiffQuery = useRtkPaginatedJjOperationDiff({
 		operationId: selectedOperationId,
 		message: "Failed to load operation details.",
 		enabled: Boolean(workspaceId && selectedOperationId),
@@ -378,6 +372,12 @@ export function HistoryView({
 	};
 	const files = toFileChanges(commitDiffQuery.state);
 	const selectedFile = findFileByPath(files, selectedFilePath);
+
+	useEffect(() => {
+		setSelectedOperationId(readVcsQueryParam(location.search, "operation"));
+		setSelectedCommitHash(readVcsQueryParam(location.search, "commit"));
+		setSelectedFilePath(readVcsQueryParam(location.search, "file"));
+	}, [location.search]);
 
 	useEffect(() => {
 		if (operationsQuery.state.status !== "ready") {
@@ -532,11 +532,6 @@ export function HistoryView({
 			title="History"
 			subtitle="JJ operation log, snapshots, commits, and file changes"
 			kicker={<StatusChip label="Read only" tone="blue" />}
-			actions={
-				<Button variant="default" size="sm" icon={<Camera size={14} />} disabled title="Snapshot support is not wired yet">
-					Create snapshot
-				</Button>
-			}
 		>
 			{!workspaceId ? (
 				<NoProjectSelected action={<SelectProjectButton onClick={projectState.onAddProject} />}>
@@ -733,6 +728,11 @@ function HistoryReady({
 							onCollapse={() => onColumnCollapsedChange("operations", true)}
 							onWidthChange={(width) => onColumnWidthChange("operations", width)}
 							onScrollNearEnd={hasMoreOperations ? onLoadMoreOperations : undefined}
+							headerActions={
+								<Button variant="default" size="sm" icon={<Camera size={14} />} disabled title="Snapshot support is not wired yet">
+									Create snapshot
+								</Button>
+							}
 						>
 							<OperationsColumnContent
 								operations={operations.operations}

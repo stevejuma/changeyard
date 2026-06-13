@@ -1,17 +1,20 @@
 import { render } from "@opentui/solid";
 import { RuntimeClient, RuntimeClientError } from "./runtime-client";
-import { App, type AppArgs } from "./app";
+import { App, type AppArgs, type AppMode } from "./app";
+import { resolveConfigTabId, type ConfigTabId } from "./views/config-data";
 
 type Args = {
   connect: string;
   project?: string;
+  mode: AppMode;
+  configTab?: ConfigTabId;
   debug: boolean;
   smokeTest: boolean;
   smokeCreateAll: boolean;
 };
 
 function parseArgs(argv: string[]): Args {
-  const args: Args = { connect: "", debug: false, smokeTest: false, smokeCreateAll: false };
+  const args: Args = { connect: "", mode: "board", debug: false, smokeTest: false, smokeCreateAll: false };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--debug") {
@@ -24,6 +27,17 @@ function parseArgs(argv: string[]): Args {
     }
     if (arg === "--smoke-create-all") {
       args.smokeCreateAll = true;
+      continue;
+    }
+    if (arg === "--mode") {
+      const mode = argv[++index];
+      if (mode === "config" || mode === "board") {
+        args.mode = mode;
+      }
+      continue;
+    }
+    if (arg === "--config-tab") {
+      args.configTab = resolveConfigTabId(argv[++index]);
       continue;
     }
     if (arg === "--connect") {
@@ -46,6 +60,8 @@ async function main() {
   const appArgs: AppArgs = {
     client,
     project: args.project,
+    mode: args.mode,
+    configTab: args.configTab,
     smokeTest: args.smokeTest,
     smokeCreateAll: args.smokeCreateAll,
   };

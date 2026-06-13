@@ -32,8 +32,12 @@ import type {
 	VcsJjDiffResponse,
 	VcsJjStateResponse,
 } from "@/runtime/types";
-import { postTrpcMutation, useTrpcQuery } from "@/runtime/trpc-client";
-import { toRuntimeQueryState, useGetRepositoryCommitDiffQuery } from "@/runtime/vcs-api";
+import {
+	toRuntimeQueryState,
+	useGetProjectConfigQuery,
+	useGetRepositoryCommitDiffQuery,
+	useUpdateProjectConfigMutation,
+} from "@/runtime/vcs-api";
 import { buildFileTree, type FileTreeNode } from "@/utils/file-tree";
 import {
 	readVcsBooleanPreference,
@@ -45,6 +49,7 @@ import {
 	writeVcsNumberPreference,
 	type VcsFileViewMode,
 } from "@/utils/vcs-ui-preferences";
+import { readVcsQueryParam, useVcsRouter } from "@/utils/vcs-router";
 
 const SELECTED_CHANGE_MARKER_CLASS =
 	"relative before:absolute before:left-0 before:top-1/2 before:h-12 before:w-1 before:-translate-y-1/2 before:rounded-r-full before:bg-accent before:content-['']";
@@ -62,29 +67,6 @@ function stackColumnWidthKey(stackId: string): string {
 
 function stackColumnCollapsedKey(stackId: string): string {
 	return `changeyard.vcs.workspace.stack.${stackId}.collapsed`;
-}
-
-function readQueryParam(name: string): string | null {
-	return new URLSearchParams(window.location.search).get(name)?.trim() || null;
-}
-
-function writeQueryParam(name: string, value: string | null): void {
-	const url = new URL(window.location.href);
-	if (value) {
-		url.searchParams.set(name, value);
-	} else {
-		url.searchParams.delete(name);
-	}
-	window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
-}
-
-function readWorkingCopyFileQueryParam(): string | null {
-	return readQueryParam("workingCopyFile") ?? readQueryParam("unstagedFile");
-}
-
-function writeWorkingCopyFileQueryParam(value: string | null): void {
-	writeQueryParam("workingCopyFile", value);
-	writeQueryParam("unstagedFile", null);
 }
 
 function toFileChanges(diffState: QueryState<RuntimeGitCommitDiffResponse>): VcsFileChange[] {
@@ -180,19 +162,16 @@ export function JjBoardView({
 	workspaceId,
 }: {
 	state: QueryState<VcsJjStateResponse>;
-	refreshState: () => void;
 	diffState: QueryState<VcsJjDiffResponse>;
-	refreshDiff: () => void;
 	currentPath: string;
 	projectState: VcsShellProjectState;
 	workspaceId: string | null;
 }): React.ReactElement {
-	const projectConfigQuery = useTrpcQuery<RuntimeProjectConfigResponse>(
-		"changes.getProjectConfig",
-		"Failed to load project configuration.",
-		workspaceId,
-		Boolean(workspaceId),
-	);
+	const projectConfigResult = useGetProjectConfigQuery({ workspaceId: workspaceId ?? "" }, { skip: !workspaceId });
+	const [updateProjectConfig] = useUpdateProjectConfigMutation();
+	const projectConfigQuery = {
+		state: toRuntimeQueryState<RuntimeProjectConfigResponse>(projectConfigResult, "Failed to load project configuration."),
+	};
 
 	return (
 		<VcsShell
@@ -225,7 +204,12 @@ export function JjBoardView({
 									data={data}
 									diffState={diffState}
 									projectConfig={projectConfig}
-									refreshProjectConfig={projectConfigQuery.refresh}
+									updateProjectConfig={(input) =>
+										updateProjectConfig({
+											workspaceId,
+											input,
+										}).unwrap()
+									}
 									workspaceId={workspaceId}
 								/>
 							)}
@@ -298,15 +282,29 @@ function WorkspaceReady({
 	data,
 	diffState,
 	projectConfig,
-	refreshProjectConfig,
+	updateProjectConfig,
 	workspaceId,
 }: {
 	data: VcsJjStateResponse;
 	diffState: QueryState<VcsJjDiffResponse>;
 	projectConfig: RuntimeProjectConfigResponse;
-	refreshProjectConfig: () => void;
+	updateProjectConfig: (input: RuntimeProjectConfigUpdateRequest) => Promise<RuntimeProjectConfigResponse>;
 	workspaceId: string;
 }): React.ReactElement {
+	const { location, setQueryParam } = useVcsRouter();
+	function readQueryParam(name: string): string | null {
+		return readVcsQueryParam(location.search, name);
+	}
+	function writeQueryParam(name: string, value: string | null): void {
+		setQueryParam(name, value, { replace: true });
+	}
+	function readWorkingCopyFileQueryParam(): string | null {
+		return readQueryParam("workingCopyFile") ?? readQueryParam("unstagedFile");
+	}
+	function writeWorkingCopyFileQueryParam(value: string | null): void {
+		writeQueryParam("workingCopyFile", value);
+		writeQueryParam("unstagedFile", null);
+	}
 	const [updatingStackId, setUpdatingStackId] = useState<string | null>(null);
 	const [fileViewMode, setFileViewMode] = useState<VcsFileViewMode>(() => readVcsFileViewMode());
 	const [selectedCommitHash, setSelectedCommitHash] = useState<string | null>(() => readQueryParam("commit"));
@@ -365,6 +363,12 @@ function WorkspaceReady({
 			: null);
 
 	useEffect(() => {
+		setSelectedCommitHash(readVcsQueryParam(location.search, "commit"));
+		setSelectedFilePath(readVcsQueryParam(location.search, "file"));
+		setSelectedUnstagedFilePath(readVcsQueryParam(location.search, "workingCopyFile") ?? readVcsQueryParam(location.search, "unstagedFile"));
+	}, [location.search]);
+
+	useEffect(() => {
 		if (isFileSectionCollapsed || commitDiffQuery.state.status !== "ready" || !commitDiffQuery.state.data.ok) {
 			return;
 		}
@@ -391,12 +395,7 @@ function WorkspaceReady({
 		const nextStackIds = appliedStackIds.filter((candidate) => candidate !== stackId);
 		setUpdatingStackId(stackId);
 		try {
-			await postTrpcMutation<RuntimeProjectConfigResponse>(
-				"changes.updateProjectConfig",
-				{ vcsAppliedStacks: nextStackIds } satisfies RuntimeProjectConfigUpdateRequest,
-				workspaceId,
-			);
-			refreshProjectConfig();
+			await updateProjectConfig({ vcsAppliedStacks: nextStackIds });
 		} finally {
 			setUpdatingStackId(null);
 		}

@@ -19,7 +19,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Dialog, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { KeyValue } from "@/components/vcs-panels";
-import { SelectProjectButton, VcsShell, type VcsShellProjectState } from "@/components/vcs-shell";
+import { SelectProjectButton, type VcsShellProjectState } from "@/components/vcs-shell";
 import type {
 	QueryState,
 	RuntimeProjectConfigResponse,
@@ -27,14 +27,18 @@ import type {
 	VcsDetectResponse,
 	VcsJjInventoryResponse,
 } from "@/runtime/types";
-import { postTrpcMutation, useTrpcQuery } from "@/runtime/trpc-client";
+import {
+	toRuntimeQueryState,
+	useGetJjInventoryQuery,
+	useGetProjectConfigQuery,
+	useUpdateProjectConfigMutation,
+} from "@/runtime/vcs-api";
 import {
 	getBrowserNotificationPermission,
 	hasPromptedForBrowserNotificationPermission,
 	requestBrowserNotificationPermission,
 	type BrowserNotificationPermission,
 } from "@/utils/notification-permission";
-import { withWorkspaceParam } from "@/utils/vcs-navigation";
 import { previewThemeId, readStoredThemeId, saveThemeId, THEME_GROUPS, THEMES, type ThemeId } from "@/utils/vcs-theme";
 import {
 	readVcsFileViewMode,
@@ -721,18 +725,19 @@ function SettingsDialogContent({
 	);
 }
 
-export function SettingsView({
+export function SettingsDialog({
 	state,
-	currentPath,
 	projectState,
 	workspaceId,
+	open,
+	onOpenChange,
 }: {
 	state: QueryState<VcsDetectResponse>;
-	currentPath: string;
 	projectState: VcsShellProjectState;
 	workspaceId: string | null;
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
 }): React.ReactElement {
-	const [open, setOpen] = useState(true);
 	const [fileViewMode, setFileViewMode] = useState<VcsFileViewMode>(() => readVcsFileViewMode());
 	const [draftFileViewMode, setDraftFileViewMode] = useState<VcsFileViewMode>(() => readVcsFileViewMode());
 	const [initialThemeId, setInitialThemeId] = useState<ThemeId>(() => readStoredThemeId());
@@ -742,18 +747,15 @@ export function SettingsView({
 	const [notificationsEnabled, setNotificationsEnabled] = useState(() => readBooleanStorage(VCS_NOTIFICATIONS_ENABLED_KEY, false));
 	const [draftNotificationsEnabled, setDraftNotificationsEnabled] = useState(() => readBooleanStorage(VCS_NOTIFICATIONS_ENABLED_KEY, false));
 	const [notificationPermission, setNotificationPermission] = useState<BrowserNotificationPermission>(() => getBrowserNotificationPermission());
-	const projectConfigQuery = useTrpcQuery<RuntimeProjectConfigResponse>(
-		"changes.getProjectConfig",
-		"Failed to load project configuration.",
-		workspaceId,
-		Boolean(workspaceId),
-	);
-	const inventoryQuery = useTrpcQuery<VcsJjInventoryResponse>(
-		"vcs.jjInventory",
-		"Failed to load JJ branch inventory.",
-		workspaceId,
-		Boolean(workspaceId),
-	);
+	const projectConfigResult = useGetProjectConfigQuery({ workspaceId: workspaceId ?? "" }, { skip: !workspaceId || !open });
+	const inventoryResult = useGetJjInventoryQuery({ workspaceId: workspaceId ?? "" }, { skip: !workspaceId || !open });
+	const [updateProjectConfig] = useUpdateProjectConfigMutation();
+	const projectConfigQuery = {
+		state: toRuntimeQueryState<RuntimeProjectConfigResponse>(projectConfigResult, "Failed to load project configuration."),
+	};
+	const inventoryQuery = {
+		state: toRuntimeQueryState<VcsJjInventoryResponse>(inventoryResult, "Failed to load JJ branch inventory."),
+	};
 	const hasUnsavedChanges = useMemo(
 		() =>
 			draftFileViewMode !== fileViewMode ||
@@ -782,8 +784,7 @@ export function SettingsView({
 	}, [projectConfigQuery.state]);
 
 	function closeSettings(): void {
-		setOpen(false);
-		window.location.assign(withWorkspaceParam("/vcs", workspaceId));
+		onOpenChange(false);
 	}
 
 	function cancelSettings(): void {
@@ -809,11 +810,13 @@ export function SettingsView({
 			setInitialThemeId(draftThemeId);
 		}
 		if (draftTargetBranch !== targetBranch) {
-			const nextConfig = await postTrpcMutation<RuntimeProjectConfigResponse>(
-				"changes.updateProjectConfig",
-				{ vcsTargetBranch: draftTargetBranch } satisfies RuntimeProjectConfigUpdateRequest,
+			if (!workspaceId) {
+				return;
+			}
+			const nextConfig = await updateProjectConfig({
 				workspaceId,
-			);
+				input: { vcsTargetBranch: draftTargetBranch } satisfies RuntimeProjectConfigUpdateRequest,
+			}).unwrap();
 			setTargetBranch(nextConfig.vcsTargetBranch ?? null);
 			setDraftTargetBranch(nextConfig.vcsTargetBranch ?? null);
 		}
@@ -831,58 +834,52 @@ export function SettingsView({
 	}
 
 	return (
-		<VcsShell
-			projectState={projectState}
-			currentPath={currentPath}
-			title="Settings"
-			subtitle="View and VCS configuration"
+		<Dialog
+			open={open}
+			onOpenChange={(nextOpen) => {
+				if (!nextOpen) {
+					cancelSettings();
+					return;
+				}
+				onOpenChange(true);
+			}}
+			contentClassName="!max-w-[780px]"
 		>
-			<div className="h-full bg-surface-0" />
-			<Dialog
-				open={open}
-				onOpenChange={(nextOpen) => {
-					if (!nextOpen) {
-						cancelSettings();
-					}
-				}}
-				contentClassName="!max-w-[780px]"
-			>
-				<DialogHeader title="Settings" icon={<Settings size={16} />} />
-				<SettingsDialogContent
-					state={state}
-					projectConfigState={projectConfigQuery.state}
-					inventoryState={inventoryQuery.state}
-					workspaceId={workspaceId}
-					projectState={projectState}
-					draftFileViewMode={draftFileViewMode}
-					themeId={initialThemeId}
-					draftThemeId={draftThemeId}
-					draftTargetBranch={draftTargetBranch}
-					draftNotificationsEnabled={draftNotificationsEnabled}
-					notificationPermission={notificationPermission}
-					onFileViewModeChange={setDraftFileViewMode}
-					onThemeChange={setDraftThemeId}
-					onTargetBranchChange={setDraftTargetBranch}
-					onNotificationsEnabledChange={setDraftNotificationsEnabled}
-					onRequestNotificationPermission={requestNotifications}
-					onResetLayout={resetLayout}
-				/>
-				<DialogFooter>
-					<Button
-						size="sm"
-						variant="ghost"
-						className="mr-auto mt-[3px]"
-						icon={<ExternalLink size={14} />}
-						onClick={() => window.open(CHANGEYARD_VCS_DOCS_URL, "_blank")}
-					>
-						Read the docs
-					</Button>
-					<Button onClick={cancelSettings}>Cancel</Button>
-					<Button variant="primary" disabled={!hasUnsavedChanges} onClick={() => void saveSettings()}>
-						Save
-					</Button>
-				</DialogFooter>
-			</Dialog>
-		</VcsShell>
+			<DialogHeader title="Settings" icon={<Settings size={16} />} />
+			<SettingsDialogContent
+				state={state}
+				projectConfigState={projectConfigQuery.state}
+				inventoryState={inventoryQuery.state}
+				workspaceId={workspaceId}
+				projectState={projectState}
+				draftFileViewMode={draftFileViewMode}
+				themeId={initialThemeId}
+				draftThemeId={draftThemeId}
+				draftTargetBranch={draftTargetBranch}
+				draftNotificationsEnabled={draftNotificationsEnabled}
+				notificationPermission={notificationPermission}
+				onFileViewModeChange={setDraftFileViewMode}
+				onThemeChange={setDraftThemeId}
+				onTargetBranchChange={setDraftTargetBranch}
+				onNotificationsEnabledChange={setDraftNotificationsEnabled}
+				onRequestNotificationPermission={requestNotifications}
+				onResetLayout={resetLayout}
+			/>
+			<DialogFooter>
+				<Button
+					size="sm"
+					variant="ghost"
+					className="mr-auto mt-[3px]"
+					icon={<ExternalLink size={14} />}
+					onClick={() => window.open(CHANGEYARD_VCS_DOCS_URL, "_blank")}
+				>
+					Read the docs
+				</Button>
+				<Button onClick={cancelSettings}>Cancel</Button>
+				<Button variant="primary" disabled={!hasUnsavedChanges} onClick={() => void saveSettings()}>
+					Save
+				</Button>
+			</DialogFooter>
+		</Dialog>
 	);
 }

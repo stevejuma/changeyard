@@ -7,6 +7,7 @@ import { AppErrorBoundary } from "@/components/app-error-boundary";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { vcsStore } from "@/runtime/vcs-store";
 import { applyThemeToDocument, readStoredThemeId } from "@/utils/vcs-theme";
+import { VcsRouterProvider } from "@/utils/vcs-router";
 import "@/styles/globals.css";
 
 const root = document.getElementById("root");
@@ -20,7 +21,9 @@ ReactDOM.createRoot(root).render(
 	<AppErrorBoundary>
 		<Provider store={vcsStore}>
 			<TooltipProvider>
-				<App />
+				<VcsRouterProvider>
+					<App />
+				</VcsRouterProvider>
 				<Toaster
 					theme="dark"
 					position="bottom-right"

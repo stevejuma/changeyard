@@ -25,6 +25,7 @@ import { runStart } from "./commands/start.js";
 import { getStatus, runStatus } from "./commands/status.js";
 import { runSync } from "./commands/sync.js";
 import { runTui } from "./commands/tui.js";
+import { runConfig } from "./commands/config.js";
 import { runUi } from "./commands/ui.js";
 import { runValidate } from "./commands/validate.js";
 import { runVerify } from "./commands/verify.js";
@@ -34,7 +35,7 @@ import { errorCode, errorExitCode } from "./errors.js";
 import type { PlanningModel } from "./planning/types.js";
 import type { CreateOptions } from "./commands/create.js";
 
-type CommandName = "init" | "update" | "create" | "quick" | "validate" | "sync" | "start" | "verify" | "hydrate" | "complete" | "review" | "doctor" | "completions" | "recover" | "list" | "status" | "plan" | "ui" | "server" | "tui" | "hooks" | "install" | "uninstall" | "help";
+type CommandName = "init" | "update" | "create" | "quick" | "validate" | "sync" | "start" | "verify" | "hydrate" | "complete" | "review" | "doctor" | "completions" | "recover" | "list" | "status" | "plan" | "ui" | "server" | "tui" | "config" | "hooks" | "install" | "uninstall" | "help";
 
 type ParsedArgs = {
   command: string;
@@ -150,6 +151,7 @@ Usage:
   cy ui [--host <host>] [--port <port|auto>] [--open|--no-open]
   cy server [--host <host>] [--port <port|auto>] [--project <path>] [--json]
   cy tui [--connect <url>] [--host <host>] [--port <port|auto>] [--project <path>] [--debug]
+  cy config [--json] [--project <path>] [--connect <url>] [--host <host>] [--port <port|auto>] [--debug]
   cy hooks ingest --event to_review|to_in_progress|activity
   cy install [--dir <path>] [--dry-run]
   cy uninstall [--dir <path>] [--dry-run]
@@ -219,6 +221,11 @@ function commandUsage(command: string): string {
     ui: `${"ui".padEnd(12)}start the local Changeyard board UI.\n\nExamples:\n${commandExamples(["cy ui --no-open", "cy ui --host 127.0.0.1 --port 4310"])}`,
     server: `${"server".padEnd(12)}start the local Changeyard runtime API without opening the browser UI.\n\nExamples:\n${commandExamples(["cy server", "cy server --host 127.0.0.1 --port auto", "cy server --project /path/to/repo --json"])}`,
     tui: `${"tui".padEnd(12)}start the OpenTUI terminal interface. Requires Bun.\n\nExamples:\n${commandExamples(["cy tui", "cy tui --connect http://127.0.0.1:4310", "cy tui --project /path/to/repo --debug"])}`,
+    config: `${"config".padEnd(12)}open the interactive config TUI or print config as JSON. Requires Bun for interactive mode.\n\nExamples:\n${commandExamples([
+      "cy config",
+      "cy config --json",
+      "cy config --project /path/to/repo",
+    ])}`,
     hooks: `${"hooks".padEnd(12)}forward terminal-agent hook events to the local Changeyard runtime.\n\nExamples:\n${commandExamples(["cy hooks ingest --event to_review", "cy hooks notify --event activity --activity-text \"Waiting for input\""])}`,
     install: `${"install".padEnd(12)}symlink cy and changeyard into a local bin directory (default: ~/.local/bin).\n\nExamples:\n${commandExamples([
       "cy install",
@@ -395,6 +402,18 @@ async function main(): Promise<void> {
           project: projectRoot,
           smokeTest: asBooleanFlag(args.flags, "smoke-test"),
           smokeCreateAll: asBooleanFlag(args.flags, "smoke-create-all"),
+        }, process.cwd());
+        break;
+      }
+      case "config": {
+        const rawPort = stringFlag(args.flags, "port");
+        output = await runConfig({
+          json: json,
+          connect: stringFlag(args.flags, "connect"),
+          debug: asBooleanFlag(args.flags, "debug"),
+          host: stringFlag(args.flags, "host"),
+          port: rawPort === "auto" ? "auto" : rawPort ? Number(rawPort) : undefined,
+          project: projectRoot,
         }, process.cwd());
         break;
       }
