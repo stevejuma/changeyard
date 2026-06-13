@@ -2,12 +2,17 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+	applyWorkspaceStackId,
 	createBranchSelectionFallbackStack,
+	findApplicableStackForBranchSelection,
 	findContainingStackForBranchSelection,
 	findStackForBranchSelection,
 	groupStackChangesByHead,
+	normalizeAppliedStackIds,
+	selectAppliedWorkspaceStacks,
 	selectStackChangeGroupsForBranchDetail,
 	selectStackChangeGroupsForSelection,
+	unapplyWorkspaceStackId,
 	type BranchesStack,
 } from "./branches-stack-model";
 import type { VcsJjInventoryItem } from "./runtime/types";
@@ -18,6 +23,9 @@ function change(changeId: string, bookmarks: string[] = []): BranchesStack["chan
 		changeId,
 		commitId: `${changeId}commit`,
 		title: `${changeId} title`,
+		authorName: null,
+		authorEmail: null,
+		authorAvatarUrl: null,
 		bookmarks,
 		remoteBookmarks: [],
 		isCurrent: false,
@@ -97,6 +105,15 @@ test("findStackForBranchSelection leaves inner bookmarks detached from stack row
 
 test("findContainingStackForBranchSelection maps inner bookmarks to the containing stack", () => {
 	const selected = findContainingStackForBranchSelection([stack("feature/top")], {
+		refName: "feature/base",
+		item: item({ name: "feature/base", target: "feature/base" }),
+	});
+
+	assert.equal(selected?.id, "feature/top");
+});
+
+test("findApplicableStackForBranchSelection maps inner bookmarks to canonical containing stack ids", () => {
+	const selected = findApplicableStackForBranchSelection([stack("feature/top")], {
 		refName: "feature/base",
 		item: item({ name: "feature/base", target: "feature/base" }),
 	});
@@ -244,6 +261,35 @@ test("createBranchSelectionFallbackStack does not render remote refs as stacks",
 	});
 
 	assert.equal(fallback, null);
+});
+
+test("normalizeAppliedStackIds trims and deduplicates persisted stack ids", () => {
+	assert.deepEqual(normalizeAppliedStackIds([" feature/top ", "", "feature/base", "feature/top"]), [
+		"feature/top",
+		"feature/base",
+	]);
+});
+
+test("applyWorkspaceStackId appends a stack id once and preserves order", () => {
+	assert.deepEqual(applyWorkspaceStackId(["feature/base"], "feature/top"), ["feature/base", "feature/top"]);
+	assert.deepEqual(applyWorkspaceStackId(["feature/top"], "feature/top"), ["feature/top"]);
+});
+
+test("unapplyWorkspaceStackId removes only the selected stack id", () => {
+	assert.deepEqual(unapplyWorkspaceStackId(["feature/base", "feature/top", "feature/other"], "feature/top"), [
+		"feature/base",
+		"feature/other",
+	]);
+});
+
+test("selectAppliedWorkspaceStacks preserves applied order and ignores missing stack ids", () => {
+	const first = stack("feature/first");
+	const second = stack("feature/second");
+
+	assert.deepEqual(selectAppliedWorkspaceStacks([first, second], ["missing", "feature/second", "feature/first"]).map((entry) => entry.id), [
+		"feature/second",
+		"feature/first",
+	]);
 });
 
 test("groupStackChangesByHead slices root-to-tip changes into newest-to-oldest head groups", () => {

@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type { VcsCommandRunner } from "../detect.js";
 import type { VcsDiagnostic, VcsJjBookmark, VcsJjChange, VcsJjUnassignedChange } from "../types.js";
 
@@ -26,6 +28,15 @@ function parseList(value: string): string[] {
 		.split(LIST_SEPARATOR)
 		.map((entry) => entry.trim())
 		.filter(Boolean);
+}
+
+function gravatarUrlForEmail(email: string | null | undefined): string | null {
+	const normalized = email?.trim().toLowerCase();
+	if (!normalized) {
+		return null;
+	}
+	const hash = createHash("md5").update(normalized).digest("hex");
+	return `https://www.gravatar.com/avatar/${hash}?s=80&d=identicon`;
 }
 
 function assertSafeBookmarkName(name: string): void {
@@ -76,6 +87,9 @@ function createGraphRevset(baseRevset: string, bookmarkNames: readonly string[])
 function mergeChanges(current: VcsJjChange | undefined, next: VcsJjChange): VcsJjChange {
 	return {
 		...next,
+		authorName: next.authorName ?? current?.authorName ?? null,
+		authorEmail: next.authorEmail ?? current?.authorEmail ?? null,
+		authorAvatarUrl: next.authorAvatarUrl ?? current?.authorAvatarUrl ?? null,
 		bookmarks: mergeLists(current?.bookmarks, next.bookmarks),
 		remoteBookmarks: mergeLists(current?.remoteBookmarks, next.remoteBookmarks),
 		isCurrent: current?.isCurrent || next.isCurrent || false,
@@ -128,15 +142,31 @@ export async function readJjBookmarks(cwd: string, runner: VcsCommandRunner): Pr
 }
 
 function parseChangeRow(line: string): VcsJjChange | null {
-	const [changeId, commitId, description, parents, bookmarks, remoteBookmarks, currentFlag] =
-		line.split(BOOKMARK_LINE_SEPARATOR);
+	const fields = line.split(BOOKMARK_LINE_SEPARATOR);
+	const [changeId, commitId, description] = fields;
+	let authorName: string | undefined;
+	let authorEmail: string | undefined;
+	let parents: string | undefined;
+	let bookmarks: string | undefined;
+	let remoteBookmarks: string | undefined;
+	let currentFlag: string | undefined;
+	if (fields.length >= 9) {
+		[, , , authorName, authorEmail, parents, bookmarks, remoteBookmarks, currentFlag] = fields;
+	} else {
+		[, , , parents, bookmarks, remoteBookmarks, currentFlag] = fields;
+	}
 	if (!changeId || !commitId || currentFlag === undefined) {
 		return null;
 	}
+	const normalizedAuthorName = authorName?.trim() || null;
+	const normalizedAuthorEmail = authorEmail?.trim() || null;
 	return {
 		changeId,
 		commitId,
 		description: description || "(empty description)",
+		authorName: normalizedAuthorName,
+		authorEmail: normalizedAuthorEmail,
+		authorAvatarUrl: gravatarUrlForEmail(normalizedAuthorEmail),
 		parentChangeIds: parseList(parents ?? ""),
 		bookmarks: parseList(bookmarks ?? ""),
 		remoteBookmarks: parseList(remoteBookmarks ?? ""),
@@ -166,7 +196,7 @@ export async function readJjChangesForBookmarks(
 				createGraphRevset(baseRevset, batch),
 				"--no-graph",
 				"--template",
-				'change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"',
+				'change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"',
 			],
 			cwd,
 		});

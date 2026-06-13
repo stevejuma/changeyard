@@ -17,6 +17,7 @@ export const defaultConfig: ChangeyardConfig = {
   vcs: {
     engine: "plain-copy",
     fallback: "plain-copy",
+    appliedStacks: [],
   },
   workspace: {
     pathPattern: "{id}/repo",

@@ -73,6 +73,9 @@ export type VcsJjStateResponse = VcsDetectResponse & {
 		changeId: string;
 		commitId: string;
 		description: string;
+		authorName: string | null;
+		authorEmail: string | null;
+		authorAvatarUrl: string | null;
 		parentChangeIds: string[];
 		bookmarks: string[];
 		remoteBookmarks: string[];
@@ -97,6 +100,9 @@ export type VcsJjStateResponse = VcsDetectResponse & {
 			changeId: string;
 			commitId: string;
 			title: string;
+			authorName: string | null;
+			authorEmail: string | null;
+			authorAvatarUrl: string | null;
 			bookmarks: string[];
 			remoteBookmarks: string[];
 			isCurrent: boolean;
@@ -146,6 +152,7 @@ export type RuntimeProjectConfigResponse = {
 	vcsEngine: "plain-copy" | "jj" | "git-worktree";
 	vcsFallback: "plain-copy" | "jj" | "git-worktree";
 	vcsTargetBranch?: string | null;
+	vcsAppliedStacks?: string[];
 	projectDefaultBase: string;
 	planningDefaultProfile?: "none" | "openspec-lite";
 	planningDefaultStrictness?: "normal" | "strict";
@@ -155,6 +162,7 @@ export type RuntimeProjectConfigResponse = {
 
 export type RuntimeProjectConfigUpdateRequest = {
 	vcsTargetBranch?: string | null;
+	vcsAppliedStacks?: string[];
 };
 
 export type VcsJjDiffResponse = {

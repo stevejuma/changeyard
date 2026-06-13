@@ -26,7 +26,7 @@ test("loadJjDiff returns the current change summary and patch", async () => {
 				return { ok: true, stdout: "Logged in", stderr: "", exitCode: 0 };
 			case "jj show -r qpvuntsm --summary --color=never":
 				return { ok: true, stdout: "M src/example.ts", stderr: "", exitCode: 0 };
-			case "jj show -r qpvuntsm --color=never":
+			case "jj show -r qpvuntsm --git --color=never":
 				return { ok: true, stdout: "diff --git a/src/example.ts b/src/example.ts", stderr: "", exitCode: 0 };
 			default:
 				return { ok: false, stdout: "", stderr: `${joined} not mocked`, exitCode: 1 };

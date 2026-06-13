@@ -58,6 +58,9 @@ export interface VcsJjChange {
 	changeId: string;
 	commitId: string;
 	description: string;
+	authorName: string | null;
+	authorEmail: string | null;
+	authorAvatarUrl: string | null;
 	parentChangeIds: string[];
 	bookmarks: string[];
 	remoteBookmarks: string[];
@@ -69,6 +72,9 @@ export interface VcsJjStackChange {
 	changeId: string;
 	commitId: string;
 	title: string;
+	authorName: string | null;
+	authorEmail: string | null;
+	authorAvatarUrl: string | null;
 	bookmarks: string[];
 	remoteBookmarks: string[];
 	isCurrent: boolean;

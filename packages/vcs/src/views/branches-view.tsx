@@ -2,10 +2,14 @@ import { GitBranch, GitPullRequest, Search, Tag, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import {
+	applyWorkspaceStackId,
 	createBranchSelectionFallbackStack,
+	findApplicableStackForBranchSelection,
 	findContainingStackForBranchSelection,
 	findStackForBranchSelection,
+	normalizeAppliedStackIds,
 	selectStackChangeGroupsForBranchDetail,
+	unapplyWorkspaceStackId,
 	type BranchesStack,
 	type BranchesStackChange,
 	type StackChangeGroup,
@@ -31,15 +35,19 @@ import type {
 	RuntimeGitCommit,
 	RuntimeGitCommitDiffResponse,
 	RuntimeGitLogResponse,
+	RuntimeProjectConfigResponse,
+	RuntimeProjectConfigUpdateRequest,
 	VcsJjInventoryItem,
 	VcsJjInventoryResponse,
 	VcsJjStateResponse,
 } from "@/runtime/types";
-import { usePaginatedRepositoryLog, useTrpcInputQuery, useTrpcQuery } from "@/runtime/trpc-client";
+import { postTrpcMutation, usePaginatedRepositoryLog, useTrpcInputQuery, useTrpcQuery } from "@/runtime/trpc-client";
 import {
+	readVcsBooleanPreference,
 	readVcsFileViewMode,
 	readVcsNumberPreference,
 	VCS_LAYOUT_STORAGE_KEYS,
+	writeVcsBooleanPreference,
 	writeVcsFileViewMode,
 	writeVcsNumberPreference,
 	type VcsFileViewMode,
@@ -55,6 +63,10 @@ const BRANCH_COLUMN_LIMITS = {
 	refs: { min: 300, max: 580, fallback: 360, key: VCS_LAYOUT_STORAGE_KEYS.branchesRefsWidth },
 	stack: { min: 380, max: 760, fallback: 500, key: VCS_LAYOUT_STORAGE_KEYS.branchesCommitsWidth },
 	diff: { min: 420, max: 980, fallback: 640, key: VCS_LAYOUT_STORAGE_KEYS.branchesDiffWidth },
+} as const;
+const BRANCH_COLUMN_COLLAPSED_KEYS = {
+	refs: VCS_LAYOUT_STORAGE_KEYS.branchesRefsCollapsed,
+	stack: VCS_LAYOUT_STORAGE_KEYS.branchesStackCollapsed,
 } as const;
 const BRANCH_TRAILING_SPACER_WIDTH = BRANCH_COLUMN_LIMITS.diff.fallback;
 
@@ -172,11 +184,17 @@ export function BranchesView({
 		workspaceId,
 		Boolean(workspaceId),
 	);
+	const projectConfigQuery = useTrpcQuery<RuntimeProjectConfigResponse>(
+		"changes.getProjectConfig",
+		"Failed to load project configuration.",
+		workspaceId,
+		Boolean(workspaceId),
+	);
 	const [filter, setFilter] = useState<BranchFilter>("all");
 	const [search, setSearch] = useState("");
 	const [collapsedColumns, setCollapsedColumns] = useState<Record<BranchColumnId, boolean>>({
-		refs: false,
-		stack: false,
+		refs: readVcsBooleanPreference(BRANCH_COLUMN_COLLAPSED_KEYS.refs, false),
+		stack: readVcsBooleanPreference(BRANCH_COLUMN_COLLAPSED_KEYS.stack, false),
 	});
 	const [columnWidths, setColumnWidths] = useState(() => ({
 		refs: readVcsNumberPreference(BRANCH_COLUMN_LIMITS.refs.key, BRANCH_COLUMN_LIMITS.refs.fallback, BRANCH_COLUMN_LIMITS.refs.min, BRANCH_COLUMN_LIMITS.refs.max),
@@ -190,6 +208,7 @@ export function BranchesView({
 	const [hasUserClearedRef, setHasUserClearedRef] = useState(false);
 	const [hasUserClearedFile, setHasUserClearedFile] = useState(false);
 	const [isFileSectionCollapsed, setFileSectionCollapsed] = useState(false);
+	const [updatingAppliedStackId, setUpdatingAppliedStackId] = useState<string | null>(null);
 	const commitDiffQuery = useTrpcInputQuery<RuntimeGitCommitDiffResponse>(
 		"workspace.getRepositoryCommitDiff",
 		{ commitHash: selectedCommitHash ?? "" },
@@ -258,7 +277,7 @@ export function BranchesView({
 		writeQueryParam("ref", target);
 		writeQueryParam("commit", null);
 		writeQueryParam("file", null);
-		setCollapsedColumns((current) => ({ ...current, stack: false }));
+		changeColumnCollapsed("stack", false);
 	}
 
 	function selectStackChange(change: BranchesStackChange): void {
@@ -301,6 +320,11 @@ export function BranchesView({
 		setColumnWidths((current) => ({ ...current, [column]: normalized }));
 	}
 
+	function changeColumnCollapsed(column: BranchColumnId, collapsed: boolean): void {
+		writeVcsBooleanPreference(BRANCH_COLUMN_COLLAPSED_KEYS[column], collapsed);
+		setCollapsedColumns((current) => ({ ...current, [column]: collapsed }));
+	}
+
 	function changeFileViewMode(mode: VcsFileViewMode): void {
 		setFileViewMode(writeVcsFileViewMode(mode));
 	}
@@ -318,6 +342,28 @@ export function BranchesView({
 		if (nextFilePath) {
 			setSelectedFilePath(nextFilePath);
 			writeQueryParam("file", nextFilePath);
+		}
+	}
+
+	async function updateAppliedStacks(stackId: string, action: "apply" | "unapply"): Promise<void> {
+		if (!workspaceId || projectConfigQuery.state.status !== "ready") {
+			return;
+		}
+		const currentStackIds = projectConfigQuery.state.data.vcsAppliedStacks ?? [];
+		const nextStackIds =
+			action === "apply"
+				? applyWorkspaceStackId(currentStackIds, stackId)
+				: unapplyWorkspaceStackId(currentStackIds, stackId);
+		setUpdatingAppliedStackId(stackId);
+		try {
+			await postTrpcMutation<RuntimeProjectConfigResponse>(
+				"changes.updateProjectConfig",
+				{ vcsAppliedStacks: nextStackIds } satisfies RuntimeProjectConfigUpdateRequest,
+				workspaceId,
+			);
+			projectConfigQuery.refresh();
+		} finally {
+			setUpdatingAppliedStackId(null);
 		}
 	}
 
@@ -345,6 +391,8 @@ export function BranchesView({
 							inventory={inventory}
 							workspaceId={workspaceId}
 							stackState={stackQuery.state}
+							projectConfigState={projectConfigQuery.state}
+							updatingAppliedStackId={updatingAppliedStackId}
 							filter={filter}
 							setFilter={setFilter}
 							search={search}
@@ -358,7 +406,7 @@ export function BranchesView({
 							columnWidths={columnWidths}
 							fileViewMode={fileViewMode}
 							isFileSectionCollapsed={isFileSectionCollapsed}
-							onColumnCollapsedChange={(column, collapsed) => setCollapsedColumns((current) => ({ ...current, [column]: collapsed }))}
+							onColumnCollapsedChange={changeColumnCollapsed}
 							onColumnWidthChange={setColumnWidth}
 							onFileViewModeChange={changeFileViewMode}
 							onFileSectionCollapsedChange={changeFileSectionCollapsed}
@@ -366,6 +414,8 @@ export function BranchesView({
 							onSelectStackChange={selectStackChange}
 							onSelectCommitHash={selectCommitHash}
 							onSelectFile={selectFile}
+							onApplyStack={(stackId) => void updateAppliedStacks(stackId, "apply")}
+							onUnapplyStack={(stackId) => void updateAppliedStacks(stackId, "unapply")}
 							onCloseDiff={() => {
 								setSelectedFilePath(null);
 								setHasUserClearedFile(true);
@@ -460,6 +510,8 @@ function BranchesReady({
 	inventory,
 	workspaceId,
 	stackState,
+	projectConfigState,
+	updatingAppliedStackId,
 	filter,
 	setFilter,
 	search,
@@ -481,11 +533,15 @@ function BranchesReady({
 	onSelectStackChange,
 	onSelectCommitHash,
 	onSelectFile,
+	onApplyStack,
+	onUnapplyStack,
 	onCloseDiff,
 }: {
 	inventory: VcsJjInventoryResponse;
 	workspaceId: string | null;
 	stackState: QueryState<VcsJjStateResponse>;
+	projectConfigState: QueryState<RuntimeProjectConfigResponse>;
+	updatingAppliedStackId: string | null;
 	filter: BranchFilter;
 	setFilter: (filter: BranchFilter) => void;
 	search: string;
@@ -507,8 +563,12 @@ function BranchesReady({
 	onSelectStackChange: (change: BranchesStackChange) => void;
 	onSelectCommitHash: (commitHash: string) => void;
 	onSelectFile: (path: string) => void;
+	onApplyStack: (stackId: string) => void;
+	onUnapplyStack: (stackId: string) => void;
 	onCloseDiff: () => void;
 }): React.ReactElement {
+	const appliedStackIds =
+		projectConfigState.status === "ready" ? normalizeAppliedStackIds(projectConfigState.data.vcsAppliedStacks) : [];
 	const refsCount = inventory.items.length;
 	const visibleItems = inventory.items.filter((item) => {
 		if (filter === "prs" && !item.pr) {
@@ -542,12 +602,11 @@ function BranchesReady({
 		pageSize: 50,
 	});
 	const selection = { refName: selectedRefName, item: activeItem };
-	const hasDerivedStack =
-		stackState.status === "ready" &&
-		Boolean(
-			findStackForBranchSelection(stackState.data.stacks, selection) ??
-				findContainingStackForBranchSelection(stackState.data.stacks, selection),
-		);
+	const applicableStack =
+		stackState.status === "ready" ? findApplicableStackForBranchSelection(stackState.data.stacks, selection) : null;
+	const hasDerivedStack = Boolean(applicableStack);
+	const applicableStackId = applicableStack?.id ?? null;
+	const applicableStackApplied = Boolean(applicableStackId && appliedStackIds.includes(applicableStackId));
 	const activeStack = (() => {
 		if (stackState.status !== "ready") {
 			return null;
@@ -598,6 +657,7 @@ function BranchesReady({
 							search={search}
 							setSearch={setSearch}
 							selectedRefName={selectedRefName}
+							appliedStackIds={appliedStackIds}
 							onSelectRef={onSelectRef}
 						/>
 					</VcsColumn>
@@ -620,7 +680,17 @@ function BranchesReady({
 						onWidthChange={(width) => onColumnWidthChange("stack", width)}
 						onScrollNearEnd={workspaceTargetLogQuery.hasMore ? workspaceTargetLogQuery.loadMore : undefined}
 						hideHeader
-						headerContent={<StackHeaderActions item={activeItem} canApply={hasDerivedStack} />}
+						headerContent={
+							<StackHeaderActions
+								item={activeItem}
+								stackId={applicableStackId}
+								canApply={hasDerivedStack && projectConfigState.status === "ready" && !applicableStackApplied}
+								isApplied={applicableStackApplied}
+								isUpdating={Boolean(applicableStackId && updatingAppliedStackId === applicableStackId)}
+								onApplyStack={onApplyStack}
+								onUnapplyStack={onUnapplyStack}
+							/>
+						}
 					>
 						<StackDetailColumn
 							state={stackState}
@@ -674,6 +744,7 @@ function BranchesColumnContent({
 	search,
 	setSearch,
 	selectedRefName,
+	appliedStackIds,
 	onSelectRef,
 }: {
 	inventory: VcsJjInventoryResponse;
@@ -685,6 +756,7 @@ function BranchesColumnContent({
 	search: string;
 	setSearch: (value: string) => void;
 	selectedRefName: string | null;
+	appliedStackIds: string[];
 	onSelectRef: (item: VcsJjInventoryItem) => void;
 }): React.ReactElement {
 	const workspaceTarget = inventory.workspaceTarget;
@@ -768,6 +840,7 @@ function BranchesColumnContent({
 										key={item.id}
 										item={item}
 										selected={getItemTarget(item) === selectedRefName}
+										isApplied={appliedStackIds.includes(item.name) || Boolean(item.target && appliedStackIds.includes(item.target))}
 										onSelect={() => onSelectRef(item)}
 									/>
 								))}
@@ -783,10 +856,12 @@ function BranchesColumnContent({
 function BranchRow({
 	item,
 	selected,
+	isApplied,
 	onSelect,
 }: {
 	item: VcsJjInventoryItem;
 	selected: boolean;
+	isApplied: boolean;
 	onSelect: () => void;
 }): React.ReactElement {
 	const title = item.title?.trim() || item.name;
@@ -810,6 +885,7 @@ function BranchRow({
 			<div className="flex min-w-0 items-center gap-2">
 				<span className="text-text-tertiary">{itemIcon(item)}</span>
 				<span className="truncate text-sm font-semibold text-text-primary">{item.name}</span>
+				{isApplied ? <StatusChip label="Workspace" tone="green" /> : null}
 			</div>
 			<div className="mt-1 truncate text-xs text-text-secondary">{title}</div>
 			<div className="mt-2 flex min-w-0 items-center justify-between gap-3 border-t border-divider pt-2">
@@ -949,7 +1025,23 @@ function StackDetailColumn({
 	);
 }
 
-function StackHeaderActions({ item, canApply }: { item: VcsJjInventoryItem | null; canApply: boolean }): React.ReactElement | null {
+function StackHeaderActions({
+	item,
+	stackId,
+	canApply,
+	isApplied,
+	isUpdating,
+	onApplyStack,
+	onUnapplyStack,
+}: {
+	item: VcsJjInventoryItem | null;
+	stackId: string | null;
+	canApply: boolean;
+	isApplied: boolean;
+	isUpdating: boolean;
+	onApplyStack: (stackId: string) => void;
+	onUnapplyStack: (stackId: string) => void;
+}): React.ReactElement | null {
 	if (item?.type === "workspace") {
 		return <WorkspaceTargetHeaderMetadata item={item} />;
 	}
@@ -963,10 +1055,19 @@ function StackHeaderActions({ item, canApply }: { item: VcsJjInventoryItem | nul
 				size="sm"
 				icon={<GitBranch size={14} />}
 				className="shrink-0"
-				disabled={!canApply}
-				onClick={() => undefined}
+				disabled={isUpdating || (!canApply && !isApplied)}
+				onClick={() => {
+					if (!stackId) {
+						return;
+					}
+					if (isApplied) {
+						onUnapplyStack(stackId);
+						return;
+					}
+					onApplyStack(stackId);
+				}}
 			>
-				Apply to workspace
+				{isUpdating ? "Updating..." : isApplied ? "Unapply from workspace" : "Apply to workspace"}
 			</Button>
 			<Button
 				variant="default"

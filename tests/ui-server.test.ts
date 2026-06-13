@@ -1090,6 +1090,7 @@ test("changes project config routes expose and persist core changeyard settings"
         providerType: string;
         vcsEngine: string;
         vcsFallback: string;
+        vcsAppliedStacks?: string[];
         projectDefaultBase: string;
         planningDefaultProfile?: string;
         planningDefaultStrictness?: string;
@@ -1099,12 +1100,14 @@ test("changes project config routes expose and persist core changeyard settings"
       assert.equal(current.initialized, true);
       assert.equal(current.vcsEngine, "git-worktree");
       assert.equal(current.projectDefaultBase, "main");
+      assert.deepEqual(current.vcsAppliedStacks, []);
 
       const updated = await trpcMutation<{
         initialized: boolean;
         providerType: string;
         vcsEngine: string;
         vcsFallback: string;
+        vcsAppliedStacks?: string[];
         projectDefaultBase: string;
         planningDefaultProfile?: string;
         planningDefaultStrictness?: string;
@@ -1117,6 +1120,7 @@ test("changes project config routes expose and persist core changeyard settings"
           providerType: "noop",
           vcsEngine: "jj",
           vcsFallback: "jj",
+          vcsAppliedStacks: [" feature/top ", "feature/base", "feature/top"],
           projectDefaultBase: "trunk",
           planningDefaultProfile: "openspec-lite",
           planningDefaultStrictness: "strict",
@@ -1129,6 +1133,7 @@ test("changes project config routes expose and persist core changeyard settings"
       assert.equal(updated.providerType, "noop");
       assert.equal(updated.vcsEngine, "jj");
       assert.equal(updated.vcsFallback, "jj");
+      assert.deepEqual(updated.vcsAppliedStacks, ["feature/top", "feature/base"]);
       assert.equal(updated.projectDefaultBase, "trunk");
       assert.equal(updated.planningDefaultProfile, "openspec-lite");
       assert.equal(updated.planningDefaultStrictness, "strict");
@@ -1137,7 +1142,7 @@ test("changes project config routes expose and persist core changeyard settings"
 
       const localConfig = JSON.parse(readFileSync(path.join(repo, ".changeyard", "config.local.jsonc"), "utf8")) as {
         provider?: { type?: string };
-        vcs?: { engine?: string; fallback?: string };
+        vcs?: { engine?: string; fallback?: string; appliedStacks?: string[] };
         project?: { defaultBase?: string };
         planning?: {
           defaultProfile?: string;
@@ -1149,6 +1154,7 @@ test("changes project config routes expose and persist core changeyard settings"
       assert.equal(localConfig.provider?.type, "noop");
       assert.equal(localConfig.vcs?.engine, "jj");
       assert.equal(localConfig.vcs?.fallback, "jj");
+      assert.deepEqual(localConfig.vcs?.appliedStacks, ["feature/top", "feature/base"]);
       assert.equal(localConfig.project?.defaultBase, "trunk");
       assert.equal(localConfig.planning?.defaultProfile, "openspec-lite");
       assert.equal(localConfig.planning?.defaultStrictness, "strict");

@@ -91,6 +91,44 @@ export function findContainingStackForBranchSelection(
 	return stacks.find((stack) => stackContainsName(stack, names) || stackHasChangeTarget(stack, selection)) ?? null;
 }
 
+export function findApplicableStackForBranchSelection(
+	stacks: readonly BranchesStack[],
+	selection: StackSelection,
+): BranchesStack | null {
+	return findStackForBranchSelection(stacks, selection) ?? findContainingStackForBranchSelection(stacks, selection);
+}
+
+export function normalizeAppliedStackIds(values: readonly string[] | null | undefined): string[] {
+	return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))];
+}
+
+export function applyWorkspaceStackId(values: readonly string[] | null | undefined, stackId: string): string[] {
+	const normalizedStackId = normalized(stackId);
+	if (!normalizedStackId) {
+		return normalizeAppliedStackIds(values);
+	}
+	const current = normalizeAppliedStackIds(values);
+	return current.includes(normalizedStackId) ? current : [...current, normalizedStackId];
+}
+
+export function unapplyWorkspaceStackId(values: readonly string[] | null | undefined, stackId: string): string[] {
+	const normalizedStackId = normalized(stackId);
+	if (!normalizedStackId) {
+		return normalizeAppliedStackIds(values);
+	}
+	return normalizeAppliedStackIds(values).filter((value) => value !== normalizedStackId);
+}
+
+export function selectAppliedWorkspaceStacks(
+	stacks: readonly BranchesStack[],
+	appliedStackIds: readonly string[] | null | undefined,
+): BranchesStack[] {
+	const stacksById = new Map(stacks.map((stack) => [stack.id, stack]));
+	return normalizeAppliedStackIds(appliedStackIds)
+		.map((stackId) => stacksById.get(stackId) ?? null)
+		.filter((stack): stack is BranchesStack => Boolean(stack));
+}
+
 export function createBranchSelectionFallbackStack(selection: StackSelection): BranchesStack | null {
 	const item = selection.item ?? null;
 	if (!item || !["current", "bookmark", "branch", "workspace"].includes(item.type) || !item.commitId) {
@@ -122,6 +160,9 @@ export function createBranchSelectionFallbackStack(selection: StackSelection): B
 			changeId,
 			commitId: item.commitId,
 			title,
+			authorName: item.authorName ?? null,
+			authorEmail: item.authorEmail ?? null,
+			authorAvatarUrl: item.authorAvatarUrl ?? null,
 			bookmarks,
 			remoteBookmarks: item.type === "workspace" && item.remoteName ? [`${item.target ?? item.name}@${item.remoteName}`] : [],
 			isCurrent: isCheckedOut,

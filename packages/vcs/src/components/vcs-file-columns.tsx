@@ -10,7 +10,7 @@ import { EmptyState } from "@/components/vcs-panels";
 import { buildFileTree, type FileTreeNode } from "@/utils/file-tree";
 import { clampNumber, type VcsFileViewMode } from "@/utils/vcs-ui-preferences";
 
-export type VcsColumnId = "refs" | "commits" | "operations" | "stack";
+export type VcsColumnId = "refs" | "commits" | "operations" | "stack" | "unstaged";
 
 export type VcsFileChange = {
 	path: string;

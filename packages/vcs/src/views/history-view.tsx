@@ -28,9 +28,11 @@ import type {
 } from "@/runtime/types";
 import { usePaginatedJjOperationDiff, usePaginatedJjOperations, useTrpcInputQuery } from "@/runtime/trpc-client";
 import {
+	readVcsBooleanPreference,
 	readVcsFileViewMode,
 	readVcsNumberPreference,
 	VCS_LAYOUT_STORAGE_KEYS,
+	writeVcsBooleanPreference,
 	writeVcsFileViewMode,
 	writeVcsNumberPreference,
 	type VcsFileViewMode,
@@ -45,6 +47,10 @@ const HISTORY_COLUMN_LIMITS = {
 	operations: { min: 340, max: 640, fallback: 430, key: VCS_LAYOUT_STORAGE_KEYS.historyOperationsWidth },
 	commits: { min: 420, max: 820, fallback: 520, key: VCS_LAYOUT_STORAGE_KEYS.historyCommitsWidth },
 	diff: { min: 420, max: 980, fallback: 640, key: VCS_LAYOUT_STORAGE_KEYS.historyDiffWidth },
+} as const;
+const HISTORY_COLUMN_COLLAPSED_KEYS = {
+	operations: VCS_LAYOUT_STORAGE_KEYS.historyOperationsCollapsed,
+	commits: VCS_LAYOUT_STORAGE_KEYS.historyCommitsCollapsed,
 } as const;
 const HISTORY_TRAILING_SPACER_WIDTH = HISTORY_COLUMN_LIMITS.diff.fallback;
 
@@ -338,8 +344,8 @@ export function HistoryView({
 		pageSize: 50,
 	});
 	const [collapsedColumns, setCollapsedColumns] = useState<Record<HistoryColumnId, boolean>>({
-		operations: false,
-		commits: false,
+		operations: readVcsBooleanPreference(HISTORY_COLUMN_COLLAPSED_KEYS.operations, false),
+		commits: readVcsBooleanPreference(HISTORY_COLUMN_COLLAPSED_KEYS.commits, false),
 	});
 	const [columnWidths, setColumnWidths] = useState(() => ({
 		operations: readVcsNumberPreference(HISTORY_COLUMN_LIMITS.operations.key, HISTORY_COLUMN_LIMITS.operations.fallback, HISTORY_COLUMN_LIMITS.operations.min, HISTORY_COLUMN_LIMITS.operations.max),
@@ -453,7 +459,7 @@ export function HistoryView({
 		writeQueryParam("operation", operation.id);
 		writeQueryParam("commit", null);
 		writeQueryParam("file", null);
-		setCollapsedColumns((current) => ({ ...current, commits: false }));
+		changeColumnCollapsed("commits", false);
 	}
 
 	function selectCommit(commit: VcsJjOperationCommit): void {
@@ -490,6 +496,11 @@ export function HistoryView({
 		const limits = HISTORY_COLUMN_LIMITS[column];
 		const normalized = writeVcsNumberPreference(limits.key, width, limits.min, limits.max);
 		setColumnWidths((current) => ({ ...current, [column]: normalized }));
+	}
+
+	function changeColumnCollapsed(column: HistoryColumnId, collapsed: boolean): void {
+		writeVcsBooleanPreference(HISTORY_COLUMN_COLLAPSED_KEYS[column], collapsed);
+		setCollapsedColumns((current) => ({ ...current, [column]: collapsed }));
 	}
 
 	function changeFileViewMode(mode: VcsFileViewMode): void {
@@ -553,7 +564,7 @@ export function HistoryView({
 							columnWidths={columnWidths}
 							fileViewMode={fileViewMode}
 							isFileSectionCollapsed={isFileSectionCollapsed}
-							onColumnCollapsedChange={(column, collapsed) => setCollapsedColumns((current) => ({ ...current, [column]: collapsed }))}
+							onColumnCollapsedChange={changeColumnCollapsed}
 							onColumnWidthChange={setColumnWidth}
 							onFileViewModeChange={changeFileViewMode}
 							onFileSectionCollapsedChange={changeFileSectionCollapsed}

@@ -48,7 +48,7 @@ export async function loadJjDiff(cwd: string, runner: VcsCommandRunner): Promise
 		}),
 		runner({
 			command: "jj",
-			args: ["show", "-r", changeId, "--color=never"],
+			args: ["show", "-r", changeId, "--git", "--color=never"],
 			cwd: repoCwd,
 		}),
 	]);
