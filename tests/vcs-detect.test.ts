@@ -33,9 +33,9 @@ test("detectVcsState reports jj repositories from the injected runner", async ()
 				case "jj --version":
 					return { ok: true, stdout: "jj 0.27.0", stderr: "", exitCode: 0 };
 				case "jj workspace root":
-					return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
+					return { ok: true, stdout: "/repo\n", stderr: "", exitCode: 0 };
 				case "git rev-parse --show-toplevel":
-					return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
+					return { ok: true, stdout: "/repo\n", stderr: "", exitCode: 0 };
 				case "jj bookmark list --ignore-working-copy --at-op=@ -r @":
 					return { ok: true, stdout: "feature/demo: qpvuntsm 12345678", stderr: "", exitCode: 0 };
 				case "jj log --ignore-working-copy --at-op=@ -r @ --no-graph -T change_id.short()":
@@ -56,6 +56,7 @@ test("detectVcsState reports jj repositories from the injected runner", async ()
 
 	assert.equal(result.repository.kind, "jj");
 	assert.equal(result.repository.root, "/repo");
+	assert.equal(result.jj.repoRoot, "/repo");
 	assert.equal(result.jj.version, "0.27.0");
 	assert.equal(result.jj.currentBookmark, "feature/demo");
 	assert.equal(result.jj.currentChangeId, "qpvuntsm");

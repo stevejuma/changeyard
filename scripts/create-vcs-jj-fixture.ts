@@ -250,6 +250,17 @@ async function createFixture(options: FixtureOptions) {
 				"serde = { version = \"1\", features = [\"derive\"] }",
 				"",
 			].join("\n"),
+			"src/tasks.rs": [
+				"use serde::{Deserialize, Serialize};",
+				"",
+				"#[derive(Clone, Debug, Deserialize, Serialize)]",
+				"pub struct Task {",
+				"    pub id: u64,",
+				"    pub title: String,",
+				"    pub completed: bool,",
+				"}",
+				"",
+			].join("\n"),
 		},
 		bookmark: "feature/export-json",
 	});

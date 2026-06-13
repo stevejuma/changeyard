@@ -31,6 +31,17 @@ export type UnifiedDiffRow = {
 	text: string;
 };
 
+export type UnifiedDiffHunk = {
+	id: string;
+	header: string;
+	oldStart: number;
+	oldLines: number;
+	newStart: number;
+	newLines: number;
+	rows: UnifiedDiffRow[];
+	patch: string;
+};
+
 const PRISM_LANGUAGE_BY_EXTENSION: Record<string, string> = {
 	bash: "bash",
 	c: "c",
@@ -111,6 +122,10 @@ function getHighlightedLineHtml(
 }
 
 export function parsePatchToRows(patch: string): UnifiedDiffRow[] {
+	return parsePatchToHunks(patch).flatMap((hunk) => hunk.rows);
+}
+
+export function parsePatchToHunks(patch: string): UnifiedDiffHunk[] {
 	if (!patch) {
 		return [];
 	}
@@ -118,7 +133,9 @@ export function parsePatchToRows(patch: string): UnifiedDiffRow[] {
 	if (rawLines.length > 0 && rawLines[rawLines.length - 1] === "") {
 		rawLines.pop();
 	}
-	const rows: UnifiedDiffRow[] = [];
+	const hunks: UnifiedDiffHunk[] = [];
+	let currentHunk: UnifiedDiffHunk | null = null;
+	let currentHunkPatchLines: string[] = [];
 	let oldLine = 0;
 	let newLine = 0;
 	let inHunk = false;
@@ -126,34 +143,70 @@ export function parsePatchToRows(patch: string): UnifiedDiffRow[] {
 	for (const raw of rawLines) {
 		if (raw.startsWith("@@")) {
 			inHunk = true;
-			const match = raw.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+			if (currentHunk) {
+				currentHunk.patch = currentHunkPatchLines.join("\n");
+				hunks.push(currentHunk);
+			}
+			const match = raw.match(/@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
 			if (match) {
 				oldLine = Number.parseInt(match[1] ?? "0", 10);
-				newLine = Number.parseInt(match[2] ?? "0", 10);
+				newLine = Number.parseInt(match[3] ?? "0", 10);
+				const oldLines = Number.parseInt(match[2] ?? "1", 10);
+				const newLines = Number.parseInt(match[4] ?? "1", 10);
+				currentHunk = {
+					id: `${oldLine}:${oldLines}:${newLine}:${newLines}`,
+					header: raw,
+					oldStart: oldLine,
+					oldLines,
+					newStart: newLine,
+					newLines,
+					rows: [],
+					patch: raw,
+				};
+				currentHunkPatchLines = [raw];
+			} else {
+				currentHunk = {
+					id: `hunk:${hunks.length}`,
+					header: raw,
+					oldStart: 0,
+					oldLines: 0,
+					newStart: 0,
+					newLines: 0,
+					rows: [],
+					patch: raw,
+				};
+				currentHunkPatchLines = [raw];
 			}
 			continue;
 		}
-		if (!inHunk) {
+		if (!inHunk || !currentHunk) {
 			continue;
 		}
 		if (raw.startsWith("+")) {
-			rows.push({ key: `n-${newLine}-${rows.length}`, lineNumber: newLine, variant: "added", text: raw.slice(1) });
+			currentHunk.rows.push({ key: `n-${newLine}-${currentHunk.rows.length}`, lineNumber: newLine, variant: "added", text: raw.slice(1) });
+			currentHunkPatchLines.push(raw);
 			newLine += 1;
 		} else if (raw.startsWith("-")) {
-			rows.push({ key: `o-${oldLine}-${rows.length}`, lineNumber: oldLine, variant: "removed", text: raw.slice(1) });
+			currentHunk.rows.push({ key: `o-${oldLine}-${currentHunk.rows.length}`, lineNumber: oldLine, variant: "removed", text: raw.slice(1) });
+			currentHunkPatchLines.push(raw);
 			oldLine += 1;
 		} else if (raw.startsWith(" ")) {
-			rows.push({
-				key: `c-${oldLine}-${newLine}-${rows.length}`,
+			currentHunk.rows.push({
+				key: `c-${oldLine}-${newLine}-${currentHunk.rows.length}`,
 				lineNumber: newLine,
 				variant: "context",
 				text: raw.slice(1),
 			});
+			currentHunkPatchLines.push(raw);
 			oldLine += 1;
 			newLine += 1;
 		}
 	}
-	return rows;
+	if (currentHunk) {
+		currentHunk.patch = currentHunkPatchLines.join("\n");
+		hunks.push(currentHunk);
+	}
+	return hunks;
 }
 
 export function ReadOnlyUnifiedDiff({ rows, path }: { rows: UnifiedDiffRow[]; path: string }): React.ReactElement {

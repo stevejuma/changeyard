@@ -87,6 +87,8 @@ import type {
 	RuntimeVcsDetectResponse,
 	RuntimeVcsApplyOperationRequest,
 	RuntimeVcsApplyOperationResponse,
+	RuntimeVcsDiffRequest,
+	RuntimeVcsDiffResponse,
 	RuntimeVcsJjDiffResponse,
 	RuntimeVcsJjBranchesDataResponse,
 	RuntimeVcsJjInventoryResponse,
@@ -97,9 +99,15 @@ import type {
 	RuntimeVcsJjStateResponse,
 	RuntimeVcsPreviewOperationRequest,
 	RuntimeVcsPreviewOperationResponse,
+	RuntimeVcsOperationPreviewResponse,
+	RuntimeVcsOperationResultResponse,
 	RuntimeVcsSubmitStackPreviewRequest,
 	RuntimeVcsSubmitStackPreviewResponse,
 	RuntimeVcsSubmitStackResponse,
+	RuntimeVcsWorkspaceOperationRequest,
+	RuntimeVcsWorkspaceStacksResponse,
+	RuntimeVcsWorkspaceStateRequest,
+	RuntimeVcsWorkspaceStateResponse,
 	RuntimeWorkspaceChangesRequest,
 	RuntimeWorkspaceChangesResponse,
 	RuntimeWorkspaceFileSearchRequest,
@@ -217,6 +225,8 @@ import {
 	runtimeVcsDetectResponseSchema,
 	runtimeVcsApplyOperationRequestSchema,
 	runtimeVcsApplyOperationResponseSchema,
+	runtimeVcsDiffRequestSchema,
+	runtimeVcsDiffResultSchema,
 	runtimeVcsJjDiffResponseSchema,
 	runtimeVcsJjBranchesDataResponseSchema,
 	runtimeVcsJjInventoryResponseSchema,
@@ -227,9 +237,15 @@ import {
 	runtimeVcsJjStateResponseSchema,
 	runtimeVcsPreviewOperationRequestSchema,
 	runtimeVcsPreviewOperationResponseSchema,
+	runtimeVcsOperationPreviewSchema,
+	runtimeVcsOperationResultSchema,
 	runtimeVcsSubmitStackPreviewRequestSchema,
 	runtimeVcsSubmitStackPreviewResponseSchema,
 	runtimeVcsSubmitStackResponseSchema,
+	runtimeVcsWorkspaceOperationRequestSchema,
+	runtimeVcsWorkspaceStacksResponseSchema,
+	runtimeVcsWorkspaceStateRequestSchema,
+	runtimeVcsWorkspaceStateResponseSchema,
 	runtimeWorkspaceChangesRequestSchema,
 	runtimeWorkspaceChangesResponseSchema,
 	runtimeWorkspaceFileSearchRequestSchema,
@@ -425,6 +441,7 @@ export interface RuntimeTrpcContext {
 		jjState: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeVcsJjStateResponse>;
 		jjInventory: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeVcsJjInventoryResponse>;
 		jjBranchesData: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeVcsJjBranchesDataResponse>;
+		branchesData: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeVcsJjBranchesDataResponse>;
 		jjOperations: (
 			scope: RuntimeTrpcWorkspaceScope | null,
 			input?: RuntimeVcsJjOperationsRequest,
@@ -433,6 +450,26 @@ export interface RuntimeTrpcContext {
 			scope: RuntimeTrpcWorkspaceScope | null,
 			input: RuntimeVcsJjOperationDiffRequest,
 		) => Promise<RuntimeVcsJjOperationDiffResponse>;
+		workspaceState: (
+			scope: RuntimeTrpcWorkspaceScope | null,
+			input?: RuntimeVcsWorkspaceStateRequest,
+		) => Promise<RuntimeVcsWorkspaceStateResponse>;
+		workspaceStacks: (
+			scope: RuntimeTrpcWorkspaceScope | null,
+			input?: RuntimeVcsWorkspaceStateRequest,
+		) => Promise<RuntimeVcsWorkspaceStacksResponse>;
+		diff: (
+			scope: RuntimeTrpcWorkspaceScope | null,
+			input?: RuntimeVcsDiffRequest,
+		) => Promise<RuntimeVcsDiffResponse>;
+		previewWorkspaceOperation: (
+			scope: RuntimeTrpcWorkspaceScope | null,
+			input: RuntimeVcsWorkspaceOperationRequest,
+		) => Promise<RuntimeVcsOperationPreviewResponse>;
+		applyWorkspaceOperation: (
+			scope: RuntimeTrpcWorkspaceScope | null,
+			input: RuntimeVcsWorkspaceOperationRequest,
+		) => Promise<RuntimeVcsOperationResultResponse>;
 		previewOperation: (
 			scope: RuntimeTrpcWorkspaceScope | null,
 			input: RuntimeVcsPreviewOperationRequest,
@@ -725,6 +762,9 @@ export const runtimeAppRouter = t.router({
 		jjBranchesData: t.procedure.output(runtimeVcsJjBranchesDataResponseSchema).query(async ({ ctx }) => {
 			return await ctx.vcsApi.jjBranchesData(ctx.workspaceScope);
 		}),
+		branchesData: t.procedure.output(runtimeVcsJjBranchesDataResponseSchema).query(async ({ ctx }) => {
+			return await ctx.vcsApi.branchesData(ctx.workspaceScope);
+		}),
 		jjOperations: t.procedure
 			.input(runtimeVcsJjOperationsRequestSchema.optional())
 			.output(runtimeVcsJjOperationsResponseSchema)
@@ -736,6 +776,36 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeVcsJjOperationDiffResponseSchema)
 			.query(async ({ ctx, input }) => {
 				return await ctx.vcsApi.jjOperationDiff(ctx.workspaceScope, input);
+			}),
+		workspaceState: t.procedure
+			.input(runtimeVcsWorkspaceStateRequestSchema.optional())
+			.output(runtimeVcsWorkspaceStateResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.vcsApi.workspaceState(ctx.workspaceScope, input);
+			}),
+		workspaceStacks: t.procedure
+			.input(runtimeVcsWorkspaceStateRequestSchema.optional())
+			.output(runtimeVcsWorkspaceStacksResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.vcsApi.workspaceStacks(ctx.workspaceScope, input);
+			}),
+		diff: t.procedure
+			.input(runtimeVcsDiffRequestSchema.optional())
+			.output(runtimeVcsDiffResultSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.vcsApi.diff(ctx.workspaceScope, input);
+			}),
+		previewWorkspaceOperation: t.procedure
+			.input(runtimeVcsWorkspaceOperationRequestSchema)
+			.output(runtimeVcsOperationPreviewSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.vcsApi.previewWorkspaceOperation(ctx.workspaceScope, input);
+			}),
+		applyWorkspaceOperation: t.procedure
+			.input(runtimeVcsWorkspaceOperationRequestSchema)
+			.output(runtimeVcsOperationResultSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.vcsApi.applyWorkspaceOperation(ctx.workspaceScope, input);
 			}),
 		previewOperation: t.procedure
 			.input(runtimeVcsPreviewOperationRequestSchema)

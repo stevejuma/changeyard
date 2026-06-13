@@ -14,6 +14,7 @@ import type {
 	VcsReorderOperationInput,
 	VcsRestoreFileOperationInput,
 	VcsSquashChangeOperationInput,
+	VcsSplitChangeOperationInput,
 	VcsUndoLastOperationInput,
 } from "../types.js";
 import { readJjBookmarks, readJjChangesForBookmark } from "./read.js";
@@ -29,6 +30,12 @@ function createDiagnostic(level: VcsDiagnostic["level"], code: string, message: 
 function assertSafeChangeId(changeId: string): void {
 	if (!SAFE_CHANGE_ID_PATTERN.test(changeId)) {
 		throw new Error(`Unsupported JJ change id: ${changeId}`);
+	}
+}
+
+function assertSafeRevisionId(revisionId: string): void {
+	if (revisionId !== "@" && !SAFE_CHANGE_ID_PATTERN.test(revisionId)) {
+		throw new Error(`Unsupported JJ revision id: ${revisionId}`);
 	}
 }
 
@@ -82,7 +89,9 @@ export async function previewJjOperation(
 		case "move_bookmark":
 			return previewMoveBookmarkOperation(operation, changes, bookmarks);
 		case "squash_change":
-			return previewSquashChangeOperation(operation, changes);
+			return previewSquashChangeOperation(operation, changes, detect.jj.currentChangeId);
+		case "split_change":
+			return previewSplitChangeOperation(operation, changes);
 		case "absorb_file":
 			return previewAbsorbFileOperation(operation, detect.jj.currentChangeId, changes, unassignedPaths(changes, repoCwd, runner));
 		case "restore_file":
@@ -417,13 +426,48 @@ function previewMoveBookmarkOperation(
 function previewSquashChangeOperation(
 	operation: VcsSquashChangeOperationInput,
 	changes: readonly VcsJjChange[],
+	currentChangeId: string | null,
 ): VcsPreviewOperationResult {
 	assertSafeChangeId(operation.sourceChangeId);
-	assertSafeChangeId(operation.targetChangeId);
+	assertSafeRevisionId(operation.targetChangeId);
+	const hasPathSelection = operation.paths !== undefined;
+	const normalizedPaths = hasPathSelection
+		? [...new Set(operation.paths?.map((path) => path.trim()).filter(Boolean))]
+		: [];
+	if (hasPathSelection && normalizedPaths.length === 0) {
+		return emptyPreview(
+			operation,
+			createDiagnostic("error", "jj_paths_required", "Choose at least one committed file before previewing."),
+		);
+	}
+	for (const repoPath of normalizedPaths) {
+		if (!isSafeRepoPath(repoPath)) {
+			return emptyPreview(
+				operation,
+				createDiagnostic("error", "jj_path_invalid", `File path ${repoPath} contains unsupported characters.`),
+			);
+		}
+	}
 
 	const changesById = new Map(changes.map((change) => [change.changeId, change]));
 	const source = changesById.get(operation.sourceChangeId);
-	const target = changesById.get(operation.targetChangeId);
+	const target =
+		operation.targetChangeId === "@"
+			? currentChangeId
+				? (changesById.get(currentChangeId) ?? {
+						changeId: currentChangeId,
+						commitId: currentChangeId,
+						description: "current working-copy change",
+						authorName: null,
+						authorEmail: null,
+						authorAvatarUrl: null,
+						parentChangeIds: [],
+						bookmarks: [],
+						remoteBookmarks: [],
+						isCurrent: true,
+					})
+				: null
+			: changesById.get(operation.targetChangeId);
 	if (!source) {
 		return emptyPreview(
 			operation,
@@ -442,7 +486,7 @@ function previewSquashChangeOperation(
 			createDiagnostic("error", "jj_same_target", "Source and target changes must be different."),
 		);
 	}
-	if (isDescendantChange(changes, source.changeId, target.changeId)) {
+	if (!operation.allowDescendantTarget && isDescendantChange(changes, source.changeId, target.changeId)) {
 		return emptyPreview(
 			operation,
 			createDiagnostic(
@@ -472,21 +516,102 @@ function previewSquashChangeOperation(
 			),
 		);
 	}
+	if (normalizedPaths.length > 1) {
+		diagnostics.push(
+			createDiagnostic(
+				"info",
+				"jj_squash_multiple_paths",
+				`Squash will move ${normalizedPaths.length} selected files into ${target.changeId}.`,
+			),
+		);
+	}
 
 	return {
 		valid: true,
-		operation,
-		title: `Preview squash ${operation.sourceChangeId} into ${operation.targetChangeId}`,
-		description: `Squash ${operation.sourceChangeId} into ${operation.targetChangeId}. The source change will be abandoned if it becomes empty.`,
+		operation: normalizedPaths.length > 0 ? { ...operation, paths: normalizedPaths } : operation,
+		title:
+			normalizedPaths.length > 0
+				? `Preview move files from ${operation.sourceChangeId} into ${operation.targetChangeId}`
+				: `Preview squash ${operation.sourceChangeId} into ${operation.targetChangeId}`,
+		description:
+			normalizedPaths.length > 0
+				? `Move ${normalizedPaths.join(", ")} from ${operation.sourceChangeId} into ${operation.targetChangeId}. The source change will be abandoned if it becomes empty.`
+				: `Squash ${operation.sourceChangeId} into ${operation.targetChangeId}. The source change will be abandoned if it becomes empty.`,
 		risk: "high",
 		commands: [
 			{
 				command: "jj",
-				args: ["squash", "--from", operation.sourceChangeId, "--into", operation.targetChangeId],
+				args: ["squash", "--from", operation.sourceChangeId, "--into", operation.targetChangeId, ...normalizedPaths],
 			},
 		],
-		affectedChangeIds: [operation.sourceChangeId, operation.targetChangeId],
+		affectedChangeIds: [operation.sourceChangeId, target.changeId],
 		affectedBookmarks: [...new Set([...source.bookmarks, ...target.bookmarks])],
+		diagnostics,
+	};
+}
+
+function previewSplitChangeOperation(
+	operation: VcsSplitChangeOperationInput,
+	changes: readonly VcsJjChange[],
+): VcsPreviewOperationResult {
+	assertSafeChangeId(operation.changeId);
+	const normalizedMessage = operation.message.trim();
+	if (normalizedMessage.length === 0) {
+		return emptyPreview(
+			operation,
+			createDiagnostic("error", "jj_message_required", "Enter a non-empty change description before previewing."),
+		);
+	}
+	const normalizedPaths = [...new Set(operation.paths.map((path) => path.trim()).filter(Boolean))];
+	if (normalizedPaths.length === 0) {
+		return emptyPreview(
+			operation,
+			createDiagnostic("error", "jj_paths_required", "Choose at least one committed file before previewing."),
+		);
+	}
+	for (const repoPath of normalizedPaths) {
+		if (!isSafeRepoPath(repoPath)) {
+			return emptyPreview(
+				operation,
+				createDiagnostic("error", "jj_path_invalid", `File path ${repoPath} contains unsupported characters.`),
+			);
+		}
+	}
+	const source = changes.find((change) => change.changeId === operation.changeId);
+	if (!source) {
+		return emptyPreview(
+			operation,
+			createDiagnostic("error", "jj_source_missing", `Change ${operation.changeId} is not available for preview.`),
+		);
+	}
+	const diagnostics: VcsDiagnostic[] = [];
+	if (source.bookmarks.length > 0) {
+		diagnostics.push(
+			createDiagnostic(
+				"warning",
+				"jj_split_bookmarked_source",
+				`Splitting ${source.changeId} may move bookmark associations: ${source.bookmarks.join(", ")}.`,
+			),
+		);
+	}
+	return {
+		valid: true,
+		operation: {
+			...operation,
+			message: normalizedMessage,
+			paths: normalizedPaths,
+		},
+		title: `Preview split ${operation.changeId}`,
+		description: `Split ${normalizedPaths.join(", ")} out of ${operation.changeId} with description: ${normalizedMessage}`,
+		risk: "high",
+		commands: [
+			{
+				command: "jj",
+				args: ["split", "-r", operation.changeId, "-m", normalizedMessage, "--", ...normalizedPaths],
+			},
+		],
+		affectedChangeIds: [operation.changeId],
+		affectedBookmarks: source.bookmarks,
 		diagnostics,
 	};
 }

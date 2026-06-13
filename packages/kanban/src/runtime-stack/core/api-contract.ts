@@ -413,6 +413,312 @@ export const runtimeVcsJjDiffResponseSchema = z.object({
 });
 export type RuntimeVcsJjDiffResponse = z.infer<typeof runtimeVcsJjDiffResponseSchema>;
 
+export const runtimeVcsProviderKindSchema = z.enum(["jj", "git"]);
+export type RuntimeVcsProviderKind = z.infer<typeof runtimeVcsProviderKindSchema>;
+
+export const runtimeVcsWorkspaceModeSchema = z.enum(["normal", "editing", "conflicted", "unsupported"]);
+export type RuntimeVcsWorkspaceMode = z.infer<typeof runtimeVcsWorkspaceModeSchema>;
+
+export const runtimeVcsWorkspaceCapabilitiesSchema = z.object({
+	supportsMultiAppliedWorkspace: z.boolean(),
+	supportsHunkSelection: z.boolean(),
+	supportsHunkRestoreDiscard: z.boolean(),
+	supportsCommittedHunkSelection: z.boolean(),
+	supportsCommitRewrite: z.boolean(),
+	supportsMoveCommitAcrossStacks: z.boolean(),
+	supportsMoveChangesAcrossCommits: z.boolean(),
+	supportsUndoRedo: z.boolean(),
+	supportsSyntheticWorkspaceMerge: z.boolean(),
+	supportsCreateStack: z.boolean(),
+	supportsWorkingCopyCommit: z.boolean(),
+});
+export type RuntimeVcsWorkspaceCapabilities = z.infer<typeof runtimeVcsWorkspaceCapabilitiesSchema>;
+
+export const runtimeVcsFileStatusSchema = z.enum(["modified", "added", "deleted", "renamed", "copied", "unknown"]);
+export type RuntimeVcsFileStatus = z.infer<typeof runtimeVcsFileStatusSchema>;
+
+export const runtimeVcsProviderMetadataSchema = z.record(
+	z.string(),
+	z.union([z.string(), z.number(), z.boolean(), z.null(), z.array(z.string())]),
+);
+export type RuntimeVcsProviderMetadata = z.infer<typeof runtimeVcsProviderMetadataSchema>;
+
+export const runtimeVcsDiffHunkSchema = z.object({
+	id: z.string(),
+	path: z.string(),
+	header: z.string(),
+	oldStart: z.number().int(),
+	oldLines: z.number().int().nonnegative(),
+	newStart: z.number().int(),
+	newLines: z.number().int().nonnegative(),
+	patch: z.string(),
+});
+export type RuntimeVcsDiffHunk = z.infer<typeof runtimeVcsDiffHunkSchema>;
+
+export const runtimeVcsWorkspaceFileChangeSchema = z.object({
+	path: z.string(),
+	previousPath: z.string().nullable().optional(),
+	status: runtimeVcsFileStatusSchema,
+	additions: z.number().int().nonnegative().optional(),
+	deletions: z.number().int().nonnegative().optional(),
+	hunks: z.array(runtimeVcsDiffHunkSchema).optional(),
+});
+export type RuntimeVcsWorkspaceFileChange = z.infer<typeof runtimeVcsWorkspaceFileChangeSchema>;
+
+export const runtimeVcsWorkspaceCommitSchema = z.object({
+	commitId: z.string(),
+	displayId: z.string(),
+	title: z.string(),
+	description: z.string(),
+	authorName: z.string().nullable(),
+	authorEmail: z.string().nullable(),
+	authorAvatarUrl: z.string().nullable(),
+	timestamp: z.string().nullable(),
+	parentCommitIds: z.array(z.string()),
+	stackIds: z.array(z.string()),
+	isHead: z.boolean(),
+	isCurrent: z.boolean(),
+	files: z.array(runtimeVcsWorkspaceFileChangeSchema).optional(),
+	metadata: runtimeVcsProviderMetadataSchema.optional(),
+});
+export type RuntimeVcsWorkspaceCommit = z.infer<typeof runtimeVcsWorkspaceCommitSchema>;
+
+export const runtimeVcsWorkspaceStackSchema = z.object({
+	stackId: z.string(),
+	name: z.string(),
+	targetRef: z.string().nullable(),
+	baseRef: z.string().nullable(),
+	headCommitId: z.string().nullable(),
+	isApplied: z.boolean(),
+	isCurrent: z.boolean(),
+	commits: z.array(runtimeVcsWorkspaceCommitSchema),
+	metadata: runtimeVcsProviderMetadataSchema.optional(),
+});
+export type RuntimeVcsWorkspaceStack = z.infer<typeof runtimeVcsWorkspaceStackSchema>;
+
+export const runtimeVcsWorkingCopyStateSchema = z.object({
+	files: z.array(runtimeVcsWorkspaceFileChangeSchema),
+	hasConflicts: z.boolean(),
+	summary: z.object({
+		modified: z.number().int().nonnegative(),
+		added: z.number().int().nonnegative(),
+		deleted: z.number().int().nonnegative(),
+		renamed: z.number().int().nonnegative(),
+		copied: z.number().int().nonnegative(),
+		unknown: z.number().int().nonnegative(),
+	}),
+});
+export type RuntimeVcsWorkingCopyState = z.infer<typeof runtimeVcsWorkingCopyStateSchema>;
+
+export const runtimeVcsWorkspaceConflictSchema = z.object({
+	id: z.string(),
+	path: z.string().nullable().optional(),
+	message: z.string(),
+	commitIds: z.array(z.string()),
+	stackIds: z.array(z.string()),
+});
+export type RuntimeVcsWorkspaceConflict = z.infer<typeof runtimeVcsWorkspaceConflictSchema>;
+
+export const runtimeVcsWorkspaceStateRequestSchema = z.object({
+	targetRef: z.string().nullable().optional(),
+	appliedStackIds: z.array(z.string()).optional(),
+});
+export type RuntimeVcsWorkspaceStateRequest = z.infer<typeof runtimeVcsWorkspaceStateRequestSchema>;
+
+export const runtimeVcsWorkspaceStateResponseSchema = z.object({
+	projectId: z.string(),
+	provider: runtimeVcsProviderKindSchema,
+	targetRef: z.string(),
+	headId: z.string().nullable(),
+	mode: runtimeVcsWorkspaceModeSchema,
+	capabilities: runtimeVcsWorkspaceCapabilitiesSchema,
+	stacks: z.array(runtimeVcsWorkspaceStackSchema),
+	appliedStackIds: z.array(z.string()),
+	workingCopy: runtimeVcsWorkingCopyStateSchema,
+	conflicts: z.array(runtimeVcsWorkspaceConflictSchema),
+});
+export type RuntimeVcsWorkspaceStateResponse = z.infer<typeof runtimeVcsWorkspaceStateResponseSchema>;
+
+export const runtimeVcsWorkspaceStacksResponseSchema = z.object({
+	stacks: z.array(runtimeVcsWorkspaceStackSchema),
+});
+export type RuntimeVcsWorkspaceStacksResponse = z.infer<typeof runtimeVcsWorkspaceStacksResponseSchema>;
+
+export const runtimeVcsHunkSelectionSchema = z.object({
+	path: z.string(),
+	hunkId: z.string(),
+	oldStart: z.number().int().optional(),
+	oldLines: z.number().int().nonnegative().optional(),
+	newStart: z.number().int().optional(),
+	newLines: z.number().int().nonnegative().optional(),
+});
+export type RuntimeVcsHunkSelection = z.infer<typeof runtimeVcsHunkSelectionSchema>;
+
+export const runtimeVcsChangeSelectionSchema = z.object({
+	source: z.enum(["working_copy", "commit"]),
+	commitId: z.string().optional(),
+	paths: z.array(z.string()).optional(),
+	hunks: z.array(runtimeVcsHunkSelectionSchema).optional(),
+});
+export type RuntimeVcsChangeSelection = z.infer<typeof runtimeVcsChangeSelectionSchema>;
+
+export const runtimeVcsCommitPositionSchema = z.object({
+	relativeToCommitId: z.string().optional(),
+	placement: z.enum(["before", "after"]).optional(),
+});
+export type RuntimeVcsCommitPosition = z.infer<typeof runtimeVcsCommitPositionSchema>;
+
+export const runtimeVcsWorkspaceApplyStackOperationSchema = z.object({
+	kind: z.literal("apply_stack"),
+	stackId: z.string(),
+});
+export const runtimeVcsWorkspaceUnapplyStackOperationSchema = z.object({
+	kind: z.literal("unapply_stack"),
+	stackId: z.string(),
+});
+export const runtimeVcsWorkspaceCreateStackOperationSchema = z.object({
+	kind: z.literal("create_stack"),
+	name: z.string(),
+	selection: runtimeVcsChangeSelectionSchema.optional(),
+});
+export const runtimeVcsWorkspaceCreateCommitOperationSchema = z.object({
+	kind: z.literal("create_commit"),
+	stackId: z.string(),
+	message: z.string(),
+	selection: runtimeVcsChangeSelectionSchema,
+});
+export const runtimeVcsWorkspaceRewordCommitOperationSchema = z.object({
+	kind: z.literal("reword_commit"),
+	commitId: z.string(),
+	message: z.string(),
+});
+export const runtimeVcsWorkspaceAmendCommitOperationSchema = z.object({
+	kind: z.literal("amend_commit"),
+	commitId: z.string(),
+	selection: runtimeVcsChangeSelectionSchema,
+});
+export const runtimeVcsWorkspaceSplitCommitOperationSchema = z.object({
+	kind: z.literal("split_commit"),
+	commitId: z.string(),
+	message: z.string(),
+	selection: runtimeVcsChangeSelectionSchema,
+});
+export const runtimeVcsWorkspaceSquashCommitsOperationSchema = z.object({
+	kind: z.literal("squash_commits"),
+	sourceCommitId: z.string(),
+	targetCommitId: z.string(),
+});
+export const runtimeVcsWorkspaceMoveCommitOperationSchema = z.object({
+	kind: z.literal("move_commit"),
+	commitId: z.string(),
+	targetStackId: z.string(),
+	position: runtimeVcsCommitPositionSchema.optional(),
+});
+export const runtimeVcsWorkspaceMoveChangesOperationSchema = z.object({
+	kind: z.literal("move_changes"),
+	selection: runtimeVcsChangeSelectionSchema,
+	targetCommitId: z.string(),
+});
+export const runtimeVcsWorkspaceUncommitChangesOperationSchema = z.object({
+	kind: z.literal("uncommit_changes"),
+	selection: runtimeVcsChangeSelectionSchema,
+	targetStackId: z.string().optional(),
+});
+export const runtimeVcsWorkspaceRestoreChangesOperationSchema = z.object({
+	kind: z.literal("restore_changes"),
+	selection: runtimeVcsChangeSelectionSchema,
+});
+export const runtimeVcsWorkspaceDiscardChangesOperationSchema = z.object({
+	kind: z.literal("discard_changes"),
+	selection: runtimeVcsChangeSelectionSchema,
+});
+export const runtimeVcsWorkspaceUndoOperationSchema = z.object({
+	kind: z.literal("undo"),
+});
+export const runtimeVcsWorkspaceRedoOperationSchema = z.object({
+	kind: z.literal("redo"),
+});
+export const runtimeVcsWorkspaceOperationSchema = z.discriminatedUnion("kind", [
+	runtimeVcsWorkspaceApplyStackOperationSchema,
+	runtimeVcsWorkspaceUnapplyStackOperationSchema,
+	runtimeVcsWorkspaceCreateStackOperationSchema,
+	runtimeVcsWorkspaceCreateCommitOperationSchema,
+	runtimeVcsWorkspaceRewordCommitOperationSchema,
+	runtimeVcsWorkspaceAmendCommitOperationSchema,
+	runtimeVcsWorkspaceSplitCommitOperationSchema,
+	runtimeVcsWorkspaceSquashCommitsOperationSchema,
+	runtimeVcsWorkspaceMoveCommitOperationSchema,
+	runtimeVcsWorkspaceMoveChangesOperationSchema,
+	runtimeVcsWorkspaceUncommitChangesOperationSchema,
+	runtimeVcsWorkspaceRestoreChangesOperationSchema,
+	runtimeVcsWorkspaceDiscardChangesOperationSchema,
+	runtimeVcsWorkspaceUndoOperationSchema,
+	runtimeVcsWorkspaceRedoOperationSchema,
+]);
+export type RuntimeVcsWorkspaceOperation = z.infer<typeof runtimeVcsWorkspaceOperationSchema>;
+
+export const runtimeVcsDiffRequestSchema = z.object({
+	selection: runtimeVcsChangeSelectionSchema.optional(),
+	commitId: z.string().optional(),
+	stackId: z.string().optional(),
+});
+export type RuntimeVcsDiffRequest = z.infer<typeof runtimeVcsDiffRequestSchema>;
+
+export const runtimeVcsDiffResultSchema = z.object({
+	ok: z.boolean(),
+	summary: z.string(),
+	patch: z.string(),
+	files: z.array(runtimeVcsWorkspaceFileChangeSchema),
+	diagnostics: z.array(runtimeVcsDiagnosticSchema),
+});
+export type RuntimeVcsDiffResponse = z.infer<typeof runtimeVcsDiffResultSchema>;
+
+export const runtimeVcsOperationWarningSchema = z.object({
+	code: z.string(),
+	message: z.string(),
+});
+export type RuntimeVcsOperationWarning = z.infer<typeof runtimeVcsOperationWarningSchema>;
+
+export const runtimeVcsWorkspaceOperationRequestSchema = z.object({
+	operation: runtimeVcsWorkspaceOperationSchema,
+});
+export type RuntimeVcsWorkspaceOperationRequest = z.infer<typeof runtimeVcsWorkspaceOperationRequestSchema>;
+
+export const runtimeVcsOperationPreviewSchema = z.object({
+	valid: z.boolean(),
+	operation: runtimeVcsWorkspaceOperationSchema,
+	title: z.string(),
+	summary: z.string(),
+	risk: z.enum(["low", "medium", "high"]),
+	disabledReason: z.string().nullable(),
+	warnings: z.array(runtimeVcsOperationWarningSchema),
+	conflicts: z.array(runtimeVcsWorkspaceConflictSchema),
+	affectedStackIds: z.array(z.string()),
+	affectedCommitIds: z.array(z.string()),
+	affectedPaths: z.array(z.string()),
+	diagnostics: z.array(runtimeVcsDiagnosticSchema),
+});
+export type RuntimeVcsOperationPreviewResponse = z.infer<typeof runtimeVcsOperationPreviewSchema>;
+
+export const runtimeVcsOperationRecoverySchema = z.object({
+	refName: z.string().optional(),
+	instructions: z.array(z.string()),
+});
+export type RuntimeVcsOperationRecovery = z.infer<typeof runtimeVcsOperationRecoverySchema>;
+
+export const runtimeVcsOperationResultSchema = z.object({
+	ok: z.boolean(),
+	operation: runtimeVcsWorkspaceOperationSchema,
+	title: z.string(),
+	summary: z.string(),
+	affectedStackIds: z.array(z.string()),
+	affectedCommitIds: z.array(z.string()),
+	affectedPaths: z.array(z.string()),
+	recovery: runtimeVcsOperationRecoverySchema.nullable(),
+	diagnostics: z.array(runtimeVcsDiagnosticSchema),
+});
+export type RuntimeVcsOperationResultResponse = z.infer<typeof runtimeVcsOperationResultSchema>;
+
 export const runtimeVcsJjOperationsRequestSchema = z.object({
 	limit: z.number().int().positive().max(1000).nullable().optional(),
 	cursor: z.string().nullable().optional(),
@@ -522,6 +828,7 @@ export const runtimeVcsSquashChangeOperationRequestSchema = z.object({
 	kind: z.literal("squash_change"),
 	sourceChangeId: z.string(),
 	targetChangeId: z.string(),
+	paths: z.array(z.string()).min(1).optional(),
 });
 export const runtimeVcsAbsorbFileOperationRequestSchema = z.object({
 	kind: z.literal("absorb_file"),

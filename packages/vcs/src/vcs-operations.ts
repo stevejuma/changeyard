@@ -37,8 +37,14 @@ export function createAbandonChangePreviewRequest(changeId: string): AbandonChan
 	return { kind: "abandon_change", changeId };
 }
 
-export function createSquashChangePreviewRequest(sourceChangeId: string, targetChangeId: string): SquashChangePreviewRequest {
-	return { kind: "squash_change", sourceChangeId, targetChangeId };
+export function createSquashChangePreviewRequest(
+	sourceChangeId: string,
+	targetChangeId: string,
+	paths?: string[],
+): SquashChangePreviewRequest {
+	return paths && paths.length > 0
+		? { kind: "squash_change", sourceChangeId, targetChangeId, paths }
+		: { kind: "squash_change", sourceChangeId, targetChangeId };
 }
 
 export function createAbsorbFilePreviewRequest(targetChangeId: string, paths: string[]): AbsorbFilePreviewRequest {
@@ -70,7 +76,9 @@ export function summarizeOperationRequest(request: VcsOperationRequest): string 
 		case "move_bookmark":
 			return `${request.bookmarkName} -> ${request.targetChangeId}`;
 		case "squash_change":
-			return `squash ${request.sourceChangeId} -> ${request.targetChangeId}`;
+			return request.paths && request.paths.length > 0
+				? `move ${request.paths.join(", ")} ${request.sourceChangeId} -> ${request.targetChangeId}`
+				: `squash ${request.sourceChangeId} -> ${request.targetChangeId}`;
 		case "absorb_file":
 			return `absorb ${request.paths.join(", ")} -> ${request.targetChangeId}`;
 		case "restore_file":

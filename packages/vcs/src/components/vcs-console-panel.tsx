@@ -27,6 +27,7 @@ export function VcsConsolePanel({
 	const [summary, setSummary] = useState<RuntimeTaskSessionSummary | null>(null);
 	const [startError, setStartError] = useState<string | null>(null);
 	const [isStarting, setIsStarting] = useState(false);
+	const [hasStopped, setHasStopped] = useState(false);
 	const [startShellSession] = useStartShellSessionMutation();
 
 	useEffect(() => {
@@ -34,6 +35,7 @@ export function VcsConsolePanel({
 		setStartResponse(null);
 		setSummary(null);
 		setStartError(null);
+		setHasStopped(false);
 		if (!workspaceId) {
 			return;
 		}
@@ -117,8 +119,10 @@ export function VcsConsolePanel({
 						icon={terminal.isStopping ? <Spinner size={14} /> : <CircleStop size={14} />}
 						aria-label="Stop console session"
 						title="Stop console session"
-						disabled={terminal.isStopping || !startResponse?.ok}
-						onClick={() => void terminal.stopTerminal()}
+						disabled={terminal.isStopping || hasStopped || !startResponse?.ok}
+						onClick={() => {
+							void terminal.stopTerminal().then(() => setHasStopped(true));
+						}}
 					/>
 					<Button
 						variant="ghost"

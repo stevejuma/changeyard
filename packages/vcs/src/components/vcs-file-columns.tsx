@@ -1,8 +1,8 @@
 import { ChevronDown, ChevronLeft, ChevronRight, FileText, Folder, FolderOpen, FolderTree, List } from "lucide-react";
-import type { PointerEvent as ReactPointerEvent } from "react";
+import type { DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent } from "react";
 import { useMemo } from "react";
 
-import { parsePatchToRows, ReadOnlyUnifiedDiff } from "@/components/shared/diff-renderer";
+import { parsePatchToHunks, parsePatchToRows, ReadOnlyUnifiedDiff, type UnifiedDiffHunk } from "@/components/shared/diff-renderer";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { FileStatusGlyph } from "@/components/ui/status-chip";
@@ -188,12 +188,14 @@ function FileTreeRow({
 	selectedPath,
 	onSelectPath,
 	filesByPath,
+	onFileDragStart,
 }: {
 	node: FileTreeNode;
 	depth: number;
 	selectedPath: string | null;
 	onSelectPath: (path: string) => void;
 	filesByPath: Map<string, VcsFileChange>;
+	onFileDragStart?: (event: ReactDragEvent<HTMLButtonElement>, file: VcsFileChange) => void;
 }): React.ReactElement {
 	const isDirectory = node.type === "directory";
 	const isSelected = !isDirectory && node.path === selectedPath;
@@ -207,11 +209,17 @@ function FileTreeRow({
 				type="button"
 				data-testid={isDirectory ? "vcs-directory-row" : "vcs-file-row"}
 				data-file-path={isDirectory ? undefined : node.path}
+				draggable={Boolean(file && onFileDragStart)}
 				className={cn(
 					"kb-file-tree-row",
 					isDirectory && "kb-file-tree-row-directory",
 					isSelected && "kb-file-tree-row-selected",
 				)}
+				onDragStart={(event) => {
+					if (file && onFileDragStart) {
+						onFileDragStart(event, file);
+					}
+				}}
 				style={{ paddingLeft: depth * 12 + 8 }}
 				onClick={() => {
 					if (!isDirectory) {
@@ -238,6 +246,7 @@ function FileTreeRow({
 							selectedPath={selectedPath}
 							onSelectPath={onSelectPath}
 							filesByPath={filesByPath}
+							onFileDragStart={onFileDragStart}
 						/>
 					))}
 				</div>
@@ -250,10 +259,12 @@ function FileListRow({
 	file,
 	selectedPath,
 	onSelectPath,
+	onFileDragStart,
 }: {
 	file: VcsFileChange;
 	selectedPath: string | null;
 	onSelectPath: (path: string) => void;
+	onFileDragStart?: (event: ReactDragEvent<HTMLButtonElement>, file: VcsFileChange) => void;
 }): React.ReactElement {
 	const isSelected = file.path === selectedPath;
 	const addedClassName = isSelected ? "text-accent-fg" : "text-status-green";
@@ -264,7 +275,9 @@ function FileListRow({
 			type="button"
 			data-testid="vcs-file-row"
 			data-file-path={file.path}
+			draggable={Boolean(onFileDragStart)}
 			className={cn("kb-file-tree-row", isSelected && "kb-file-tree-row-selected")}
+			onDragStart={(event) => onFileDragStart?.(event, file)}
 			onClick={() => onSelectPath(file.path)}
 		>
 			<FileText size={14} />
@@ -344,6 +357,7 @@ export function VcsInlineFileSection({
 	viewMode,
 	onViewModeChange,
 	onSelectPath,
+	onFileDragStart,
 	collapsed = false,
 	onCollapsedChange,
 }: {
@@ -355,6 +369,7 @@ export function VcsInlineFileSection({
 	viewMode: VcsFileViewMode;
 	onViewModeChange: (mode: VcsFileViewMode) => void;
 	onSelectPath: (path: string) => void;
+	onFileDragStart?: (event: ReactDragEvent<HTMLButtonElement>, file: VcsFileChange) => void;
 	collapsed?: boolean;
 	onCollapsedChange?: (collapsed: boolean) => void;
 }): React.ReactElement {
@@ -418,6 +433,7 @@ export function VcsInlineFileSection({
 										selectedPath={selectedPath}
 										onSelectPath={onSelectPath}
 										filesByPath={filesByPath}
+										onFileDragStart={onFileDragStart}
 									/>
 								))
 							: files.map((file) => (
@@ -426,6 +442,7 @@ export function VcsInlineFileSection({
 										file={file}
 										selectedPath={selectedPath}
 										onSelectPath={onSelectPath}
+										onFileDragStart={onFileDragStart}
 									/>
 								))}
 					</div>
@@ -435,7 +452,62 @@ export function VcsInlineFileSection({
 	);
 }
 
-function ReadOnlyDiff({ file }: { file: VcsFileChange }): React.ReactElement {
+export type VcsDiffHunkDragPayload = {
+	path: string;
+	hunkId: string;
+	oldStart: number;
+	oldLines: number;
+	newStart: number;
+	newLines: number;
+};
+
+function hunkDragPayload(file: VcsFileChange, hunk: UnifiedDiffHunk): VcsDiffHunkDragPayload {
+	return {
+		path: file.path,
+		hunkId: `${file.path}:${hunk.id}`,
+		oldStart: hunk.oldStart,
+		oldLines: hunk.oldLines,
+		newStart: hunk.newStart,
+		newLines: hunk.newLines,
+	};
+}
+
+function ReadOnlyDiff({
+	file,
+	onHunkDragStart,
+}: {
+	file: VcsFileChange;
+	onHunkDragStart?: (event: ReactDragEvent<HTMLDivElement>, hunk: VcsDiffHunkDragPayload) => void;
+}): React.ReactElement {
+	if (onHunkDragStart) {
+		const hunks = parsePatchToHunks(file.patch ?? "");
+		if (hunks.length === 0) {
+			return <div className="px-3 py-3 text-[12px] text-text-tertiary">No textual diff available.</div>;
+		}
+		return (
+			<div className="grid gap-2 p-2">
+				{hunks.map((hunk) => {
+					const payload = hunkDragPayload(file, hunk);
+					return (
+						<div
+							key={hunk.id}
+							data-testid="vcs-diff-hunk"
+							data-file-path={file.path}
+							data-hunk-id={payload.hunkId}
+							draggable
+							className="overflow-hidden rounded-md border border-divider bg-surface-0 transition-shadow hover:border-accent/40 hover:shadow-sm"
+							onDragStart={(event) => onHunkDragStart(event, payload)}
+						>
+							<div className="border-b border-divider bg-surface-1 px-2 py-1 font-mono text-[11px] text-text-secondary">
+								{hunk.header}
+							</div>
+							<ReadOnlyUnifiedDiff rows={hunk.rows} path={file.path} />
+						</div>
+					);
+				})}
+			</div>
+		);
+	}
 	const rows = parsePatchToRows(file.patch ?? "");
 	if (rows.length === 0) {
 		return <div className="px-3 py-3 text-[12px] text-text-tertiary">No textual diff available.</div>;
@@ -451,6 +523,7 @@ export function VcsFileDiffColumn({
 	maxWidth = 980,
 	onWidthChange,
 	onClose,
+	onHunkDragStart,
 }: {
 	file: VcsFileChange | null;
 	isLoading?: boolean;
@@ -459,6 +532,7 @@ export function VcsFileDiffColumn({
 	maxWidth?: number;
 	onWidthChange?: (width: number) => void;
 	onClose: () => void;
+	onHunkDragStart?: (event: ReactDragEvent<HTMLDivElement>, hunk: VcsDiffHunkDragPayload) => void;
 }): React.ReactElement {
 	return (
 		<section
@@ -502,7 +576,7 @@ export function VcsFileDiffColumn({
 					</div>
 				) : file ? (
 					<div className="overflow-hidden rounded-md border border-border bg-surface-0">
-						<ReadOnlyDiff file={file} />
+						<ReadOnlyDiff file={file} onHunkDragStart={onHunkDragStart} />
 					</div>
 				) : (
 					<EmptyState title="Select a file">Choose a changed file to inspect its diff.</EmptyState>

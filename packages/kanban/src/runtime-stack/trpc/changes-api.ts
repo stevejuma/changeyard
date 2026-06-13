@@ -29,6 +29,8 @@ import type {
 	RuntimeVcsDetectResponse,
 	RuntimeVcsApplyOperationRequest,
 	RuntimeVcsApplyOperationResponse,
+	RuntimeVcsDiffRequest,
+	RuntimeVcsDiffResponse,
 	RuntimeVcsJjDiffResponse,
 	RuntimeVcsJjBranchesDataResponse,
 	RuntimeVcsJjInventoryResponse,
@@ -39,9 +41,15 @@ import type {
 	RuntimeVcsPreviewOperationRequest,
 	RuntimeVcsPreviewOperationResponse,
 	RuntimeVcsJjStateResponse,
+	RuntimeVcsOperationPreviewResponse,
+	RuntimeVcsOperationResultResponse,
 	RuntimeVcsSubmitStackPreviewRequest,
 	RuntimeVcsSubmitStackPreviewResponse,
 	RuntimeVcsSubmitStackResponse,
+	RuntimeVcsWorkspaceOperationRequest,
+	RuntimeVcsWorkspaceStacksResponse,
+	RuntimeVcsWorkspaceStateRequest,
+	RuntimeVcsWorkspaceStateResponse,
 	RuntimeWorkspaceFileChange,
 	RuntimeWorkspaceChangesResponse,
 } from "../core/api-contract.js";
@@ -129,6 +137,7 @@ export interface RuntimeChangeyardApiAdapter {
 	getJjState?: (repoRoot: string) => Promise<RuntimeVcsJjStateResponse> | RuntimeVcsJjStateResponse;
 	getJjInventory?: (repoRoot: string) => Promise<RuntimeVcsJjInventoryResponse> | RuntimeVcsJjInventoryResponse;
 	getJjBranchesData?: (repoRoot: string) => Promise<RuntimeVcsJjBranchesDataResponse> | RuntimeVcsJjBranchesDataResponse;
+	getVcsBranchesData?: (repoRoot: string) => Promise<RuntimeVcsJjBranchesDataResponse> | RuntimeVcsJjBranchesDataResponse;
 	getJjOperations?: (
 		repoRoot: string,
 		input?: RuntimeVcsJjOperationsRequest,
@@ -137,6 +146,26 @@ export interface RuntimeChangeyardApiAdapter {
 		repoRoot: string,
 		input: RuntimeVcsJjOperationDiffRequest,
 	) => Promise<RuntimeVcsJjOperationDiffResponse> | RuntimeVcsJjOperationDiffResponse;
+	getVcsWorkspaceState?: (
+		repoRoot: string,
+		input?: RuntimeVcsWorkspaceStateRequest,
+	) => Promise<RuntimeVcsWorkspaceStateResponse> | RuntimeVcsWorkspaceStateResponse;
+	getVcsWorkspaceStacks?: (
+		repoRoot: string,
+		input?: RuntimeVcsWorkspaceStateRequest,
+	) => Promise<RuntimeVcsWorkspaceStacksResponse> | RuntimeVcsWorkspaceStacksResponse;
+	getVcsDiff?: (
+		repoRoot: string,
+		input?: RuntimeVcsDiffRequest,
+	) => Promise<RuntimeVcsDiffResponse> | RuntimeVcsDiffResponse;
+	previewVcsWorkspaceOperation?: (
+		repoRoot: string,
+		input: RuntimeVcsWorkspaceOperationRequest,
+	) => Promise<RuntimeVcsOperationPreviewResponse> | RuntimeVcsOperationPreviewResponse;
+	applyVcsWorkspaceOperation?: (
+		repoRoot: string,
+		input: RuntimeVcsWorkspaceOperationRequest,
+	) => Promise<RuntimeVcsOperationResultResponse> | RuntimeVcsOperationResultResponse;
 	previewVcsOperation?: (
 		repoRoot: string,
 		input: RuntimeVcsPreviewOperationRequest,
