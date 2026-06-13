@@ -15,7 +15,8 @@ import {
 	VcsInlineFileSection,
 	type VcsFileChange,
 } from "@/components/vcs-file-columns";
-import { DiagnosticsPanel, EmptyState, QueryGate } from "@/components/vcs-panels";
+import { useVcsDiagnosticsToasts } from "@/components/vcs-diagnostics-toasts";
+import { EmptyState, QueryGate } from "@/components/vcs-panels";
 import { NoProjectSelected, SelectProjectButton, VcsShell, type VcsShellProjectState } from "@/components/vcs-shell";
 import type {
 	QueryState,
@@ -706,6 +707,11 @@ function HistoryReady({
 }): React.ReactElement {
 	const selectedOperation = operations.operations.find((operation) => operation.id === selectedOperationId) ?? null;
 	const operationCommitCount = operationState.status === "ready" ? operationState.data.totalCommitCount : undefined;
+	const diagnostics = [
+		...operations.diagnostics,
+		...(operationState.status === "ready" ? operationState.data.diagnostics : []),
+	];
+	useVcsDiagnosticsToasts(diagnostics, "history");
 
 	return (
 		<div className="flex h-full min-h-0 flex-col bg-surface-0">
@@ -797,11 +803,6 @@ function HistoryReady({
 					/>
 				</div>
 			</div>
-			{operations.diagnostics.length > 0 ? (
-				<div className="shrink-0 px-3 pb-3">
-					<DiagnosticsPanel diagnostics={operations.diagnostics} />
-				</div>
-			) : null}
 		</div>
 	);
 }
@@ -842,7 +843,7 @@ function OperationsColumnContent({
 		<div>
 			{groupedOperations.map(([group, entries]) => (
 				<section key={group} className="border-b border-border">
-					<header className="bg-surface-0 px-3 py-2 text-center text-xs font-medium text-text-tertiary">
+					<header className="sticky top-0 z-20 border-b border-border bg-surface-0 px-3 py-2 text-center text-xs font-medium text-text-tertiary">
 						{group}
 					</header>
 					{entries.map((operation) => (
@@ -898,6 +899,13 @@ function OperationRow({
 			</div>
 			<div className="min-w-0">
 				<div className="flex min-w-0 items-center gap-2">
+					<Avatar
+						src={operation.userAvatarUrl}
+						name={operation.user}
+						email={operation.user}
+						initials={authorInitials(operation.user)}
+						className="h-5 w-5"
+					/>
 					<div className="min-w-0 flex-1 truncate text-sm font-semibold text-text-primary">{operation.description}</div>
 					<CopyValueButton
 						displayValue={operation.id.slice(0, 7)}
@@ -906,8 +914,6 @@ function OperationRow({
 					/>
 				</div>
 				<div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-text-tertiary">
-					<code>{operation.shortId}</code>
-					{operation.user ? <span>{operation.user}</span> : null}
 					{operation.files.length > 0 ? <span>{operation.files.length} files</span> : null}
 				</div>
 				<div className="mt-2">
@@ -977,7 +983,6 @@ function OperationCommitGraphColumn({
 					JJ did not return commits for this operation. Affected files are still listed when available.
 				</EmptyState>
 				<OperationAffectedFiles files={state.data.files} />
-				<DiagnosticsPanel diagnostics={state.data.diagnostics} />
 			</div>
 		);
 	}
@@ -1130,7 +1135,6 @@ function OperationCommitGraphColumn({
 					</button>
 				</div>
 			) : null}
-			<DiagnosticsPanel diagnostics={state.data.diagnostics} />
 		</div>
 	);
 }

@@ -99,6 +99,7 @@ function createUnavailableJjOperationsResponse(reason: string): RuntimeVcsJjOper
 	return {
 		operations: [],
 		requestedLimit: 50,
+		nextCursor: null,
 		hasMore: false,
 		diagnostics: [
 			{
@@ -122,6 +123,7 @@ function createUnavailableJjOperationDiffResponse(
 		commits: [],
 		commitSkip: input.commitSkip ?? 0,
 		commitLimit: input.commitLimit ?? 50,
+		nextCursor: null,
 		totalCommitCount: 0,
 		hasMoreCommits: false,
 		diagnostics: [

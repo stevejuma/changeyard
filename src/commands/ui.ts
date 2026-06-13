@@ -341,10 +341,13 @@ export function createChangeyardUiApi() {
     getJjInventory(repoRoot: string) {
       return getJjInventory(repoRoot);
     },
-    getJjOperations(repoRoot: string, input?: { limit?: number | null }) {
+    getJjOperations(repoRoot: string, input?: { limit?: number | null; cursor?: string | null; pageSize?: number | null }) {
       return getJjOperations(repoRoot, input);
     },
-    getJjOperationDiff(repoRoot: string, input: { operationId: string; commitSkip?: number | null; commitLimit?: number | null }) {
+    getJjOperationDiff(
+      repoRoot: string,
+      input: { operationId: string; commitSkip?: number | null; commitLimit?: number | null; cursor?: string | null; pageSize?: number | null },
+    ) {
       return getJjOperationDiff(repoRoot, input);
     },
     previewVcsOperation(repoRoot: string, input: VcsPreviewOperationInput) {

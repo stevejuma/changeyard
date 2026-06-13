@@ -28,7 +28,8 @@ import {
 	VcsInlineFileSection,
 	type VcsFileChange,
 } from "@/components/vcs-file-columns";
-import { DiagnosticsPanel, EmptyState, QueryGate } from "@/components/vcs-panels";
+import { useVcsDiagnosticsToasts } from "@/components/vcs-diagnostics-toasts";
+import { EmptyState, QueryGate } from "@/components/vcs-panels";
 import { NoProjectSelected, SelectProjectButton, VcsShell, type VcsShellProjectState } from "@/components/vcs-shell";
 import type {
 	QueryState,
@@ -630,6 +631,7 @@ function BranchesReady({
 		...inventory.diagnostics,
 		...(stackState.status === "ready" ? stackState.data.diagnostics : []),
 	];
+	useVcsDiagnosticsToasts(diagnostics, "branches");
 	const showStackColumn = Boolean(activeItem);
 
 	return (
@@ -734,7 +736,6 @@ function BranchesReady({
 					style={{ width: BRANCH_TRAILING_SPACER_WIDTH, minWidth: BRANCH_TRAILING_SPACER_WIDTH }}
 				/>
 			</div>
-			<DiagnosticsPanel diagnostics={diagnostics} />
 		</div>
 	);
 }
@@ -767,7 +768,7 @@ function BranchesColumnContent({
 	const workspaceTarget = inventory.workspaceTarget;
 	const workspaceTargetSelected = Boolean(workspaceTarget && getItemTarget(workspaceTarget) === selectedRefName);
 	return (
-		<>
+		<div className="flex h-full min-h-0 flex-col">
 			<div className="border-b border-border px-3 py-3">
 				<button
 					type="button"
@@ -829,7 +830,7 @@ function BranchesColumnContent({
 						/>
 				</label>
 			</div>
-			<div className="min-h-0 flex-1">
+			<div className="min-h-0 flex-1 overflow-y-auto">
 				{visibleItems.length === 0 ? (
 					<div className="p-3">
 						<EmptyState title="No branch data">No refs matched the active filter.</EmptyState>
@@ -855,7 +856,7 @@ function BranchesColumnContent({
 					)
 				)}
 			</div>
-		</>
+		</div>
 	);
 }
 

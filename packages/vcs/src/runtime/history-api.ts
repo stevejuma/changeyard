@@ -27,10 +27,10 @@ export function useRtkPaginatedJjOperations({
 	hasMore: boolean;
 	loadMore: () => void;
 	refresh: () => void;
-} {
-	const [limit, setLimit] = useState(pageSize);
+	} {
+	const [cursor, setCursor] = useState<string | null>(null);
 	const result = useGetJjOperationsQuery(
-		{ workspaceId: workspaceId ?? "", limit },
+		{ workspaceId: workspaceId ?? "", cursor, pageSize },
 		{ skip: !enabled || !workspaceId },
 	);
 	const state = toRuntimeQueryState<VcsJjOperationsResponse>(result, message);
@@ -38,7 +38,7 @@ export function useRtkPaginatedJjOperations({
 	const isLoadingMore =
 		result.isFetching &&
 		state.status === "ready" &&
-		state.data.requestedLimit < limit;
+		Boolean(cursor);
 
 	return {
 		state,
@@ -48,9 +48,12 @@ export function useRtkPaginatedJjOperations({
 			if (state.status !== "ready" || isLoadingMore || !hasMore) {
 				return;
 			}
-			setLimit(state.data.operations.length + pageSize);
+			setCursor(state.data.nextCursor ?? null);
 		},
-		refresh: () => void result.refetch(),
+		refresh: () => {
+			setCursor(null);
+			void result.refetch();
+		},
 	};
 }
 
@@ -72,15 +75,15 @@ export function useRtkPaginatedJjOperationDiff({
 	hasMore: boolean;
 	loadMore: () => void;
 	refresh: () => void;
-} {
-	const [loadedCommitCountByOperation, setLoadedCommitCountByOperation] = useState<Record<string, number>>({});
-	const commitLimit = operationId ? loadedCommitCountByOperation[operationId] ?? pageSize : pageSize;
+	} {
+	const [cursorByOperation, setCursorByOperation] = useState<Record<string, string | null>>({});
+	const cursor = operationId ? cursorByOperation[operationId] ?? null : null;
 	const result = useGetJjOperationDiffQuery(
 		{
 			workspaceId: workspaceId ?? "",
 			operationId: operationId ?? "",
-			commitSkip: 0,
-			commitLimit,
+			cursor,
+			pageSize,
 		},
 		{ skip: !enabled || !workspaceId || !operationId },
 	);
@@ -89,7 +92,7 @@ export function useRtkPaginatedJjOperationDiff({
 	const isLoadingMore =
 		result.isFetching &&
 		state.status === "ready" &&
-		state.data.commitLimit < commitLimit;
+		Boolean(cursor);
 
 	const normalizedState = useMemo<QueryState<VcsJjOperationDiffResponse>>(() => {
 		if (operationId || enabled) {
@@ -106,11 +109,16 @@ export function useRtkPaginatedJjOperationDiff({
 			if (state.status !== "ready" || isLoadingMore || !hasMore || !operationId) {
 				return;
 			}
-			setLoadedCommitCountByOperation((current) => ({
+			setCursorByOperation((current) => ({
 				...current,
-				[operationId]: state.data.commits.length + pageSize,
+				[operationId]: state.data.nextCursor ?? null,
 			}));
 		},
-		refresh: () => void result.refetch(),
+		refresh: () => {
+			if (operationId) {
+				setCursorByOperation((current) => ({ ...current, [operationId]: null }));
+			}
+			void result.refetch();
+		},
 	};
 }

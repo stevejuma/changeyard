@@ -1,3 +1,5 @@
+import { Buffer } from "node:buffer";
+
 import type {
 	RuntimeChangeyardBoardFileSummary,
 	RuntimeGitCommit,
@@ -25,6 +27,14 @@ const JJ_LOG_TEMPLATE = [
 	'parents.map(|c| c.commit_id()).join(" ")',
 ].join(` ++ "${LOG_FIELD_SEPARATOR}" ++ `) + ` ++ "${LOG_RECORD_SEPARATOR}"`;
 
+type JjLogCursor = {
+	kind: "jj-log";
+	atOp: string;
+	scopeKey: string;
+	frontierCommitIds: string[];
+	totalCount?: number;
+};
+
 type CommitRelation = NonNullable<RuntimeGitCommit["relation"]>;
 
 function parseCommitRecord(record: string): RuntimeGitCommit | null {
@@ -47,12 +57,87 @@ function parseCommitRecord(record: string): RuntimeGitCommit | null {
 	};
 }
 
+function encodeJjLogCursor(value: JjLogCursor): string {
+	return Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
+}
+
+function decodeJjLogCursor(cursor: string | null | undefined): JjLogCursor | null {
+	if (!cursor) {
+		return null;
+	}
+	try {
+		const decoded = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as JjLogCursor;
+		return decoded?.kind === "jj-log" ? decoded : null;
+	} catch {
+		return null;
+	}
+}
+
+function isHexId(value: string): boolean {
+	return /^[0-9a-f]+$/i.test(value);
+}
+
+function commitIdRevset(commitIds: string[]): string {
+	const safeIds = [...new Set(commitIds.map((id) => id.trim()).filter(isHexId))];
+	if (safeIds.length === 0) {
+		return "none()";
+	}
+	return safeIds.map((id) => `commit_id(${id})`).join(" | ");
+}
+
+function frontierRevset(scopeRevset: string, frontierCommitIds: string[]): string {
+	return `(${scopeRevset}) & ::(${commitIdRevset(frontierCommitIds)})`;
+}
+
+export function advanceJjLogFrontier(currentFrontier: string[], emittedCommits: RuntimeGitCommit[]): string[] {
+	const emitted = new Set(emittedCommits.map((commit) => commit.hash));
+	const next = new Set<string>();
+	for (const commitId of currentFrontier) {
+		if (!emitted.has(commitId)) {
+			next.add(commitId);
+		}
+	}
+	for (const commit of emittedCommits) {
+		for (const parentHash of commit.parentHashes) {
+			if (parentHash && !emitted.has(parentHash)) {
+				next.add(parentHash);
+			}
+		}
+	}
+	return Array.from(next);
+}
+
+async function resolveCurrentOperationId(cwd: string): Promise<string | null> {
+	const result = await runJj(cwd, ["op", "log", "--ignore-working-copy", "--at-op=@", "--no-graph", "-n", "1", "-T", 'self.id() ++ "\\n"']);
+	const resolved = result.ok ? result.stdout.trim() : "";
+	return resolved || null;
+}
+
+async function readInitialJjLogFrontier(cwd: string, atOp: string, scopeRevset: string): Promise<string[]> {
+	const result = await runJj(cwd, [
+		"log",
+		"--ignore-working-copy",
+		`--at-op=${atOp}`,
+		"-r",
+		`heads(${scopeRevset})`,
+		"--no-graph",
+		"-T",
+		'commit_id ++ "\\n"',
+	]);
+	if (!result.ok) {
+		return [];
+	}
+	return result.stdout.split("\n").map((line) => line.trim()).filter(isHexId);
+}
+
 export async function getGitLog(options: {
 	cwd: string;
 	ref?: string | null;
 	refs?: string[] | null;
 	maxCount?: number;
 	skip?: number;
+	cursor?: string | null;
+	pageSize?: number;
 }): Promise<RuntimeGitLogResponse> {
 	const engine = await detectWorkspaceEngine(options.cwd);
 	if (engine === "jj") {
@@ -597,8 +682,10 @@ async function getJjLog(options: {
 	refs?: string[] | null;
 	maxCount?: number;
 	skip?: number;
+	cursor?: string | null;
+	pageSize?: number;
 }): Promise<RuntimeGitLogResponse> {
-	const { cwd, ref, refs, maxCount = 200, skip = 0 } = options;
+	const { cwd, ref, refs, maxCount = 200, skip = 0, cursor = null, pageSize } = options;
 	const repoRoot = await getJjStdout(["workspace", "root"], cwd).catch(() => null);
 	if (!repoRoot) {
 		return { ok: false, commits: [], totalCount: 0, error: "No jj repository detected." };
@@ -607,6 +694,15 @@ async function getJjLog(options: {
 	const revset = excludeJjRoot(
 		requestedRefs.length > 0 ? requestedRefs.map((candidate) => `::${candidate}`).join("|") : "::@",
 	);
+	if (cursor || pageSize) {
+		return await getJjLogByCursor({
+			repoRoot,
+			revset,
+			scopeKey: JSON.stringify({ ref: ref ?? null, refs: refs ?? null }),
+			cursor,
+			pageSize: pageSize ?? maxCount,
+		});
+	}
 	const logArgs = ["log", "--ignore-working-copy", "--at-op=@", "-r", revset, "--no-graph", "-T", JJ_LOG_TEMPLATE];
 	if (Number.isFinite(maxCount) && maxCount > 0) {
 		logArgs.push("--limit", String(skip + maxCount));
@@ -652,6 +748,104 @@ async function getJjLog(options: {
 		ok: true,
 		commits: commits.slice(skip, skip + maxCount),
 		totalCount,
+		hasMore: skip + maxCount < totalCount,
+	};
+}
+
+async function getJjLogByCursor({
+	repoRoot,
+	revset,
+	scopeKey,
+	cursor,
+	pageSize,
+}: {
+	repoRoot: string;
+	revset: string;
+	scopeKey: string;
+	cursor: string | null;
+	pageSize: number;
+}): Promise<RuntimeGitLogResponse> {
+	const normalizedPageSize = Math.max(1, Math.min(pageSize, 500));
+	const decoded = decodeJjLogCursor(cursor);
+	const validCursor =
+		decoded?.kind === "jj-log" &&
+		decoded.scopeKey === scopeKey &&
+		Array.isArray(decoded.frontierCommitIds) &&
+		decoded.frontierCommitIds.every(isHexId);
+	const atOp = validCursor ? decoded.atOp : await resolveCurrentOperationId(repoRoot);
+	if (!atOp) {
+		return { ok: false, commits: [], totalCount: 0, hasMore: false, error: "Failed to resolve current JJ operation." };
+	}
+	const frontier = validCursor ? decoded.frontierCommitIds : await readInitialJjLogFrontier(repoRoot, atOp, revset);
+	if (frontier.length === 0) {
+		return { ok: true, commits: [], totalCount: 0, hasMore: false, nextCursor: null };
+	}
+	const logResult = await runJj(
+		repoRoot,
+		[
+			"log",
+			"--ignore-working-copy",
+			`--at-op=${atOp}`,
+			"-r",
+			frontierRevset(revset, frontier),
+			"--no-graph",
+			"--limit",
+			String(normalizedPageSize + 1),
+			"-T",
+			JJ_LOG_TEMPLATE,
+		],
+		{ trimStdout: false },
+	);
+	if (!logResult.ok) {
+		return { ok: false, commits: [], totalCount: 0, hasMore: false, error: logResult.error ?? "Failed to read jj log." };
+	}
+
+	const fetchedCommits: RuntimeGitCommit[] = [];
+	for (const record of logResult.stdout.split(LOG_RECORD_SEPARATOR)) {
+		const trimmedRecord = record.trim();
+		if (!trimmedRecord) {
+			continue;
+		}
+		const fields = trimmedRecord.split(LOG_FIELD_SEPARATOR);
+		if (fields.length < 7) {
+			continue;
+		}
+		const [changeId, hash, authorName, authorEmail, dateIso, subject, parentHashes] = fields;
+		if (!changeId || !hash || !authorName || !dateIso) {
+			continue;
+		}
+		fetchedCommits.push({
+			hash,
+			shortHash: hash.slice(0, 8),
+			changeId,
+			authorName,
+			authorEmail: authorEmail ?? "",
+			date: dateIso,
+			message: subject?.trim() || "(no description)",
+			parentHashes: (parentHashes ?? "").split(" ").filter(Boolean),
+			relation: "shared",
+		});
+	}
+	const commits = fetchedCommits.slice(0, normalizedPageSize);
+	const hasMore = fetchedCommits.length > normalizedPageSize;
+	const totalCount = validCursor
+		? Math.max(0, decoded.totalCount ?? commits.length + (hasMore ? 1 : 0))
+		: commits.length + (hasMore ? 1 : 0);
+	const nextFrontier = advanceJjLogFrontier(frontier, commits);
+	return {
+		ok: true,
+		commits,
+		totalCount,
+		hasMore,
+		nextCursor: hasMore
+			? encodeJjLogCursor({
+					kind: "jj-log",
+					atOp,
+					scopeKey,
+					frontierCommitIds: nextFrontier,
+					totalCount,
+				})
+			: null,
 	};
 }
 

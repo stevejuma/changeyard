@@ -32,20 +32,26 @@ export function useRtkPaginatedRepositoryLog({
 		[inputKey],
 	);
 	const [loadedCountByInput, setLoadedCountByInput] = useState<Record<string, number>>({});
+	const [cursorByInput, setCursorByInput] = useState<Record<string, string | null>>({});
+	const [fallbackSkipByInput, setFallbackSkipByInput] = useState<Record<string, number>>({});
 	const loadedCount = loadedCountByInput[inputKey] ?? pageSize;
+	const cursor = cursorByInput[inputKey] ?? null;
+	const fallbackSkip = fallbackSkipByInput[inputKey] ?? 0;
 	const result = useGetRepositoryLogQuery(
 		{
 			workspaceId: workspaceId ?? "",
 			input: {
 				...stableInput,
 				maxCount: pageSize,
-				skip: Math.max(0, loadedCount - pageSize),
+				skip: cursor ? undefined : fallbackSkip,
+				cursor,
+				pageSize,
 			},
 		},
 		{ skip: !enabled || !workspaceId },
 	);
 	const state = toRuntimeQueryState<RuntimeGitLogResponse>(result, message);
-	const hasMore = state.status === "ready" && state.data.ok && state.data.commits.length < state.data.totalCount;
+	const hasMore = state.status === "ready" && state.data.ok && (state.data.hasMore ?? state.data.commits.length < state.data.totalCount);
 	const isLoadingMore =
 		result.isFetching &&
 		state.status === "ready" &&
@@ -64,7 +70,23 @@ export function useRtkPaginatedRepositoryLog({
 				...current,
 				[inputKey]: state.data.commits.length + pageSize,
 			}));
+			const nextCursor = state.data.nextCursor ?? null;
+			setCursorByInput((current) => ({
+				...current,
+				[inputKey]: nextCursor,
+			}));
+			if (!nextCursor) {
+				setFallbackSkipByInput((current) => ({
+					...current,
+					[inputKey]: state.data.commits.length,
+				}));
+			}
 		},
-		refresh: () => void result.refetch(),
+		refresh: () => {
+			setLoadedCountByInput((current) => ({ ...current, [inputKey]: pageSize }));
+			setCursorByInput((current) => ({ ...current, [inputKey]: null }));
+			setFallbackSkipByInput((current) => ({ ...current, [inputKey]: 0 }));
+			void result.refetch();
+		},
 	};
 }
