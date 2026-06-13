@@ -32,7 +32,8 @@ import type {
 	VcsJjDiffResponse,
 	VcsJjStateResponse,
 } from "@/runtime/types";
-import { postTrpcMutation, useTrpcInputQuery, useTrpcQuery } from "@/runtime/trpc-client";
+import { postTrpcMutation, useTrpcQuery } from "@/runtime/trpc-client";
+import { toRuntimeQueryState, useGetRepositoryCommitDiffQuery } from "@/runtime/vcs-api";
 import { buildFileTree, type FileTreeNode } from "@/utils/file-tree";
 import {
 	readVcsBooleanPreference,
@@ -345,13 +346,14 @@ function WorkspaceReady({
 		}
 		return appliedStacks.find((stack) => stack.changes.some((change) => change.commitId === selectedCommitHash))?.id ?? null;
 	}, [appliedStacks, selectedCommitHash]);
-	const commitDiffQuery = useTrpcInputQuery<RuntimeGitCommitDiffResponse>(
-		"workspace.getRepositoryCommitDiff",
-		{ commitHash: selectedCommitHash ?? "" },
-		"Failed to load commit diff.",
-		Boolean(workspaceId && selectedCommitHash),
-		workspaceId,
+	const commitDiffResult = useGetRepositoryCommitDiffQuery(
+		{ workspaceId: workspaceId ?? "", commitHash: selectedCommitHash ?? "" },
+		{ skip: !workspaceId || !selectedCommitHash },
 	);
+	const commitDiffQuery = {
+		state: toRuntimeQueryState<RuntimeGitCommitDiffResponse>(commitDiffResult, "Failed to load commit diff."),
+		refresh: () => void commitDiffResult.refetch(),
+	};
 	const files = toFileChanges(commitDiffQuery.state);
 	const selectedFile = findFileByPath(files, selectedFilePath);
 	const unstagedDiffFiles = useMemo(() => toWorkingCopyDiffFiles(diffState), [diffState]);

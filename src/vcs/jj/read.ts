@@ -106,6 +106,8 @@ export async function readJjBookmarksWithBase(
 		args: [
 			"bookmark",
 			"list",
+			"--ignore-working-copy",
+			"--at-op=@",
 			"--revisions",
 			createBookmarksRevset(baseRevset),
 			"--template",
@@ -192,6 +194,8 @@ export async function readJjChangesForBookmarks(
 			command: "jj",
 			args: [
 				"log",
+				"--ignore-working-copy",
+				"--at-op=@",
 				"--revisions",
 				createGraphRevset(baseRevset, batch),
 				"--no-graph",

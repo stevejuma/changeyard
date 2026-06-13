@@ -175,7 +175,7 @@ export async function detectVcsState(
 		repository.kind === "jj"
 			? await runner({
 					command: "jj",
-					args: ["bookmark", "list", "-r", "@"],
+					args: ["bookmark", "list", "--ignore-working-copy", "--at-op=@", "-r", "@"],
 					cwd: repoCwd,
 				})
 			: null;
@@ -183,7 +183,7 @@ export async function detectVcsState(
 		repository.kind === "jj"
 			? await runner({
 					command: "jj",
-					args: ["log", "-r", "@", "--no-graph", "-T", "change_id.short()"],
+					args: ["log", "--ignore-working-copy", "--at-op=@", "-r", "@", "--no-graph", "-T", "change_id.short()"],
 					cwd: repoCwd,
 				})
 			: null;

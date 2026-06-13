@@ -498,6 +498,18 @@ export type QueryState<T> =
 	| { status: "error"; message: string }
 	| { status: "ready"; data: T };
 
+export type RuntimeVcsProjectEventKind = "worktree_changes" | "vcs/activity" | "vcs/head" | "vcs/fetch";
+
+export type RuntimeStateStreamVcsProjectEventMessage = {
+	type: "vcs_project_event";
+	workspaceId: string;
+	topic: string;
+	kind: RuntimeVcsProjectEventKind;
+	paths: string[];
+	changedAt: number;
+	version: number;
+};
+
 export type MutationState<T> =
 	| { status: "idle" }
 	| { status: "loading" }

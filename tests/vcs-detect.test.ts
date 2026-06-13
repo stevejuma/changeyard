@@ -36,9 +36,9 @@ test("detectVcsState reports jj repositories from the injected runner", async ()
 					return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
 				case "git rev-parse --show-toplevel":
 					return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
-				case "jj bookmark list -r @":
+				case "jj bookmark list --ignore-working-copy --at-op=@ -r @":
 					return { ok: true, stdout: "feature/demo: qpvuntsm 12345678", stderr: "", exitCode: 0 };
-				case "jj log -r @ --no-graph -T change_id.short()":
+				case "jj log --ignore-working-copy --at-op=@ -r @ --no-graph -T change_id.short()":
 					return { ok: true, stdout: "qpvuntsm", stderr: "", exitCode: 0 };
 				case "git remote":
 					return { ok: true, stdout: "origin", stderr: "", exitCode: 0 };

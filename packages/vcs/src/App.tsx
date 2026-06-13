@@ -14,6 +14,7 @@ import type {
 	VcsJjStateResponse,
 } from "@/runtime/types";
 import { postTrpcMutation, useTrpcQuery } from "@/runtime/trpc-client";
+import { toRuntimeQueryState, useGetJjDiffQuery, useGetJjStateQuery } from "@/runtime/vcs-api";
 import { BranchesView } from "@/views/branches-view";
 import { HistoryView } from "@/views/history-view";
 import { JjBoardView } from "@/views/jj-board-view";
@@ -261,8 +262,16 @@ export default function App(): React.ReactElement {
 	};
 	const hasWorkspace = Boolean(workspaceId);
 	const detectQuery = useTrpcQuery<VcsDetectResponse>("vcs.detect", "Failed to load VCS detection.", workspaceId, hasWorkspace);
-	const jjDiffQuery = useTrpcQuery<VcsJjDiffResponse>("vcs.jjDiff", "Failed to load JJ diff.", workspaceId, hasWorkspace);
-	const jjStateQuery = useTrpcQuery<VcsJjStateResponse>("vcs.jjState", "Failed to load JJ state.", workspaceId, hasWorkspace);
+	const jjDiffResult = useGetJjDiffQuery({ workspaceId: workspaceId ?? "" }, { skip: !hasWorkspace });
+	const jjStateResult = useGetJjStateQuery({ workspaceId: workspaceId ?? "" }, { skip: !hasWorkspace });
+	const jjDiffQuery = {
+		state: toRuntimeQueryState<VcsJjDiffResponse>(jjDiffResult, "Failed to load JJ diff."),
+		refresh: () => void jjDiffResult.refetch(),
+	};
+	const jjStateQuery = {
+		state: toRuntimeQueryState<VcsJjStateResponse>(jjStateResult, "Failed to load JJ state."),
+		refresh: () => void jjStateResult.refetch(),
+	};
 
 	let routedView: React.ReactElement;
 	switch (route.kind) {
