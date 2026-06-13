@@ -102,6 +102,39 @@ The implementation must stop at explicit verification checkpoints before continu
 - Add richer branch metadata: file counts, line stats, conflicts, local/remote classification, PR title/review/check state.
 - Add local vs remote/forge action grouping and disabled states.
 
+## Milestone 5: Event-Driven VCS Cache And Watcher Abstraction
+
+- Add a backend `VcsProjectWatcher` abstraction so Chokidar can be swapped for Watchman later.
+- Implement `ChokidarVcsProjectWatcher` as the first backend.
+- Watch targeted JJ metadata and normal project files while ignoring `.git`, most of `.jj`, `node_modules`, and build/cache output.
+- Emit semantic project events over the runtime WebSocket stream:
+  - `project://<projectId>/worktree_changes`
+  - `project://<projectId>/vcs/activity`
+  - `project://<projectId>/vcs/head`
+  - `project://<projectId>/vcs/fetch`
+- Start watchers only while runtime WebSocket clients are active for the project and stop them when the last client disconnects or the project is removed.
+- Add a contained RTK Query spike behind a VCS data service layer:
+  - `getJjState`
+  - `getJjInventory`
+  - `getJjDiff`
+  - `getRepositoryCommitDiff`
+- Keep event subscriptions in the service layer through active cache entries; components continue reading query results.
+- Audit JJ read commands so metadata/history/branch/stack/base reads avoid working-copy snapshots where supported.
+- Leave working-copy diff/status reads snapshot-capable and explicit.
+
+### STOP: Verify Event-Driven VCS Cache
+
+- Run watcher tests.
+- Run focused JJ/VCS tests.
+- Run `npm --workspace @changeyard/vcs run test`.
+- Run VCS and runtime typechecks.
+- Start the VCS UI.
+- Open `/vcs/jj/branches` and `/vcs/jj`.
+- Edit a normal project file externally and verify Working Copy updates without manual refresh.
+- Move or create a JJ commit externally and verify Branches/Workspace refresh through VCS activity/head events.
+- Verify repeated navigation does not create duplicate visible active requests.
+- Record notes in `TASKS.md` before continuing.
+
 ## Final Verification
 
 - Run focused JJ/VCS tests.

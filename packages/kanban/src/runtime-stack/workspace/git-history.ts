@@ -607,14 +607,14 @@ async function getJjLog(options: {
 	const revset = excludeJjRoot(
 		requestedRefs.length > 0 ? requestedRefs.map((candidate) => `::${candidate}`).join("|") : "::@",
 	);
-	const logArgs = ["log", "-r", revset, "--no-graph", "-T", JJ_LOG_TEMPLATE];
+	const logArgs = ["log", "--ignore-working-copy", "--at-op=@", "-r", revset, "--no-graph", "-T", JJ_LOG_TEMPLATE];
 	if (Number.isFinite(maxCount) && maxCount > 0) {
 		logArgs.push("--limit", String(skip + maxCount));
 	}
 
 	const [logResult, countResult] = await Promise.all([
 		runJj(repoRoot, logArgs, { trimStdout: false }),
-		runJj(repoRoot, ["log", "-r", revset, "--count"]),
+		runJj(repoRoot, ["log", "--ignore-working-copy", "--at-op=@", "-r", revset, "--count"]),
 	]);
 	if (!logResult.ok) {
 		return { ok: false, commits: [], totalCount: 0, error: logResult.error ?? "Failed to read jj log." };
@@ -670,8 +670,8 @@ async function getJjLogRange(options: {
 	const trimmedHead = headRef?.trim() || "@";
 	const revset = excludeJjRoot(trimmedBase ? `${trimmedBase}..${trimmedHead}` : `::${trimmedHead}`);
 	const [logResult, countResult] = await Promise.all([
-		runJj(repoRoot, ["log", "-r", revset, "--no-graph", "-T", JJ_LOG_TEMPLATE], { trimStdout: false }),
-		runJj(repoRoot, ["log", "-r", revset, "--count"]),
+		runJj(repoRoot, ["log", "--ignore-working-copy", "--at-op=@", "-r", revset, "--no-graph", "-T", JJ_LOG_TEMPLATE], { trimStdout: false }),
+		runJj(repoRoot, ["log", "--ignore-working-copy", "--at-op=@", "-r", revset, "--count"]),
 	]);
 	if (!logResult.ok) {
 		return { ok: false, commits: [], totalCount: 0, error: logResult.error ?? "Failed to read jj log." };
@@ -719,9 +719,9 @@ async function getJjRefs(cwd: string): Promise<RuntimeGitRefsResponse> {
 	}
 
 	const [headCommit, headChangeId, bookmarkListResult] = await Promise.all([
-		getJjStdout(["log", "-r", "@", "--no-graph", "-T", "commit_id"], repoRoot).catch(() => null),
+		getJjStdout(["log", "--ignore-working-copy", "--at-op=@", "-r", "@", "--no-graph", "-T", "commit_id"], repoRoot).catch(() => null),
 		getJjCurrentChangeId(repoRoot),
-		runJj(repoRoot, ["bookmark", "list"]),
+		runJj(repoRoot, ["bookmark", "list", "--ignore-working-copy", "--at-op=@"]),
 	]);
 	const refs: RuntimeGitRef[] = [];
 
@@ -746,7 +746,7 @@ async function getJjRefs(cwd: string): Promise<RuntimeGitRefsResponse> {
 
 	const bookmarkEntries = await Promise.all(
 		bookmarkNames.map(async (name) => {
-			const hash = await getJjStdout(["log", "-r", name, "--no-graph", "-T", "commit_id"], repoRoot).catch(() => null);
+			const hash = await getJjStdout(["log", "--ignore-working-copy", "--at-op=@", "-r", name, "--no-graph", "-T", "commit_id"], repoRoot).catch(() => null);
 			return hash
 				? ({
 						name,

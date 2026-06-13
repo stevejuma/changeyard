@@ -26,7 +26,8 @@ import type {
 	VcsJjOperationFile,
 	VcsJjOperationsResponse,
 } from "@/runtime/types";
-import { usePaginatedJjOperationDiff, usePaginatedJjOperations, useTrpcInputQuery } from "@/runtime/trpc-client";
+import { usePaginatedJjOperationDiff, usePaginatedJjOperations } from "@/runtime/trpc-client";
+import { toRuntimeQueryState, useGetRepositoryCommitDiffQuery } from "@/runtime/vcs-api";
 import {
 	readVcsBooleanPreference,
 	readVcsFileViewMode,
@@ -367,13 +368,14 @@ export function HistoryView({
 		workspaceId,
 		pageSize: 50,
 	});
-	const commitDiffQuery = useTrpcInputQuery<RuntimeGitCommitDiffResponse>(
-		"workspace.getRepositoryCommitDiff",
-		{ commitHash: selectedCommitHash ?? "" },
-		"Failed to load commit diff.",
-		Boolean(workspaceId && selectedCommitHash),
-		workspaceId,
+	const commitDiffResult = useGetRepositoryCommitDiffQuery(
+		{ workspaceId: workspaceId ?? "", commitHash: selectedCommitHash ?? "" },
+		{ skip: !workspaceId || !selectedCommitHash },
 	);
+	const commitDiffQuery = {
+		state: toRuntimeQueryState<RuntimeGitCommitDiffResponse>(commitDiffResult, "Failed to load commit diff."),
+		refresh: () => void commitDiffResult.refetch(),
+	};
 	const files = toFileChanges(commitDiffQuery.state);
 	const selectedFile = findFileByPath(files, selectedFilePath);
 

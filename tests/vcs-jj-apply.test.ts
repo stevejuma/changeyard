@@ -76,9 +76,9 @@ function createPreviewRunner(commandLog: string[]) {
 				return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
 			case "git rev-parse --show-toplevel":
 				return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
-			case "jj bookmark list -r @":
+			case "jj bookmark list --ignore-working-copy --at-op=@ -r @":
 				return { ok: true, stdout: "feature/api: source123 12345678", stderr: "", exitCode: 0 };
-			case "jj log -r @ --no-graph -T change_id.short()":
+			case "jj log --ignore-working-copy --at-op=@ -r @ --no-graph -T change_id.short()":
 				return { ok: true, stdout: "source123", stderr: "", exitCode: 0 };
 			case "git remote":
 				return { ok: true, stdout: "origin", stderr: "", exitCode: 0 };
@@ -88,20 +88,20 @@ function createPreviewRunner(commandLog: string[]) {
 				return { ok: true, stdout: "origin/main", stderr: "", exitCode: 0 };
 			case "gh auth status --hostname github.com":
 				return { ok: true, stdout: "Logged in", stderr: "", exitCode: 0 };
-			case 'jj bookmark list --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
+			case 'jj bookmark list --ignore-working-copy --at-op=@ --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
 				return {
 					ok: true,
 					stdout: "feature/api\tsource123\t12345678\t1\t1",
 					stderr: "",
 					exitCode: 0,
 				};
-			case 'jj log --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
+			case 'jj log --ignore-working-copy --at-op=@ --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
 				return {
 					ok: true,
 					stdout: [
-						"root000\t11111111\troot\t\tmain\tmain@origin\t0",
-						"source123\t22222222\tSource change\troot000\tfeature/api\tfeature/api@origin\t1",
-						"target456\t33333333\tTarget change\troot000\t\t\t0",
+						"root000\t11111111\troot\tSteve Juma\tsteve@example.com\t\tmain\tmain@origin\t0",
+						"source123\t22222222\tSource change\tSteve Juma\tsteve@example.com\troot000\tfeature/api\tfeature/api@origin\t1",
+						"target456\t33333333\tTarget change\tSteve Juma\tsteve@example.com\troot000\t\t\t0",
 					].join("\n"),
 					stderr: "",
 					exitCode: 0,

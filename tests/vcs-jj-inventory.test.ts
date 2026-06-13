@@ -20,9 +20,9 @@ test("loadJjInventory groups local and remote bookmarks under the local branch i
 					return ok("/repo");
 				case "git rev-parse --show-toplevel":
 					return ok("/repo");
-				case "jj bookmark list -r @":
+				case "jj bookmark list --ignore-working-copy --at-op=@ -r @":
 					return ok("feature/one: abcdefgh 12345678");
-				case "jj log -r @ --no-graph -T change_id.short()":
+				case "jj log --ignore-working-copy --at-op=@ -r @ --no-graph -T change_id.short()":
 					return ok("abcdefgh");
 				case "git remote":
 					return ok("origin\nupstream\n");
@@ -76,7 +76,7 @@ test("loadJjInventory groups local and remote bookmarks under the local branch i
 				title: "Feature one",
 				authorName: "Steve Juma",
 				authorEmail: "steve@example.com",
-				authorAvatarUrl: "https://www.gravatar.com/avatar/3c98114d8e479f5da382f3401a832375?s=40&d=404",
+				authorAvatarUrl: "https://www.gravatar.com/avatar/3c98114d8e479f5da382f3401a832375?s=80&d=identicon",
 			},
 			{
 				name: "feature/remote-only",
@@ -87,7 +87,7 @@ test("loadJjInventory groups local and remote bookmarks under the local branch i
 				title: "Remote feature",
 				authorName: "Remote User",
 				authorEmail: "remote@example.com",
-				authorAvatarUrl: "https://www.gravatar.com/avatar/9c4c9b603d6102bfc8e76ee94d907013?s=40&d=404",
+				authorAvatarUrl: "https://www.gravatar.com/avatar/9c4c9b603d6102bfc8e76ee94d907013?s=80&d=identicon",
 			},
 		],
 	);

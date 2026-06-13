@@ -92,7 +92,7 @@ function parseBookmarkName(line: string): string | null {
 }
 
 export async function getJjCurrentBookmark(cwd: string): Promise<string | null> {
-	const output = await getJjStdout(["bookmark", "list", "-r", "@"], cwd).catch(() => "");
+	const output = await getJjStdout(["bookmark", "list", "--ignore-working-copy", "--at-op=@", "-r", "@"], cwd).catch(() => "");
 	for (const line of output.split("\n")) {
 		const name = parseBookmarkName(line);
 		if (name) {
@@ -103,7 +103,7 @@ export async function getJjCurrentBookmark(cwd: string): Promise<string | null> 
 }
 
 export async function getJjCurrentChangeId(cwd: string): Promise<string | null> {
-	return await getJjStdout(["log", "-r", "@", "--no-graph", "-T", "change_id.short()"], cwd).catch(() => null);
+	return await getJjStdout(["log", "--ignore-working-copy", "--at-op=@", "-r", "@", "--no-graph", "-T", "change_id.short()"], cwd).catch(() => null);
 }
 
 export interface JjHeadInfo {
@@ -115,7 +115,7 @@ export interface JjHeadInfo {
 
 export async function readJjHeadInfo(cwd: string): Promise<JjHeadInfo> {
 	const [headCommit, branch, jjChangeId] = await Promise.all([
-		getJjStdout(["log", "-r", "@", "--no-graph", "-T", "commit_id"], cwd).catch(() => null),
+		getJjStdout(["log", "--ignore-working-copy", "--at-op=@", "-r", "@", "--no-graph", "-T", "commit_id"], cwd).catch(() => null),
 		getJjCurrentBookmark(cwd),
 		getJjCurrentChangeId(cwd),
 	]);

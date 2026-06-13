@@ -75,9 +75,9 @@ test("previewJjOperation returns a reorder command preview", async () => {
 				return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
 			case "git rev-parse --show-toplevel":
 				return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
-			case "jj bookmark list -r @":
+			case "jj bookmark list --ignore-working-copy --at-op=@ -r @":
 				return { ok: true, stdout: "feature/api: source123 12345678", stderr: "", exitCode: 0 };
-			case "jj log -r @ --no-graph -T change_id.short()":
+			case "jj log --ignore-working-copy --at-op=@ -r @ --no-graph -T change_id.short()":
 				return { ok: true, stdout: "source123", stderr: "", exitCode: 0 };
 			case "git remote":
 				return { ok: true, stdout: "origin", stderr: "", exitCode: 0 };
@@ -87,14 +87,14 @@ test("previewJjOperation returns a reorder command preview", async () => {
 				return { ok: true, stdout: "origin/main", stderr: "", exitCode: 0 };
 			case "gh auth status --hostname github.com":
 				return { ok: true, stdout: "Logged in", stderr: "", exitCode: 0 };
-			case 'jj bookmark list --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
+			case 'jj bookmark list --ignore-working-copy --at-op=@ --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
 				return {
 					ok: true,
 					stdout: "feature/api\tsource123\t12345678\t1\t1",
 					stderr: "",
 					exitCode: 0,
 				};
-			case 'jj log --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
+			case 'jj log --ignore-working-copy --at-op=@ --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
 				return {
 					ok: true,
 					stdout: [
@@ -136,9 +136,9 @@ test("previewJjOperation rejects source and target equality", async () => {
 					return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
 				case "git rev-parse --show-toplevel":
 					return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
-				case "jj bookmark list -r @":
+				case "jj bookmark list --ignore-working-copy --at-op=@ -r @":
 					return { ok: true, stdout: "feature/api: source123 12345678", stderr: "", exitCode: 0 };
-				case "jj log -r @ --no-graph -T change_id.short()":
+				case "jj log --ignore-working-copy --at-op=@ -r @ --no-graph -T change_id.short()":
 					return { ok: true, stdout: "source123", stderr: "", exitCode: 0 };
 				case "git remote":
 					return { ok: true, stdout: "origin", stderr: "", exitCode: 0 };
@@ -148,14 +148,14 @@ test("previewJjOperation rejects source and target equality", async () => {
 					return { ok: true, stdout: "origin/main", stderr: "", exitCode: 0 };
 				case "gh auth status --hostname github.com":
 					return { ok: true, stdout: "Logged in", stderr: "", exitCode: 0 };
-				case 'jj bookmark list --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
+				case 'jj bookmark list --ignore-working-copy --at-op=@ --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
 					return {
 						ok: true,
 						stdout: "feature/api\tsource123\t12345678\t1\t1",
 						stderr: "",
 						exitCode: 0,
 					};
-				case 'jj log --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
+				case 'jj log --ignore-working-copy --at-op=@ --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
 					return {
 						ok: true,
 						stdout: "source123\t22222222\tSource change\troot000\tfeature/api\tfeature/api@origin\t1",
@@ -183,9 +183,9 @@ test("previewJjOperation rejects descendant targets", async () => {
 				return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
 			case "git rev-parse --show-toplevel":
 				return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
-			case "jj bookmark list -r @":
+			case "jj bookmark list --ignore-working-copy --at-op=@ -r @":
 				return { ok: true, stdout: "feature/api: source123 12345678", stderr: "", exitCode: 0 };
-			case "jj log -r @ --no-graph -T change_id.short()":
+			case "jj log --ignore-working-copy --at-op=@ -r @ --no-graph -T change_id.short()":
 				return { ok: true, stdout: "source123", stderr: "", exitCode: 0 };
 			case "git remote":
 				return { ok: true, stdout: "origin", stderr: "", exitCode: 0 };
@@ -195,14 +195,14 @@ test("previewJjOperation rejects descendant targets", async () => {
 				return { ok: true, stdout: "origin/main", stderr: "", exitCode: 0 };
 			case "gh auth status --hostname github.com":
 				return { ok: true, stdout: "Logged in", stderr: "", exitCode: 0 };
-			case 'jj bookmark list --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
+			case 'jj bookmark list --ignore-working-copy --at-op=@ --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
 				return {
 					ok: true,
 					stdout: "feature/api\tsource123\t12345678\t1\t1",
 					stderr: "",
 					exitCode: 0,
 				};
-			case 'jj log --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
+			case 'jj log --ignore-working-copy --at-op=@ --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
 				return {
 					ok: true,
 					stdout: [
@@ -233,9 +233,9 @@ test("previewJjOperation returns a create bookmark command preview", async () =>
 				return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
 			case "git rev-parse --show-toplevel":
 				return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
-			case "jj bookmark list -r @":
+			case "jj bookmark list --ignore-working-copy --at-op=@ -r @":
 				return { ok: true, stdout: "feature/api: source123 12345678", stderr: "", exitCode: 0 };
-			case "jj log -r @ --no-graph -T change_id.short()":
+			case "jj log --ignore-working-copy --at-op=@ -r @ --no-graph -T change_id.short()":
 				return { ok: true, stdout: "source123", stderr: "", exitCode: 0 };
 			case "git remote":
 				return { ok: true, stdout: "origin", stderr: "", exitCode: 0 };
@@ -245,14 +245,14 @@ test("previewJjOperation returns a create bookmark command preview", async () =>
 				return { ok: true, stdout: "origin/main", stderr: "", exitCode: 0 };
 			case "gh auth status --hostname github.com":
 				return { ok: true, stdout: "Logged in", stderr: "", exitCode: 0 };
-			case 'jj bookmark list --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
+			case 'jj bookmark list --ignore-working-copy --at-op=@ --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
 				return {
 					ok: true,
 					stdout: "feature/api\tsource123\t12345678\t1\t1",
 					stderr: "",
 					exitCode: 0,
 				};
-			case 'jj log --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
+			case 'jj log --ignore-working-copy --at-op=@ --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
 				return {
 					ok: true,
 					stdout: "source123\t22222222\tSource change\troot000\tfeature/api\tfeature/api@origin\t1",
@@ -288,9 +288,9 @@ test("previewJjOperation rejects duplicate bookmark names", async () => {
 					return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
 				case "git rev-parse --show-toplevel":
 					return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
-				case "jj bookmark list -r @":
+				case "jj bookmark list --ignore-working-copy --at-op=@ -r @":
 					return { ok: true, stdout: "feature/api: source123 12345678", stderr: "", exitCode: 0 };
-				case "jj log -r @ --no-graph -T change_id.short()":
+				case "jj log --ignore-working-copy --at-op=@ -r @ --no-graph -T change_id.short()":
 					return { ok: true, stdout: "source123", stderr: "", exitCode: 0 };
 				case "git remote":
 					return { ok: true, stdout: "origin", stderr: "", exitCode: 0 };
@@ -300,14 +300,14 @@ test("previewJjOperation rejects duplicate bookmark names", async () => {
 					return { ok: true, stdout: "origin/main", stderr: "", exitCode: 0 };
 				case "gh auth status --hostname github.com":
 					return { ok: true, stdout: "Logged in", stderr: "", exitCode: 0 };
-				case 'jj bookmark list --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
+				case 'jj bookmark list --ignore-working-copy --at-op=@ --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
 					return {
 						ok: true,
 						stdout: "feature/api\tsource123\t12345678\t1\t1",
 						stderr: "",
 						exitCode: 0,
 					};
-				case 'jj log --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
+				case 'jj log --ignore-working-copy --at-op=@ --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
 					return {
 						ok: true,
 						stdout: "source123\t22222222\tSource change\troot000\tfeature/api\tfeature/api@origin\t1",
@@ -335,9 +335,9 @@ test("previewJjOperation returns a create change command preview", async () => {
 				return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
 			case "git rev-parse --show-toplevel":
 				return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
-			case "jj bookmark list -r @":
+			case "jj bookmark list --ignore-working-copy --at-op=@ -r @":
 				return { ok: true, stdout: "feature/api: source123 12345678", stderr: "", exitCode: 0 };
-			case "jj log -r @ --no-graph -T change_id.short()":
+			case "jj log --ignore-working-copy --at-op=@ -r @ --no-graph -T change_id.short()":
 				return { ok: true, stdout: "source123", stderr: "", exitCode: 0 };
 			case "git remote":
 				return { ok: true, stdout: "origin", stderr: "", exitCode: 0 };
@@ -347,14 +347,14 @@ test("previewJjOperation returns a create change command preview", async () => {
 				return { ok: true, stdout: "origin/main", stderr: "", exitCode: 0 };
 			case "gh auth status --hostname github.com":
 				return { ok: true, stdout: "Logged in", stderr: "", exitCode: 0 };
-			case 'jj bookmark list --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
+			case 'jj bookmark list --ignore-working-copy --at-op=@ --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
 				return {
 					ok: true,
 					stdout: "feature/api\tsource123\t12345678\t1\t1",
 					stderr: "",
 					exitCode: 0,
 				};
-			case 'jj log --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
+			case 'jj log --ignore-working-copy --at-op=@ --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
 				return {
 					ok: true,
 					stdout: [
@@ -394,9 +394,9 @@ test("previewJjOperation rejects empty create change previews", async () => {
 					return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
 				case "git rev-parse --show-toplevel":
 					return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
-				case "jj bookmark list -r @":
+				case "jj bookmark list --ignore-working-copy --at-op=@ -r @":
 					return { ok: true, stdout: "feature/api: source123 12345678", stderr: "", exitCode: 0 };
-				case "jj log -r @ --no-graph -T change_id.short()":
+				case "jj log --ignore-working-copy --at-op=@ -r @ --no-graph -T change_id.short()":
 					return { ok: true, stdout: "source123", stderr: "", exitCode: 0 };
 				case "git remote":
 					return { ok: true, stdout: "origin", stderr: "", exitCode: 0 };
@@ -406,14 +406,14 @@ test("previewJjOperation rejects empty create change previews", async () => {
 					return { ok: true, stdout: "origin/main", stderr: "", exitCode: 0 };
 				case "gh auth status --hostname github.com":
 					return { ok: true, stdout: "Logged in", stderr: "", exitCode: 0 };
-				case 'jj bookmark list --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
+				case 'jj bookmark list --ignore-working-copy --at-op=@ --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
 					return {
 						ok: true,
 						stdout: "feature/api\tsource123\t12345678\t1\t1",
 						stderr: "",
 						exitCode: 0,
 					};
-				case 'jj log --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
+				case 'jj log --ignore-working-copy --at-op=@ --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
 					return {
 						ok: true,
 						stdout: "target456\t33333333\tTarget change\troot000\t\t\t0",
@@ -441,9 +441,9 @@ test("previewJjOperation returns a move bookmark command preview", async () => {
 				return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
 			case "git rev-parse --show-toplevel":
 				return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
-			case "jj bookmark list -r @":
+			case "jj bookmark list --ignore-working-copy --at-op=@ -r @":
 				return { ok: true, stdout: "feature/api: source123 12345678", stderr: "", exitCode: 0 };
-			case "jj log -r @ --no-graph -T change_id.short()":
+			case "jj log --ignore-working-copy --at-op=@ -r @ --no-graph -T change_id.short()":
 				return { ok: true, stdout: "source123", stderr: "", exitCode: 0 };
 			case "git remote":
 				return { ok: true, stdout: "origin", stderr: "", exitCode: 0 };
@@ -453,14 +453,14 @@ test("previewJjOperation returns a move bookmark command preview", async () => {
 				return { ok: true, stdout: "origin/main", stderr: "", exitCode: 0 };
 			case "gh auth status --hostname github.com":
 				return { ok: true, stdout: "Logged in", stderr: "", exitCode: 0 };
-			case 'jj bookmark list --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
+			case 'jj bookmark list --ignore-working-copy --at-op=@ --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
 				return {
 					ok: true,
 					stdout: "feature/api\tsource123\t12345678\t1\t1",
 					stderr: "",
 					exitCode: 0,
 				};
-			case 'jj log --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
+			case 'jj log --ignore-working-copy --at-op=@ --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
 				return {
 					ok: true,
 					stdout: [
@@ -500,9 +500,9 @@ test("previewJjOperation rejects no-op move bookmark previews", async () => {
 					return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
 				case "git rev-parse --show-toplevel":
 					return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
-				case "jj bookmark list -r @":
+				case "jj bookmark list --ignore-working-copy --at-op=@ -r @":
 					return { ok: true, stdout: "feature/api: source123 12345678", stderr: "", exitCode: 0 };
-				case "jj log -r @ --no-graph -T change_id.short()":
+				case "jj log --ignore-working-copy --at-op=@ -r @ --no-graph -T change_id.short()":
 					return { ok: true, stdout: "source123", stderr: "", exitCode: 0 };
 				case "git remote":
 					return { ok: true, stdout: "origin", stderr: "", exitCode: 0 };
@@ -512,14 +512,14 @@ test("previewJjOperation rejects no-op move bookmark previews", async () => {
 					return { ok: true, stdout: "origin/main", stderr: "", exitCode: 0 };
 				case "gh auth status --hostname github.com":
 					return { ok: true, stdout: "Logged in", stderr: "", exitCode: 0 };
-				case 'jj bookmark list --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
+				case 'jj bookmark list --ignore-working-copy --at-op=@ --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
 					return {
 						ok: true,
 						stdout: "feature/api\tsource123\t12345678\t1\t1",
 						stderr: "",
 						exitCode: 0,
 					};
-				case 'jj log --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
+				case 'jj log --ignore-working-copy --at-op=@ --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
 					return {
 						ok: true,
 						stdout: "source123\t22222222\tSource change\troot000\tfeature/api\tfeature/api@origin\t1",
@@ -547,9 +547,9 @@ test("previewJjOperation returns an abandon change command preview", async () =>
 				return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
 			case "git rev-parse --show-toplevel":
 				return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
-			case "jj bookmark list -r @":
+			case "jj bookmark list --ignore-working-copy --at-op=@ -r @":
 				return { ok: true, stdout: "feature/api: source123 12345678", stderr: "", exitCode: 0 };
-			case "jj log -r @ --no-graph -T change_id.short()":
+			case "jj log --ignore-working-copy --at-op=@ -r @ --no-graph -T change_id.short()":
 				return { ok: true, stdout: "source123", stderr: "", exitCode: 0 };
 			case "git remote":
 				return { ok: true, stdout: "origin", stderr: "", exitCode: 0 };
@@ -559,14 +559,14 @@ test("previewJjOperation returns an abandon change command preview", async () =>
 				return { ok: true, stdout: "origin/main", stderr: "", exitCode: 0 };
 			case "gh auth status --hostname github.com":
 				return { ok: true, stdout: "Logged in", stderr: "", exitCode: 0 };
-			case 'jj bookmark list --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
+			case 'jj bookmark list --ignore-working-copy --at-op=@ --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
 				return {
 					ok: true,
 					stdout: "feature/api\tsource123\t12345678\t1\t1",
 					stderr: "",
 					exitCode: 0,
 				};
-			case 'jj log --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
+			case 'jj log --ignore-working-copy --at-op=@ --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
 				return {
 					ok: true,
 					stdout: [
@@ -607,9 +607,9 @@ test("previewJjOperation rejects unknown abandon change previews", async () => {
 					return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
 				case "git rev-parse --show-toplevel":
 					return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
-				case "jj bookmark list -r @":
+				case "jj bookmark list --ignore-working-copy --at-op=@ -r @":
 					return { ok: true, stdout: "feature/api: source123 12345678", stderr: "", exitCode: 0 };
-				case "jj log -r @ --no-graph -T change_id.short()":
+				case "jj log --ignore-working-copy --at-op=@ -r @ --no-graph -T change_id.short()":
 					return { ok: true, stdout: "source123", stderr: "", exitCode: 0 };
 				case "git remote":
 					return { ok: true, stdout: "origin", stderr: "", exitCode: 0 };
@@ -619,14 +619,14 @@ test("previewJjOperation rejects unknown abandon change previews", async () => {
 					return { ok: true, stdout: "origin/main", stderr: "", exitCode: 0 };
 				case "gh auth status --hostname github.com":
 					return { ok: true, stdout: "Logged in", stderr: "", exitCode: 0 };
-				case 'jj bookmark list --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
+				case 'jj bookmark list --ignore-working-copy --at-op=@ --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
 					return {
 						ok: true,
 						stdout: "feature/api\tsource123\t12345678\t1\t1",
 						stderr: "",
 						exitCode: 0,
 					};
-				case 'jj log --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
+				case 'jj log --ignore-working-copy --at-op=@ --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
 					return {
 						ok: true,
 						stdout: "source123\t22222222\tSource change\troot000\tfeature/api\tfeature/api@origin\t1",
@@ -654,9 +654,9 @@ test("previewJjOperation returns a squash change command preview", async () => {
 				return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
 			case "git rev-parse --show-toplevel":
 				return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
-			case "jj bookmark list -r @":
+			case "jj bookmark list --ignore-working-copy --at-op=@ -r @":
 				return { ok: true, stdout: "feature/api: source123 12345678", stderr: "", exitCode: 0 };
-			case "jj log -r @ --no-graph -T change_id.short()":
+			case "jj log --ignore-working-copy --at-op=@ -r @ --no-graph -T change_id.short()":
 				return { ok: true, stdout: "source123", stderr: "", exitCode: 0 };
 			case "git remote":
 				return { ok: true, stdout: "origin", stderr: "", exitCode: 0 };
@@ -666,14 +666,14 @@ test("previewJjOperation returns a squash change command preview", async () => {
 				return { ok: true, stdout: "origin/main", stderr: "", exitCode: 0 };
 			case "gh auth status --hostname github.com":
 				return { ok: true, stdout: "Logged in", stderr: "", exitCode: 0 };
-			case 'jj bookmark list --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
+			case 'jj bookmark list --ignore-working-copy --at-op=@ --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
 				return {
 					ok: true,
 					stdout: "feature/api\tsource123\t12345678\t1\t1",
 					stderr: "",
 					exitCode: 0,
 				};
-			case 'jj log --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
+			case 'jj log --ignore-working-copy --at-op=@ --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
 				return {
 					ok: true,
 					stdout: [
@@ -709,9 +709,9 @@ test("previewJjOperation rejects descendant squash targets", async () => {
 				return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
 			case "git rev-parse --show-toplevel":
 				return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
-			case "jj bookmark list -r @":
+			case "jj bookmark list --ignore-working-copy --at-op=@ -r @":
 				return { ok: true, stdout: "feature/api: source123 12345678", stderr: "", exitCode: 0 };
-			case "jj log -r @ --no-graph -T change_id.short()":
+			case "jj log --ignore-working-copy --at-op=@ -r @ --no-graph -T change_id.short()":
 				return { ok: true, stdout: "source123", stderr: "", exitCode: 0 };
 			case "git remote":
 				return { ok: true, stdout: "origin", stderr: "", exitCode: 0 };
@@ -721,14 +721,14 @@ test("previewJjOperation rejects descendant squash targets", async () => {
 				return { ok: true, stdout: "origin/main", stderr: "", exitCode: 0 };
 			case "gh auth status --hostname github.com":
 				return { ok: true, stdout: "Logged in", stderr: "", exitCode: 0 };
-			case 'jj bookmark list --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
+			case 'jj bookmark list --ignore-working-copy --at-op=@ --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
 				return {
 					ok: true,
 					stdout: "feature/api\tsource123\t12345678\t1\t1",
 					stderr: "",
 					exitCode: 0,
 				};
-			case 'jj log --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
+			case 'jj log --ignore-working-copy --at-op=@ --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
 				return {
 					ok: true,
 					stdout: [
@@ -759,9 +759,9 @@ test("previewJjOperation returns an absorb file command preview", async () => {
 				return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
 			case "git rev-parse --show-toplevel":
 				return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
-			case "jj bookmark list -r @":
+			case "jj bookmark list --ignore-working-copy --at-op=@ -r @":
 				return { ok: true, stdout: "feature/api: source123 12345678", stderr: "", exitCode: 0 };
-			case "jj log -r @ --no-graph -T change_id.short()":
+			case "jj log --ignore-working-copy --at-op=@ -r @ --no-graph -T change_id.short()":
 				return { ok: true, stdout: "source123", stderr: "", exitCode: 0 };
 			case "git remote":
 				return { ok: true, stdout: "origin", stderr: "", exitCode: 0 };
@@ -771,14 +771,14 @@ test("previewJjOperation returns an absorb file command preview", async () => {
 				return { ok: true, stdout: "origin/main", stderr: "", exitCode: 0 };
 			case "gh auth status --hostname github.com":
 				return { ok: true, stdout: "Logged in", stderr: "", exitCode: 0 };
-			case 'jj bookmark list --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
+			case 'jj bookmark list --ignore-working-copy --at-op=@ --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
 				return {
 					ok: true,
 					stdout: "feature/api\tsource123\t12345678\t1\t1",
 					stderr: "",
 					exitCode: 0,
 				};
-			case 'jj log --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
+			case 'jj log --ignore-working-copy --at-op=@ --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
 				return {
 					ok: true,
 					stdout: [
@@ -820,9 +820,9 @@ test("previewJjOperation rejects absorb file previews for missing working-copy p
 					return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
 				case "git rev-parse --show-toplevel":
 					return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
-				case "jj bookmark list -r @":
+				case "jj bookmark list --ignore-working-copy --at-op=@ -r @":
 					return { ok: true, stdout: "feature/api: source123 12345678", stderr: "", exitCode: 0 };
-				case "jj log -r @ --no-graph -T change_id.short()":
+				case "jj log --ignore-working-copy --at-op=@ -r @ --no-graph -T change_id.short()":
 					return { ok: true, stdout: "source123", stderr: "", exitCode: 0 };
 				case "git remote":
 					return { ok: true, stdout: "origin", stderr: "", exitCode: 0 };
@@ -832,14 +832,14 @@ test("previewJjOperation rejects absorb file previews for missing working-copy p
 					return { ok: true, stdout: "origin/main", stderr: "", exitCode: 0 };
 				case "gh auth status --hostname github.com":
 					return { ok: true, stdout: "Logged in", stderr: "", exitCode: 0 };
-				case 'jj bookmark list --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
+				case 'jj bookmark list --ignore-working-copy --at-op=@ --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
 					return {
 						ok: true,
 						stdout: "feature/api\tsource123\t12345678\t1\t1",
 						stderr: "",
 						exitCode: 0,
 					};
-				case 'jj log --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
+				case 'jj log --ignore-working-copy --at-op=@ --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
 					return {
 						ok: true,
 						stdout: [
@@ -872,9 +872,9 @@ test("previewJjOperation returns a restore file command preview", async () => {
 				return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
 			case "git rev-parse --show-toplevel":
 				return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
-			case "jj bookmark list -r @":
+			case "jj bookmark list --ignore-working-copy --at-op=@ -r @":
 				return { ok: true, stdout: "feature/api: source123 12345678", stderr: "", exitCode: 0 };
-			case "jj log -r @ --no-graph -T change_id.short()":
+			case "jj log --ignore-working-copy --at-op=@ -r @ --no-graph -T change_id.short()":
 				return { ok: true, stdout: "source123", stderr: "", exitCode: 0 };
 			case "git remote":
 				return { ok: true, stdout: "origin", stderr: "", exitCode: 0 };
@@ -884,14 +884,14 @@ test("previewJjOperation returns a restore file command preview", async () => {
 				return { ok: true, stdout: "origin/main", stderr: "", exitCode: 0 };
 			case "gh auth status --hostname github.com":
 				return { ok: true, stdout: "Logged in", stderr: "", exitCode: 0 };
-			case 'jj bookmark list --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
+			case 'jj bookmark list --ignore-working-copy --at-op=@ --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
 				return {
 					ok: true,
 					stdout: "feature/api\tsource123\t12345678\t1\t1",
 					stderr: "",
 					exitCode: 0,
 				};
-			case 'jj log --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
+			case 'jj log --ignore-working-copy --at-op=@ --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
 				return {
 					ok: true,
 					stdout: [
@@ -933,9 +933,9 @@ test("previewJjOperation rejects restore file previews for missing working-copy 
 					return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
 				case "git rev-parse --show-toplevel":
 					return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
-				case "jj bookmark list -r @":
+				case "jj bookmark list --ignore-working-copy --at-op=@ -r @":
 					return { ok: true, stdout: "feature/api: source123 12345678", stderr: "", exitCode: 0 };
-				case "jj log -r @ --no-graph -T change_id.short()":
+				case "jj log --ignore-working-copy --at-op=@ -r @ --no-graph -T change_id.short()":
 					return { ok: true, stdout: "source123", stderr: "", exitCode: 0 };
 				case "git remote":
 					return { ok: true, stdout: "origin", stderr: "", exitCode: 0 };
@@ -945,14 +945,14 @@ test("previewJjOperation rejects restore file previews for missing working-copy 
 					return { ok: true, stdout: "origin/main", stderr: "", exitCode: 0 };
 				case "gh auth status --hostname github.com":
 					return { ok: true, stdout: "Logged in", stderr: "", exitCode: 0 };
-				case 'jj bookmark list --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
+				case 'jj bookmark list --ignore-working-copy --at-op=@ --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
 					return {
 						ok: true,
 						stdout: "feature/api\tsource123\t12345678\t1\t1",
 						stderr: "",
 						exitCode: 0,
 					};
-				case 'jj log --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
+				case 'jj log --ignore-working-copy --at-op=@ --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
 					return {
 						ok: true,
 						stdout: [
@@ -985,9 +985,9 @@ test("previewJjOperation returns an undo command preview", async () => {
 				return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
 			case "git rev-parse --show-toplevel":
 				return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
-			case "jj bookmark list -r @":
+			case "jj bookmark list --ignore-working-copy --at-op=@ -r @":
 				return { ok: true, stdout: "feature/api: source123 12345678", stderr: "", exitCode: 0 };
-			case "jj log -r @ --no-graph -T change_id.short()":
+			case "jj log --ignore-working-copy --at-op=@ -r @ --no-graph -T change_id.short()":
 				return { ok: true, stdout: "source123", stderr: "", exitCode: 0 };
 			case "git remote":
 				return { ok: true, stdout: "origin", stderr: "", exitCode: 0 };
@@ -997,14 +997,14 @@ test("previewJjOperation returns an undo command preview", async () => {
 				return { ok: true, stdout: "origin/main", stderr: "", exitCode: 0 };
 			case "gh auth status --hostname github.com":
 				return { ok: true, stdout: "Logged in", stderr: "", exitCode: 0 };
-			case 'jj bookmark list --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
+			case 'jj bookmark list --ignore-working-copy --at-op=@ --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
 				return {
 					ok: true,
 					stdout: "feature/api\tsource123\t12345678\t1\t1",
 					stderr: "",
 					exitCode: 0,
 				};
-			case 'jj log --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
+			case 'jj log --ignore-working-copy --at-op=@ --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
 				return {
 					ok: true,
 					stdout: "source123\t22222222\tSource change\troot000\tfeature/api\tfeature/api@origin\t1",
@@ -1035,9 +1035,9 @@ test("previewJjOperation returns a redo command preview", async () => {
 				return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
 			case "git rev-parse --show-toplevel":
 				return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
-			case "jj bookmark list -r @":
+			case "jj bookmark list --ignore-working-copy --at-op=@ -r @":
 				return { ok: true, stdout: "feature/api: source123 12345678", stderr: "", exitCode: 0 };
-			case "jj log -r @ --no-graph -T change_id.short()":
+			case "jj log --ignore-working-copy --at-op=@ -r @ --no-graph -T change_id.short()":
 				return { ok: true, stdout: "source123", stderr: "", exitCode: 0 };
 			case "git remote":
 				return { ok: true, stdout: "origin", stderr: "", exitCode: 0 };
@@ -1047,14 +1047,14 @@ test("previewJjOperation returns a redo command preview", async () => {
 				return { ok: true, stdout: "origin/main", stderr: "", exitCode: 0 };
 			case "gh auth status --hostname github.com":
 				return { ok: true, stdout: "Logged in", stderr: "", exitCode: 0 };
-			case 'jj bookmark list --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
+			case 'jj bookmark list --ignore-working-copy --at-op=@ --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
 				return {
 					ok: true,
 					stdout: "feature/api\tsource123\t12345678\t1\t1",
 					stderr: "",
 					exitCode: 0,
 				};
-			case 'jj log --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
+			case 'jj log --ignore-working-copy --at-op=@ --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
 				return {
 					ok: true,
 					stdout: "source123\t22222222\tSource change\troot000\tfeature/api\tfeature/api@origin\t1",
@@ -1085,9 +1085,9 @@ test("previewJjOperation returns an edit message command preview", async () => {
 				return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
 			case "git rev-parse --show-toplevel":
 				return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
-			case "jj bookmark list -r @":
+			case "jj bookmark list --ignore-working-copy --at-op=@ -r @":
 				return { ok: true, stdout: "feature/api: source123 12345678", stderr: "", exitCode: 0 };
-			case "jj log -r @ --no-graph -T change_id.short()":
+			case "jj log --ignore-working-copy --at-op=@ -r @ --no-graph -T change_id.short()":
 				return { ok: true, stdout: "source123", stderr: "", exitCode: 0 };
 			case "git remote":
 				return { ok: true, stdout: "origin", stderr: "", exitCode: 0 };
@@ -1097,14 +1097,14 @@ test("previewJjOperation returns an edit message command preview", async () => {
 				return { ok: true, stdout: "origin/main", stderr: "", exitCode: 0 };
 			case "gh auth status --hostname github.com":
 				return { ok: true, stdout: "Logged in", stderr: "", exitCode: 0 };
-			case 'jj bookmark list --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
+			case 'jj bookmark list --ignore-working-copy --at-op=@ --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
 				return {
 					ok: true,
 					stdout: "feature/api\tsource123\t12345678\t1\t1",
 					stderr: "",
 					exitCode: 0,
 				};
-			case 'jj log --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
+			case 'jj log --ignore-working-copy --at-op=@ --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
 				return {
 					ok: true,
 					stdout: "source123\t22222222\tSource change\troot000\tfeature/api\tfeature/api@origin\t1",
@@ -1140,9 +1140,9 @@ test("previewJjOperation rejects empty edit message previews", async () => {
 					return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
 				case "git rev-parse --show-toplevel":
 					return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
-				case "jj bookmark list -r @":
+				case "jj bookmark list --ignore-working-copy --at-op=@ -r @":
 					return { ok: true, stdout: "feature/api: source123 12345678", stderr: "", exitCode: 0 };
-				case "jj log -r @ --no-graph -T change_id.short()":
+				case "jj log --ignore-working-copy --at-op=@ -r @ --no-graph -T change_id.short()":
 					return { ok: true, stdout: "source123", stderr: "", exitCode: 0 };
 				case "git remote":
 					return { ok: true, stdout: "origin", stderr: "", exitCode: 0 };
@@ -1152,14 +1152,14 @@ test("previewJjOperation rejects empty edit message previews", async () => {
 					return { ok: true, stdout: "origin/main", stderr: "", exitCode: 0 };
 				case "gh auth status --hostname github.com":
 					return { ok: true, stdout: "Logged in", stderr: "", exitCode: 0 };
-				case 'jj bookmark list --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
+				case 'jj bookmark list --ignore-working-copy --at-op=@ --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
 					return {
 						ok: true,
 						stdout: "feature/api\tsource123\t12345678\t1\t1",
 						stderr: "",
 						exitCode: 0,
 					};
-				case 'jj log --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
+				case 'jj log --ignore-working-copy --at-op=@ --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
 					return {
 						ok: true,
 						stdout: "source123\t22222222\tSource change\troot000\tfeature/api\tfeature/api@origin\t1",

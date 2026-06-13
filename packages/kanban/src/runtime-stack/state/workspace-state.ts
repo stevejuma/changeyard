@@ -529,7 +529,7 @@ function parseJjBookmarkName(line: string): string | null {
 }
 
 function detectJjBranches(repoPath: string): string[] {
-	const output = runJjCapture(repoPath, ["bookmark", "list"]);
+	const output = runJjCapture(repoPath, ["bookmark", "list", "--ignore-working-copy", "--at-op=@"]);
 	if (!output) {
 		return [];
 	}
@@ -556,7 +556,7 @@ function detectJjDefaultBranch(branches: string[]): string | null {
 }
 
 function detectJjCurrentBranch(repoPath: string, branches: string[]): string | null {
-	const currentBookmarks = runJjCapture(repoPath, ["bookmark", "list", "-r", "@"]);
+	const currentBookmarks = runJjCapture(repoPath, ["bookmark", "list", "--ignore-working-copy", "--at-op=@", "-r", "@"]);
 	if (currentBookmarks) {
 		for (const line of currentBookmarks.split("\n")) {
 			const name = parseJjBookmarkName(line);
@@ -569,7 +569,7 @@ function detectJjCurrentBranch(repoPath: string, branches: string[]): string | n
 }
 
 function detectJjCurrentChangeId(repoPath: string): string | null {
-	return runJjCapture(repoPath, ["log", "-r", "@", "--no-graph", "-T", "change_id.short()"]);
+	return runJjCapture(repoPath, ["log", "--ignore-working-copy", "--at-op=@", "-r", "@", "--no-graph", "-T", "change_id.short()"]);
 }
 
 function detectGitRepositoryInfo(repoPath: string): RuntimeGitRepositoryInfo {

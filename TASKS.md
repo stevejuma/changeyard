@@ -19,6 +19,8 @@
 - [x] STOP: Verify Workspace Page.
 - [x] Milestone 4 implementation completed.
 - [x] STOP: Verify Applied Workspace Stack Lanes.
+- [x] Milestone 5 implementation completed.
+- [ ] STOP: Verify Event-Driven VCS Cache.
 
 ## Milestone 0: Planning Files First
 
@@ -258,6 +260,67 @@ Verification notes:
 - Automated checks passed:
   - `npm --workspace @changeyard/vcs run test -- branches-stack-model.test.ts routes.test.ts`
   - `npm --workspace @changeyard/vcs run typecheck`
+
+## Milestone 5: Event-Driven VCS Cache And Watcher Abstraction
+
+Status: implementation complete, stopped for checkpoint verification
+
+- [x] Add backend `VcsProjectWatcher` abstraction.
+- [x] Implement first watcher backend with Chokidar.
+- [x] Keep the watcher abstraction open for a future Watchman backend.
+- [x] Watch targeted JJ metadata:
+  - `.jj/repo/op_heads`
+  - `.jj/working_copy`
+- [x] Watch normal project files for working-copy changes.
+- [x] Ignore `.git` except fetch/remote-ref metadata, most of `.jj`, `node_modules`, and common build/cache outputs.
+- [x] Debounce and coalesce watcher events into semantic project events.
+- [x] Emit VCS project events over the existing runtime WebSocket stream.
+- [x] Start watchers only when runtime WebSocket clients are active for a project.
+- [x] Stop watchers when the last client disconnects or the project is removed.
+- [x] Install and wire RTK Query behind a VCS data service layer.
+- [x] Spike shared Workspace/Branches data through RTK Query:
+  - `getJjState`
+  - `getJjInventory`
+  - `getJjDiff`
+  - `getRepositoryCommitDiff`
+- [x] Keep event subscriptions in RTK service-level `onCacheEntryAdded` handlers.
+- [x] Keep components reading query results rather than subscribing to events directly.
+- [x] Add RTK invalidation tags for stack, branch, worktree, head, base, divergent-bookmark, diff, and commit-change data.
+- [x] Audit JJ read commands and add non-snapshot flags to metadata/history/branch/stack/base reads where supported.
+- [x] Leave working-copy diff/status reads snapshot-capable.
+
+### STOP: Verify Event-Driven VCS Cache
+
+- [x] Run watcher tests.
+- [x] Run focused JJ/VCS tests.
+- [x] Run `npm --workspace @changeyard/vcs run test`.
+- [x] Run VCS and runtime typechecks.
+- [x] Run full `npm test`.
+- [x] Start the VCS UI locally.
+- [ ] Open `/vcs/jj/branches`.
+- [ ] Open `/vcs/jj`.
+- [ ] Edit a normal project file externally and verify Working Copy updates without manual refresh.
+- [ ] Move or create a JJ commit externally and verify Branches/Workspace refresh through VCS activity/head events.
+- [ ] Verify repeated navigation does not create duplicate visible active requests.
+- [ ] Record manual verification notes below before continuing.
+
+Verification notes:
+
+- Added `packages/kanban/src/runtime-stack/server/vcs-project-watcher.ts`.
+- Added deterministic watcher tests for path classification and ignore behavior.
+- Added runtime stream message type `vcs_project_event`.
+- Runtime WebSocket clients now start and stop project VCS watchers.
+- Added RTK Query dependencies and a contained VCS service layer in `packages/vcs/src/runtime/vcs-api.ts`.
+- Added a shared VCS runtime WebSocket subscription helper in `packages/vcs/src/runtime/vcs-events.ts`.
+- Shared Workspace/Branches JJ state, inventory, diff, and commit-diff reads now go through RTK Query.
+- Automated checks passed:
+  - `node --import tsx --test packages/kanban/src/runtime-stack/server/vcs-project-watcher.test.ts`
+  - `node --import tsx --test tests/vcs-detect.test.ts tests/vcs-jj-state.test.ts tests/vcs-jj-preview.test.ts tests/vcs-jj-apply.test.ts tests/vcs-jj-diff.test.ts tests/vcs-jj-read.test.ts tests/vcs-jj-inventory.test.ts`
+  - `npm --workspace @changeyard/vcs run test`
+  - `npm --workspace @changeyard/vcs run typecheck`
+  - `npm --workspace @changeyard/kanban run runtime:typecheck`
+- `npm test` passed all 187 tests when rerun outside the sandbox; the first sandboxed run built successfully but failed runtime/JJ integration tests because it could not bind runtime ports or access JJ secure config under `~/.config/jj/repos`.
+- VCS dev server is running at `http://127.0.0.1:4374/vcs/` for manual verification. Ports `4174` and `4274` were already occupied by existing node listeners that did not respond to HTTP.
   - `npm --workspace @changeyard/kanban run typecheck`
   - `npm run build:cli`
   - `npm --workspace @changeyard/kanban run build`
@@ -313,10 +376,20 @@ Verification notes:
         - `.changeyard/config.local.jsonc` renders a real diff/file body rather than an empty/no-diff state
         - collapsing Working Copy persisted after reload
         - Working Copy was expanded again after verification for continued review
+      - Follow-up event-driven refresh fix:
+        - Confirmed `vcs.jjState` for `jj-sample-but` returned the current working copy state with only `README.md` modified after the repo ignore file was corrected.
+        - Confirmed the open Workspace page was stale before the active event path refreshed.
+        - Added deterministic Chokidar startup readiness so runtime watcher setup resolves only after the initial scan is ready.
+        - Runtime watcher startup failures now write a diagnostic to stderr instead of being silently swallowed.
+        - Added a frontend VCS event-service fallback that treats existing `workspace_metadata_updated` runtime messages as worktree cache invalidations. This covers active dev runtimes that emit metadata updates before the newer semantic `vcs_project_event` stream is available.
+        - Verified the active Workspace page at `http://127.0.0.1:4274/vcs/jj?workspaceId=jj-sample-but&workingCopyFile=.changeyard%2Fconfig.local.jsonc` updated without a manual browser reload and now shows `README.md` as the Working Copy entry.
       - Automated checks passed:
         - `node --test --import tsx tests/vcs-jj-diff.test.ts`
         - `npm --workspace @changeyard/vcs run typecheck`
         - `npm run build:cli`
+        - `node --import tsx --test packages/kanban/src/runtime-stack/server/vcs-project-watcher.test.ts`
+        - `npm --workspace @changeyard/kanban run runtime:typecheck`
+        - `npm --workspace @changeyard/vcs run test -- branches-stack-model.test.ts routes.test.ts`
 
 ## Final Verification
 

@@ -1097,6 +1097,27 @@ export type RuntimeStateStreamWorkspaceMetadataMessage = z.infer<
 	typeof runtimeStateStreamWorkspaceMetadataMessageSchema
 >;
 
+export const runtimeVcsProjectEventKindSchema = z.enum([
+	"worktree_changes",
+	"vcs/activity",
+	"vcs/head",
+	"vcs/fetch",
+]);
+export type RuntimeVcsProjectEventKind = z.infer<typeof runtimeVcsProjectEventKindSchema>;
+
+export const runtimeStateStreamVcsProjectEventMessageSchema = z.object({
+	type: z.literal("vcs_project_event"),
+	workspaceId: z.string(),
+	topic: z.string(),
+	kind: runtimeVcsProjectEventKindSchema,
+	paths: z.array(z.string()),
+	changedAt: z.number(),
+	version: z.number().int().nonnegative(),
+});
+export type RuntimeStateStreamVcsProjectEventMessage = z.infer<
+	typeof runtimeStateStreamVcsProjectEventMessageSchema
+>;
+
 export const runtimeStateStreamTaskReadyForReviewMessageSchema = z.object({
 	type: z.literal("task_ready_for_review"),
 	workspaceId: z.string(),
@@ -1148,6 +1169,7 @@ export const runtimeStateStreamMessageSchema = z.discriminatedUnion("type", [
 	runtimeStateStreamTaskSessionsMessageSchema,
 	runtimeStateStreamProjectsMessageSchema,
 	runtimeStateStreamWorkspaceMetadataMessageSchema,
+	runtimeStateStreamVcsProjectEventMessageSchema,
 	runtimeStateStreamTaskReadyForReviewMessageSchema,
 	runtimeStateStreamTaskChatMessageSchema,
 	runtimeStateStreamTaskChatClearedMessageSchema,

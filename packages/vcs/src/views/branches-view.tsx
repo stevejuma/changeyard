@@ -41,7 +41,13 @@ import type {
 	VcsJjInventoryResponse,
 	VcsJjStateResponse,
 } from "@/runtime/types";
-import { postTrpcMutation, usePaginatedRepositoryLog, useTrpcInputQuery, useTrpcQuery } from "@/runtime/trpc-client";
+import { postTrpcMutation, usePaginatedRepositoryLog, useTrpcQuery } from "@/runtime/trpc-client";
+import {
+	toRuntimeQueryState,
+	useGetJjInventoryQuery,
+	useGetJjStateQuery,
+	useGetRepositoryCommitDiffQuery,
+} from "@/runtime/vcs-api";
 import {
 	readVcsBooleanPreference,
 	readVcsFileViewMode,
@@ -172,23 +178,22 @@ export function BranchesView({
 	projectState: VcsShellProjectState;
 	workspaceId: string | null;
 }): React.ReactElement {
-	const inventoryQuery = useTrpcQuery<VcsJjInventoryResponse>(
-		"vcs.jjInventory",
-		"Failed to load branch inventory.",
-		workspaceId,
-		Boolean(workspaceId),
-	);
-	const stackQuery = useTrpcQuery<VcsJjStateResponse>(
-		"vcs.jjState",
-		"Failed to load JJ stacks.",
-		workspaceId,
-		Boolean(workspaceId),
-	);
+	const hasWorkspace = Boolean(workspaceId);
+	const inventoryResult = useGetJjInventoryQuery({ workspaceId: workspaceId ?? "" }, { skip: !hasWorkspace });
+	const stackResult = useGetJjStateQuery({ workspaceId: workspaceId ?? "" }, { skip: !hasWorkspace });
+	const inventoryQuery = {
+		state: toRuntimeQueryState<VcsJjInventoryResponse>(inventoryResult, "Failed to load branch inventory."),
+		refresh: () => void inventoryResult.refetch(),
+	};
+	const stackQuery = {
+		state: toRuntimeQueryState<VcsJjStateResponse>(stackResult, "Failed to load JJ stacks."),
+		refresh: () => void stackResult.refetch(),
+	};
 	const projectConfigQuery = useTrpcQuery<RuntimeProjectConfigResponse>(
 		"changes.getProjectConfig",
 		"Failed to load project configuration.",
 		workspaceId,
-		Boolean(workspaceId),
+		hasWorkspace,
 	);
 	const [filter, setFilter] = useState<BranchFilter>("all");
 	const [search, setSearch] = useState("");
@@ -209,13 +214,14 @@ export function BranchesView({
 	const [hasUserClearedFile, setHasUserClearedFile] = useState(false);
 	const [isFileSectionCollapsed, setFileSectionCollapsed] = useState(false);
 	const [updatingAppliedStackId, setUpdatingAppliedStackId] = useState<string | null>(null);
-	const commitDiffQuery = useTrpcInputQuery<RuntimeGitCommitDiffResponse>(
-		"workspace.getRepositoryCommitDiff",
-		{ commitHash: selectedCommitHash ?? "" },
-		"Failed to load commit diff.",
-		Boolean(workspaceId && selectedCommitHash),
-		workspaceId,
+	const commitDiffResult = useGetRepositoryCommitDiffQuery(
+		{ workspaceId: workspaceId ?? "", commitHash: selectedCommitHash ?? "" },
+		{ skip: !workspaceId || !selectedCommitHash },
 	);
+	const commitDiffQuery = {
+		state: toRuntimeQueryState<RuntimeGitCommitDiffResponse>(commitDiffResult, "Failed to load commit diff."),
+		refresh: () => void commitDiffResult.refetch(),
+	};
 	const files = toFileChanges(commitDiffQuery.state);
 	const selectedFile = findFileByPath(files, selectedFilePath);
 

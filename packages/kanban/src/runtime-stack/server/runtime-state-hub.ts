@@ -16,6 +16,7 @@ import type {
 	RuntimeStateStreamTaskChatMessage,
 	RuntimeStateStreamTaskReadyForReviewMessage,
 	RuntimeStateStreamTaskSessionsMessage,
+	RuntimeStateStreamVcsProjectEventMessage,
 	RuntimeStateStreamWorkspaceMetadataMessage,
 	RuntimeStateStreamWorkspaceStateMessage,
 	RuntimeTaskSessionSummary,
@@ -23,6 +24,7 @@ import type {
 import type { TerminalSessionManager } from "../terminal/session-manager.js";
 import { createWorkspaceMetadataMonitor } from "./workspace-metadata-monitor.js";
 import type { ResolvedWorkspaceStreamTarget, WorkspaceRegistry } from "./workspace-registry.js";
+import { createChokidarVcsProjectWatcher } from "./vcs-project-watcher.js";
 
 const TASK_SESSION_STREAM_BATCH_MS = 150;
 
@@ -98,6 +100,44 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 		} catch {
 			// Ignore websocket write errors; close handlers clean up disconnected sockets.
 		}
+	};
+
+	const vcsProjectWatcher = createChokidarVcsProjectWatcher();
+	const unsubscribeVcsProjectWatcher = vcsProjectWatcher.onEvent((event) => {
+		const clients = runtimeStateClientsByWorkspaceId.get(event.projectId);
+		if (!clients || clients.size === 0) {
+			return;
+		}
+		const payload: RuntimeStateStreamVcsProjectEventMessage = {
+			type: "vcs_project_event",
+			workspaceId: event.projectId,
+			topic: event.topic,
+			kind: event.kind,
+			paths: event.paths,
+			changedAt: event.changedAt,
+			version: event.version,
+		};
+		for (const client of clients) {
+			sendRuntimeStateMessage(client, payload);
+		}
+	});
+
+	const startVcsWatcher = (workspaceId: string, workspacePath: string): void => {
+		void vcsProjectWatcher.start(workspaceId, workspacePath).catch((error) => {
+			const message = error instanceof Error ? error.message : String(error);
+			process.stderr.write(`Failed to start VCS watcher for ${workspaceId}: ${message}\n`);
+			// Ignore watcher setup failures; existing explicit refresh paths still work.
+		});
+	};
+
+	const stopVcsWatcherIfIdle = (workspaceId: string): void => {
+		const clients = runtimeStateClientsByWorkspaceId.get(workspaceId);
+		if (clients && clients.size > 0) {
+			return;
+		}
+		void vcsProjectWatcher.stop(workspaceId).catch(() => {
+			// Ignore watcher cleanup failures during client disconnects.
+		});
 	};
 
 	const broadcastRuntimeProjectsUpdated = async (preferredCurrentProjectId: string | null): Promise<void> => {
@@ -231,6 +271,7 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 				clients.delete(client);
 				if (clients.size === 0) {
 					runtimeStateClientsByWorkspaceId.delete(workspaceId);
+					stopVcsWatcherIfIdle(workspaceId);
 				}
 			}
 		}
@@ -269,6 +310,9 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 		clineMessageUnsubscribeByWorkspaceId.delete(workspaceId);
 		disposeTaskSessionSummaryBroadcast(workspaceId);
 		workspaceMetadataMonitor.disposeWorkspace(workspaceId);
+		void vcsProjectWatcher.stop(workspaceId).catch(() => {
+			// Ignore watcher cleanup failures during workspace disposal.
+		});
 
 		if (!options?.disconnectClients) {
 			return;
@@ -452,6 +496,9 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 					workspaceClients.add(client);
 					runtimeStateClientsByWorkspaceId.set(monitorWorkspaceId, workspaceClients);
 					runtimeStateWorkspaceIdByClient.set(client, monitorWorkspaceId);
+					if (workspace.workspacePath) {
+						startVcsWatcher(monitorWorkspaceId, workspace.workspacePath);
+					}
 					const clineSummaries = Array.from(
 						clinePreviousSummaryByWorkspaceId.get(monitorWorkspaceId)?.values() ?? [],
 					);
@@ -584,6 +631,8 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 			}
 			clineMessageUnsubscribeByWorkspaceId.clear();
 			workspaceMetadataMonitor.close();
+			unsubscribeVcsProjectWatcher();
+			await vcsProjectWatcher.close();
 			for (const client of runtimeStateClients) {
 				try {
 					client.terminate();
