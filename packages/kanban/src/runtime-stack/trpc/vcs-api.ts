@@ -3,6 +3,7 @@ import type {
 	RuntimeVcsApplyOperationResponse,
 	RuntimeVcsDetectResponse,
 	RuntimeVcsJjDiffResponse,
+	RuntimeVcsJjBranchesDataResponse,
 	RuntimeVcsJjInventoryResponse,
 	RuntimeVcsJjOperationDiffRequest,
 	RuntimeVcsJjOperationDiffResponse,
@@ -92,6 +93,13 @@ function createUnavailableJjInventoryResponse(reason: string): RuntimeVcsJjInven
 		...createUnavailableResponse(reason),
 		workspaceTarget: null,
 		items: [],
+	};
+}
+
+function createUnavailableJjBranchesDataResponse(reason: string): RuntimeVcsJjBranchesDataResponse {
+	return {
+		inventory: createUnavailableJjInventoryResponse(reason),
+		state: createUnavailableJjStateResponse(reason),
 	};
 }
 
@@ -268,6 +276,23 @@ export function createVcsApi(deps: CreateVcsApiDependencies): RuntimeTrpcContext
 				return createUnavailableJjInventoryResponse("Changeyard JJ inventory is not available in this runtime.");
 			}
 			return await deps.changeyardApi.getJjInventory(workspacePath);
+		},
+		jjBranchesData: async (workspaceScope: RuntimeTrpcWorkspaceScope | null) => {
+			const startedAt = Date.now();
+			const workspacePath = workspaceScope?.workspacePath ?? deps.getActiveWorkspacePath() ?? deps.fallbackWorkspacePath;
+			try {
+				if (!workspacePath) {
+					return createUnavailableJjBranchesDataResponse("No active workspace is available for JJ branches data.");
+				}
+				if (!deps.changeyardApi?.getJjBranchesData) {
+					return createUnavailableJjBranchesDataResponse("Changeyard JJ branches data is not available in this runtime.");
+				}
+				return await deps.changeyardApi.getJjBranchesData(workspacePath);
+			} finally {
+				if (process.env.NODE_ENV !== "production") {
+					console.debug(`[vcs timing] vcs.jjBranchesData ${Date.now() - startedAt}ms`);
+				}
+			}
 		},
 		jjOperations: async (
 			workspaceScope: RuntimeTrpcWorkspaceScope | null,

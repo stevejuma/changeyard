@@ -88,6 +88,7 @@ import type {
 	RuntimeVcsApplyOperationRequest,
 	RuntimeVcsApplyOperationResponse,
 	RuntimeVcsJjDiffResponse,
+	RuntimeVcsJjBranchesDataResponse,
 	RuntimeVcsJjInventoryResponse,
 	RuntimeVcsJjOperationDiffRequest,
 	RuntimeVcsJjOperationDiffResponse,
@@ -217,6 +218,7 @@ import {
 	runtimeVcsApplyOperationRequestSchema,
 	runtimeVcsApplyOperationResponseSchema,
 	runtimeVcsJjDiffResponseSchema,
+	runtimeVcsJjBranchesDataResponseSchema,
 	runtimeVcsJjInventoryResponseSchema,
 	runtimeVcsJjOperationDiffRequestSchema,
 	runtimeVcsJjOperationDiffResponseSchema,
@@ -422,6 +424,7 @@ export interface RuntimeTrpcContext {
 		jjDiff: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeVcsJjDiffResponse>;
 		jjState: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeVcsJjStateResponse>;
 		jjInventory: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeVcsJjInventoryResponse>;
+		jjBranchesData: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeVcsJjBranchesDataResponse>;
 		jjOperations: (
 			scope: RuntimeTrpcWorkspaceScope | null,
 			input?: RuntimeVcsJjOperationsRequest,
@@ -718,6 +721,9 @@ export const runtimeAppRouter = t.router({
 		}),
 		jjInventory: t.procedure.output(runtimeVcsJjInventoryResponseSchema).query(async ({ ctx }) => {
 			return await ctx.vcsApi.jjInventory(ctx.workspaceScope);
+		}),
+		jjBranchesData: t.procedure.output(runtimeVcsJjBranchesDataResponseSchema).query(async ({ ctx }) => {
+			return await ctx.vcsApi.jjBranchesData(ctx.workspaceScope);
 		}),
 		jjOperations: t.procedure
 			.input(runtimeVcsJjOperationsRequestSchema.optional())

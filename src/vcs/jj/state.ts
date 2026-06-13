@@ -24,6 +24,15 @@ export async function loadJjState(
 	options: LoadJjStateOptions = {},
 ): Promise<VcsJjStateResult> {
 	const detect = await detectVcsState(cwd, runner);
+	return await loadJjStateFromDetect(cwd, runner, detect, options);
+}
+
+export async function loadJjStateFromDetect(
+	cwd: string,
+	runner: VcsCommandRunner,
+	detect: Awaited<ReturnType<typeof detectVcsState>>,
+	options: LoadJjStateOptions = {},
+): Promise<VcsJjStateResult> {
 	if (detect.repository.kind !== "jj") {
 		return {
 			...detect,

@@ -22,6 +22,7 @@ import type {
 	RuntimeTaskSessionStopResponse,
 	RuntimeVcsProjectEventKind,
 	VcsDetectResponse,
+	VcsJjBranchesDataResponse,
 	VcsJjDiffResponse,
 	VcsJjInventoryResponse,
 	VcsJjOperationDiffResponse,
@@ -418,6 +419,26 @@ export const vcsApi = createApi({
 			onCacheEntryAdded: ({ workspaceId }, { dispatch, cacheDataLoaded, cacheEntryRemoved }) =>
 				subscribeToWorkspaceEvents(workspaceId, dispatch, cacheDataLoaded, cacheEntryRemoved),
 		}),
+		getJjBranchesData: builder.query<VcsJjBranchesDataResponse, WorkspaceQueryArg>({
+			queryFn: async ({ workspaceId }, { signal }) => {
+				try {
+					return { data: await fetchTrpcQuery<VcsJjBranchesDataResponse>("vcs.jjBranchesData", undefined, workspaceId, { signal }) };
+				} catch (error) {
+					return { error };
+				}
+			},
+			providesTags: [
+				"BranchListing",
+				"Stacks",
+				"StackDetails",
+				"BaseBranchData",
+				"DivergentBookmarks",
+				"HeadSha",
+				"WorktreeChanges",
+			],
+			onCacheEntryAdded: ({ workspaceId }, { dispatch, cacheDataLoaded, cacheEntryRemoved }) =>
+				subscribeToWorkspaceEvents(workspaceId, dispatch, cacheDataLoaded, cacheEntryRemoved),
+		}),
 		getRepositoryCommitDiff: builder.query<RuntimeGitCommitDiffResponse, CommitDiffQueryArg>({
 			queryFn: async ({ workspaceId, commitHash }, { signal }) => {
 				try {
@@ -582,6 +603,7 @@ export const {
 	useGetJjStateQuery,
 	useGetJjDiffQuery,
 	useGetJjInventoryQuery,
+	useGetJjBranchesDataQuery,
 	useGetRepositoryCommitDiffQuery,
 	useGetRepositoryLogQuery,
 	useGetJjOperationsQuery,

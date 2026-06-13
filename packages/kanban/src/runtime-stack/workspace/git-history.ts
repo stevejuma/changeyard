@@ -374,6 +374,46 @@ function normalizeRequestedRefs(refs: string[] | null | undefined, fallbackRef?:
 	return Array.from(new Set(candidates.map((candidate) => candidate.trim()).filter(Boolean)));
 }
 
+async function readRemoteNames(repoRoot: string): Promise<Set<string>> {
+	const result = await runGit(repoRoot, ["remote"]);
+	if (!result.ok) {
+		return new Set();
+	}
+	return new Set(
+		result.stdout
+			.split("\n")
+			.map((line) => line.trim())
+			.filter(Boolean),
+	);
+}
+
+export function normalizeJjRemoteRef(candidate: string, remoteNames: Set<string>): string {
+	const trimmed = candidate.trim();
+	if (!trimmed || trimmed.includes("@")) {
+		return trimmed;
+	}
+	const refsRemotePrefix = "refs/remotes/";
+	const remoteCandidate = trimmed.startsWith(refsRemotePrefix) ? trimmed.slice(refsRemotePrefix.length) : trimmed;
+	const separatorIndex = remoteCandidate.indexOf("/");
+	if (separatorIndex <= 0) {
+		return trimmed;
+	}
+	const remoteName = remoteCandidate.slice(0, separatorIndex);
+	const bookmarkName = remoteCandidate.slice(separatorIndex + 1);
+	if (!remoteNames.has(remoteName) || !bookmarkName) {
+		return trimmed;
+	}
+	return `${bookmarkName}@${remoteName}`;
+}
+
+async function normalizeJjRequestedRefs(repoRoot: string, refs: string[]): Promise<string[]> {
+	if (refs.length === 0) {
+		return refs;
+	}
+	const remoteNames = await readRemoteNames(repoRoot);
+	return Array.from(new Set(refs.map((candidate) => normalizeJjRemoteRef(candidate, remoteNames))));
+}
+
 function excludeJjRoot(revset: string): string {
 	return `(${revset}) ~ root()`;
 }
@@ -690,7 +730,7 @@ async function getJjLog(options: {
 	if (!repoRoot) {
 		return { ok: false, commits: [], totalCount: 0, error: "No jj repository detected." };
 	}
-	const requestedRefs = normalizeRequestedRefs(refs, ref);
+	const requestedRefs = await normalizeJjRequestedRefs(repoRoot, normalizeRequestedRefs(refs, ref));
 	const revset = excludeJjRoot(
 		requestedRefs.length > 0 ? requestedRefs.map((candidate) => `::${candidate}`).join("|") : "::@",
 	);
@@ -698,7 +738,7 @@ async function getJjLog(options: {
 		return await getJjLogByCursor({
 			repoRoot,
 			revset,
-			scopeKey: JSON.stringify({ ref: ref ?? null, refs: refs ?? null }),
+			scopeKey: JSON.stringify({ refs: requestedRefs }),
 			cursor,
 			pageSize: pageSize ?? maxCount,
 		});

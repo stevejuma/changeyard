@@ -31,6 +31,7 @@ function normalizeProcessExitCode(code: unknown): number {
 }
 
 export async function runJj(cwd: string, args: string[], options: RunJjOptions = {}): Promise<JjCommandResult> {
+	const startedAt = Date.now();
 	try {
 		const { stdout, stderr } = await execFileAsync("jj", args, {
 			cwd,
@@ -38,6 +39,7 @@ export async function runJj(cwd: string, args: string[], options: RunJjOptions =
 			maxBuffer: JJ_MAX_BUFFER_BYTES,
 			env: process.env,
 		});
+		logJjTiming(args, startedAt);
 		const rawStdout = String(stdout ?? "");
 		const normalizedStdout = rawStdout.trim();
 		const normalizedStderr = String(stderr ?? "").trim();
@@ -50,6 +52,7 @@ export async function runJj(cwd: string, args: string[], options: RunJjOptions =
 			exitCode: 0,
 		};
 	} catch (error) {
+		logJjTiming(args, startedAt);
 		const candidate = error as {
 			code?: string | number | null;
 			stdout?: unknown;
@@ -72,6 +75,13 @@ export async function runJj(cwd: string, args: string[], options: RunJjOptions =
 			exitCode,
 		};
 	}
+}
+
+function logJjTiming(args: string[], startedAt: number): void {
+	if (process.env.NODE_ENV === "production") {
+		return;
+	}
+	console.debug(`[vcs timing] jj ${args.join(" ")} ${Date.now() - startedAt}ms`);
 }
 
 export async function getJjStdout(args: string[], cwd: string): Promise<string> {

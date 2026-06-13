@@ -148,6 +148,11 @@ export interface VcsJjInventoryResult extends VcsDetectResult {
 	items: VcsJjInventoryItem[];
 }
 
+export interface VcsJjBranchesDataResult {
+	inventory: VcsJjInventoryResult;
+	state: VcsJjStateResult;
+}
+
 export interface VcsJjDiffResult {
 	changeId: string | null;
 	summary: string;
