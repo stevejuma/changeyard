@@ -41,6 +41,13 @@ const squashChange: VcsPreviewOperationInput = {
 	targetChangeId: "target456",
 };
 
+const splitChange: VcsPreviewOperationInput = {
+	kind: "split_change",
+	changeId: "source123",
+	message: "Extract app",
+	paths: ["src/app.ts"],
+};
+
 const absorbFile: VcsPreviewOperationInput = {
 	kind: "absorb_file",
 	targetChangeId: "root000",
@@ -152,6 +159,13 @@ function createPreviewRunner(commandLog: string[]) {
 				return {
 					ok: true,
 					stdout: "Squashed source123 into target456",
+					stderr: "",
+					exitCode: 0,
+				};
+			case "jj split -r source123 -m Extract app -- src/app.ts":
+				return {
+					ok: true,
+					stdout: "Split source123",
 					stderr: "",
 					exitCode: 0,
 				};
@@ -289,6 +303,19 @@ test("applyJjOperation executes the previewed squash change command", async () =
 	});
 	assert.match(result.stdout, /Squashed source123 into target456/);
 	assert.equal(commandLog.at(-1), "jj squash --from source123 --into target456");
+});
+
+test("applyJjOperation executes the previewed split change command", async () => {
+	const commandLog: string[] = [];
+	const result = await applyJjOperation("/repo", splitChange, createPreviewRunner(commandLog));
+
+	assert.equal(result.ok, true);
+	assert.deepEqual(result.command, {
+		command: "jj",
+		args: ["split", "-r", "source123", "-m", "Extract app", "--", "src/app.ts"],
+	});
+	assert.match(result.stdout, /Split source123/);
+	assert.equal(commandLog.at(-1), "jj split -r source123 -m Extract app -- src/app.ts");
 });
 
 test("applyJjOperation executes the previewed absorb file command", async () => {

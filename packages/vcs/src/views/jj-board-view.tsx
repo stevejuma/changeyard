@@ -1,9 +1,11 @@
-import { FileText, Folder, FolderTree, GitBranch, List, MoreHorizontal, PanelLeft, Sparkles, Upload, X } from "lucide-react";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { FileText, Folder, FolderTree, GitBranch, List, MoreHorizontal, PanelLeft, Pencil, Play, Sparkles, Upload, X } from "lucide-react";
+import { Fragment, useEffect, useMemo, useState, type DragEvent as ReactDragEvent } from "react";
 
 import {
+	applyWorkspaceStackId,
 	groupStackChangesByHead,
 	selectAppliedWorkspaceStacks,
+	unapplyWorkspaceStackId,
 	type BranchesStack,
 	type BranchesStackChange,
 	type StackChangeGroup,
@@ -12,6 +14,8 @@ import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { CopyValueButton } from "@/components/ui/copy-value-button";
+import { Dialog, DialogBody, DialogFooter, DialogHeader } from "@/components/ui/dialog";
+import { Spinner } from "@/components/ui/spinner";
 import { FileStatusGlyph, StatusChip } from "@/components/ui/status-chip";
 import {
 	findFileByPath,
@@ -20,23 +24,25 @@ import {
 	VcsColumn,
 	VcsFileDiffColumn,
 	VcsInlineFileSection,
+	type VcsDiffHunkDragPayload,
 	type VcsFileChange,
 } from "@/components/vcs-file-columns";
 import { useVcsDiagnosticsToasts } from "@/components/vcs-diagnostics-toasts";
 import { EmptyState, QueryGate } from "@/components/vcs-panels";
+import { KeyValue } from "@/components/vcs-panels";
 import { NoProjectSelected, SelectProjectButton, VcsShell, type VcsShellProjectState } from "@/components/vcs-shell";
 import type {
 	QueryState,
 	RuntimeGitCommitDiffResponse,
 	RuntimeProjectConfigResponse,
 	RuntimeProjectConfigUpdateRequest,
-	VcsJjDiffResponse,
-	VcsJjStateResponse,
 } from "@/runtime/types";
 import {
 	toRuntimeQueryState,
+	useApplyVcsOperationMutation,
 	useGetProjectConfigQuery,
 	useGetRepositoryCommitDiffQuery,
+	useLazyPreviewVcsOperationQuery,
 	useUpdateProjectConfigMutation,
 } from "@/runtime/vcs-api";
 import { buildFileTree, type FileTreeNode } from "@/utils/file-tree";
@@ -51,6 +57,23 @@ import {
 	type VcsFileViewMode,
 } from "@/utils/vcs-ui-preferences";
 import { readVcsQueryParam, useVcsRouter } from "@/utils/vcs-router";
+import {
+	createValidatedVcsWorkspaceOperationFromDrop,
+	describeVcsWorkspaceDropTarget,
+	parseVcsWorkspaceDragPayload,
+	serializeVcsWorkspaceDragPayload,
+	VCS_WORKSPACE_DRAG_MIME,
+	type VcsWorkspaceDragPayload,
+	type VcsWorkspaceDropTarget,
+} from "@/vcs-workspace-dnd";
+import {
+	areVcsWorkspaceOperationsEqual,
+	isLowRiskVcsWorkspaceOperation,
+	type VcsDiffResult,
+	type VcsOperationPreview,
+	type VcsWorkspaceOperation,
+	type VcsWorkspaceState,
+} from "@/vcs-workspace-contracts";
 
 const SELECTED_CHANGE_MARKER_CLASS =
 	"relative before:absolute before:left-0 before:top-1/2 before:h-12 before:w-1 before:-translate-y-1/2 before:rounded-r-full before:bg-accent before:content-['']";
@@ -75,6 +98,45 @@ function toFileChanges(diffState: QueryState<RuntimeGitCommitDiffResponse>): Vcs
 		return [];
 	}
 	return diffState.data.files;
+}
+
+function writeDragPayload(event: ReactDragEvent<HTMLElement>, payload: VcsWorkspaceDragPayload): void {
+	event.dataTransfer.effectAllowed = "move";
+	event.dataTransfer.setData(VCS_WORKSPACE_DRAG_MIME, serializeVcsWorkspaceDragPayload(payload));
+	event.dataTransfer.setData("text/plain", payload.kind);
+}
+
+function readDragPayload(event: ReactDragEvent<HTMLElement>): VcsWorkspaceDragPayload | null {
+	const raw = event.dataTransfer.getData(VCS_WORKSPACE_DRAG_MIME);
+	return raw ? parseVcsWorkspaceDragPayload(raw) : null;
+}
+
+type WorkspaceDropTargetState = "idle" | "valid" | "invalid";
+
+function workspaceDropTargetKey(target: VcsWorkspaceDropTarget): string {
+	switch (target.kind) {
+		case "workspace":
+		case "working_copy":
+			return target.kind;
+		case "stack":
+			return `stack:${target.stackId}`;
+		case "commit":
+			return `commit:${target.commitId}`;
+	}
+}
+
+function workspaceDropTargetClassName(state: WorkspaceDropTargetState): string | null {
+	if (state === "valid") {
+		return "ring-2 ring-accent/70 ring-offset-1 ring-offset-surface-0";
+	}
+	if (state === "invalid") {
+		return "cursor-not-allowed ring-2 ring-status-red/80 ring-offset-1 ring-offset-surface-0";
+	}
+	return null;
+}
+
+function firstSelectionPath(selection: { paths?: string[]; hunks?: Array<{ path: string }> }): string | null {
+	return selection.paths?.find((path) => path.trim()) ?? selection.hunks?.find((hunk) => hunk.path.trim())?.path ?? null;
 }
 
 function countPatchLineChanges(patch: string): { additions: number; deletions: number } {
@@ -137,11 +199,21 @@ function parseWorkingCopyPatchFiles(patch: string): VcsFileChange[] {
 	return files;
 }
 
-function toWorkingCopyDiffFiles(diffState: QueryState<VcsJjDiffResponse>): VcsFileChange[] {
+function toWorkingCopyDiffFiles(diffState: QueryState<VcsDiffResult>): VcsFileChange[] {
 	if (diffState.status !== "ready") {
 		return [];
 	}
-	return parseWorkingCopyPatchFiles(diffState.data.patch);
+	const patchFiles = parseWorkingCopyPatchFiles(diffState.data.patch);
+	if (patchFiles.length > 0) {
+		return patchFiles;
+	}
+	return diffState.data.files.map((file) => ({
+		path: file.path,
+		previousPath: file.previousPath ?? undefined,
+		status: file.status,
+		additions: file.additions,
+		deletions: file.deletions,
+	}));
 }
 
 function authorInitials(name: string | null): string {
@@ -155,22 +227,79 @@ function authorInitials(name: string | null): string {
 	return `${first}${second}`.toUpperCase() || "?";
 }
 
-export function JjBoardView({
+function metadataString(value: unknown): string | null {
+	return typeof value === "string" && value.trim() ? value : null;
+}
+
+function toUiFileChange(file: VcsWorkspaceState["workingCopy"]["files"][number]): VcsFileChange {
+	return {
+		path: file.path,
+		previousPath: file.previousPath ?? undefined,
+		status: file.status,
+		additions: file.additions,
+		deletions: file.deletions,
+	};
+}
+
+function toWorkspaceBoardStacks(data: VcsWorkspaceState): BranchesStack[] {
+	return data.stacks.map((stack, index) => {
+		const changes = stack.commits.map((commit) => {
+			const commitHash = metadataString(commit.metadata?.commitHash) ?? commit.displayId ?? commit.commitId;
+			const bookmarks = data.provider === "git" ? [stack.name] : [];
+			const metadataBookmarks = Array.isArray(commit.metadata?.bookmarks) ? commit.metadata.bookmarks : bookmarks;
+			const remoteBookmarks = Array.isArray(commit.metadata?.remoteBookmarks) ? commit.metadata.remoteBookmarks : [];
+			return {
+				id: commit.commitId,
+				changeId: commit.commitId,
+				commitId: commitHash,
+				title: commit.title,
+				authorName: commit.authorName,
+				authorEmail: commit.authorEmail,
+				authorAvatarUrl: commit.authorAvatarUrl,
+				bookmarks: metadataBookmarks,
+				remoteBookmarks,
+				isCurrent: commit.isCurrent,
+				isHead: commit.isHead,
+			};
+		});
+		const headCommits = stack.commits.filter((commit) => commit.isHead);
+		const fallbackHead = stack.commits.at(-1) ?? null;
+		const heads = (headCommits.length > 0 ? headCommits : fallbackHead ? [fallbackHead] : []).map((commit) => ({
+			id: `${stack.stackId}:${commit.commitId}`,
+			bookmarkName: stack.name,
+			changeId: commit.commitId,
+			commitId: metadataString(commit.metadata?.commitHash) ?? commit.displayId ?? commit.commitId,
+			title: commit.title,
+			isCheckedOut: commit.isCurrent,
+		}));
+		return {
+			id: stack.stackId,
+			tip: stack.targetRef ?? stack.headCommitId ?? stack.stackId,
+			base: stack.baseRef ?? data.targetRef,
+			order: index,
+			isCheckedOut: stack.isCurrent,
+			heads,
+			changes,
+		};
+	});
+}
+
+export function WorkspaceView({
 	state,
 	diffState,
 	currentPath,
 	projectState,
 	workspaceId,
 }: {
-	state: QueryState<VcsJjStateResponse>;
-	diffState: QueryState<VcsJjDiffResponse>;
+	state: QueryState<VcsWorkspaceState>;
+	diffState: QueryState<VcsDiffResult>;
 	currentPath: string;
 	projectState: VcsShellProjectState;
 	workspaceId: string | null;
-}): React.ReactElement {
-	const projectConfigResult = useGetProjectConfigQuery({ workspaceId: workspaceId ?? "" }, { skip: !workspaceId });
-	const [updateProjectConfig] = useUpdateProjectConfigMutation();
-	const projectConfigQuery = {
+	}): React.ReactElement {
+		const projectConfigResult = useGetProjectConfigQuery({ workspaceId: workspaceId ?? "" }, { skip: !workspaceId });
+		const [updateProjectConfig] = useUpdateProjectConfigMutation();
+		const projectConfigQuery = {
 		state: toRuntimeQueryState<RuntimeProjectConfigResponse>(projectConfigResult, "Failed to load project configuration."),
 	};
 
@@ -286,12 +415,15 @@ function WorkspaceReady({
 	updateProjectConfig,
 	workspaceId,
 }: {
-	data: VcsJjStateResponse;
-	diffState: QueryState<VcsJjDiffResponse>;
+	data: VcsWorkspaceState;
+	diffState: QueryState<VcsDiffResult>;
 	projectConfig: RuntimeProjectConfigResponse;
 	updateProjectConfig: (input: RuntimeProjectConfigUpdateRequest) => Promise<RuntimeProjectConfigResponse>;
 	workspaceId: string;
 }): React.ReactElement {
+	const [applyVcsOperation] = useApplyVcsOperationMutation();
+	const [previewVcsOperation, previewResult] = useLazyPreviewVcsOperationQuery();
+	const [applyPreviewedVcsOperation] = useApplyVcsOperationMutation();
 	const { location, setQueryParam } = useVcsRouter();
 	function readQueryParam(name: string): string | null {
 		return readVcsQueryParam(location.search, name);
@@ -306,7 +438,14 @@ function WorkspaceReady({
 		writeQueryParam("workingCopyFile", value);
 		writeQueryParam("unstagedFile", null);
 	}
-	useVcsDiagnosticsToasts(data.diagnostics, "workspace");
+	useVcsDiagnosticsToasts(
+		data.conflicts.map((conflict) => ({
+			level: "warning" as const,
+			code: conflict.id,
+			message: conflict.message,
+		})),
+		"workspace",
+	);
 	const [updatingStackId, setUpdatingStackId] = useState<string | null>(null);
 	const [fileViewMode, setFileViewMode] = useState<VcsFileViewMode>(() => readVcsFileViewMode());
 	const [selectedCommitHash, setSelectedCommitHash] = useState<string | null>(() => readQueryParam("commit"));
@@ -319,6 +458,12 @@ function WorkspaceReady({
 	);
 	const [collapsedStackIds, setCollapsedStackIds] = useState<Record<string, boolean>>({});
 	const [stackColumnWidths, setStackColumnWidths] = useState<Record<string, number>>({});
+	const [pendingOperation, setPendingOperation] = useState<VcsWorkspaceOperation | null>(null);
+	const [commitEdit, setCommitEdit] = useState<{ commitId: string; title: string } | null>(null);
+	const [operationApplyError, setOperationApplyError] = useState<string | null>(null);
+	const [isApplyingPreviewedOperation, setApplyingPreviewedOperation] = useState(false);
+	const [activeDragPayload, setActiveDragPayload] = useState<VcsWorkspaceDragPayload | null>(null);
+	const [activeDropTarget, setActiveDropTarget] = useState<{ key: string; state: WorkspaceDropTargetState } | null>(null);
 	const [unstagedColumnWidth, setUnstagedColumnWidth] = useState(() =>
 		readVcsNumberPreference(
 			WORKSPACE_COLUMN_LIMITS.unstaged.key,
@@ -335,16 +480,29 @@ function WorkspaceReady({
 			WORKSPACE_COLUMN_LIMITS.diff.max,
 		),
 	);
-	const appliedStackIds = projectConfig.vcsAppliedStacks ?? [];
+	const stacks = useMemo(() => toWorkspaceBoardStacks(data), [data]);
+	const appliedStackIds = projectConfig.vcsAppliedStacks?.length ? projectConfig.vcsAppliedStacks : data.appliedStackIds;
 	const appliedStacks = useMemo(
-		() => selectAppliedWorkspaceStacks(data.stacks, appliedStackIds),
-		[data.stacks, appliedStackIds],
+		() => selectAppliedWorkspaceStacks(stacks, appliedStackIds),
+		[stacks, appliedStackIds],
 	);
 	const selectedStackId = useMemo(() => {
 		if (!selectedCommitHash) {
 			return null;
 		}
 		return appliedStacks.find((stack) => stack.changes.some((change) => change.commitId === selectedCommitHash))?.id ?? null;
+	}, [appliedStacks, selectedCommitHash]);
+	const selectedCommitChangeId = useMemo(() => {
+		if (!selectedCommitHash) {
+			return null;
+		}
+		for (const stack of appliedStacks) {
+			const change = stack.changes.find((candidate) => candidate.commitId === selectedCommitHash);
+			if (change) {
+				return change.changeId;
+			}
+		}
+		return null;
 	}, [appliedStacks, selectedCommitHash]);
 	const commitDiffResult = useGetRepositoryCommitDiffQuery(
 		{ workspaceId: workspaceId ?? "", commitHash: selectedCommitHash ?? "" },
@@ -357,12 +515,14 @@ function WorkspaceReady({
 	const files = toFileChanges(commitDiffQuery.state);
 	const selectedFile = findFileByPath(files, selectedFilePath);
 	const unstagedDiffFiles = useMemo(() => toWorkingCopyDiffFiles(diffState), [diffState]);
-	const selectedUnstagedFallbackFile = data.unassignedChanges.find((change) => change.path === selectedUnstagedFilePath);
+	const workingCopyFiles = useMemo(() => data.workingCopy.files.map(toUiFileChange), [data.workingCopy.files]);
+	const selectedUnstagedFallbackFile = workingCopyFiles.find((change) => change.path === selectedUnstagedFilePath);
 	const selectedUnstagedFile =
 		findFileByPath(unstagedDiffFiles, selectedUnstagedFilePath) ??
 		(selectedUnstagedFallbackFile
 			? { path: selectedUnstagedFallbackFile.path, status: selectedUnstagedFallbackFile.status }
 			: null);
+	const previewState = toRuntimeQueryState<VcsOperationPreview>(previewResult, "Failed to preview workspace operation.");
 
 	useEffect(() => {
 		setSelectedCommitHash(readVcsQueryParam(location.search, "commit"));
@@ -394,13 +554,242 @@ function WorkspaceReady({
 	}, [commitDiffQuery.state, hasUserClearedFile, isFileSectionCollapsed, selectedFilePath]);
 
 	async function unapplyStack(stackId: string): Promise<void> {
+		const operation = {
+			kind: "unapply_stack",
+			stackId,
+		} satisfies VcsWorkspaceOperation;
+		if (!isLowRiskVcsWorkspaceOperation(operation, data.provider)) {
+			openWorkspaceOperationPreview(operation);
+			return;
+		}
 		const nextStackIds = appliedStackIds.filter((candidate) => candidate !== stackId);
 		setUpdatingStackId(stackId);
 		try {
+			const operationResult = await applyVcsOperation({
+				workspaceId,
+				input: {
+					operation,
+				},
+			}).unwrap();
+			if (!operationResult.ok) {
+				throw new Error(operationResult.summary || "Workspace stack operation failed.");
+			}
 			await updateProjectConfig({ vcsAppliedStacks: nextStackIds });
 		} finally {
 			setUpdatingStackId(null);
 		}
+	}
+
+	function openWorkspaceOperationPreview(operation: VcsWorkspaceOperation): void {
+		setPendingOperation(operation);
+		setOperationApplyError(null);
+		void previewVcsOperation({ workspaceId, input: { operation } });
+	}
+
+	function openCommitEdit(change: BranchesStackChange): void {
+		setCommitEdit({ commitId: change.changeId, title: change.title });
+	}
+
+	function previewCommitEdit(message: string): void {
+		if (!commitEdit) {
+			return;
+		}
+		setCommitEdit(null);
+		openWorkspaceOperationPreview({
+			kind: "reword_commit",
+			commitId: commitEdit.commitId,
+			message,
+		});
+	}
+
+	function closeWorkspaceOperationPreview(): void {
+		setPendingOperation(null);
+		setOperationApplyError(null);
+	}
+
+	function getDropTargetState(target: VcsWorkspaceDropTarget): WorkspaceDropTargetState {
+		const key = workspaceDropTargetKey(target);
+		return activeDropTarget?.key === key ? activeDropTarget.state : "idle";
+	}
+
+	function clearDragState(): void {
+		setActiveDragPayload(null);
+		setActiveDropTarget(null);
+	}
+
+	function startWorkspaceDrag(event: ReactDragEvent<HTMLElement>, payload: VcsWorkspaceDragPayload): void {
+		event.stopPropagation();
+		setActiveDragPayload(payload);
+		setActiveDropTarget(null);
+		writeDragPayload(event, payload);
+	}
+
+	function startWorkingCopyHunkDrag(event: ReactDragEvent<HTMLElement>, hunk: VcsDiffHunkDragPayload): void {
+		startWorkspaceDrag(event, {
+			kind: "hunk",
+			source: "working_copy",
+			hunk: {
+				path: hunk.path,
+				hunkId: hunk.hunkId,
+				oldStart: hunk.oldStart,
+				oldLines: hunk.oldLines,
+				newStart: hunk.newStart,
+				newLines: hunk.newLines,
+			},
+		});
+	}
+
+	function startCommittedHunkDrag(
+		event: ReactDragEvent<HTMLElement>,
+		hunk: VcsDiffHunkDragPayload,
+		commitId: string | null,
+	): void {
+		if (!commitId) {
+			return;
+		}
+		startWorkspaceDrag(event, {
+			kind: "hunk",
+			source: "commit",
+			commitId,
+			hunk: {
+				path: hunk.path,
+				hunkId: hunk.hunkId,
+				oldStart: hunk.oldStart,
+				oldLines: hunk.oldLines,
+				newStart: hunk.newStart,
+				newLines: hunk.newLines,
+			},
+		});
+	}
+
+	function canEditWorkspaceCommit(change: BranchesStackChange): boolean {
+		return data.capabilities.supportsCommitRewrite && (data.provider !== "git" || change.isCurrent);
+	}
+
+	function focusCommittedFile(commitId: string, path: string): void {
+		setSelectedCommitHash(commitId);
+		setSelectedFilePath(path);
+		setSelectedUnstagedFilePath(null);
+		setHasUserClearedFile(false);
+		setFileSectionCollapsed(false);
+		writeQueryParam("commit", commitId);
+		writeQueryParam("file", path);
+		writeWorkingCopyFileQueryParam(null);
+	}
+
+	function focusWorkingCopyFile(path: string): void {
+		setSelectedUnstagedFilePath(path);
+		setSelectedCommitHash(null);
+		setSelectedFilePath(null);
+		setHasUserClearedFile(true);
+		setUnstagedCollapsed(false);
+		writeQueryParam("commit", null);
+		writeQueryParam("file", null);
+		writeWorkingCopyFileQueryParam(path);
+	}
+
+	function preserveSelectionAfterWorkspaceOperation(operation: VcsWorkspaceOperation, affectedCommitIds: string[]): void {
+		switch (operation.kind) {
+			case "amend_commit": {
+				const path = firstSelectionPath(operation.selection);
+				if (path) {
+					focusCommittedFile(affectedCommitIds.at(-1) ?? operation.commitId, path);
+				}
+				return;
+			}
+			case "move_changes": {
+				const path = firstSelectionPath(operation.selection);
+				if (path) {
+					focusCommittedFile(affectedCommitIds.at(-1) ?? operation.targetCommitId, path);
+				}
+				return;
+			}
+			case "uncommit_changes": {
+				const path = firstSelectionPath(operation.selection);
+				if (path) {
+					focusWorkingCopyFile(path);
+				}
+				return;
+			}
+			default:
+				return;
+		}
+	}
+
+	async function applyPendingWorkspaceOperation(): Promise<void> {
+		if (!pendingOperation) {
+			return;
+		}
+		if (previewState.status !== "ready" || !areVcsWorkspaceOperationsEqual(previewState.data.operation, pendingOperation)) {
+			setOperationApplyError("Preview is stale. Reopen the operation preview and try again.");
+			return;
+		}
+		setApplyingPreviewedOperation(true);
+		setOperationApplyError(null);
+		try {
+			const result = await applyPreviewedVcsOperation({
+				workspaceId,
+				input: { operation: pendingOperation },
+			}).unwrap();
+			if (!result.ok) {
+				throw new Error(result.summary || "Workspace operation failed.");
+			}
+			if (pendingOperation.kind === "apply_stack") {
+				await updateProjectConfig({
+					vcsAppliedStacks: applyWorkspaceStackId(appliedStackIds, pendingOperation.stackId),
+				});
+			} else if (pendingOperation.kind === "unapply_stack") {
+				await updateProjectConfig({
+					vcsAppliedStacks: unapplyWorkspaceStackId(appliedStackIds, pendingOperation.stackId),
+				});
+			}
+			preserveSelectionAfterWorkspaceOperation(pendingOperation, result.affectedCommitIds);
+			closeWorkspaceOperationPreview();
+		} catch (error) {
+			setOperationApplyError(error instanceof Error ? error.message : "Workspace operation failed.");
+		} finally {
+			setApplyingPreviewedOperation(false);
+		}
+	}
+
+	function handleDragOver(event: ReactDragEvent<HTMLElement>, target: VcsWorkspaceDropTarget): void {
+		if (!Array.from(event.dataTransfer.types).includes(VCS_WORKSPACE_DRAG_MIME)) {
+			return;
+		}
+		event.preventDefault();
+		event.stopPropagation();
+		if (!activeDragPayload) {
+			event.dataTransfer.dropEffect = "move";
+			return;
+		}
+		const feedback = describeVcsWorkspaceDropTarget(activeDragPayload, target, data.capabilities);
+		setActiveDropTarget({ key: workspaceDropTargetKey(target), state: feedback.state });
+		event.dataTransfer.dropEffect = feedback.state === "valid" ? "move" : "none";
+	}
+
+	function handleDragLeave(event: ReactDragEvent<HTMLElement>, target: VcsWorkspaceDropTarget): void {
+		const nextTarget = event.relatedTarget;
+		if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) {
+			return;
+		}
+		const key = workspaceDropTargetKey(target);
+		setActiveDropTarget((current) => (current?.key === key ? null : current));
+	}
+
+	function handleDrop(event: ReactDragEvent<HTMLElement>, target: VcsWorkspaceDropTarget): void {
+		const payload = readDragPayload(event);
+		if (!payload) {
+			return;
+		}
+		event.preventDefault();
+		event.stopPropagation();
+		clearDragState();
+		const operation = createValidatedVcsWorkspaceOperationFromDrop(payload, target, data.capabilities);
+		if (!operation.valid) {
+			setOperationApplyError(operation.reason);
+			return;
+		}
+		openWorkspaceOperationPreview(operation.operation);
 	}
 
 	function selectStackChange(change: BranchesStackChange): void {
@@ -550,6 +939,7 @@ function WorkspaceReady({
 			maxWidth={WORKSPACE_COLUMN_LIMITS.diff.max}
 			onWidthChange={changeDiffColumnWidth}
 			onClose={closeDiff}
+			onHunkDragStart={(event, hunk) => startCommittedHunkDrag(event, hunk, selectedCommitChangeId)}
 		/>
 	) : null;
 	const unstagedDiffColumn = selectedUnstagedFilePath ? (
@@ -561,22 +951,24 @@ function WorkspaceReady({
 			maxWidth={WORKSPACE_COLUMN_LIMITS.diff.max}
 			onWidthChange={changeDiffColumnWidth}
 			onClose={closeUnstagedDiff}
+			onHunkDragStart={startWorkingCopyHunkDrag}
 		/>
 	) : null;
 	const showTrailingSpacer = appliedStacks.length > 0 || Boolean(selectedFile) || Boolean(selectedUnstagedFilePath);
 
 	return (
-		<div className="h-full min-h-0 overflow-x-auto overflow-y-hidden bg-surface-0 p-3">
+		<>
+		<div className="h-full min-h-0 overflow-x-auto overflow-y-hidden bg-surface-0 p-3" onDragEnd={clearDragState}>
 			<div className="flex h-full min-h-0 min-w-full gap-3">
 				{isUnstagedCollapsed ? (
 					<VcsCollapsedColumn
 						label="Working Copy"
-						count={data.unassignedChanges.length}
+						count={workingCopyFiles.length}
 						onExpand={() => changeUnstagedCollapsed(false)}
 					/>
 				) : (
 					<UnstagedColumn
-						changes={data.unassignedChanges}
+						changes={workingCopyFiles}
 						width={unstagedColumnWidth}
 						fileViewMode={fileViewMode}
 						selectedPath={selectedUnstagedFilePath}
@@ -584,11 +976,23 @@ function WorkspaceReady({
 						onWidthChange={changeUnstagedColumnWidth}
 						onFileViewModeChange={changeFileViewMode}
 						onSelectPath={selectUnstagedFile}
+						onFileDragStart={(event, file) => {
+							startWorkspaceDrag(event, { kind: "file", source: "working_copy", path: file.path });
+						}}
+						onDragOver={(event) => handleDragOver(event, { kind: "working_copy" })}
+						onDragLeave={(event) => handleDragLeave(event, { kind: "working_copy" })}
+						onDrop={(event) => handleDrop(event, { kind: "working_copy" })}
+						dropTargetState={getDropTargetState({ kind: "working_copy" })}
 					/>
 				)}
 				{unstagedDiffColumn}
 				{appliedStacks.length === 0 ? (
-					<EmptyWorkspaceLanes />
+					<EmptyWorkspaceLanes
+						onDragOver={(event) => handleDragOver(event, { kind: "workspace" })}
+						onDragLeave={(event) => handleDragLeave(event, { kind: "workspace" })}
+						onDrop={(event) => handleDrop(event, { kind: "workspace" })}
+						dropTargetState={getDropTargetState({ kind: "workspace" })}
+					/>
 				) : (
 					appliedStacks.map((stack) => (
 						<Fragment key={stack.id}>
@@ -612,10 +1016,35 @@ function WorkspaceReady({
 									diffState={commitDiffQuery.state}
 									fileViewMode={fileViewMode}
 									isFileSectionCollapsed={isFileSectionCollapsed}
+									canEditCommit={canEditWorkspaceCommit}
 									onFileViewModeChange={changeFileViewMode}
 									onFileSectionCollapsedChange={changeFileSectionCollapsed}
 									onSelectStackChange={selectStackChange}
+									onEditCommit={openCommitEdit}
 									onSelectFile={selectFile}
+									onFileDragStart={(event, file, change) => {
+										startWorkspaceDrag(event, {
+											kind: "file",
+											source: "commit",
+											path: file.path,
+											commitId: change.changeId,
+										});
+									}}
+									onCommitDragStart={(event, change) => {
+										startWorkspaceDrag(event, {
+											kind: "commit",
+											commitId: change.changeId,
+											stackId: stack.id,
+										});
+									}}
+									onDragOverStack={(event) => handleDragOver(event, { kind: "stack", stackId: stack.id })}
+									onDragLeaveStack={(event) => handleDragLeave(event, { kind: "stack", stackId: stack.id })}
+									onDropStack={(event) => handleDrop(event, { kind: "stack", stackId: stack.id })}
+									onDragOverCommit={(event, change) => handleDragOver(event, { kind: "commit", commitId: change.changeId })}
+									onDragLeaveCommit={(event, change) => handleDragLeave(event, { kind: "commit", commitId: change.changeId })}
+									onDropCommit={(event, change) => handleDrop(event, { kind: "commit", commitId: change.changeId })}
+									stackDropTargetState={getDropTargetState({ kind: "stack", stackId: stack.id })}
+									getCommitDropTargetState={(change) => getDropTargetState({ kind: "commit", commitId: change.changeId })}
 								/>
 							)}
 							{selectedStackId === stack.id ? diffColumn : null}
@@ -632,6 +1061,21 @@ function WorkspaceReady({
 				) : null}
 			</div>
 		</div>
+		<WorkspaceOperationPreviewDialog
+			operation={pendingOperation}
+			previewState={previewState}
+			applyError={operationApplyError}
+			isApplying={isApplyingPreviewedOperation}
+			onApply={() => void applyPendingWorkspaceOperation()}
+			onClose={closeWorkspaceOperationPreview}
+		/>
+		<CommitMessageEditDialog
+			edit={commitEdit}
+			onChangeTitle={(title) => setCommitEdit((current) => (current ? { ...current, title } : current))}
+			onPreview={previewCommitEdit}
+			onClose={() => setCommitEdit(null)}
+		/>
+		</>
 	);
 }
 
@@ -644,8 +1088,13 @@ function UnstagedColumn({
 	onWidthChange,
 	onFileViewModeChange,
 	onSelectPath,
+	onFileDragStart,
+	onDragOver,
+	onDragLeave,
+	onDrop,
+	dropTargetState,
 }: {
-	changes: VcsJjStateResponse["unassignedChanges"];
+	changes: VcsFileChange[];
 	width: number;
 	fileViewMode: VcsFileViewMode;
 	selectedPath: string | null;
@@ -653,8 +1102,13 @@ function UnstagedColumn({
 	onWidthChange: (width: number) => void;
 	onFileViewModeChange: (mode: VcsFileViewMode) => void;
 	onSelectPath: (path: string) => void;
+	onFileDragStart: (event: ReactDragEvent<HTMLButtonElement>, file: VcsFileChange) => void;
+	onDragOver: (event: ReactDragEvent<HTMLElement>) => void;
+	onDragLeave: (event: ReactDragEvent<HTMLElement>) => void;
+	onDrop: (event: ReactDragEvent<HTMLElement>) => void;
+	dropTargetState: WorkspaceDropTargetState;
 }): React.ReactElement {
-	const files: VcsFileChange[] = changes.map((change) => ({ path: change.path, status: change.status }));
+	const files: VcsFileChange[] = changes;
 	return (
 		<VcsColumn
 			id="unstaged"
@@ -674,7 +1128,14 @@ function UnstagedColumn({
 				/>
 			}
 		>
-			<div className="h-full min-h-0">
+			<div
+				data-testid="vcs-working-copy-drop-target"
+				data-drop-target-state={dropTargetState}
+				className={cn("h-full min-h-0 transition-shadow", workspaceDropTargetClassName(dropTargetState))}
+				onDragOver={onDragOver}
+				onDragLeave={onDragLeave}
+				onDrop={onDrop}
+			>
 				{changes.length === 0 ? (
 					<div className="flex h-full items-center justify-center p-6 text-center">
 						<div>
@@ -691,6 +1152,7 @@ function UnstagedColumn({
 						viewMode={fileViewMode}
 						selectedPath={selectedPath}
 						onSelectPath={onSelectPath}
+						onFileDragStart={onFileDragStart}
 					/>
 				)}
 			</div>
@@ -765,11 +1227,13 @@ function UnstagedFileList({
 	viewMode,
 	selectedPath,
 	onSelectPath,
+	onFileDragStart,
 }: {
 	files: VcsFileChange[];
 	viewMode: VcsFileViewMode;
 	selectedPath: string | null;
 	onSelectPath: (path: string) => void;
+	onFileDragStart: (event: ReactDragEvent<HTMLButtonElement>, file: VcsFileChange) => void;
 }): React.ReactElement {
 	const filesByPath = useMemo(() => new Map(files.map((file) => [file.path, file])), [files]);
 	const tree = useMemo(() => buildFileTree(files.map((file) => file.path)), [files]);
@@ -784,6 +1248,7 @@ function UnstagedFileList({
 							selectedPath={selectedPath}
 							onSelectPath={onSelectPath}
 							filesByPath={filesByPath}
+							onFileDragStart={onFileDragStart}
 						/>
 					))
 				: files.map((file) => (
@@ -792,6 +1257,7 @@ function UnstagedFileList({
 							file={file}
 							selected={file.path === selectedPath}
 							onSelectPath={onSelectPath}
+							onFileDragStart={onFileDragStart}
 						/>
 					))}
 		</div>
@@ -804,12 +1270,14 @@ function UnstagedFileTreeRow({
 	selectedPath,
 	onSelectPath,
 	filesByPath,
+	onFileDragStart,
 }: {
 	node: FileTreeNode;
 	depth: number;
 	selectedPath: string | null;
 	onSelectPath: (path: string) => void;
 	filesByPath: Map<string, VcsFileChange>;
+	onFileDragStart: (event: ReactDragEvent<HTMLButtonElement>, file: VcsFileChange) => void;
 }): React.ReactElement {
 	const isDirectory = node.type === "directory";
 	const file = filesByPath.get(node.path);
@@ -819,6 +1287,9 @@ function UnstagedFileTreeRow({
 			<button
 				type="button"
 				disabled={isDirectory}
+				data-testid={isDirectory ? "vcs-working-copy-directory-row" : "vcs-working-copy-file-row"}
+				data-file-path={isDirectory ? undefined : node.path}
+				draggable={!isDirectory && Boolean(file)}
 				className={cn(
 					"kb-file-tree-row",
 					isDirectory && "kb-file-tree-row-directory",
@@ -826,6 +1297,11 @@ function UnstagedFileTreeRow({
 					selected && "kb-file-tree-row-selected",
 				)}
 				style={{ paddingLeft: depth * 12 + 8 }}
+				onDragStart={(event) => {
+					if (file) {
+						onFileDragStart(event, file);
+					}
+				}}
 				onClick={() => {
 					if (!isDirectory) {
 						onSelectPath(node.path);
@@ -846,6 +1322,7 @@ function UnstagedFileTreeRow({
 							selectedPath={selectedPath}
 							onSelectPath={onSelectPath}
 							filesByPath={filesByPath}
+							onFileDragStart={onFileDragStart}
 						/>
 					))}
 				</div>
@@ -858,15 +1335,21 @@ function UnstagedFileRow({
 	file,
 	selected,
 	onSelectPath,
+	onFileDragStart,
 }: {
 	file: VcsFileChange;
 	selected: boolean;
 	onSelectPath: (path: string) => void;
+	onFileDragStart: (event: ReactDragEvent<HTMLButtonElement>, file: VcsFileChange) => void;
 }): React.ReactElement {
 	return (
 		<button
 			type="button"
+			data-testid="vcs-working-copy-file-row"
+			data-file-path={file.path}
+			draggable
 			className={cn("kb-file-tree-row cursor-pointer hover:bg-surface-2", selected && "kb-file-tree-row-selected")}
+			onDragStart={(event) => onFileDragStart(event, file)}
 			onClick={() => onSelectPath(file.path)}
 		>
 			<FileText size={14} />
@@ -876,9 +1359,29 @@ function UnstagedFileRow({
 	);
 }
 
-function EmptyWorkspaceLanes(): React.ReactElement {
+function EmptyWorkspaceLanes({
+	onDragOver,
+	onDragLeave,
+	onDrop,
+	dropTargetState,
+}: {
+	onDragOver: (event: ReactDragEvent<HTMLElement>) => void;
+	onDragLeave: (event: ReactDragEvent<HTMLElement>) => void;
+	onDrop: (event: ReactDragEvent<HTMLElement>) => void;
+	dropTargetState: WorkspaceDropTargetState;
+}): React.ReactElement {
 	return (
-		<section className="flex h-full min-h-0 min-w-[520px] flex-1 flex-col overflow-hidden rounded-lg border border-border bg-surface-1">
+		<section
+			data-testid="vcs-empty-workspace-drop-target"
+			data-drop-target-state={dropTargetState}
+			className={cn(
+				"flex h-full min-h-0 min-w-[520px] flex-1 flex-col overflow-hidden rounded-lg border border-border bg-surface-1 transition-shadow",
+				workspaceDropTargetClassName(dropTargetState),
+			)}
+			onDragOver={onDragOver}
+			onDragLeave={onDragLeave}
+			onDrop={onDrop}
+		>
 			<div className="flex h-full items-center justify-center bg-[radial-gradient(circle,_rgba(125,125,125,0.18)_1px,_transparent_1px)] [background-size:10px_10px] p-8 text-center">
 				<EmptyState title="No stacks applied">
 					Open Branches and apply a local stack to show it in this workspace.
@@ -901,10 +1404,22 @@ function WorkspaceStackLane({
 	diffState,
 	fileViewMode,
 	isFileSectionCollapsed,
+	canEditCommit,
 	onFileViewModeChange,
 	onFileSectionCollapsedChange,
 	onSelectStackChange,
+	onEditCommit,
 	onSelectFile,
+	onFileDragStart,
+	onCommitDragStart,
+	onDragOverStack,
+	onDragLeaveStack,
+	onDropStack,
+	onDragOverCommit,
+	onDragLeaveCommit,
+	onDropCommit,
+	stackDropTargetState,
+	getCommitDropTargetState,
 }: {
 	stack: BranchesStack;
 	width: number;
@@ -918,10 +1433,22 @@ function WorkspaceStackLane({
 	diffState: QueryState<RuntimeGitCommitDiffResponse>;
 	fileViewMode: VcsFileViewMode;
 	isFileSectionCollapsed: boolean;
+	canEditCommit: (change: BranchesStackChange) => boolean;
 	onFileViewModeChange: (mode: VcsFileViewMode) => void;
 	onFileSectionCollapsedChange: (collapsed: boolean) => void;
 	onSelectStackChange: (change: BranchesStackChange) => void;
+	onEditCommit: (change: BranchesStackChange) => void;
 	onSelectFile: (path: string) => void;
+	onFileDragStart: (event: ReactDragEvent<HTMLButtonElement>, file: VcsFileChange, change: BranchesStackChange) => void;
+	onCommitDragStart: (event: ReactDragEvent<HTMLDivElement>, change: BranchesStackChange) => void;
+	onDragOverStack: (event: ReactDragEvent<HTMLElement>) => void;
+	onDragLeaveStack: (event: ReactDragEvent<HTMLElement>) => void;
+	onDropStack: (event: ReactDragEvent<HTMLElement>) => void;
+	onDragOverCommit: (event: ReactDragEvent<HTMLElement>, change: BranchesStackChange) => void;
+	onDragLeaveCommit: (event: ReactDragEvent<HTMLElement>, change: BranchesStackChange) => void;
+	onDropCommit: (event: ReactDragEvent<HTMLElement>, change: BranchesStackChange) => void;
+	stackDropTargetState: WorkspaceDropTargetState;
+	getCommitDropTargetState: (change: BranchesStackChange) => WorkspaceDropTargetState;
 }): React.ReactElement {
 	const groups = groupStackChangesByHead(stack);
 	return (
@@ -951,7 +1478,18 @@ function WorkspaceStackLane({
 				</div>
 			}
 		>
-			<div className="min-h-0 flex-1 overflow-y-auto bg-[radial-gradient(circle,_rgba(125,125,125,0.18)_1px,_transparent_1px)] [background-size:10px_10px] p-3">
+			<div
+				data-testid="vcs-workspace-stack-drop-target"
+				data-stack-id={stack.id}
+				data-drop-target-state={stackDropTargetState}
+				className={cn(
+					"min-h-0 flex-1 overflow-y-auto bg-[radial-gradient(circle,_rgba(125,125,125,0.18)_1px,_transparent_1px)] [background-size:10px_10px] p-3 transition-shadow",
+					workspaceDropTargetClassName(stackDropTargetState),
+				)}
+				onDragOver={onDragOverStack}
+				onDragLeave={onDragLeaveStack}
+				onDrop={onDropStack}
+			>
 				<div className="mb-3 rounded-lg border border-dashed border-border bg-surface-0/80 px-3 py-3 text-center text-sm text-text-tertiary">
 					Drop files to stage or commit directly
 				</div>
@@ -966,10 +1504,18 @@ function WorkspaceStackLane({
 							diffState={diffState}
 							fileViewMode={fileViewMode}
 							isFileSectionCollapsed={isFileSectionCollapsed}
+							canEditCommit={canEditCommit}
 							onFileViewModeChange={onFileViewModeChange}
 							onFileSectionCollapsedChange={onFileSectionCollapsedChange}
 							onSelectStackChange={onSelectStackChange}
+							onEditCommit={onEditCommit}
 							onSelectFile={onSelectFile}
+							onFileDragStart={onFileDragStart}
+							onCommitDragStart={onCommitDragStart}
+							onDragOverCommit={onDragOverCommit}
+							onDragLeaveCommit={onDragLeaveCommit}
+							onDropCommit={onDropCommit}
+							getCommitDropTargetState={getCommitDropTargetState}
 						/>
 					))}
 				</div>
@@ -986,10 +1532,18 @@ function WorkspaceStackCard({
 	diffState,
 	fileViewMode,
 	isFileSectionCollapsed,
+	canEditCommit,
 	onFileViewModeChange,
 	onFileSectionCollapsedChange,
 	onSelectStackChange,
+	onEditCommit,
 	onSelectFile,
+	onFileDragStart,
+	onCommitDragStart,
+	onDragOverCommit,
+	onDragLeaveCommit,
+	onDropCommit,
+	getCommitDropTargetState,
 }: {
 	group: StackChangeGroup;
 	selectedCommitHash: string | null;
@@ -998,10 +1552,18 @@ function WorkspaceStackCard({
 	diffState: QueryState<RuntimeGitCommitDiffResponse>;
 	fileViewMode: VcsFileViewMode;
 	isFileSectionCollapsed: boolean;
+	canEditCommit: (change: BranchesStackChange) => boolean;
 	onFileViewModeChange: (mode: VcsFileViewMode) => void;
 	onFileSectionCollapsedChange: (collapsed: boolean) => void;
 	onSelectStackChange: (change: BranchesStackChange) => void;
+	onEditCommit: (change: BranchesStackChange) => void;
 	onSelectFile: (path: string) => void;
+	onFileDragStart: (event: ReactDragEvent<HTMLButtonElement>, file: VcsFileChange, change: BranchesStackChange) => void;
+	onCommitDragStart: (event: ReactDragEvent<HTMLDivElement>, change: BranchesStackChange) => void;
+	onDragOverCommit: (event: ReactDragEvent<HTMLElement>, change: BranchesStackChange) => void;
+	onDragLeaveCommit: (event: ReactDragEvent<HTMLElement>, change: BranchesStackChange) => void;
+	onDropCommit: (event: ReactDragEvent<HTMLElement>, change: BranchesStackChange) => void;
+	getCommitDropTargetState: (change: BranchesStackChange) => WorkspaceDropTargetState;
 }): React.ReactElement {
 	return (
 		<section className="overflow-hidden rounded-lg border border-border bg-surface-0 shadow-sm">
@@ -1037,10 +1599,18 @@ function WorkspaceStackCard({
 							diffState={diffState}
 							fileViewMode={fileViewMode}
 							isFileSectionCollapsed={isFileSectionCollapsed}
+							canEditCommit={canEditCommit}
 							onFileViewModeChange={onFileViewModeChange}
 							onFileSectionCollapsedChange={onFileSectionCollapsedChange}
 							onSelectStackChange={onSelectStackChange}
+							onEditCommit={onEditCommit}
 							onSelectFile={onSelectFile}
+							onFileDragStart={onFileDragStart}
+							onCommitDragStart={onCommitDragStart}
+							onDragOverCommit={onDragOverCommit}
+							onDragLeaveCommit={onDragLeaveCommit}
+							onDropCommit={onDropCommit}
+							dropTargetState={getCommitDropTargetState(change)}
 						/>
 					))
 				)}
@@ -1057,10 +1627,18 @@ function WorkspaceStackChangeRow({
 	diffState,
 	fileViewMode,
 	isFileSectionCollapsed,
+	canEditCommit,
 	onFileViewModeChange,
 	onFileSectionCollapsedChange,
 	onSelectStackChange,
+	onEditCommit,
 	onSelectFile,
+	onFileDragStart,
+	onCommitDragStart,
+	onDragOverCommit,
+	onDragLeaveCommit,
+	onDropCommit,
+	dropTargetState,
 }: {
 	change: BranchesStack["changes"][number];
 	selected: boolean;
@@ -1069,10 +1647,18 @@ function WorkspaceStackChangeRow({
 	diffState: QueryState<RuntimeGitCommitDiffResponse>;
 	fileViewMode: VcsFileViewMode;
 	isFileSectionCollapsed: boolean;
+	canEditCommit: (change: BranchesStackChange) => boolean;
 	onFileViewModeChange: (mode: VcsFileViewMode) => void;
 	onFileSectionCollapsedChange: (collapsed: boolean) => void;
 	onSelectStackChange: (change: BranchesStackChange) => void;
+	onEditCommit: (change: BranchesStackChange) => void;
 	onSelectFile: (path: string) => void;
+	onFileDragStart: (event: ReactDragEvent<HTMLButtonElement>, file: VcsFileChange, change: BranchesStackChange) => void;
+	onCommitDragStart: (event: ReactDragEvent<HTMLDivElement>, change: BranchesStackChange) => void;
+	onDragOverCommit: (event: ReactDragEvent<HTMLElement>, change: BranchesStackChange) => void;
+	onDragLeaveCommit: (event: ReactDragEvent<HTMLElement>, change: BranchesStackChange) => void;
+	onDropCommit: (event: ReactDragEvent<HTMLElement>, change: BranchesStackChange) => void;
+	dropTargetState: WorkspaceDropTargetState;
 }): React.ReactElement {
 	const selectedError =
 		diffState.status === "error"
@@ -1084,39 +1670,59 @@ function WorkspaceStackChangeRow({
 
 	return (
 		<div
+			draggable
+			data-testid="vcs-workspace-commit-card"
+			data-commit-id={change.commitId}
+			data-drop-target-state={dropTargetState}
 			className={cn(
-				"overflow-hidden border-b border-divider bg-surface-0 last:border-b-0",
+				"overflow-hidden border-b border-divider bg-surface-0 transition-shadow last:border-b-0",
 				change.isCurrent && "border-l-4 border-l-accent",
 				selected && "bg-surface-2",
 				selected && SELECTED_CHANGE_MARKER_CLASS,
+				workspaceDropTargetClassName(dropTargetState),
 			)}
+			onDragStart={(event) => onCommitDragStart(event, change)}
+			onDragOver={(event) => onDragOverCommit(event, change)}
+			onDragLeave={(event) => onDragLeaveCommit(event, change)}
+			onDrop={(event) => onDropCommit(event, change)}
 		>
-			<button
-				type="button"
-				className="flex w-full min-w-0 cursor-pointer items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-surface-2"
-				onClick={() => onSelectStackChange(change)}
-			>
-				<div className="relative flex w-6 shrink-0 justify-center self-stretch">
-					<span className="absolute bottom-[-13px] top-[-13px] w-px bg-accent" />
-					<span className="relative mt-1 h-2.5 w-2.5 rotate-45 rounded-[2px] bg-accent" />
-				</div>
-				<Avatar
-					src={change.authorAvatarUrl}
-					name={authorName}
-					email={change.authorEmail}
-					initials={authorInitials(authorName)}
-					className="h-5 w-5 shrink-0"
-				/>
-				<div className="min-w-0 flex-1">
-					<div className="truncate text-sm font-medium text-text-primary">{change.title}</div>
-					<div className="mt-1 flex min-w-0 items-center gap-2">
-						<CopyValueButton displayValue={change.commitId.slice(0, 8)} copyValue={change.commitId} />
-						<span className="text-text-tertiary">·</span>
-						<CopyValueButton label="Change" displayValue={change.changeId} copyValue={change.changeId} />
+			<div className="flex min-w-0 items-center gap-1 px-3 py-3 transition-colors hover:bg-surface-2">
+				<button
+					type="button"
+					className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left"
+					onClick={() => onSelectStackChange(change)}
+				>
+					<div className="relative flex w-6 shrink-0 justify-center self-stretch">
+						<span className="absolute bottom-[-13px] top-[-13px] w-px bg-accent" />
+						<span className="relative mt-1 h-2.5 w-2.5 rotate-45 rounded-[2px] bg-accent" />
 					</div>
-				</div>
-				{change.isHead ? <StatusChip label="head" tone="green" /> : null}
-			</button>
+					<Avatar
+						src={change.authorAvatarUrl}
+						name={authorName}
+						email={change.authorEmail}
+						initials={authorInitials(authorName)}
+						className="h-5 w-5 shrink-0"
+					/>
+					<div className="min-w-0 flex-1">
+						<div className="truncate text-sm font-medium text-text-primary">{change.title}</div>
+						<div className="mt-1 flex min-w-0 items-center gap-2">
+							<CopyValueButton displayValue={change.commitId.slice(0, 8)} copyValue={change.commitId} />
+							<span className="text-text-tertiary">·</span>
+							<CopyValueButton label="Commit" displayValue={change.changeId} copyValue={change.changeId} />
+						</div>
+					</div>
+					{change.isHead ? <StatusChip label="head" tone="green" /> : null}
+				</button>
+				<Button
+					variant="ghost"
+					size="sm"
+					icon={<Pencil size={14} />}
+					aria-label={`Edit commit ${change.title}`}
+					title="Edit commit message"
+					disabled={!canEditCommit(change)}
+					onClick={() => onEditCommit(change)}
+				/>
+			</div>
 			{selected ? (
 				<VcsInlineFileSection
 					title="Changed files"
@@ -1129,8 +1735,156 @@ function WorkspaceStackChangeRow({
 					collapsed={isFileSectionCollapsed}
 					onCollapsedChange={onFileSectionCollapsedChange}
 					onSelectPath={onSelectFile}
+					onFileDragStart={(event, file) => onFileDragStart(event, file, change)}
 				/>
 			) : null}
 		</div>
+	);
+}
+
+function CommitMessageEditDialog({
+	edit,
+	onChangeTitle,
+	onPreview,
+	onClose,
+}: {
+	edit: { commitId: string; title: string } | null;
+	onChangeTitle: (title: string) => void;
+	onPreview: (message: string) => void;
+	onClose: () => void;
+}): React.ReactElement {
+	const message = edit?.title ?? "";
+	const trimmedMessage = message.trim();
+	return (
+		<Dialog
+			open={edit !== null}
+			onOpenChange={(open) => {
+				if (!open) {
+					onClose();
+				}
+			}}
+			contentClassName="max-w-xl"
+		>
+			<DialogHeader title="Edit Commit Message" icon={<Pencil size={16} />} />
+			<DialogBody>
+				<label className="grid gap-2 text-sm text-text-secondary">
+					<span className="font-medium text-text-primary">Commit message</span>
+					<textarea
+						className="min-h-28 resize-y rounded-md border border-border bg-surface-0 px-3 py-2 font-mono text-[13px] text-text-primary outline-none focus:border-accent"
+						value={message}
+						onChange={(event) => onChangeTitle(event.target.value)}
+					/>
+				</label>
+			</DialogBody>
+			<DialogFooter>
+				<Button variant="ghost" onClick={onClose}>
+					Cancel
+				</Button>
+				<Button
+					variant="primary"
+					icon={<Play size={14} />}
+					disabled={!trimmedMessage}
+					onClick={() => onPreview(trimmedMessage)}
+				>
+					Preview changes
+				</Button>
+			</DialogFooter>
+		</Dialog>
+	);
+}
+
+function WorkspaceOperationPreviewDialog({
+	operation,
+	previewState,
+	applyError,
+	isApplying,
+	onApply,
+	onClose,
+}: {
+	operation: VcsWorkspaceOperation | null;
+	previewState: QueryState<VcsOperationPreview>;
+	applyError: string | null;
+	isApplying: boolean;
+	onApply: () => void;
+	onClose: () => void;
+}): React.ReactElement {
+	const isPreviewCurrent =
+		operation !== null &&
+		previewState.status === "ready" &&
+		areVcsWorkspaceOperationsEqual(previewState.data.operation, operation);
+	return (
+		<Dialog
+			open={operation !== null}
+			onOpenChange={(open) => {
+				if (!open) {
+					onClose();
+				}
+			}}
+			contentClassName="max-w-2xl"
+		>
+			<DialogHeader title="Workspace Operation" icon={<GitBranch size={16} />} />
+			<DialogBody>
+				{previewState.status === "loading" ? (
+					<div className="flex items-center gap-2 text-sm text-text-secondary">
+						<Spinner size={16} />
+						Loading preview.
+					</div>
+				) : previewState.status === "error" ? (
+					<p className="text-sm text-status-red">{previewState.message}</p>
+				) : (
+					<div className="grid gap-3">
+						<KeyValue
+							label="Risk"
+							value={
+								<StatusChip
+									label={previewState.data.risk}
+									tone={previewState.data.risk === "high" ? "red" : previewState.data.risk === "medium" ? "orange" : "green"}
+								/>
+							}
+						/>
+						<KeyValue label="Summary" value={previewState.data.summary} />
+						{previewState.data.disabledReason ? (
+							<KeyValue label="Disabled" value={previewState.data.disabledReason} />
+						) : null}
+						{!isPreviewCurrent ? (
+							<KeyValue label="Status" value="Preview is stale. Reopen this operation before applying it." />
+						) : null}
+						{previewState.data.affectedStackIds.length > 0 ? (
+							<KeyValue label="Stacks" value={previewState.data.affectedStackIds.join(", ")} />
+						) : null}
+						{previewState.data.affectedCommitIds.length > 0 ? (
+							<KeyValue label="Commits" value={previewState.data.affectedCommitIds.join(", ")} />
+						) : null}
+						{previewState.data.affectedPaths.length > 0 ? (
+							<KeyValue label="Paths" value={previewState.data.affectedPaths.join(", ")} />
+						) : null}
+						{previewState.data.warnings.length > 0 ? (
+							<KeyValue
+								label="Warnings"
+								value={previewState.data.warnings.map((warning) => (
+									<p className="text-[13px] text-text-secondary" key={`${warning.code}-${warning.message}`}>
+										{warning.message}
+									</p>
+								))}
+							/>
+						) : null}
+						{applyError ? <p className="text-sm text-status-red">{applyError}</p> : null}
+					</div>
+				)}
+			</DialogBody>
+			<DialogFooter>
+				<Button variant="ghost" onClick={onClose}>
+					Close
+				</Button>
+				<Button
+					variant="primary"
+					icon={isApplying ? <Spinner size={14} /> : <Play size={14} />}
+					disabled={previewState.status !== "ready" || !previewState.data.valid || !isPreviewCurrent || isApplying}
+					onClick={onApply}
+				>
+					{isApplying ? "Applying" : "Apply operation"}
+				</Button>
+			</DialogFooter>
+		</Dialog>
 	);
 }

@@ -17,7 +17,7 @@ import { isChangeyardInitialized, updateLocalConfig } from "../config/localConfi
 import { runInit } from "./init.js";
 import { runUpdate } from "./update.js";
 import { doctorReport } from "./doctor.js";
-import { applyVcsOperation, detectVcs, getJjBranchesData, getJjDiff, getJjInventory, getJjOperationDiff, getJjOperations, getJjState, previewVcsOperation, submitVcsStack, submitVcsStackPreview } from "../vcs/adapter.js";
+import { applyVcsOperation, applyVcsWorkspaceOperation, detectVcs, getJjBranchesData, getJjDiff, getJjInventory, getJjOperationDiff, getJjOperations, getJjState, getVcsBranchesData, getVcsDiff, getVcsWorkspaceStacks, getVcsWorkspaceState, previewVcsOperation, previewVcsWorkspaceOperation, submitVcsStack, submitVcsStackPreview } from "../vcs/adapter.js";
 import type { VcsApplyOperationInput, VcsPreviewOperationInput, VcsSubmitStackPreviewInput } from "../vcs/types.js";
 import { installCliShutdownHandlers } from "./gracefulShutdown.js";
 import { DEFAULT_PLANNING_SECTION_ORDER, STRICT_PLANNING_SECTION_ORDER, type PlanningSectionId } from "../planning/types.js";
@@ -344,6 +344,9 @@ export function createChangeyardUiApi() {
     getJjBranchesData(repoRoot: string) {
       return getJjBranchesData(repoRoot);
     },
+    getVcsBranchesData(repoRoot: string) {
+      return getVcsBranchesData(repoRoot);
+    },
     getJjOperations(repoRoot: string, input?: { limit?: number | null; cursor?: string | null; pageSize?: number | null }) {
       return getJjOperations(repoRoot, input);
     },
@@ -352,6 +355,21 @@ export function createChangeyardUiApi() {
       input: { operationId: string; commitSkip?: number | null; commitLimit?: number | null; cursor?: string | null; pageSize?: number | null },
     ) {
       return getJjOperationDiff(repoRoot, input);
+    },
+    getVcsWorkspaceState(repoRoot: string, input?: { targetRef?: string | null; appliedStackIds?: string[] }) {
+      return getVcsWorkspaceState(repoRoot, input);
+    },
+    getVcsWorkspaceStacks(repoRoot: string, input?: { targetRef?: string | null; appliedStackIds?: string[] }) {
+      return getVcsWorkspaceStacks(repoRoot, input);
+    },
+    getVcsDiff(repoRoot: string, input?: unknown) {
+      return getVcsDiff(repoRoot, input);
+    },
+    previewVcsWorkspaceOperation(repoRoot: string, input: Parameters<typeof previewVcsWorkspaceOperation>[1]) {
+      return previewVcsWorkspaceOperation(repoRoot, input);
+    },
+    applyVcsWorkspaceOperation(repoRoot: string, input: Parameters<typeof applyVcsWorkspaceOperation>[1]) {
+      return applyVcsWorkspaceOperation(repoRoot, input);
     },
     previewVcsOperation(repoRoot: string, input: VcsPreviewOperationInput) {
       return previewVcsOperation(repoRoot, input);

@@ -221,6 +221,7 @@ export type VcsPreviewOperationKind =
 	| "create_change"
 	| "move_bookmark"
 	| "squash_change"
+	| "split_change"
 	| "absorb_file"
 	| "restore_file"
 	| "undo_last"
@@ -258,6 +259,15 @@ export interface VcsSquashChangeOperationInput {
 	kind: "squash_change";
 	sourceChangeId: string;
 	targetChangeId: string;
+	paths?: string[];
+	allowDescendantTarget?: boolean;
+}
+
+export interface VcsSplitChangeOperationInput {
+	kind: "split_change";
+	changeId: string;
+	message: string;
+	paths: string[];
 }
 
 export interface VcsAbsorbFileOperationInput {
@@ -298,6 +308,7 @@ export type VcsPreviewOperationInput =
 	| VcsCreateChangeOperationInput
 	| VcsMoveBookmarkOperationInput
 	| VcsSquashChangeOperationInput
+	| VcsSplitChangeOperationInput
 	| VcsAbsorbFileOperationInput
 	| VcsRestoreFileOperationInput
 	| VcsUndoLastOperationInput

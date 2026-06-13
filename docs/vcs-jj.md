@@ -2,6 +2,14 @@
 
 Changeyard now includes an experimental JJ-first VCS surface behind `CHANGEYARD_VCS=1`.
 
+For the current provider-neutral Workspace spec and detailed JJ support matrix, see:
+
+- [VCS App Spec](vcs/index.md)
+- [JJ Supported Functionality](vcs/jj-supported-functionality.md)
+- [JJ UI Interactions](vcs/jj-ui-interactions.md)
+- [JJ Backend Queries And Commands](vcs/jj-backend-queries.md)
+- [Agent Notes For VCS Work](vcs/agent-notes.md)
+
 ## Scope
 
 - Runtime boundary stays on the existing tRPC stack.

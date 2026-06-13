@@ -2,6 +2,8 @@ import type {
 	RuntimeVcsApplyOperationRequest,
 	RuntimeVcsApplyOperationResponse,
 	RuntimeVcsDetectResponse,
+	RuntimeVcsDiffRequest,
+	RuntimeVcsDiffResponse,
 	RuntimeVcsJjDiffResponse,
 	RuntimeVcsJjBranchesDataResponse,
 	RuntimeVcsJjInventoryResponse,
@@ -12,9 +14,15 @@ import type {
 	RuntimeVcsJjStateResponse,
 	RuntimeVcsPreviewOperationRequest,
 	RuntimeVcsPreviewOperationResponse,
+	RuntimeVcsOperationPreviewResponse,
+	RuntimeVcsOperationResultResponse,
 	RuntimeVcsSubmitStackPreviewRequest,
 	RuntimeVcsSubmitStackPreviewResponse,
 	RuntimeVcsSubmitStackResponse,
+	RuntimeVcsWorkspaceOperationRequest,
+	RuntimeVcsWorkspaceStacksResponse,
+	RuntimeVcsWorkspaceStateRequest,
+	RuntimeVcsWorkspaceStateResponse,
 } from "../core/api-contract.js";
 import type { RuntimeTrpcContext, RuntimeTrpcWorkspaceScope } from "./app-router.js";
 import type { RuntimeChangeyardApiAdapter } from "./changes-api.js";
@@ -100,6 +108,127 @@ function createUnavailableJjBranchesDataResponse(reason: string): RuntimeVcsJjBr
 	return {
 		inventory: createUnavailableJjInventoryResponse(reason),
 		state: createUnavailableJjStateResponse(reason),
+	};
+}
+
+const unsupportedWorkspaceCapabilities: RuntimeVcsWorkspaceStateResponse["capabilities"] = {
+	supportsMultiAppliedWorkspace: false,
+	supportsHunkSelection: false,
+	supportsHunkRestoreDiscard: false,
+	supportsCommittedHunkSelection: false,
+	supportsCommitRewrite: false,
+	supportsMoveCommitAcrossStacks: false,
+	supportsMoveChangesAcrossCommits: false,
+	supportsUndoRedo: false,
+	supportsSyntheticWorkspaceMerge: false,
+	supportsCreateStack: false,
+	supportsWorkingCopyCommit: false,
+};
+
+function createUnavailableWorkspaceStateResponse(reason: string): RuntimeVcsWorkspaceStateResponse {
+	return {
+		projectId: "",
+		provider: "git",
+		targetRef: "",
+		headId: null,
+		mode: "unsupported",
+		capabilities: unsupportedWorkspaceCapabilities,
+		stacks: [],
+		appliedStackIds: [],
+		workingCopy: {
+			files: [],
+			hasConflicts: false,
+			summary: {
+				modified: 0,
+				added: 0,
+				deleted: 0,
+				renamed: 0,
+				copied: 0,
+				unknown: 0,
+			},
+		},
+		conflicts: [
+			{
+				id: "workspace-unavailable",
+				path: null,
+				message: reason,
+				commitIds: [],
+				stackIds: [],
+			},
+		],
+	};
+}
+
+function createUnavailableWorkspaceStacksResponse(reason: string): RuntimeVcsWorkspaceStacksResponse {
+	return {
+		stacks: createUnavailableWorkspaceStateResponse(reason).stacks,
+	};
+}
+
+function createUnavailableDiffResponse(reason: string): RuntimeVcsDiffResponse {
+	return {
+		ok: false,
+		summary: "",
+		patch: "",
+		files: [],
+		diagnostics: [
+			{
+				level: "warning",
+				code: "workspace_missing",
+				message: reason,
+			},
+		],
+	};
+}
+
+function createUnavailableWorkspacePreviewResponse(
+	reason: string,
+	input: RuntimeVcsWorkspaceOperationRequest,
+): RuntimeVcsOperationPreviewResponse {
+	return {
+		valid: false,
+		operation: input.operation,
+		title: "Preview unavailable",
+		summary: reason,
+		risk: "high",
+		disabledReason: reason,
+		warnings: [],
+		conflicts: [],
+		affectedStackIds: [],
+		affectedCommitIds: [],
+		affectedPaths: [],
+		diagnostics: [
+			{
+				level: "warning",
+				code: "workspace_missing",
+				message: reason,
+			},
+		],
+	};
+}
+
+function createUnavailableWorkspaceApplyResponse(
+	reason: string,
+	input: RuntimeVcsWorkspaceOperationRequest,
+): RuntimeVcsOperationResultResponse {
+	return {
+		ok: false,
+		operation: input.operation,
+		title: "Operation unavailable",
+		summary: reason,
+		affectedStackIds: [],
+		affectedCommitIds: [],
+		affectedPaths: [],
+		recovery: {
+			instructions: [reason],
+		},
+		diagnostics: [
+			{
+				level: "warning",
+				code: "workspace_missing",
+				message: reason,
+			},
+		],
 	};
 }
 
@@ -294,6 +423,24 @@ export function createVcsApi(deps: CreateVcsApiDependencies): RuntimeTrpcContext
 				}
 			}
 		},
+		branchesData: async (workspaceScope: RuntimeTrpcWorkspaceScope | null) => {
+			const startedAt = Date.now();
+			const workspacePath = workspaceScope?.workspacePath ?? deps.getActiveWorkspacePath() ?? deps.fallbackWorkspacePath;
+			try {
+				if (!workspacePath) {
+					return createUnavailableJjBranchesDataResponse("No active workspace is available for VCS branches data.");
+				}
+				const readBranchesData = deps.changeyardApi?.getVcsBranchesData ?? deps.changeyardApi?.getJjBranchesData;
+				if (!readBranchesData) {
+					return createUnavailableJjBranchesDataResponse("Provider-neutral VCS branches data is not available in this runtime.");
+				}
+				return await readBranchesData(workspacePath);
+			} finally {
+				if (process.env.NODE_ENV !== "production") {
+					console.debug(`[vcs timing] vcs.branchesData ${Date.now() - startedAt}ms`);
+				}
+			}
+		},
 		jjOperations: async (
 			workspaceScope: RuntimeTrpcWorkspaceScope | null,
 			input?: RuntimeVcsJjOperationsRequest,
@@ -322,6 +469,77 @@ export function createVcsApi(deps: CreateVcsApiDependencies): RuntimeTrpcContext
 				);
 			}
 			return await deps.changeyardApi.getJjOperationDiff(workspacePath, input);
+		},
+		workspaceState: async (
+			workspaceScope: RuntimeTrpcWorkspaceScope | null,
+			input?: RuntimeVcsWorkspaceStateRequest,
+		) => {
+			const workspacePath = workspaceScope?.workspacePath ?? deps.getActiveWorkspacePath() ?? deps.fallbackWorkspacePath;
+			if (!workspacePath) {
+				return createUnavailableWorkspaceStateResponse("No active workspace is available for VCS workspace state.");
+			}
+			if (!deps.changeyardApi?.getVcsWorkspaceState) {
+				return createUnavailableWorkspaceStateResponse("Provider-neutral VCS workspace state is not available in this runtime.");
+			}
+			return await deps.changeyardApi.getVcsWorkspaceState(workspacePath, input);
+		},
+		workspaceStacks: async (
+			workspaceScope: RuntimeTrpcWorkspaceScope | null,
+			input?: RuntimeVcsWorkspaceStateRequest,
+		) => {
+			const workspacePath = workspaceScope?.workspacePath ?? deps.getActiveWorkspacePath() ?? deps.fallbackWorkspacePath;
+			if (!workspacePath) {
+				return createUnavailableWorkspaceStacksResponse("No active workspace is available for VCS stacks.");
+			}
+			if (!deps.changeyardApi?.getVcsWorkspaceStacks) {
+				return createUnavailableWorkspaceStacksResponse("Provider-neutral VCS stacks are not available in this runtime.");
+			}
+			return await deps.changeyardApi.getVcsWorkspaceStacks(workspacePath, input);
+		},
+		diff: async (
+			workspaceScope: RuntimeTrpcWorkspaceScope | null,
+			input?: RuntimeVcsDiffRequest,
+		) => {
+			const workspacePath = workspaceScope?.workspacePath ?? deps.getActiveWorkspacePath() ?? deps.fallbackWorkspacePath;
+			if (!workspacePath) {
+				return createUnavailableDiffResponse("No active workspace is available for VCS diff.");
+			}
+			if (!deps.changeyardApi?.getVcsDiff) {
+				return createUnavailableDiffResponse("Provider-neutral VCS diff is not available in this runtime.");
+			}
+			return await deps.changeyardApi.getVcsDiff(workspacePath, input);
+		},
+		previewWorkspaceOperation: async (
+			workspaceScope: RuntimeTrpcWorkspaceScope | null,
+			input: RuntimeVcsWorkspaceOperationRequest,
+		) => {
+			const workspacePath = workspaceScope?.workspacePath ?? deps.getActiveWorkspacePath() ?? deps.fallbackWorkspacePath;
+			if (!workspacePath) {
+				return createUnavailableWorkspacePreviewResponse("No active workspace is available for VCS workspace previews.", input);
+			}
+			if (!deps.changeyardApi?.previewVcsWorkspaceOperation) {
+				return createUnavailableWorkspacePreviewResponse(
+					"Provider-neutral VCS workspace previews are not available in this runtime.",
+					input,
+				);
+			}
+			return await deps.changeyardApi.previewVcsWorkspaceOperation(workspacePath, input);
+		},
+		applyWorkspaceOperation: async (
+			workspaceScope: RuntimeTrpcWorkspaceScope | null,
+			input: RuntimeVcsWorkspaceOperationRequest,
+		) => {
+			const workspacePath = workspaceScope?.workspacePath ?? deps.getActiveWorkspacePath() ?? deps.fallbackWorkspacePath;
+			if (!workspacePath) {
+				return createUnavailableWorkspaceApplyResponse("No active workspace is available for VCS workspace operations.", input);
+			}
+			if (!deps.changeyardApi?.applyVcsWorkspaceOperation) {
+				return createUnavailableWorkspaceApplyResponse(
+					"Provider-neutral VCS workspace operations are not available in this runtime.",
+					input,
+				);
+			}
+			return await deps.changeyardApi.applyVcsWorkspaceOperation(workspacePath, input);
 		},
 		previewOperation: async (workspaceScope: RuntimeTrpcWorkspaceScope | null, input: RuntimeVcsPreviewOperationRequest) => {
 			const workspacePath = workspaceScope?.workspacePath ?? deps.getActiveWorkspacePath() ?? deps.fallbackWorkspacePath;

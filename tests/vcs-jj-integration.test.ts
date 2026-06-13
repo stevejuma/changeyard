@@ -7,6 +7,7 @@ import test from "node:test";
 import { applyJjOperation } from "../src/vcs/jj/apply.js";
 import { previewJjOperation } from "../src/vcs/jj/preview.js";
 import { readJjBookmarks, readJjChangesForBookmark } from "../src/vcs/jj/read.js";
+import { applyJjWorkspaceOperation } from "../src/vcs/jj/workspace.js";
 import { runVcsCommand } from "../src/vcs/process.js";
 
 function tempRepo(): string {
@@ -214,6 +215,235 @@ test("restore_file integration test leaves no added files behind", async () => {
 		const applied = await applyJjOperation(repo, operation, runVcsCommand);
 		assert.equal(applied.ok, true);
 		assert.equal(existsSync(scratchPath), false);
+	} finally {
+		cleanup(repo);
+	}
+});
+
+test("workspace hunk restore against a real JJ repo restores only the selected hunk", async () => {
+	if (!hasCommand("git") || !hasCommand("jj")) return;
+	const repo = tempRepo();
+	try {
+		runCommand("git", ["init", "-b", "main"], repo);
+		configureTestGitIdentity(repo);
+		const notesPath = path.join(repo, "notes.txt");
+		const originalLines = Array.from({ length: 24 }, (_, index) => `line ${index + 1}`);
+		writeFileSync(notesPath, `${originalLines.join("\n")}\n`);
+		runCommand("git", ["add", "notes.txt"], repo);
+		runCommand("git", ["commit", "-m", "initial notes"], repo);
+		runCommand("jj", ["git", "init", "--colocate"], repo);
+		configureTestJjIdentity(repo);
+		runCommand("jj", ["new", "-m", "working changes"], repo);
+		const modifiedLines = [...originalLines];
+		modifiedLines[1] = "line 2 changed";
+		modifiedLines[19] = "line 20 changed";
+		writeFileSync(notesPath, `${modifiedLines.join("\n")}\n`);
+
+		const patch = runCommand("jj", ["diff", "--git", "--color=never", "--", "notes.txt"], repo);
+		const firstHunk = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/m.exec(patch);
+		assert.ok(firstHunk);
+		const result = await applyJjWorkspaceOperation(
+			repo,
+			{
+				operation: {
+					kind: "restore_changes",
+					selection: {
+						source: "working_copy",
+						hunks: [
+							{
+								path: "notes.txt",
+								hunkId: `notes.txt:${firstHunk[1]}:${firstHunk[2] ?? "1"}:${firstHunk[3]}:${firstHunk[4] ?? "1"}`,
+								oldStart: Number.parseInt(firstHunk[1] ?? "0", 10),
+								oldLines: Number.parseInt(firstHunk[2] ?? "1", 10),
+								newStart: Number.parseInt(firstHunk[3] ?? "0", 10),
+								newLines: Number.parseInt(firstHunk[4] ?? "1", 10),
+							},
+						],
+					},
+				},
+			},
+			runVcsCommand,
+		);
+
+		assert.equal(result.ok, true);
+		const content = readFileSync(notesPath, "utf8");
+		assert.match(content, /line 2\n/);
+		assert.match(content, /line 20 changed\n/);
+	} finally {
+		cleanup(repo);
+	}
+});
+
+test("workspace stack membership against a real JJ repo rebases working-copy parents", async () => {
+	if (!hasCommand("git") || !hasCommand("jj")) return;
+	const repo = tempRepo();
+	try {
+		runCommand("git", ["init", "-b", "main"], repo);
+		configureTestGitIdentity(repo);
+		runCommand("jj", ["git", "init", "--colocate"], repo);
+		configureTestJjIdentity(repo);
+		writeFileSync(path.join(repo, "base.txt"), "base\n");
+		runCommand("jj", ["file", "track", "base.txt"], repo);
+		runCommand("jj", ["commit", "-m", "base"], repo);
+		runCommand("jj", ["new", "-m", "feature stack"], repo);
+		writeFileSync(path.join(repo, "feature.txt"), "feature\n");
+		runCommand("jj", ["file", "track", "feature.txt"], repo);
+		runCommand("jj", ["commit", "-m", "feature stack"], repo);
+		const featureChangeId = runCommand("jj", ["log", "-r", "@-", "--no-graph", "-T", "change_id.short()"], repo);
+		runCommand("jj", ["bookmark", "create", "feature/stack", "-r", featureChangeId], repo);
+		runCommand("jj", ["edit", "@--"], repo);
+		writeFileSync(path.join(repo, "wip.txt"), "wip\n");
+		runCommand("jj", ["file", "track", "wip.txt"], repo);
+		const workingCopyChangeId = runCommand("jj", ["log", "-r", "@", "--no-graph", "-T", "change_id.short()"], repo);
+
+		const applyResult = await applyJjWorkspaceOperation(
+			repo,
+			{ operation: { kind: "apply_stack", stackId: "feature/stack" } },
+			runVcsCommand,
+		);
+
+		assert.equal(applyResult.ok, true);
+		assert.deepEqual(applyResult.affectedCommitIds, [featureChangeId]);
+		assert.equal(runCommand("jj", ["log", "-r", "@", "--no-graph", "-T", "change_id.short()"], repo), workingCopyChangeId);
+		const appliedParents = runCommand("jj", ["log", "-r", "@-", "--no-graph", "-T", "change_id.short() ++ \"\\n\""], repo);
+		assert.match(appliedParents, new RegExp(featureChangeId));
+		assert.equal(readFileSync(path.join(repo, "feature.txt"), "utf8"), "feature\n");
+		assert.equal(readFileSync(path.join(repo, "wip.txt"), "utf8"), "wip\n");
+
+		const unapplyResult = await applyJjWorkspaceOperation(
+			repo,
+			{ operation: { kind: "unapply_stack", stackId: "feature/stack" } },
+			runVcsCommand,
+		);
+
+		assert.equal(unapplyResult.ok, true);
+		assert.deepEqual(unapplyResult.affectedCommitIds, [featureChangeId]);
+		assert.equal(runCommand("jj", ["log", "-r", "@", "--no-graph", "-T", "change_id.short()"], repo), workingCopyChangeId);
+		const unappliedParents = runCommand("jj", ["log", "-r", "@-", "--no-graph", "-T", "change_id.short() ++ \"\\n\""], repo);
+		assert.doesNotMatch(unappliedParents, new RegExp(featureChangeId));
+		assert.equal(existsSync(path.join(repo, "feature.txt")), false);
+		assert.equal(readFileSync(path.join(repo, "wip.txt"), "utf8"), "wip\n");
+	} finally {
+		cleanup(repo);
+	}
+});
+
+test("workspace committed hunk move against a real JJ repo moves only the selected hunk", async () => {
+	if (!hasCommand("git") || !hasCommand("jj")) return;
+	const repo = tempRepo();
+	try {
+		runCommand("git", ["init", "-b", "main"], repo);
+		configureTestGitIdentity(repo);
+		runCommand("jj", ["git", "init", "--colocate"], repo);
+		configureTestJjIdentity(repo);
+		const notesPath = path.join(repo, "notes.txt");
+		const originalLines = Array.from({ length: 24 }, (_, index) => `line ${index + 1}`);
+		writeFileSync(notesPath, `${originalLines.join("\n")}\n`);
+		runCommand("jj", ["file", "track", "notes.txt"], repo);
+		runCommand("jj", ["commit", "-m", "base notes"], repo);
+		const modifiedLines = [...originalLines];
+		modifiedLines[1] = "line 2 changed";
+		modifiedLines[19] = "line 20 changed";
+		writeFileSync(notesPath, `${modifiedLines.join("\n")}\n`);
+		runCommand("jj", ["commit", "-m", "source hunks"], repo);
+		const sourceChangeId = runCommand("jj", ["log", "-r", "@-", "--no-graph", "-T", "change_id.short()"], repo);
+		const targetChangeId = runCommand("jj", ["log", "-r", "@--", "--no-graph", "-T", "change_id.short()"], repo);
+		runCommand("jj", ["bookmark", "create", "feature/source-hunks", "-r", sourceChangeId], repo);
+
+		const patch = runCommand("jj", ["diff", "--git", "--color=never", "-r", sourceChangeId, "--", "notes.txt"], repo);
+		const firstHunk = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/m.exec(patch);
+		assert.ok(firstHunk);
+		const result = await applyJjWorkspaceOperation(
+			repo,
+			{
+				operation: {
+					kind: "move_changes",
+					targetCommitId: targetChangeId,
+					selection: {
+						source: "commit",
+						commitId: sourceChangeId,
+						hunks: [
+							{
+								path: "notes.txt",
+								hunkId: `notes.txt:${firstHunk[1]}:${firstHunk[2] ?? "1"}:${firstHunk[3]}:${firstHunk[4] ?? "1"}`,
+								oldStart: Number.parseInt(firstHunk[1] ?? "0", 10),
+								oldLines: Number.parseInt(firstHunk[2] ?? "1", 10),
+								newStart: Number.parseInt(firstHunk[3] ?? "0", 10),
+								newLines: Number.parseInt(firstHunk[4] ?? "1", 10),
+							},
+						],
+					},
+				},
+			},
+			runVcsCommand,
+		);
+
+		assert.equal(result.ok, true);
+		const targetContent = runCommand("jj", ["file", "show", "-r", targetChangeId, "notes.txt"], repo);
+		assert.match(targetContent, /line 2 changed/);
+		assert.match(targetContent, /line 20\n/);
+		const remainingSourceDiff = runCommand("jj", ["diff", "--git", "--color=never", "-r", sourceChangeId, "--", "notes.txt"], repo);
+		assert.doesNotMatch(remainingSourceDiff, /line 2 changed/);
+		assert.match(remainingSourceDiff, /line 20 changed/);
+	} finally {
+		cleanup(repo);
+	}
+});
+
+test("workspace committed hunk discard against a real JJ repo removes only the selected hunk", async () => {
+	if (!hasCommand("git") || !hasCommand("jj")) return;
+	const repo = tempRepo();
+	try {
+		runCommand("git", ["init", "-b", "main"], repo);
+		configureTestGitIdentity(repo);
+		runCommand("jj", ["git", "init", "--colocate"], repo);
+		configureTestJjIdentity(repo);
+		const notesPath = path.join(repo, "notes.txt");
+		const originalLines = Array.from({ length: 24 }, (_, index) => `line ${index + 1}`);
+		writeFileSync(notesPath, `${originalLines.join("\n")}\n`);
+		runCommand("jj", ["file", "track", "notes.txt"], repo);
+		runCommand("jj", ["commit", "-m", "base notes"], repo);
+		const modifiedLines = [...originalLines];
+		modifiedLines[1] = "line 2 changed";
+		modifiedLines[19] = "line 20 changed";
+		writeFileSync(notesPath, `${modifiedLines.join("\n")}\n`);
+		runCommand("jj", ["commit", "-m", "source hunks"], repo);
+		const sourceChangeId = runCommand("jj", ["log", "-r", "@-", "--no-graph", "-T", "change_id.short()"], repo);
+		runCommand("jj", ["bookmark", "create", "feature/source-hunks", "-r", sourceChangeId], repo);
+
+		const patch = runCommand("jj", ["diff", "--git", "--color=never", "-r", sourceChangeId, "--", "notes.txt"], repo);
+		const firstHunk = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/m.exec(patch);
+		assert.ok(firstHunk);
+		const result = await applyJjWorkspaceOperation(
+			repo,
+			{
+				operation: {
+					kind: "discard_changes",
+					selection: {
+						source: "commit",
+						commitId: sourceChangeId,
+						hunks: [
+							{
+								path: "notes.txt",
+								hunkId: `notes.txt:${firstHunk[1]}:${firstHunk[2] ?? "1"}:${firstHunk[3]}:${firstHunk[4] ?? "1"}`,
+								oldStart: Number.parseInt(firstHunk[1] ?? "0", 10),
+								oldLines: Number.parseInt(firstHunk[2] ?? "1", 10),
+								newStart: Number.parseInt(firstHunk[3] ?? "0", 10),
+								newLines: Number.parseInt(firstHunk[4] ?? "1", 10),
+							},
+						],
+					},
+				},
+			},
+			runVcsCommand,
+		);
+
+		assert.equal(result.ok, true);
+		const remainingSourceDiff = runCommand("jj", ["diff", "--git", "--color=never", "-r", sourceChangeId, "--", "notes.txt"], repo);
+		assert.doesNotMatch(remainingSourceDiff, /line 2 changed/);
+		assert.match(remainingSourceDiff, /line 20 changed/);
+		const visibleDescriptions = runCommand("jj", ["log", "--no-graph", "-T", "description.first_line() ++ \"\\n\""], repo);
+		assert.doesNotMatch(visibleDescriptions, /changeyard discard selected hunks/);
 	} finally {
 		cleanup(repo);
 	}

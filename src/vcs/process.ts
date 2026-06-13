@@ -1,7 +1,4 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-
-const execFileAsync = promisify(execFile);
+import { spawn } from "node:child_process";
 const MAX_BUFFER_BYTES = 10 * 1024 * 1024;
 const ALLOWED_COMMANDS = new Set(["git", "gh", "jj"]);
 
@@ -16,6 +13,7 @@ export interface RunVcsCommandInput {
 	command: "git" | "gh" | "jj";
 	args: string[];
 	cwd: string;
+	stdin?: string;
 }
 
 function normalizeExitCode(code: unknown): number {
@@ -57,34 +55,58 @@ export function redactSecrets(text: string): string {
 export async function runVcsCommand(input: RunVcsCommandInput): Promise<VcsCommandResult> {
 	validateArgv(input);
 	const startedAt = Date.now();
-	try {
-		const { stdout, stderr } = await execFileAsync(input.command, input.args, {
+	return new Promise((resolve) => {
+		const child = spawn(input.command, input.args, {
 			cwd: input.cwd,
-			encoding: "utf8",
-			maxBuffer: MAX_BUFFER_BYTES,
 			env: process.env,
+			stdio: ["pipe", "pipe", "pipe"],
 		});
-		logVcsTiming(input, startedAt);
-		return {
-			ok: true,
-			stdout: redactSecrets(String(stdout ?? "").trim()),
-			stderr: redactSecrets(String(stderr ?? "").trim()),
-			exitCode: 0,
-		};
-	} catch (error) {
-		logVcsTiming(input, startedAt);
-		const candidate = error as {
-			code?: string | number | null;
-			stdout?: unknown;
-			stderr?: unknown;
-		};
-		return {
-			ok: false,
-			stdout: redactSecrets(String(candidate.stdout ?? "").trim()),
-			stderr: redactSecrets(String(candidate.stderr ?? "").trim()),
-			exitCode: normalizeExitCode(candidate.code),
-		};
-	}
+		let stdout = "";
+		let stderr = "";
+		let settled = false;
+
+		function settle(result: VcsCommandResult): void {
+			if (settled) {
+				return;
+			}
+			settled = true;
+			logVcsTiming(input, startedAt);
+			resolve(result);
+		}
+
+		child.stdout.setEncoding("utf8");
+		child.stderr.setEncoding("utf8");
+		child.stdout.on("data", (chunk) => {
+			stdout += String(chunk);
+			if (stdout.length > MAX_BUFFER_BYTES) {
+				child.kill("SIGTERM");
+			}
+		});
+		child.stderr.on("data", (chunk) => {
+			stderr += String(chunk);
+			if (stderr.length > MAX_BUFFER_BYTES) {
+				child.kill("SIGTERM");
+			}
+		});
+		child.on("error", (error) => {
+			settle({
+				ok: false,
+				stdout: redactSecrets(stdout.trim()),
+				stderr: redactSecrets(error.message || stderr.trim()),
+				exitCode: -1,
+			});
+		});
+		child.on("close", (code) => {
+			const exitCode = normalizeExitCode(code);
+			settle({
+				ok: exitCode === 0,
+				stdout: redactSecrets(stdout.trim()),
+				stderr: redactSecrets(stderr.trim()),
+				exitCode,
+			});
+		});
+		child.stdin.end(input.stdin ?? "");
+	});
 }
 
 function logVcsTiming(input: RunVcsCommandInput, startedAt: number): void {

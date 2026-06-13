@@ -59,6 +59,11 @@ function redactRemoteUrl(remoteUrl: string | null): string | null {
 	return redactSecrets(remoteUrl);
 }
 
+function normalizeCommandPath(stdout: string | null | undefined): string | null {
+	const normalized = stdout?.trim();
+	return normalized ? normalized : null;
+}
+
 async function readGitRemoteName(cwd: string, runner: VcsCommandRunner): Promise<string | null> {
 	const remotesResult = await runner({
 		command: "git",
@@ -161,9 +166,9 @@ export async function detectVcsState(
 
 	const repository =
 		jjRootResult?.ok
-			? { kind: "jj" as const, root: jjRootResult.stdout || null }
+			? { kind: "jj" as const, root: normalizeCommandPath(jjRootResult.stdout) }
 			: gitRootResult.ok
-				? { kind: "git" as const, root: gitRootResult.stdout || null }
+				? { kind: "git" as const, root: normalizeCommandPath(gitRootResult.stdout) }
 				: { kind: "none" as const, root: null };
 
 	if (repository.kind === "none") {
@@ -224,7 +229,7 @@ export async function detectVcsState(
 		jj: {
 			installed: jjInstalled,
 			version: jjVersion,
-			repoRoot: repository.kind === "jj" ? repository.root : jjRootResult?.stdout || null,
+			repoRoot: repository.kind === "jj" ? repository.root : normalizeCommandPath(jjRootResult?.stdout),
 			currentBookmark: currentBookmarkResult?.ok ? parseBookmark(currentBookmarkResult.stdout) : null,
 			currentChangeId: currentChangeIdResult?.ok ? currentChangeIdResult.stdout.trim() || null : null,
 			defaultBase: defaultBranch,

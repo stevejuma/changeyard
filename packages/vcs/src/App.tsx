@@ -7,22 +7,21 @@ import type {
 	RuntimeProjectAddRequest,
 	RuntimeProjectsResponse,
 	VcsDetectResponse,
-	VcsJjDiffResponse,
-	VcsJjStateResponse,
 } from "@/runtime/types";
 import {
 	toRuntimeQueryState,
 	useAddProjectMutation,
-	useGetJjDiffQuery,
-	useGetJjStateQuery,
 	useGetProjectsQuery,
+	useGetVcsDiffQuery,
 	useGetVcsDetectQuery,
+	useGetVcsWorkspaceStateQuery,
 	usePickProjectDirectoryMutation,
 	useRemoveProjectMutation,
 } from "@/runtime/vcs-api";
+import type { VcsDiffResult, VcsWorkspaceState } from "@/vcs-workspace-contracts";
 import { BranchesView } from "@/views/branches-view";
 import { HistoryView } from "@/views/history-view";
-import { JjBoardView } from "@/views/jj-board-view";
+import { WorkspaceView } from "@/views/jj-board-view";
 import { SettingsDialog } from "@/views/settings-view";
 import { shouldUseNativeDirectoryPicker } from "@/utils/localhost-detection";
 import { withWorkspaceParam } from "@/utils/vcs-navigation";
@@ -259,28 +258,28 @@ export default function App(): React.ReactElement {
 	};
 	const hasWorkspace = Boolean(workspaceId);
 	const detectResult = useGetVcsDetectQuery({ workspaceId: workspaceId ?? "" }, { skip: !hasWorkspace });
-	const jjDiffResult = useGetJjDiffQuery({ workspaceId: workspaceId ?? "" }, { skip: !hasWorkspace });
-	const jjStateResult = useGetJjStateQuery({ workspaceId: workspaceId ?? "" }, { skip: !hasWorkspace });
+	const workspaceDiffResult = useGetVcsDiffQuery({ workspaceId: workspaceId ?? "" }, { skip: !hasWorkspace });
+	const workspaceStateResult = useGetVcsWorkspaceStateQuery({ workspaceId: workspaceId ?? "" }, { skip: !hasWorkspace });
 	const detectQuery = {
 		state: toRuntimeQueryState<VcsDetectResponse>(detectResult, "Failed to load VCS detection."),
 	};
-	const jjDiffQuery = {
-		state: toRuntimeQueryState<VcsJjDiffResponse>(jjDiffResult, "Failed to load JJ diff."),
+	const workspaceDiffQuery = {
+		state: toRuntimeQueryState<VcsDiffResult>(workspaceDiffResult, "Failed to load workspace diff."),
 	};
-	const jjStateQuery = {
-		state: toRuntimeQueryState<VcsJjStateResponse>(jjStateResult, "Failed to load JJ state."),
+	const workspaceStateQuery = {
+		state: toRuntimeQueryState<VcsWorkspaceState>(workspaceStateResult, "Failed to load workspace state."),
 	};
 
 	let routedView: React.ReactElement;
 	switch (route.kind) {
 		case "jj-board":
 			routedView = (
-				<JjBoardView
+				<WorkspaceView
 					currentPath={currentPath}
 					projectState={projectState}
 					workspaceId={workspaceId}
-					state={jjStateQuery.state}
-					diffState={jjDiffQuery.state}
+					state={workspaceStateQuery.state}
+					diffState={workspaceDiffQuery.state}
 				/>
 			);
 			break;
@@ -305,12 +304,12 @@ export default function App(): React.ReactElement {
 		case "settings":
 		default:
 			routedView = (
-				<JjBoardView
+				<WorkspaceView
 					currentPath={currentPath}
 					projectState={projectState}
 					workspaceId={workspaceId}
-					state={jjStateQuery.state}
-					diffState={jjDiffQuery.state}
+					state={workspaceStateQuery.state}
+					diffState={workspaceDiffQuery.state}
 				/>
 			);
 			break;

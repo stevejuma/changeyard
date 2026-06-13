@@ -1,5 +1,5 @@
-import { GitBranch, GitPullRequest, Search, Tag, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { GitBranch, GitPullRequest, Play, Search, Tag, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState, type DragEvent as ReactDragEvent } from "react";
 
 import {
 	applyWorkspaceStackId,
@@ -18,6 +18,8 @@ import { Avatar } from "@/components/ui/avatar";
 import { cn } from "@/components/ui/cn";
 import { Button } from "@/components/ui/button";
 import { CopyValueButton } from "@/components/ui/copy-value-button";
+import { Dialog, DialogBody, DialogFooter, DialogHeader } from "@/components/ui/dialog";
+import { Spinner } from "@/components/ui/spinner";
 import { StatusChip } from "@/components/ui/status-chip";
 import {
 	findFileByPath,
@@ -29,7 +31,7 @@ import {
 	type VcsFileChange,
 } from "@/components/vcs-file-columns";
 import { useVcsDiagnosticsToasts } from "@/components/vcs-diagnostics-toasts";
-import { EmptyState, QueryGate } from "@/components/vcs-panels";
+import { EmptyState, KeyValue, QueryGate } from "@/components/vcs-panels";
 import { NoProjectSelected, SelectProjectButton, VcsShell, type VcsShellProjectState } from "@/components/vcs-shell";
 import type {
 	QueryState,
@@ -37,7 +39,7 @@ import type {
 	RuntimeGitCommitDiffResponse,
 	RuntimeGitLogResponse,
 	RuntimeProjectConfigResponse,
-	VcsJjBranchesDataResponse,
+	VcsBranchesDataResponse,
 	VcsJjInventoryItem,
 	VcsJjInventoryResponse,
 	VcsJjStateResponse,
@@ -45,9 +47,12 @@ import type {
 import { useRtkPaginatedRepositoryLog } from "@/runtime/repository-log-api";
 import {
 	toRuntimeQueryState,
+	useApplyVcsOperationMutation,
 	useGetProjectConfigQuery,
-	useGetJjBranchesDataQuery,
+	useGetVcsBranchesDataQuery,
+	useGetVcsWorkspaceStateQuery,
 	useGetRepositoryCommitDiffQuery,
+	useLazyPreviewVcsOperationQuery,
 	useUpdateProjectConfigMutation,
 } from "@/runtime/vcs-api";
 import {
@@ -61,6 +66,18 @@ import {
 	type VcsFileViewMode,
 } from "@/utils/vcs-ui-preferences";
 import { readVcsQueryParam, useVcsRouter } from "@/utils/vcs-router";
+import {
+	serializeVcsWorkspaceDragPayload,
+	VCS_WORKSPACE_DRAG_MIME,
+	type VcsWorkspaceDragPayload,
+} from "@/vcs-workspace-dnd";
+import type { VcsWorkspaceState } from "@/vcs-workspace-contracts";
+import {
+	areVcsWorkspaceOperationsEqual,
+	isLowRiskVcsWorkspaceOperation,
+	type VcsOperationPreview,
+	type VcsWorkspaceOperation,
+} from "@/vcs-workspace-contracts";
 
 type BranchFilter = "all" | "prs" | "local";
 type BranchColumnId = "refs" | "stack";
@@ -158,6 +175,29 @@ function toFileChanges(diffState: QueryState<RuntimeGitCommitDiffResponse>): Vcs
 	return diffState.data.files;
 }
 
+function writeDragPayload(event: ReactDragEvent<HTMLElement>, payload: VcsWorkspaceDragPayload): void {
+	event.dataTransfer.effectAllowed = "move";
+	event.dataTransfer.setData(VCS_WORKSPACE_DRAG_MIME, serializeVcsWorkspaceDragPayload(payload));
+	event.dataTransfer.setData("text/plain", payload.kind);
+}
+
+function workspaceStackMembershipDisabledReason(
+	state: QueryState<VcsWorkspaceState>,
+	appliedStackCount: number,
+	isApplied: boolean,
+): string | null {
+	if (state.status === "loading") {
+		return "Workspace capabilities are still loading.";
+	}
+	if (state.status === "error") {
+		return state.message;
+	}
+	if (!state.data.capabilities.supportsMultiAppliedWorkspace && appliedStackCount > 0 && !isApplied) {
+		return "This provider supports one applied stack at a time.";
+	}
+	return null;
+}
+
 export function BranchesView({
 	currentPath,
 	projectState,
@@ -175,10 +215,15 @@ export function BranchesView({
 		setQueryParam(name, value, { replace: true });
 	}
 	const hasWorkspace = Boolean(workspaceId);
-	const branchesDataResult = useGetJjBranchesDataQuery({ workspaceId: workspaceId ?? "" }, { skip: !hasWorkspace });
-	const branchesDataState = toRuntimeQueryState<VcsJjBranchesDataResponse>(
+	const branchesDataResult = useGetVcsBranchesDataQuery({ workspaceId: workspaceId ?? "" }, { skip: !hasWorkspace });
+	const branchesDataState = toRuntimeQueryState<VcsBranchesDataResponse>(
 		branchesDataResult,
 		"Failed to load branch data.",
+	);
+	const workspaceStateResult = useGetVcsWorkspaceStateQuery({ workspaceId: workspaceId ?? "" }, { skip: !hasWorkspace });
+	const workspaceState = toRuntimeQueryState<VcsWorkspaceState>(
+		workspaceStateResult,
+		"Failed to load workspace capabilities.",
 	);
 	const inventoryQuery = {
 		state:
@@ -196,6 +241,8 @@ export function BranchesView({
 	};
 	const projectConfigResult = useGetProjectConfigQuery({ workspaceId: workspaceId ?? "" }, { skip: !hasWorkspace });
 	const [updateProjectConfig] = useUpdateProjectConfigMutation();
+	const [applyVcsOperation] = useApplyVcsOperationMutation();
+	const [previewVcsOperation, previewResult] = useLazyPreviewVcsOperationQuery();
 	const projectConfigQuery = {
 		state: toRuntimeQueryState<RuntimeProjectConfigResponse>(projectConfigResult, "Failed to load project configuration."),
 		refresh: () => void projectConfigResult.refetch(),
@@ -219,6 +266,10 @@ export function BranchesView({
 	const [hasUserClearedFile, setHasUserClearedFile] = useState(false);
 	const [isFileSectionCollapsed, setFileSectionCollapsed] = useState(false);
 	const [updatingAppliedStackId, setUpdatingAppliedStackId] = useState<string | null>(null);
+	const [pendingOperation, setPendingOperation] = useState<VcsWorkspaceOperation | null>(null);
+	const [pendingAppliedStackIds, setPendingAppliedStackIds] = useState<string[] | null>(null);
+	const [operationApplyError, setOperationApplyError] = useState<string | null>(null);
+	const [isApplyingPreviewedOperation, setApplyingPreviewedOperation] = useState(false);
 	const commitDiffResult = useGetRepositoryCommitDiffQuery(
 		{ workspaceId: workspaceId ?? "", commitHash: selectedCommitHash ?? "" },
 		{ skip: !workspaceId || !selectedCommitHash },
@@ -229,6 +280,7 @@ export function BranchesView({
 	};
 	const files = toFileChanges(commitDiffQuery.state);
 	const selectedFile = findFileByPath(files, selectedFilePath);
+	const previewState = toRuntimeQueryState<VcsOperationPreview>(previewResult, "Failed to preview workspace operation.");
 
 	useEffect(() => {
 		setSelectedRefName(readVcsQueryParam(location.search, "ref"));
@@ -363,7 +415,7 @@ export function BranchesView({
 	}
 
 	async function updateAppliedStacks(stackId: string, action: "apply" | "unapply"): Promise<void> {
-		if (!workspaceId || projectConfigQuery.state.status !== "ready") {
+		if (!workspaceId || projectConfigQuery.state.status !== "ready" || workspaceState.status !== "ready") {
 			return;
 		}
 		const currentStackIds = projectConfigQuery.state.data.vcsAppliedStacks ?? [];
@@ -371,8 +423,28 @@ export function BranchesView({
 			action === "apply"
 				? applyWorkspaceStackId(currentStackIds, stackId)
 				: unapplyWorkspaceStackId(currentStackIds, stackId);
+		const operation = {
+			kind: action === "apply" ? "apply_stack" : "unapply_stack",
+			stackId,
+		} satisfies VcsWorkspaceOperation;
+		if (!isLowRiskVcsWorkspaceOperation(operation, workspaceState.data.provider)) {
+			setPendingOperation(operation);
+			setPendingAppliedStackIds(nextStackIds);
+			setOperationApplyError(null);
+			void previewVcsOperation({ workspaceId, input: { operation } });
+			return;
+		}
 		setUpdatingAppliedStackId(stackId);
 		try {
+			const operationResult = await applyVcsOperation({
+				workspaceId,
+				input: {
+					operation,
+				},
+			}).unwrap();
+			if (!operationResult.ok) {
+				throw new Error(operationResult.summary || "Workspace stack operation failed.");
+			}
 			await updateProjectConfig({
 				workspaceId,
 				input: { vcsAppliedStacks: nextStackIds },
@@ -382,17 +454,53 @@ export function BranchesView({
 		}
 	}
 
+	function closeOperationPreview(): void {
+		setPendingOperation(null);
+		setPendingAppliedStackIds(null);
+		setOperationApplyError(null);
+	}
+
+	async function applyPendingOperation(): Promise<void> {
+		if (!workspaceId || !pendingOperation || !pendingAppliedStackIds) {
+			return;
+		}
+		if (previewState.status !== "ready" || !areVcsWorkspaceOperationsEqual(previewState.data.operation, pendingOperation)) {
+			setOperationApplyError("Preview is stale. Reopen the operation preview and try again.");
+			return;
+		}
+		setApplyingPreviewedOperation(true);
+		setOperationApplyError(null);
+		try {
+			const operationResult = await applyVcsOperation({
+				workspaceId,
+				input: { operation: pendingOperation },
+			}).unwrap();
+			if (!operationResult.ok) {
+				throw new Error(operationResult.summary || "Workspace stack operation failed.");
+			}
+			await updateProjectConfig({
+				workspaceId,
+				input: { vcsAppliedStacks: pendingAppliedStackIds },
+			}).unwrap();
+			closeOperationPreview();
+		} catch (error) {
+			setOperationApplyError(error instanceof Error ? error.message : "Workspace stack operation failed.");
+		} finally {
+			setApplyingPreviewedOperation(false);
+		}
+	}
+
 	return (
 		<VcsShell
 			projectState={projectState}
 			currentPath={currentPath}
 			title="Branches"
-			subtitle="Bookmarks, remote work, stacks, and changes"
+			subtitle="Refs, remote work, stacks, and commits"
 			kicker={<StatusChip label="Read only" tone="blue" />}
 		>
 			{!workspaceId ? (
 				<NoProjectSelected action={<SelectProjectButton onClick={projectState.onAddProject} />}>
-					Select a project to show JJ bookmarks, remotes, and stacks.
+					Select a project to show refs, remotes, and stacks.
 				</NoProjectSelected>
 			) : (
 				<QueryGate
@@ -406,6 +514,7 @@ export function BranchesView({
 							inventory={inventory}
 							workspaceId={workspaceId}
 							stackState={stackQuery.state}
+							workspaceState={workspaceState}
 							projectConfigState={projectConfigQuery.state}
 							updatingAppliedStackId={updatingAppliedStackId}
 							filter={filter}
@@ -440,6 +549,14 @@ export function BranchesView({
 					)}
 				</QueryGate>
 			)}
+			<BranchesOperationPreviewDialog
+				operation={pendingOperation}
+				previewState={previewState}
+				applyError={operationApplyError}
+				isApplying={isApplyingPreviewedOperation}
+				onApply={() => void applyPendingOperation()}
+				onClose={closeOperationPreview}
+			/>
 		</VcsShell>
 	);
 }
@@ -525,6 +642,7 @@ function BranchesReady({
 	inventory,
 	workspaceId,
 	stackState,
+	workspaceState,
 	projectConfigState,
 	updatingAppliedStackId,
 	filter,
@@ -555,6 +673,7 @@ function BranchesReady({
 	inventory: VcsJjInventoryResponse;
 	workspaceId: string | null;
 	stackState: QueryState<VcsJjStateResponse>;
+	workspaceState: QueryState<VcsWorkspaceState>;
 	projectConfigState: QueryState<RuntimeProjectConfigResponse>;
 	updatingAppliedStackId: string | null;
 	filter: BranchFilter;
@@ -582,8 +701,11 @@ function BranchesReady({
 	onUnapplyStack: (stackId: string) => void;
 	onCloseDiff: () => void;
 }): React.ReactElement {
-	const appliedStackIds =
+	const configuredAppliedStackIds =
 		projectConfigState.status === "ready" ? normalizeAppliedStackIds(projectConfigState.data.vcsAppliedStacks) : [];
+	const providerAppliedStackIds =
+		workspaceState.status === "ready" ? normalizeAppliedStackIds(workspaceState.data.appliedStackIds) : [];
+	const appliedStackIds = configuredAppliedStackIds.length > 0 ? configuredAppliedStackIds : providerAppliedStackIds;
 	const refsCount = inventory.items.length;
 	const visibleItems = inventory.items.filter((item) => {
 		if (filter === "prs" && !item.pr) {
@@ -622,6 +744,21 @@ function BranchesReady({
 	const hasDerivedStack = Boolean(applicableStack);
 	const applicableStackId = applicableStack?.id ?? null;
 	const applicableStackApplied = Boolean(applicableStackId && appliedStackIds.includes(applicableStackId));
+	const workspaceMembershipDisabledReason = workspaceStackMembershipDisabledReason(
+		workspaceState,
+		appliedStackIds.length,
+		applicableStackApplied,
+	);
+	function stackDragPayloadForItem(item: VcsJjInventoryItem): VcsWorkspaceDragPayload | null {
+		if (stackState.status !== "ready" || !item.hasLocal || item.type === "remote" || item.type === "tag") {
+			return null;
+		}
+		const stack = findApplicableStackForBranchSelection(stackState.data.stacks, {
+			refName: getItemTarget(item),
+			item,
+		});
+		return stack ? { kind: "stack", stackId: stack.id } : null;
+	}
 	const activeStack = (() => {
 		if (stackState.status !== "ready") {
 			return null;
@@ -674,6 +811,7 @@ function BranchesReady({
 							setSearch={setSearch}
 							selectedRefName={selectedRefName}
 							appliedStackIds={appliedStackIds}
+							getDragPayload={stackDragPayloadForItem}
 							onSelectRef={onSelectRef}
 						/>
 					</VcsColumn>
@@ -700,8 +838,14 @@ function BranchesReady({
 							<StackHeaderActions
 								item={activeItem}
 								stackId={applicableStackId}
-								canApply={hasDerivedStack && projectConfigState.status === "ready" && !applicableStackApplied}
+								canApply={
+									hasDerivedStack &&
+									projectConfigState.status === "ready" &&
+									!applicableStackApplied &&
+									!workspaceMembershipDisabledReason
+								}
 								isApplied={applicableStackApplied}
+								disabledReason={workspaceMembershipDisabledReason}
 								isUpdating={Boolean(applicableStackId && updatingAppliedStackId === applicableStackId)}
 								onApplyStack={onApplyStack}
 								onUnapplyStack={onUnapplyStack}
@@ -760,6 +904,7 @@ function BranchesColumnContent({
 	setSearch,
 	selectedRefName,
 	appliedStackIds,
+	getDragPayload,
 	onSelectRef,
 }: {
 	inventory: VcsJjInventoryResponse;
@@ -772,6 +917,7 @@ function BranchesColumnContent({
 	setSearch: (value: string) => void;
 	selectedRefName: string | null;
 	appliedStackIds: string[];
+	getDragPayload: (item: VcsJjInventoryItem) => VcsWorkspaceDragPayload | null;
 	onSelectRef: (item: VcsJjInventoryItem) => void;
 }): React.ReactElement {
 	const workspaceTarget = inventory.workspaceTarget;
@@ -801,7 +947,7 @@ function BranchesColumnContent({
 						</div>
 						<div className="min-w-0">
 							<div className="truncate text-sm font-semibold text-text-primary">
-								{inventory.workspaceTarget?.name ?? inventory.jj.currentBookmark ?? "Current change"}
+								{inventory.workspaceTarget?.name ?? inventory.jj.currentBookmark ?? "Current commit"}
 							</div>
 							<div className="truncate font-mono text-[11px] text-text-tertiary">
 								{inventory.workspaceTarget?.changeId ?? inventory.jj.currentChangeId ?? "unknown"}
@@ -857,6 +1003,7 @@ function BranchesColumnContent({
 										item={item}
 										selected={getItemTarget(item) === selectedRefName}
 										isApplied={appliedStackIds.includes(item.name) || Boolean(item.target && appliedStackIds.includes(item.target))}
+										dragPayload={getDragPayload(item)}
 										onSelect={() => onSelectRef(item)}
 									/>
 								))}
@@ -869,15 +1016,97 @@ function BranchesColumnContent({
 	);
 }
 
+function BranchesOperationPreviewDialog({
+	operation,
+	previewState,
+	applyError,
+	isApplying,
+	onApply,
+	onClose,
+}: {
+	operation: VcsWorkspaceOperation | null;
+	previewState: QueryState<VcsOperationPreview>;
+	applyError: string | null;
+	isApplying: boolean;
+	onApply: () => void;
+	onClose: () => void;
+}): React.ReactElement {
+	const isPreviewCurrent =
+		operation !== null &&
+		previewState.status === "ready" &&
+		areVcsWorkspaceOperationsEqual(previewState.data.operation, operation);
+	return (
+		<Dialog
+			open={operation !== null}
+			onOpenChange={(open) => {
+				if (!open) {
+					onClose();
+				}
+			}}
+			contentClassName="max-w-2xl"
+		>
+			<DialogHeader title="Workspace Operation" icon={<GitBranch size={16} />} />
+			<DialogBody>
+				{previewState.status === "loading" ? (
+					<div className="flex items-center gap-2 text-sm text-text-secondary">
+						<Spinner size={16} />
+						Loading preview.
+					</div>
+				) : previewState.status === "error" ? (
+					<p className="text-sm text-status-red">{previewState.message}</p>
+				) : (
+					<div className="grid gap-3">
+						<KeyValue
+							label="Risk"
+							value={
+								<StatusChip
+									label={previewState.data.risk}
+									tone={previewState.data.risk === "high" ? "red" : previewState.data.risk === "medium" ? "orange" : "green"}
+								/>
+							}
+						/>
+						<KeyValue label="Summary" value={previewState.data.summary} />
+						{previewState.data.disabledReason ? (
+							<KeyValue label="Disabled" value={previewState.data.disabledReason} />
+						) : null}
+						{!isPreviewCurrent ? (
+							<KeyValue label="Status" value="Preview is stale. Reopen this operation before applying it." />
+						) : null}
+						{previewState.data.affectedStackIds.length > 0 ? (
+							<KeyValue label="Stacks" value={previewState.data.affectedStackIds.join(", ")} />
+						) : null}
+						{applyError ? <p className="text-sm text-status-red">{applyError}</p> : null}
+					</div>
+				)}
+			</DialogBody>
+			<DialogFooter>
+				<Button variant="ghost" onClick={onClose}>
+					Close
+				</Button>
+				<Button
+					variant="primary"
+					icon={isApplying ? <Spinner size={14} /> : <Play size={14} />}
+					disabled={previewState.status !== "ready" || !previewState.data.valid || !isPreviewCurrent || isApplying}
+					onClick={onApply}
+				>
+					{isApplying ? "Applying" : "Apply operation"}
+				</Button>
+			</DialogFooter>
+		</Dialog>
+	);
+}
+
 function BranchRow({
 	item,
 	selected,
 	isApplied,
+	dragPayload,
 	onSelect,
 }: {
 	item: VcsJjInventoryItem;
 	selected: boolean;
 	isApplied: boolean;
+	dragPayload: VcsWorkspaceDragPayload | null;
 	onSelect: () => void;
 }): React.ReactElement {
 	const title = item.title?.trim() || item.name;
@@ -891,11 +1120,17 @@ function BranchRow({
 	return (
 		<button
 			type="button"
+			draggable={Boolean(dragPayload)}
 			className={cn(
 				"flex w-full min-w-0 cursor-pointer flex-col border-b border-border px-3 py-3 text-left transition-colors last:border-b-0 hover:bg-surface-2",
 				selected && "bg-surface-2",
 				selected && SELECTED_REF_MARKER_CLASS,
 			)}
+			onDragStart={(event) => {
+				if (dragPayload) {
+					writeDragPayload(event, dragPayload);
+				}
+			}}
 			onClick={onSelect}
 		>
 			<div className="flex min-w-0 items-center gap-2">
@@ -961,7 +1196,7 @@ function StackDetailColumn({
 	onSelectFile: (path: string) => void;
 }): React.ReactElement {
 	if (!selectedRefName) {
-		return <div className="p-3"><EmptyState title="Select a branch">Choose a branch or bookmark to show its stack.</EmptyState></div>;
+		return <div className="p-3"><EmptyState title="Select a branch">Choose a branch or ref to show its stack.</EmptyState></div>;
 	}
 	if (activeItem?.type === "workspace") {
 		return (
@@ -1007,7 +1242,7 @@ function StackDetailColumn({
 		return (
 			<div className="p-3">
 				<EmptyState title="No derived stack">
-					This ref is not part of an active local JJ stack.
+					This ref is not part of an active local stack.
 				</EmptyState>
 			</div>
 		);
@@ -1046,6 +1281,7 @@ function StackHeaderActions({
 	stackId,
 	canApply,
 	isApplied,
+	disabledReason,
 	isUpdating,
 	onApplyStack,
 	onUnapplyStack,
@@ -1054,6 +1290,7 @@ function StackHeaderActions({
 	stackId: string | null;
 	canApply: boolean;
 	isApplied: boolean;
+	disabledReason: string | null;
 	isUpdating: boolean;
 	onApplyStack: (stackId: string) => void;
 	onUnapplyStack: (stackId: string) => void;
@@ -1071,7 +1308,8 @@ function StackHeaderActions({
 				size="sm"
 				icon={<GitBranch size={14} />}
 				className="shrink-0"
-				disabled={isUpdating || (!canApply && !isApplied)}
+				disabled={isUpdating || Boolean(disabledReason) || (!canApply && !isApplied)}
+				title={disabledReason ?? undefined}
 				onClick={() => {
 					if (!stackId) {
 						return;
@@ -1090,6 +1328,8 @@ function StackHeaderActions({
 				size="sm"
 				iconRight={<Trash2 size={14} />}
 				className="shrink-0"
+				disabled
+				title="Deleting local refs is not implemented in the provider-neutral workspace engine yet."
 				onClick={() => undefined}
 			>
 				Delete local
@@ -1106,7 +1346,7 @@ function WorkspaceTargetHeaderMetadata({ item }: { item: VcsJjInventoryItem }): 
 	return (
 		<div className="flex min-w-0 flex-wrap items-center gap-2">
 			{item.changeId ? (
-				<CopyValueButton label="Change" displayValue={item.changeId} copyValue={item.changeId} />
+				<CopyValueButton label="Provider ID" displayValue={item.changeId} copyValue={item.changeId} />
 			) : null}
 			{item.commitId ? (
 				<CopyValueButton label="Commit" displayValue={shortCommitId ?? item.commitId} copyValue={item.commitId} />

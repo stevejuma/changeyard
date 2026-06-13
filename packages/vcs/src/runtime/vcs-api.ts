@@ -21,6 +21,7 @@ import type {
 	RuntimeTaskSessionStopRequest,
 	RuntimeTaskSessionStopResponse,
 	RuntimeVcsProjectEventKind,
+	VcsBranchesDataResponse,
 	VcsDetectResponse,
 	VcsJjBranchesDataResponse,
 	VcsJjDiffResponse,
@@ -30,6 +31,16 @@ import type {
 	VcsJjStateResponse,
 } from "@/runtime/types";
 import { subscribeToVcsProjectEvents } from "@/runtime/vcs-events";
+import type {
+	VcsDiffInput,
+	VcsDiffResult,
+	VcsOperationPreview,
+	VcsOperationResult,
+	VcsWorkspaceOperationInput,
+	VcsWorkspaceStack,
+	VcsWorkspaceState,
+	VcsWorkspaceStateInput,
+} from "@/vcs-workspace-contracts";
 
 export type VcsApiTag =
 	| "Stacks"
@@ -49,8 +60,36 @@ export type VcsApiTag =
 	| "RepositoryLog"
 	| "Projects";
 
+export const VCS_WORKSPACE_OPERATION_INVALIDATION_TAGS = [
+	"Stacks",
+	"StackDetails",
+	"WorktreeChanges",
+	"BranchListing",
+	"BranchDetails",
+	"HeadSha",
+	"BaseBranchData",
+	"DivergentBookmarks",
+	"Diff",
+	"CommitChanges",
+	"OperationHistory",
+	"OperationDetails",
+	"RepositoryLog",
+] satisfies VcsApiTag[];
+
 type WorkspaceQueryArg = {
 	workspaceId: string;
+};
+
+type VcsWorkspaceStateQueryArg = WorkspaceQueryArg & {
+	input?: Omit<VcsWorkspaceStateInput, "projectId">;
+};
+
+type VcsDiffQueryArg = WorkspaceQueryArg & {
+	input?: Omit<VcsDiffInput, "projectId">;
+};
+
+type VcsWorkspaceOperationArg = WorkspaceQueryArg & {
+	input: Omit<VcsWorkspaceOperationInput, "projectId">;
 };
 
 type CommitDiffQueryArg = WorkspaceQueryArg & {
@@ -135,7 +174,7 @@ export function toRuntimeQueryState<T>(result: RtkResult<T>, message: string): Q
 	return { status: "loading" };
 }
 
-function tagsForVcsEvent(kind: RuntimeVcsProjectEventKind): VcsApiTag[] {
+export function tagsForVcsEvent(kind: RuntimeVcsProjectEventKind): VcsApiTag[] {
 	switch (kind) {
 		case "worktree_changes":
 			return [
@@ -439,6 +478,111 @@ export const vcsApi = createApi({
 			onCacheEntryAdded: ({ workspaceId }, { dispatch, cacheDataLoaded, cacheEntryRemoved }) =>
 				subscribeToWorkspaceEvents(workspaceId, dispatch, cacheDataLoaded, cacheEntryRemoved),
 		}),
+		getVcsBranchesData: builder.query<VcsBranchesDataResponse, WorkspaceQueryArg>({
+			queryFn: async ({ workspaceId }, { signal }) => {
+				try {
+					return { data: await fetchTrpcQuery<VcsBranchesDataResponse>("vcs.branchesData", undefined, workspaceId, { signal }) };
+				} catch (error) {
+					return { error };
+				}
+			},
+			providesTags: [
+				"BranchListing",
+				"Stacks",
+				"StackDetails",
+				"BaseBranchData",
+				"DivergentBookmarks",
+				"HeadSha",
+				"WorktreeChanges",
+			],
+			onCacheEntryAdded: ({ workspaceId }, { dispatch, cacheDataLoaded, cacheEntryRemoved }) =>
+				subscribeToWorkspaceEvents(workspaceId, dispatch, cacheDataLoaded, cacheEntryRemoved),
+		}),
+		getVcsWorkspaceState: builder.query<VcsWorkspaceState, VcsWorkspaceStateQueryArg>({
+			queryFn: async ({ workspaceId, input }, { signal }) => {
+				try {
+					return {
+						data: await fetchTrpcQuery<VcsWorkspaceState>(
+							"vcs.workspaceState",
+							input ?? {},
+							workspaceId,
+							{ signal },
+						),
+					};
+				} catch (error) {
+					return { error };
+				}
+			},
+			providesTags: ["Stacks", "StackDetails", "WorktreeChanges", "HeadSha", "BaseBranchData"],
+			onCacheEntryAdded: ({ workspaceId }, { dispatch, cacheDataLoaded, cacheEntryRemoved }) =>
+				subscribeToWorkspaceEvents(workspaceId, dispatch, cacheDataLoaded, cacheEntryRemoved),
+		}),
+		getVcsStacks: builder.query<{ stacks: VcsWorkspaceStack[] }, VcsWorkspaceStateQueryArg>({
+			queryFn: async ({ workspaceId, input }, { signal }) => {
+				try {
+					return {
+						data: await fetchTrpcQuery<{ stacks: VcsWorkspaceStack[] }>(
+							"vcs.workspaceStacks",
+							input ?? {},
+							workspaceId,
+							{ signal },
+						),
+					};
+				} catch (error) {
+					return { error };
+				}
+			},
+			providesTags: ["Stacks", "StackDetails", "BranchListing", "BranchDetails", "BaseBranchData"],
+			onCacheEntryAdded: ({ workspaceId }, { dispatch, cacheDataLoaded, cacheEntryRemoved }) =>
+				subscribeToWorkspaceEvents(workspaceId, dispatch, cacheDataLoaded, cacheEntryRemoved),
+		}),
+		getVcsDiff: builder.query<VcsDiffResult, VcsDiffQueryArg>({
+			queryFn: async ({ workspaceId, input }, { signal }) => {
+				try {
+					return {
+						data: await fetchTrpcQuery<VcsDiffResult>("vcs.diff", input ?? {}, workspaceId, { signal }),
+					};
+				} catch (error) {
+					return { error };
+				}
+			},
+			providesTags: ["WorktreeChanges", "Diff", "CommitChanges"],
+			onCacheEntryAdded: ({ workspaceId }, { dispatch, cacheDataLoaded, cacheEntryRemoved }) =>
+				subscribeToWorkspaceEvents(workspaceId, dispatch, cacheDataLoaded, cacheEntryRemoved),
+		}),
+		previewVcsOperation: builder.query<VcsOperationPreview, VcsWorkspaceOperationArg>({
+			queryFn: async ({ workspaceId, input }, { signal }) => {
+				try {
+					return {
+						data: await fetchTrpcQuery<VcsOperationPreview>(
+							"vcs.previewWorkspaceOperation",
+							input,
+							workspaceId,
+							{ signal },
+						),
+					};
+				} catch (error) {
+					return { error };
+				}
+			},
+			providesTags: ["Diff"],
+		}),
+		applyVcsOperation: builder.mutation<VcsOperationResult, VcsWorkspaceOperationArg>({
+			queryFn: async ({ workspaceId, input }) => {
+				try {
+					return {
+						data: await postTrpcMutation<VcsOperationResult>(
+							"vcs.applyWorkspaceOperation",
+							input,
+							workspaceId,
+						),
+					};
+				} catch (error) {
+					return { error };
+				}
+			},
+			invalidatesTags: VCS_WORKSPACE_OPERATION_INVALIDATION_TAGS,
+		}),
 		getRepositoryCommitDiff: builder.query<RuntimeGitCommitDiffResponse, CommitDiffQueryArg>({
 			queryFn: async ({ workspaceId, commitHash }, { signal }) => {
 				try {
@@ -604,6 +748,13 @@ export const {
 	useGetJjDiffQuery,
 	useGetJjInventoryQuery,
 	useGetJjBranchesDataQuery,
+	useGetVcsBranchesDataQuery,
+	useGetVcsWorkspaceStateQuery,
+	useGetVcsStacksQuery,
+	useGetVcsDiffQuery,
+	usePreviewVcsOperationQuery,
+	useLazyPreviewVcsOperationQuery,
+	useApplyVcsOperationMutation,
 	useGetRepositoryCommitDiffQuery,
 	useGetRepositoryLogQuery,
 	useGetJjOperationsQuery,

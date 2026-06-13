@@ -10,6 +10,7 @@ const execFile = promisify(execFileCallback);
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(currentDir, "../../..");
 const fixtureScript = resolve(repoRoot, "scripts/create-vcs-jj-fixture.ts");
+const gitFixtureScript = resolve(repoRoot, "scripts/create-vcs-git-fixture.ts");
 
 type FixtureMetadata = {
 	repoPath: string;
@@ -49,6 +50,23 @@ async function createFixture(): Promise<{ tempDir: string; fixture: FixtureMetad
 	};
 }
 
+async function createGitFixture(): Promise<{ tempDir: string; fixture: FixtureMetadata }> {
+	const tempDir = await mkdtemp(join(tmpdir(), "changeyard-vcs-git-e2e-"));
+	const repoPath = join(tempDir, "vcs-git-fixture");
+	const result = await execFile("node", ["--import", "tsx", gitFixtureScript, repoPath, "--force", "--clean", "--json"], {
+		cwd: repoRoot,
+		encoding: "utf8",
+		maxBuffer: 10 * 1024 * 1024,
+	});
+	const fixture = JSON.parse(result.stdout) as FixtureMetadata;
+	await execFile("git", ["switch", "feature/export-json"], {
+		cwd: fixture.repoPath,
+		encoding: "utf8",
+		maxBuffer: 10 * 1024 * 1024,
+	});
+	return { tempDir, fixture };
+}
+
 async function addProject(request: APIRequestContext, repoPath: string): Promise<string> {
 	const response = await request.post("/api/trpc/projects.add", {
 		data: { path: repoPath },
@@ -83,6 +101,22 @@ async function openBranchesRef(page: Page, workspaceId: string, ref: string): Pr
 async function openWorkspace(page: Page, workspaceId: string): Promise<void> {
 	await page.goto(`/vcs/jj?workspaceId=${encodeURIComponent(workspaceId)}`);
 	await expect(page.getByText("Working Copy", { exact: true })).toBeVisible();
+}
+
+async function ensureStackApplied(page: Page, workspaceId: string, stackName: string): Promise<void> {
+	await openBranches(page, workspaceId);
+	await page.getByText(stackName, { exact: true }).click();
+	const applyButton = page.getByRole("button", { name: "Apply to workspace" });
+	const unapplyButton = page.getByRole("button", { name: "Unapply from workspace" });
+	await expect(applyButton.or(unapplyButton)).toBeVisible();
+	if (await applyButton.isVisible()) {
+		await applyButton.click();
+		const previewDialog = page.getByRole("dialog", { name: "Workspace Operation" });
+		await expect(previewDialog).toBeVisible();
+		await previewDialog.getByRole("button", { name: "Apply operation" }).click();
+		await expect(previewDialog).toBeHidden();
+		await expect(unapplyButton).toBeVisible();
+	}
 }
 
 async function openSettings(page: Page, workspaceId: string): Promise<void> {
@@ -129,10 +163,15 @@ test.describe.serial("VCS JJ fixture", () => {
 		await expect(page.getByRole("button", { name: "prepare cloud deployment config", exact: true })).toBeVisible();
 	});
 
-	test("Workspace applies a stack and opens changed files and diff", async ({ page }) => {
+	test("Workspace applies and unapplies a stack and opens changed files and diff", async ({ page }) => {
 		await openBranches(page, workspaceId);
 		await page.getByText("feature/export-json", { exact: true }).click();
 		await page.getByRole("button", { name: "Apply to workspace" }).click();
+		const applyDialog = page.getByRole("dialog", { name: "Workspace Operation" });
+		await expect(applyDialog).toBeVisible();
+		await expect(applyDialog.getByText(/Apply stack/i)).toBeVisible();
+		await applyDialog.getByRole("button", { name: "Apply operation" }).click();
+		await expect(applyDialog).toBeHidden();
 		await expect(page.getByRole("button", { name: "Unapply from workspace" })).toBeVisible();
 
 		await openWorkspace(page, workspaceId);
@@ -145,6 +184,170 @@ test.describe.serial("VCS JJ fixture", () => {
 		await page.getByTestId("vcs-file-row").and(page.locator('[data-file-path="src/output.rs"]')).click();
 		await expect(page).toHaveURL(/file=src%2Foutput\.rs/);
 		await expect(page.getByTestId("vcs-file-diff-column").getByText("src/output.rs", { exact: true })).toBeVisible();
+
+		await page.getByRole("button", { name: "Unapply feature/export-json" }).click();
+		const unapplyDialog = page.getByRole("dialog", { name: "Workspace Operation" });
+		await expect(unapplyDialog).toBeVisible();
+		await expect(unapplyDialog.getByText(/Unapply stack/i)).toBeVisible();
+		await unapplyDialog.getByRole("button", { name: "Apply operation" }).click();
+		await expect(unapplyDialog).toBeHidden();
+		await expect(page.getByText("No stacks applied", { exact: true })).toBeVisible();
+		await expect(page.getByText("feature/export-json", { exact: true })).toHaveCount(0);
+	});
+
+	test("Workspace previews and applies a neutral commit message edit", async ({ page }) => {
+		await ensureStackApplied(page, workspaceId, "feature/export-json");
+		await openWorkspace(page, workspaceId);
+
+		const nextTitle = "add json report mode polished";
+		await page.getByRole("button", { name: "Edit commit add json report mode" }).click();
+		const editDialog = page.getByRole("dialog", { name: "Edit Commit Message" });
+		await expect(editDialog).toBeVisible();
+		await editDialog.getByLabel("Commit message").fill(nextTitle);
+		await editDialog.getByRole("button", { name: "Preview changes" }).click();
+
+		const previewDialog = page.getByRole("dialog", { name: "Workspace Operation" });
+		await expect(previewDialog).toBeVisible();
+		await expect(previewDialog.getByText(/Update .* description/i)).toBeVisible();
+		await previewDialog.getByRole("button", { name: "Apply operation" }).click();
+		await expect(previewDialog).toBeHidden();
+		await expect(page.getByText(nextTitle, { exact: true })).toBeVisible();
+		await expect(page.getByText("add json report mode", { exact: true })).toBeHidden();
+
+		await openBranchesRef(page, workspaceId, "origin/main");
+		await page.getByText("feature/export-json", { exact: true }).click();
+		await expect(page.getByRole("button", { name: nextTitle, exact: true })).toBeVisible();
+	});
+
+	test("Workspace drag and drop previews a neutral file-to-commit operation", async ({ page }) => {
+		await ensureStackApplied(page, workspaceId, "feature/export-json");
+		await openWorkspace(page, workspaceId);
+
+		const source = page.getByTestId("vcs-working-copy-file-row").and(page.locator('[data-file-path="README.md"]'));
+		const target = page.getByTestId("vcs-workspace-commit-card").filter({ hasText: "add serde task serialization" });
+		await expect(source).toBeVisible();
+		await expect(target).toBeVisible();
+
+		await source.dragTo(target);
+
+		const dialog = page.getByRole("dialog", { name: "Workspace Operation" });
+		await expect(dialog).toBeVisible();
+		await expect(dialog.getByText("Paths", { exact: true })).toBeVisible();
+		await expect(dialog.getByText("README.md", { exact: true })).toBeVisible();
+		await expect(dialog.getByText("This drop target does not accept the dragged item.", { exact: true })).toBeHidden();
+	});
+
+	test("Workspace drag and drop previews a committed file-to-commit operation", async ({ page }) => {
+		await ensureStackApplied(page, workspaceId, "feature/export-json");
+		await openWorkspace(page, workspaceId);
+
+		await page.getByText("add serde task serialization", { exact: true }).click();
+		const source = page.getByTestId("vcs-file-row").and(page.locator('[data-file-path="Cargo.toml"]')).first();
+		const target = page.getByTestId("vcs-workspace-commit-card").filter({ hasText: /add json report mode(?: polished)?/ });
+		await expect(source).toBeVisible();
+		await expect(target).toBeVisible();
+
+		await source.dragTo(target);
+
+		const dialog = page.getByRole("dialog", { name: "Workspace Operation" });
+		await expect(dialog).toBeVisible();
+		await expect(dialog.getByText("Paths", { exact: true })).toBeVisible();
+		await expect(dialog.getByText("Cargo.toml", { exact: true })).toBeVisible();
+		await expect(dialog.getByText(/Move Cargo\.toml from .* into .*/i)).toBeVisible();
+		await expect(dialog.getByText("This drop target does not accept the dragged item.", { exact: true })).toBeHidden();
+	});
+
+	test("Workspace drag and drop previews a committed file-to-working-copy operation", async ({ page }) => {
+		await ensureStackApplied(page, workspaceId, "feature/export-json");
+		await openWorkspace(page, workspaceId);
+
+		await page.getByText(/add json report mode(?: polished)?/).click();
+		const source = page.getByTestId("vcs-file-row").and(page.locator('[data-file-path="src/output.rs"]')).first();
+		const target = page.getByTestId("vcs-working-copy-drop-target");
+		await expect(source).toBeVisible();
+		await expect(target).toBeVisible();
+
+		await source.dragTo(target);
+
+		const dialog = page.getByRole("dialog", { name: "Workspace Operation" });
+		await expect(dialog).toBeVisible();
+		await expect(dialog.getByText("Paths", { exact: true })).toBeVisible();
+		await expect(dialog.getByText("src/output.rs", { exact: true })).toBeVisible();
+		await expect(dialog.getByText(/Move src\/output\.rs from .* into @/i)).toBeVisible();
+		await expect(dialog.getByText("Only committed changes can be moved back to the working copy.", { exact: true })).toBeHidden();
+	});
+
+	test("Workspace hunk drag previews an enabled committed hunk-to-commit operation", async ({ page }) => {
+		await ensureStackApplied(page, workspaceId, "feature/export-json");
+		await openWorkspace(page, workspaceId);
+
+		await page.getByText("add serde task serialization", { exact: true }).click();
+		await page.getByTestId("vcs-file-row").and(page.locator('[data-file-path="src/tasks.rs"]')).first().click();
+		const source = page.getByTestId("vcs-diff-hunk").and(page.locator('[data-file-path="src/tasks.rs"]')).first();
+		const target = page.getByTestId("vcs-workspace-commit-card").filter({ hasText: /add json report mode(?: polished)?/ });
+		await expect(source).toBeVisible();
+		await expect(target).toBeVisible();
+		await expect(target).toHaveAttribute("data-drop-target-state", "idle");
+
+		await source.evaluate((element) => {
+			const dataTransfer = new DataTransfer();
+			(window as typeof window & { __changeyardHunkDrag?: DataTransfer }).__changeyardHunkDrag = dataTransfer;
+			element.dispatchEvent(new DragEvent("dragstart", { bubbles: true, cancelable: true, dataTransfer }));
+		});
+		await target.evaluate((element) => {
+			const dataTransfer = (window as typeof window & { __changeyardHunkDrag?: DataTransfer }).__changeyardHunkDrag;
+			if (!dataTransfer) {
+				throw new Error("Missing hunk drag DataTransfer.");
+			}
+			element.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer }));
+		});
+		await expect(target).toHaveAttribute("data-drop-target-state", "valid");
+		await target.evaluate((element) => {
+			const dataTransfer = (window as typeof window & { __changeyardHunkDrag?: DataTransfer }).__changeyardHunkDrag;
+			if (!dataTransfer) {
+				throw new Error("Missing hunk drag DataTransfer.");
+			}
+			element.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer }));
+		});
+		await source.evaluate((element) => {
+			const dataTransfer = (window as typeof window & { __changeyardHunkDrag?: DataTransfer }).__changeyardHunkDrag;
+			element.dispatchEvent(new DragEvent("dragend", { bubbles: true, cancelable: true, dataTransfer }));
+			delete (window as typeof window & { __changeyardHunkDrag?: DataTransfer }).__changeyardHunkDrag;
+		});
+		const dialog = page.getByRole("dialog", { name: "Workspace Operation" });
+		await expect(dialog).toBeVisible();
+		await expect(dialog.getByText("Paths", { exact: true })).toBeVisible();
+		await expect(dialog.getByText("src/tasks.rs", { exact: true })).toBeVisible();
+		await expect(dialog.getByText(/Move 1 selected hunk\(s\) from .* into .*/i)).toBeVisible();
+		await expect(dialog.getByText("This drop target does not accept the dragged item.", { exact: true })).toBeHidden();
+	});
+
+	test("Workspace visibly marks invalid drop targets while dragging", async ({ page }) => {
+		await ensureStackApplied(page, workspaceId, "feature/export-json");
+		await openWorkspace(page, workspaceId);
+
+		const source = page.getByTestId("vcs-working-copy-file-row").and(page.locator('[data-file-path="README.md"]'));
+		const invalidTarget = page.getByTestId("vcs-working-copy-drop-target");
+		await expect(source).toBeVisible();
+		await expect(invalidTarget).toHaveAttribute("data-drop-target-state", "idle");
+
+		const sourceBox = await source.boundingBox();
+		const targetBox = await invalidTarget.boundingBox();
+		expect(sourceBox).toBeTruthy();
+		expect(targetBox).toBeTruthy();
+		if (!sourceBox || !targetBox) {
+			return;
+		}
+
+		await page.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2);
+		await page.mouse.down();
+		await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + Math.min(targetBox.height - 12, sourceBox.height * 3), {
+			steps: 10,
+		});
+
+		await expect(invalidTarget).toHaveAttribute("data-drop-target-state", "invalid");
+		await page.mouse.up();
+		await expect(invalidTarget).toHaveAttribute("data-drop-target-state", "idle");
 	});
 
 	test("Top-level VCS navigation stays in the same browser document", async ({ page }) => {
@@ -241,5 +444,76 @@ test.describe.serial("VCS JJ fixture", () => {
 		await expect(page.getByText("Operations history", { exact: true })).toBeVisible();
 		await expect(page.getByText("add deployment health summary", { exact: true })).toBeVisible();
 		await expect(page.getByText("allow due date range queries", { exact: true })).toBeVisible();
+	});
+});
+
+test.describe.serial("VCS Git fixture", () => {
+	let tempDir = "";
+	let workspaceId = "";
+	let fixtureRepoPath = "";
+
+	test.beforeAll(async ({ request }) => {
+		const created = await createGitFixture();
+		tempDir = created.tempDir;
+		fixtureRepoPath = created.fixture.repoPath;
+		workspaceId = await addProject(request, created.fixture.repoPath);
+	});
+
+	test.afterAll(async ({ request }) => {
+		await removeProject(request, workspaceId);
+		if (tempDir) {
+			await rm(tempDir, { recursive: true, force: true });
+		}
+	});
+
+	test("Workspace opens a normal Git repository and applies supported drag operations", async ({ page }) => {
+		await openWorkspace(page, workspaceId);
+
+		await expect(page.getByText("Working Copy", { exact: true })).toBeVisible();
+		await expect(page.getByTestId("vcs-workspace-stack-drop-target").getByText("feature/export-json", { exact: true })).toBeVisible();
+		await expect(page.getByText("add serde task serialization", { exact: true })).toBeVisible();
+		await expect(page.getByRole("button", { name: "Edit commit add serde task serialization" })).toBeEnabled();
+		await expect(page.getByRole("button", { name: "Edit commit add json report mode" })).toBeDisabled();
+
+		await page.getByRole("button", { name: "Unapply feature/export-json" }).click();
+		const previewDialog = page.getByRole("dialog", { name: "Workspace Operation" });
+		await expect(previewDialog).toBeVisible();
+		await expect(previewDialog.getByText(/Unapply stack by switching to main/i)).toBeVisible();
+		await expect(previewDialog.getByText("medium", { exact: true })).toBeVisible();
+		await previewDialog.getByRole("button", { name: "Close" }).click();
+		await expect(previewDialog).toBeHidden();
+
+		await writeFile(
+			join(fixtureRepoPath, "README.md"),
+			"# VCS Git fixture\n\nA deterministic repository for normal Git VCS tests.\n\nLocal Git drag/drop preview.\n",
+		);
+		await openWorkspace(page, workspaceId);
+		const source = page.getByTestId("vcs-working-copy-file-row").and(page.locator('[data-file-path="README.md"]'));
+		const target = page.getByTestId("vcs-workspace-commit-card").filter({ hasText: "add serde task serialization" });
+		await expect(source).toBeVisible();
+		await expect(target).toBeVisible();
+
+		await source.dragTo(target);
+
+		const amendDialog = page.getByRole("dialog", { name: "Workspace Operation" });
+		await expect(amendDialog).toBeVisible();
+		await expect(amendDialog.getByText("README.md", { exact: true })).toBeVisible();
+		await expect(amendDialog.getByText(/Amend .* with 1 selected path/i)).toBeVisible();
+		await amendDialog.getByRole("button", { name: "Apply operation" }).click();
+		await expect(amendDialog).toBeHidden();
+		await expect(page.getByTestId("vcs-working-copy-file-row").and(page.locator('[data-file-path="README.md"]'))).toBeHidden();
+		await expect(page.getByTestId("vcs-file-row").and(page.locator('[data-file-path="README.md"]'))).toBeVisible();
+		await expect(page.getByTestId("vcs-file-diff-column").getByText("README.md", { exact: true })).toBeVisible();
+	});
+
+	test("Branches renders normal Git branch inventory", async ({ page }) => {
+		await page.goto(`/vcs/jj/branches?workspaceId=${encodeURIComponent(workspaceId)}`);
+		await expect(page.getByRole("main").getByText("Branches", { exact: true })).toBeVisible();
+		await expect(page.getByText("feature/export-json", { exact: true })).toBeVisible();
+		await page.getByText("feature/export-json", { exact: true }).click();
+		await expect(page.getByRole("button", { name: "add serde task serialization", exact: true })).toBeVisible();
+		await expect(page.getByRole("button", { name: "Unapply from workspace" })).toBeVisible();
+		await expect(page.getByRole("button", { name: "Delete local" })).toBeDisabled();
+		await expect(page.getByText("This ref is not part of an active local stack.", { exact: true })).toBeHidden();
 	});
 });

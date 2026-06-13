@@ -41,6 +41,7 @@ export interface SquashChangePreviewRequest {
 	kind: "squash_change";
 	sourceChangeId: string;
 	targetChangeId: string;
+	paths?: string[];
 }
 
 export interface AbsorbFilePreviewRequest {

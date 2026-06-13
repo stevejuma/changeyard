@@ -151,6 +151,10 @@ export type VcsJjBranchesDataResponse = {
 	state: VcsJjStateResponse;
 };
 
+export type VcsBranchInventoryItem = VcsJjInventoryItem;
+export type VcsBranchInventoryResponse = VcsJjInventoryResponse;
+export type VcsBranchesDataResponse = VcsJjBranchesDataResponse;
+
 export type RuntimeProjectConfigResponse = {
 	initialized: boolean;
 	providerType: "noop" | "local-folder" | "forgejo" | "github" | "gitlab";
