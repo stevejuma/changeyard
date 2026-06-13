@@ -25,6 +25,8 @@
 - [x] STOP: Verify VCS E2E Harness and RTK adoption.
 - [x] Milestone 7 SPA routing completed.
 - [x] STOP: Verify VCS SPA Routing.
+- [x] Milestone 8 cursor-based JJ pagination completed.
+- [x] STOP: Verify Cursor-Based JJ Pagination.
 
 ## Milestone 0: Planning Files First
 
@@ -301,12 +303,12 @@ Status: implementation complete, stopped for checkpoint verification
 - [x] Run VCS and runtime typechecks.
 - [x] Run full `npm test`.
 - [x] Start the VCS UI locally.
-- [ ] Open `/vcs/jj/branches`.
-- [ ] Open `/vcs/jj`.
-- [ ] Edit a normal project file externally and verify Working Copy updates without manual refresh.
-- [ ] Move or create a JJ commit externally and verify Branches/Workspace refresh through VCS activity/head events.
-- [ ] Verify repeated navigation does not create duplicate visible active requests.
-- [ ] Record manual verification notes below before continuing.
+- [x] Open `/vcs/jj/branches`.
+- [x] Open `/vcs/jj`.
+- [x] Edit a normal project file externally and verify Working Copy updates without manual refresh.
+- [x] Move or create a JJ commit externally and verify Branches/Workspace refresh through VCS activity/head events.
+- [x] Verify repeated navigation does not create duplicate visible active requests.
+- [x] Record manual verification notes below before continuing.
 
 Verification notes:
 
@@ -403,6 +405,7 @@ Verification notes:
         - `node --import tsx --test packages/kanban/src/runtime-stack/server/vcs-project-watcher.test.ts`
         - `npm --workspace @changeyard/kanban run runtime:typecheck`
         - `npm --workspace @changeyard/vcs run test -- branches-stack-model.test.ts routes.test.ts`
+- Manually verified to be working as expected.
 
 ## Milestone 6: Deterministic VCS E2E Harness And RTK Adoption
 
@@ -556,6 +559,56 @@ Verification notes:
 - The sandboxed E2E run failed before tests because local runtime port binding is restricted; the escalated run passed.
 - In-app browser was connected and showed the VCS app, but browser-control clicking timed out in the extension. The same route-switch behavior passed in the Playwright E2E browser.
 - Follow-up in-app browser verification passed on `http://127.0.0.1:4274/vcs/jj/branches?workspaceId=jj-sample-but&ref=origin%2Ftrunk`: clicking the Settings button opened the Settings dialog and left the URL unchanged.
+
+## Milestone 8: Cursor-Based JJ Pagination
+
+Status: completed
+
+- [x] Add cursor fields to VCS pagination contracts.
+- [x] Keep `skip`/`maxCount` as compatibility fallback for old callers and non-JJ reads.
+- [x] Add opaque base64url cursor payloads for JJ repository logs, operation lists, and operation commit pages.
+- [x] Validate cursor kind, operation snapshot, scope key, and frontier ids server-side.
+- [x] Freeze paginated JJ reads at concrete operation ids through `--at-op=<operation-id>`.
+- [x] Replace Branches workspace-target `skip` paging with frontier-based JJ commit cursor paging.
+- [x] Replace History operation commit graph growing-limit paging with frontier-based cursor paging.
+- [x] Split cursor commit-page loading from operation summary/patch loading so summary and patch commands are not rerun for follow-up pages.
+- [x] Replace common linear History operation-list paging with operation cursors.
+- [x] Keep a diagnostic fallback for non-linear operation-list graphs.
+- [x] Update RTK Query pagination merge behavior to append and dedupe by commit hash or operation id.
+- [x] Update `loadMore` hooks to send `nextCursor` instead of larger limits or offsets.
+
+### STOP: Verify Cursor-Based JJ Pagination
+
+- [x] Run cursor helper/unit tests.
+- [x] Run focused VCS tests.
+- [x] Run VCS typecheck.
+- [x] Run CLI/runtime build checks.
+- [x] Run `npm --workspace @changeyard/vcs run test`.
+- [x] Run `npm --workspace @changeyard/vcs run e2e`.
+- [x] Run `npm test`.
+- [ ] Manually scroll Branches target history in a large JJ repo.
+- [ ] Manually scroll History operations and selected operation commits in a large JJ repo.
+- [x] Record verification notes below.
+
+Verification notes:
+
+- Implemented cursor pagination for JJ-backed repository history, JJ operation history, and JJ operation commit graph reads.
+- Repository target history cursors keep the original target revset on the server and only persist the operation snapshot plus a frontier of parent commit ids.
+- Operation commit cursors use `all()` at the selected operation and retain frontier parents so merge histories remain reachable.
+- Operation list cursors use `jj op log --at-op=<lastOperationId>` for the next page and drop the repeated cursor operation.
+- If operation-list pagination sees non-linear operation parents, it returns a diagnostic and falls back to the previous growing-limit strategy.
+- The repository-log frontend hook keeps an explicit offset fallback for non-JJ callers that still return `hasMore` without a cursor.
+- Automated checks passed:
+  - `npm --workspace @changeyard/vcs run typecheck`
+  - `npm run build:cli`
+  - `npm --workspace @changeyard/kanban run runtime:typecheck`
+  - `node --import tsx --test tests/vcs-jj-operations.test.ts`
+  - `npm --workspace @changeyard/vcs run test`
+  - `npm --workspace @changeyard/vcs run e2e` outside the sandbox, with 8 fixture-backed tests
+  - `npm test` outside the sandbox, with 191 tests passing on the final diff
+- Sandbox note:
+  - The first `npm test` run failed only because the sandbox blocked runtime port probing and JJ secure repo config writes under `~/.config/jj/repos`.
+  - The same full suite passed outside the sandbox.
 
 ## Final Verification
 

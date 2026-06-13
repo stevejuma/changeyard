@@ -165,6 +165,7 @@ export interface VcsJjOperationEntry {
 	shortId: string;
 	description: string;
 	user: string | null;
+	userAvatarUrl: string | null;
 	timestamp: string | null;
 	files: VcsJjOperationFile[];
 	restoreEligible: boolean;
@@ -173,6 +174,7 @@ export interface VcsJjOperationEntry {
 export interface VcsJjOperationsResult {
 	operations: VcsJjOperationEntry[];
 	requestedLimit: number;
+	nextCursor?: string | null;
 	hasMore: boolean;
 	diagnostics: VcsDiagnostic[];
 }
@@ -201,6 +203,7 @@ export interface VcsJjOperationDiffResult {
 	commits: VcsJjOperationCommit[];
 	commitSkip: number;
 	commitLimit: number;
+	nextCursor?: string | null;
 	totalCommitCount: number;
 	hasMoreCommits: boolean;
 	diagnostics: VcsDiagnostic[];

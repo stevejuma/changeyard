@@ -219,7 +219,15 @@ async function resolveScopedRepositoryCwd(
 
 async function getWorkspaceApiRepositoryLog(
 	workspaceScope: { workspacePath: string },
-	input: { ref?: string | null; refs?: string[] | null; maxCount?: number | null; skip?: number | null; taskScope?: { taskId: string; baseRef: string } | null },
+	input: {
+		ref?: string | null;
+		refs?: string[] | null;
+		maxCount?: number | null;
+		skip?: number | null;
+		cursor?: string | null;
+		pageSize?: number | null;
+		taskScope?: { taskId: string; baseRef: string } | null;
+	},
 ) {
 	const taskScope = normalizeOptionalTaskWorkspaceScopeInput(input.taskScope ?? null);
 	const logCwd = await resolveScopedRepositoryCwd(workspaceScope, taskScope);
@@ -229,6 +237,8 @@ async function getWorkspaceApiRepositoryLog(
 		refs: input.refs ?? null,
 		maxCount: input.maxCount ?? undefined,
 		skip: input.skip ?? undefined,
+		cursor: input.cursor ?? null,
+		pageSize: input.pageSize ?? undefined,
 	});
 }
 
@@ -463,6 +473,8 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 				refs: input.refs ?? null,
 				maxCount: input.maxCount,
 				skip: input.skip,
+				cursor: input.cursor ?? null,
+				pageSize: input.pageSize ?? undefined,
 			});
 		},
 		loadRepositoryLog: async (workspaceScope, input) => {

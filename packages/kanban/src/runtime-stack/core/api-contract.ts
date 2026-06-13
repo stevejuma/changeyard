@@ -409,6 +409,8 @@ export type RuntimeVcsJjDiffResponse = z.infer<typeof runtimeVcsJjDiffResponseSc
 
 export const runtimeVcsJjOperationsRequestSchema = z.object({
 	limit: z.number().int().positive().max(1000).nullable().optional(),
+	cursor: z.string().nullable().optional(),
+	pageSize: z.number().int().positive().max(500).nullable().optional(),
 });
 export type RuntimeVcsJjOperationsRequest = z.infer<typeof runtimeVcsJjOperationsRequestSchema>;
 
@@ -423,6 +425,7 @@ export const runtimeVcsJjOperationEntrySchema = z.object({
 	shortId: z.string(),
 	description: z.string(),
 	user: z.string().nullable(),
+	userAvatarUrl: z.string().nullable(),
 	timestamp: z.string().nullable(),
 	files: z.array(runtimeVcsJjOperationFileSchema),
 	restoreEligible: z.boolean(),
@@ -432,6 +435,7 @@ export type RuntimeVcsJjOperationEntry = z.infer<typeof runtimeVcsJjOperationEnt
 export const runtimeVcsJjOperationsResponseSchema = z.object({
 	operations: z.array(runtimeVcsJjOperationEntrySchema),
 	requestedLimit: z.number().int().positive(),
+	nextCursor: z.string().nullable().optional(),
 	hasMore: z.boolean(),
 	diagnostics: z.array(runtimeVcsDiagnosticSchema),
 });
@@ -441,6 +445,8 @@ export const runtimeVcsJjOperationDiffRequestSchema = z.object({
 	operationId: z.string().min(1),
 	commitSkip: z.number().int().nonnegative().optional(),
 	commitLimit: z.number().int().positive().max(500).optional(),
+	cursor: z.string().nullable().optional(),
+	pageSize: z.number().int().positive().max(500).nullable().optional(),
 });
 export type RuntimeVcsJjOperationDiffRequest = z.infer<typeof runtimeVcsJjOperationDiffRequestSchema>;
 
@@ -469,6 +475,7 @@ export const runtimeVcsJjOperationDiffResponseSchema = z.object({
 	commits: z.array(runtimeVcsJjOperationCommitSchema),
 	commitSkip: z.number().int().nonnegative(),
 	commitLimit: z.number().int().positive(),
+	nextCursor: z.string().nullable().optional(),
 	totalCommitCount: z.number().int().nonnegative(),
 	hasMoreCommits: z.boolean(),
 	diagnostics: z.array(runtimeVcsDiagnosticSchema),
@@ -1995,6 +2002,8 @@ export const runtimeGitLogRequestSchema = z.object({
 	refs: z.array(z.string()).optional(),
 	maxCount: z.number().int().positive().optional(),
 	skip: z.number().int().nonnegative().optional(),
+	cursor: z.string().nullable().optional(),
+	pageSize: z.number().int().positive().max(500).optional(),
 	taskScope: runtimeTaskWorkspaceInfoRequestSchema.nullable().optional(),
 });
 export type RuntimeGitLogRequest = z.infer<typeof runtimeGitLogRequestSchema>;
@@ -2003,6 +2012,8 @@ export const runtimeGitLogResponseSchema = z.object({
 	ok: z.boolean(),
 	commits: z.array(runtimeGitCommitSchema),
 	totalCount: z.number(),
+	nextCursor: z.string().nullable().optional(),
+	hasMore: z.boolean().optional(),
 	error: z.string().optional(),
 });
 export type RuntimeGitLogResponse = z.infer<typeof runtimeGitLogResponseSchema>;

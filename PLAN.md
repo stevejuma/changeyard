@@ -192,6 +192,35 @@ The implementation must stop at explicit verification checkpoints before continu
 - Verify browser back/forward updates the displayed VCS route.
 - Record notes in `TASKS.md` after verification.
 
+## Milestone 8: Cursor-Based JJ Pagination
+
+- Replace offset and growing-limit pagination for JJ-backed history reads with opaque cursor pagination.
+- Add cursor/page-size fields to the repository log, JJ operations, and JJ operation-diff contracts while keeping old `skip`/`maxCount` fields as compatibility fallback.
+- Freeze paginated JJ reads at a concrete operation:
+  - first pages resolve the current operation with `jj op log --ignore-working-copy --at-op=@`
+  - follow-up pages use the resolved `--at-op=<operation-id>` from the cursor
+- Use DAG-safe commit frontiers for commit history:
+  - Branches workspace-target history pages use candidate parent frontiers inside the original target revset
+  - History operation commit graph pages use frontiers at the selected operation
+  - frontier cursors are opaque base64url JSON and are validated server-side against the recomputed request scope
+- Split History operation metadata from commit-page loading so loading more commits does not rerun operation summary and patch commands.
+- Improve operation-list pagination with operation cursors, falling back to the previous growing-limit behavior if a non-linear operation graph is detected.
+- Update RTK Query pagination wrappers so `loadMore` sends `nextCursor` instead of increasing a limit or skip count.
+- Dedupe appended pages by operation id or commit hash.
+
+### STOP: Verify Cursor-Based JJ Pagination
+
+- Run cursor helper/unit tests.
+- Run focused VCS tests.
+- Run VCS typecheck and build checks.
+- Run `npm --workspace @changeyard/vcs run test`.
+- Run `npm --workspace @changeyard/vcs run e2e`.
+- Run `npm test`.
+- Open Branches target history and scroll several pages in a large JJ repo.
+- Open History and scroll operations plus selected operation commits.
+- Verify no repeated full-history rereads and no duplicate rows.
+- Record notes in `TASKS.md` after verification.
+
 ## Final Verification
 
 - Run focused JJ/VCS tests.

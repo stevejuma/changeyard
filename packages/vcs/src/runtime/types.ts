@@ -182,6 +182,7 @@ export type VcsJjOperationEntry = {
 	shortId: string;
 	description: string;
 	user: string | null;
+	userAvatarUrl: string | null;
 	timestamp: string | null;
 	files: VcsJjOperationFile[];
 	restoreEligible: boolean;
@@ -190,6 +191,7 @@ export type VcsJjOperationEntry = {
 export type VcsJjOperationsResponse = {
 	operations: VcsJjOperationEntry[];
 	requestedLimit: number;
+	nextCursor?: string | null;
 	hasMore: boolean;
 	diagnostics: VcsDiagnostic[];
 };
@@ -218,6 +220,7 @@ export type VcsJjOperationDiffResponse = {
 	commits: VcsJjOperationCommit[];
 	commitSkip: number;
 	commitLimit: number;
+	nextCursor?: string | null;
 	totalCommitCount: number;
 	hasMoreCommits: boolean;
 	diagnostics: VcsDiagnostic[];
@@ -399,6 +402,8 @@ export type RuntimeGitLogRequest = {
 	refs?: string[];
 	maxCount?: number;
 	skip?: number;
+	cursor?: string | null;
+	pageSize?: number;
 	taskScope?: { taskId: string; baseRef: string } | null;
 };
 
@@ -406,6 +411,8 @@ export type RuntimeGitLogResponse = {
 	ok: boolean;
 	commits: RuntimeGitCommit[];
 	totalCount: number;
+	nextCursor?: string | null;
+	hasMore?: boolean;
 	error?: string;
 };
 

@@ -22,7 +22,8 @@ import {
 	VcsInlineFileSection,
 	type VcsFileChange,
 } from "@/components/vcs-file-columns";
-import { DiagnosticsPanel, EmptyState, QueryGate } from "@/components/vcs-panels";
+import { useVcsDiagnosticsToasts } from "@/components/vcs-diagnostics-toasts";
+import { EmptyState, QueryGate } from "@/components/vcs-panels";
 import { NoProjectSelected, SelectProjectButton, VcsShell, type VcsShellProjectState } from "@/components/vcs-shell";
 import type {
 	QueryState,
@@ -305,6 +306,7 @@ function WorkspaceReady({
 		writeQueryParam("workingCopyFile", value);
 		writeQueryParam("unstagedFile", null);
 	}
+	useVcsDiagnosticsToasts(data.diagnostics, "workspace");
 	const [updatingStackId, setUpdatingStackId] = useState<string | null>(null);
 	const [fileViewMode, setFileViewMode] = useState<VcsFileViewMode>(() => readVcsFileViewMode());
 	const [selectedCommitHash, setSelectedCommitHash] = useState<string | null>(() => readQueryParam("commit"));
@@ -561,10 +563,11 @@ function WorkspaceReady({
 			onClose={closeUnstagedDiff}
 		/>
 	) : null;
+	const showTrailingSpacer = appliedStacks.length > 0 || Boolean(selectedFile) || Boolean(selectedUnstagedFilePath);
 
 	return (
 		<div className="h-full min-h-0 overflow-x-auto overflow-y-hidden bg-surface-0 p-3">
-			<div className="flex h-full min-h-0 gap-3">
+			<div className="flex h-full min-h-0 min-w-full gap-3">
 				{isUnstagedCollapsed ? (
 					<VcsCollapsedColumn
 						label="Working Copy"
@@ -620,13 +623,14 @@ function WorkspaceReady({
 					))
 				)}
 				{selectedFile && !selectedStackId ? diffColumn : null}
-				<div
-					aria-hidden
-					className="h-full shrink-0"
-					style={{ width: WORKSPACE_TRAILING_SPACER_WIDTH, minWidth: WORKSPACE_TRAILING_SPACER_WIDTH }}
-				/>
+				{showTrailingSpacer ? (
+					<div
+						aria-hidden
+						className="h-full shrink-0"
+						style={{ width: WORKSPACE_TRAILING_SPACER_WIDTH, minWidth: WORKSPACE_TRAILING_SPACER_WIDTH }}
+					/>
+				) : null}
 			</div>
-			<DiagnosticsPanel diagnostics={data.diagnostics} />
 		</div>
 	);
 }
@@ -874,7 +878,7 @@ function UnstagedFileRow({
 
 function EmptyWorkspaceLanes(): React.ReactElement {
 	return (
-		<section className="flex h-full min-h-0 w-[520px] shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-surface-1">
+		<section className="flex h-full min-h-0 min-w-[520px] flex-1 flex-col overflow-hidden rounded-lg border border-border bg-surface-1">
 			<div className="flex h-full items-center justify-center bg-[radial-gradient(circle,_rgba(125,125,125,0.18)_1px,_transparent_1px)] [background-size:10px_10px] p-8 text-center">
 				<EmptyState title="No stacks applied">
 					Open Branches and apply a local stack to show it in this workspace.

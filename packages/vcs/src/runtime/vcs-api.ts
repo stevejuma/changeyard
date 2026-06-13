@@ -61,13 +61,14 @@ type UpdateProjectConfigArg = WorkspaceQueryArg & {
 };
 
 type JjOperationsQueryArg = WorkspaceQueryArg & {
-	limit: number;
+	cursor?: string | null;
+	pageSize: number;
 };
 
 type JjOperationDiffQueryArg = WorkspaceQueryArg & {
 	operationId: string;
-	commitSkip: number;
-	commitLimit: number;
+	cursor?: string | null;
+	pageSize: number;
 };
 
 type RepositoryLogQueryArg = WorkspaceQueryArg & {
@@ -442,15 +443,17 @@ export const vcsApi = createApi({
 		}),
 		getRepositoryLog: builder.query<RuntimeGitLogResponse, RepositoryLogQueryArg>({
 			serializeQueryArgs: ({ endpointName, queryArgs }) => {
-				const { maxCount: _maxCount, skip: _skip, ...baseInput } = queryArgs.input;
+				const { maxCount: _maxCount, skip: _skip, cursor: _cursor, pageSize: _pageSize, ...baseInput } = queryArgs.input;
 				return `${endpointName}:${queryArgs.workspaceId}:${JSON.stringify(baseInput)}`;
 			},
 			forceRefetch: ({ currentArg, previousArg }) =>
 				currentArg?.input.maxCount !== previousArg?.input.maxCount ||
 				currentArg?.input.skip !== previousArg?.input.skip ||
+				currentArg?.input.cursor !== previousArg?.input.cursor ||
+				currentArg?.input.pageSize !== previousArg?.input.pageSize ||
 				JSON.stringify(currentArg?.input ?? {}) !== JSON.stringify(previousArg?.input ?? {}),
 			merge: (currentCache, response, { arg }) => {
-				if (!arg.input.skip || arg.input.skip <= 0 || !currentCache.ok || !response.ok) {
+				if (((!arg.input.skip || arg.input.skip <= 0) && !arg.input.cursor) || !currentCache.ok || !response.ok) {
 					Object.assign(currentCache, response);
 					return;
 				}
@@ -481,15 +484,26 @@ export const vcsApi = createApi({
 		}),
 		getJjOperations: builder.query<VcsJjOperationsResponse, JjOperationsQueryArg>({
 			serializeQueryArgs: ({ endpointName, queryArgs }) => `${endpointName}:${queryArgs.workspaceId}`,
-			forceRefetch: ({ currentArg, previousArg }) => currentArg?.limit !== previousArg?.limit,
-			merge: (currentCache, response) => {
-				Object.assign(currentCache, response);
+			forceRefetch: ({ currentArg, previousArg }) =>
+				currentArg?.cursor !== previousArg?.cursor ||
+				currentArg?.pageSize !== previousArg?.pageSize,
+			merge: (currentCache, response, { arg }) => {
+				if (!arg.cursor) {
+					Object.assign(currentCache, response);
+					return;
+				}
+				const seen = new Set(currentCache.operations.map((operation) => operation.id));
+				const nextOperations = response.operations.filter((operation) => !seen.has(operation.id));
+				Object.assign(currentCache, {
+					...response,
+					operations: [...currentCache.operations, ...nextOperations],
+				});
 			},
-			queryFn: async ({ workspaceId, limit }, { signal }) => {
+			queryFn: async ({ workspaceId, cursor, pageSize }, { signal }) => {
 				try {
 					const payload = await fetchTrpcQuery<VcsJjOperationsResponse>(
 						"vcs.jjOperations",
-						{ limit },
+						{ cursor: cursor ?? null, pageSize },
 						workspaceId,
 						{ signal },
 					);
@@ -513,17 +527,29 @@ export const vcsApi = createApi({
 		getJjOperationDiff: builder.query<VcsJjOperationDiffResponse, JjOperationDiffQueryArg>({
 			serializeQueryArgs: ({ endpointName, queryArgs }) => `${endpointName}:${queryArgs.workspaceId}:${queryArgs.operationId}`,
 			forceRefetch: ({ currentArg, previousArg }) =>
-				currentArg?.commitSkip !== previousArg?.commitSkip ||
-				currentArg?.commitLimit !== previousArg?.commitLimit,
-			merge: (currentCache, response) => {
-				Object.assign(currentCache, response);
+				currentArg?.cursor !== previousArg?.cursor ||
+				currentArg?.pageSize !== previousArg?.pageSize,
+			merge: (currentCache, response, { arg }) => {
+				if (!arg.cursor) {
+					Object.assign(currentCache, response);
+					return;
+				}
+				const seen = new Set(currentCache.commits.map((commit) => commit.hash));
+				const nextCommits = response.commits.filter((commit) => !seen.has(commit.hash));
+				Object.assign(currentCache, {
+					...response,
+					summary: response.summary || currentCache.summary,
+					patch: response.patch || currentCache.patch,
+					files: response.files.length > 0 ? response.files : currentCache.files,
+					commits: [...currentCache.commits, ...nextCommits],
+				});
 			},
-			queryFn: async ({ workspaceId, operationId, commitSkip, commitLimit }, { signal }) => {
+			queryFn: async ({ workspaceId, operationId, cursor, pageSize }, { signal }) => {
 				try {
 					return {
 						data: await fetchTrpcQuery<VcsJjOperationDiffResponse>(
 							"vcs.jjOperationDiff",
-							{ operationId, commitSkip, commitLimit },
+							{ operationId, cursor: cursor ?? null, pageSize },
 							workspaceId,
 							{ signal },
 						),

@@ -1,6 +1,10 @@
 import { toast } from "sonner";
 
 interface AppToastProps {
+	action?: {
+		label: string;
+		onClick: () => void;
+	};
 	intent?: "danger" | "warning" | "success" | "primary" | "none";
 	icon?: string;
 	message: string;
@@ -14,6 +18,7 @@ interface NotifyErrorOptions {
 
 export function showAppToast(props: AppToastProps, key?: string): void {
 	const options: Parameters<typeof toast>[1] = {
+		action: props.action,
 		id: key,
 		duration: props.timeout ?? 5000,
 	};

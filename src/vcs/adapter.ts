@@ -28,17 +28,23 @@ export async function getJjInventory(repoRoot: string) {
 	return await loadJjInventory(repoRoot, runVcsCommand, { targetBranch: config.vcs.targetBranch ?? null });
 }
 
-export async function getJjOperations(repoRoot: string, input?: { limit?: number | null }) {
-	return await loadJjOperations(repoRoot, runVcsCommand, input?.limit ?? 30);
+export async function getJjOperations(repoRoot: string, input?: { limit?: number | null; cursor?: string | null; pageSize?: number | null }) {
+	return await loadJjOperations(repoRoot, runVcsCommand, {
+		limit: input?.limit,
+		cursor: input?.cursor,
+		pageSize: input?.pageSize,
+	});
 }
 
 export async function getJjOperationDiff(
 	repoRoot: string,
-	input: { operationId: string; commitSkip?: number | null; commitLimit?: number | null },
+	input: { operationId: string; commitSkip?: number | null; commitLimit?: number | null; cursor?: string | null; pageSize?: number | null },
 ) {
 	return await loadJjOperationDiff(repoRoot, runVcsCommand, input.operationId, {
 		commitSkip: input.commitSkip,
 		commitLimit: input.commitLimit,
+		cursor: input.cursor,
+		pageSize: input.pageSize,
 	});
 }
 
