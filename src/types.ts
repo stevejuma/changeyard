@@ -194,4 +194,9 @@ export type WorkspaceMetadata = {
   changePath: string;
   createdAt: string;
   branch?: string;
+  targetRef?: string;
+  baseCommitId?: string;
+  workspaceChangeId?: string;
+  workspaceCommitId?: string;
+  seedDescription?: string;
 };

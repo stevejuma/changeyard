@@ -1246,11 +1246,15 @@ test("jj workspace engine creates and verifies expected jj workspace", () => {
       if (args.join(" ") === "workspace root") return workspacePath;
       if (args.join(" ") === "workspace list") return "cy-CY-0001 abc123";
       if (args.join(" ") === "status") return "The working copy is clean";
+      if (args.join(" ") === "log --ignore-working-copy --at-op=@ -r @ --no-graph -T commit_id") return "commit123";
+      if (args.join(" ") === "log --ignore-working-copy --at-op=@ -r @ --no-graph -T change_id.short()") return "change123";
       return "";
     });
-    const metadata = { changeId: "CY-0001", engine: "jj", name: "cy-CY-0001", path: workspacePath, repoRoot: repo, changePath: path.join(repo, "change.md"), createdAt: "now" };
-    engine.create({ repoRoot: repo, workspacePath, metadata, neverCopy: [] });
-    assert.ok(calls.some((call) => call.includes("jj workspace add --name cy-CY-0001")));
+    const metadata = { changeId: "CY-0001", engine: "jj", name: "cy-CY-0001", path: workspacePath, repoRoot: repo, changePath: path.join(repo, "change.md"), createdAt: "now", targetRef: "main", seedDescription: "CY-0001: Test task" };
+    const created = engine.create({ repoRoot: repo, workspacePath, metadata, neverCopy: [] });
+    assert.ok(calls.some((call) => call.includes("jj workspace add --name cy-CY-0001 -r main -m CY-0001: Test task")));
+    assert.equal(created.workspaceChangeId, "change123");
+    assert.equal(created.workspaceCommitId, "commit123");
     assert.deepEqual(engine.verify({ cwd: workspacePath, metadata }), { valid: true, errors: [] });
     engine.publish({ cwd: workspacePath, metadata, branch: "cy/CY-0001" });
     assert.ok(calls.some((call) => call.includes("jj bookmark set cy/CY-0001 -r @")));
@@ -1697,6 +1701,12 @@ function runCommand(command: string, args: string[], cwd: string): void {
   if (result.status !== 0) throw new Error(result.stderr || `${command} ${args.join(" ")} failed`);
 }
 
+function commandOutput(command: string, args: string[], cwd: string): string {
+  const result = spawnSync(command, args, { cwd, encoding: "utf8" });
+  if (result.status !== 0) throw new Error(result.stderr || `${command} ${args.join(" ")} failed`);
+  return String(result.stdout ?? "").trim();
+}
+
 function hasCommand(command: string): boolean {
   return spawnSync(command, ["--version"], { encoding: "utf8" }).status === 0;
 }
@@ -1737,7 +1747,7 @@ test("jj workspace engine can verify a real jj workspace when jj is installed", 
   }
 });
 
-test("land squashes a completed jj workspace into the default bookmark", () => {
+test("land rebases and lands a described jj workspace task commit without root wip", () => {
   if (!hasCommand("git") || !hasCommand("jj")) return;
   const repo = tempRepo();
   try {
@@ -1758,17 +1768,42 @@ test("land squashes a completed jj workspace into the default bookmark", () => {
     runCreate({ template: "agent-task", title: "Land jj workspace" }, repo);
     runStart("CY-0001", repo);
     const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
+    const metadata = JSON.parse(readFileSync(path.join(repo, ".changeyard", "workspaces", "CY-0001", "metadata.json"), "utf8")) as { targetRef?: string; baseCommitId?: string; workspaceChangeId?: string; seedDescription?: string };
+    assert.equal(metadata.targetRef, "main");
+    assert.ok(metadata.baseCommitId);
+    assert.ok(metadata.workspaceChangeId);
+    assert.equal(metadata.seedDescription, "CY-0001: Land jj workspace");
+
+    const advanceWorkspace = path.join(repo, ".changeyard", "workspaces", "advance-main", "repo");
+    mkdirSync(path.dirname(advanceWorkspace), { recursive: true });
+    runCommand("jj", ["workspace", "add", "--name", "advance-main", "-r", "main", "-m", "advance main", advanceWorkspace], repo);
+    writeFileSync(path.join(advanceWorkspace, "advance.txt"), "advance\n");
+    runCommand("jj", ["bookmark", "set", "main", "-r", "@"], advanceWorkspace);
+    runCommand("jj", ["workspace", "forget", "advance-main"], repo);
+    rmSync(path.dirname(advanceWorkspace), { recursive: true, force: true });
+
     writeFileSync(path.join(workspacePath, "landed.txt"), "landed\n");
     const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-land-jj-workspace.md");
     updateSection(changePath, "Acceptance Criteria", "- [x] JJ workspace work is landed locally");
     updateSection(changePath, "Completion Notes", "Implemented the workspace file. Checks ran: node -v.");
+    writeFileSync(path.join(repo, "root-wip.txt"), "root only\n");
 
     assert.match(runComplete("CY-0001", { noPr: true }, workspacePath), /Next: cy land CY-0001/);
+    assert.match(runLand("CY-0001", { dryRun: true }, repo), /landingDescription: blocked/);
+    assert.throws(
+      () => runLand("CY-0001", {}, repo),
+      /Replace the generated task description before landing: jj describe -m "CY-0001: <summary of landed work>"/,
+    );
+    runCommand("jj", ["describe", "-m", "CY-0001: Implement JJ workspace landing"], workspacePath);
+    assert.match(runLand("CY-0001", { dryRun: true }, repo), /targetMoved: true/);
     assert.match(runLand("CY-0001", {}, repo), /Landed CY-0001 into main/);
 
-    assert.equal(readFileSync(path.join(repo, "landed.txt"), "utf8"), "landed\n");
     assert.equal(existsSync(path.join(repo, ".changeyard", "workspaces", "CY-0001")), false);
-    const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
+    assert.equal(commandOutput("jj", ["file", "show", "-r", "main", "--", "landed.txt"], repo), "landed");
+    assert.equal(commandOutput("jj", ["file", "show", "-r", "main", "--", "advance.txt"], repo), "advance");
+    const rootWipResult = spawnSync("jj", ["file", "show", "-r", "main", "--", "root-wip.txt"], { cwd: repo, encoding: "utf8" });
+    assert.notEqual(rootWipResult.status, 0);
+    const parsed = parseFrontmatter(commandOutput("jj", ["file", "show", "-r", "main", "--", ".changeyard/changes/CY-0001-land-jj-workspace.md"], repo));
     assert.equal(parsed.frontmatter.status, "merged");
   } finally {
     cleanup(repo);

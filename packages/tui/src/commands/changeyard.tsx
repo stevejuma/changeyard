@@ -199,6 +199,8 @@ export function useChangeyardActions() {
           `workspace: ${result.workspace.path ?? "missing"}`,
           `workspace dirty: ${String(result.workspace.dirty)}`,
           `workspace conflicts: ${String(result.workspace.conflicts)}`,
+          `landable: ${String(result.workspace.landable)}`,
+          ...(result.workspace.landingDescriptionError ? [`land blocker: ${result.workspace.landingDescriptionError}`] : []),
         ] : []),
         ...result.blockers.map((blocker) => `blocker: ${blocker}`),
       ];
@@ -239,8 +241,14 @@ export function useChangeyardActions() {
         `dirty: ${String(result.dirty)}`,
         `conflicts: ${String(result.conflicts)}`,
         `landed: ${String(result.landed)}`,
+        `target: ${result.targetRef ?? "unknown"}`,
+        `target moved: ${String(result.targetMoved)}`,
+        `workspace change: ${result.workspaceChangeId ?? "unknown"}`,
+        `landing description: ${result.landingDescriptionValid ? "ok" : result.landingDescriptionError ?? "unknown"}`,
+        `landable: ${String(result.landable)}`,
         ...(result.nextCommand ? [`next: ${result.nextCommand}`] : []),
         ...result.errors.map((error) => `error: ${error}`),
+        ...result.landBlockers.map((blocker) => `land blocker: ${blocker}`),
       ];
       state.setStatus(result.nextCommand ?? `Workspace status loaded for ${selected.id}`);
       dialog.replace(() => <DialogMessage title="Workspace status" lines={lines} />);

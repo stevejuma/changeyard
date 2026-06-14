@@ -9,6 +9,7 @@ import { findChangeFile } from "../state/id.js";
 import { assertTransition } from "../state/transitions.js";
 import { hydrateWorkspace } from "../hydrate/hydrateWorkspace.js";
 import { createWorkspaceEngine } from "../workspace/index.js";
+import { shellCommandRunner } from "../workspace/commandRunner.js";
 import type { Frontmatter, WorkspaceMetadata } from "../types.js";
 
 function asRecord(value: unknown): Frontmatter {
@@ -17,6 +18,10 @@ function asRecord(value: unknown): Frontmatter {
 
 function fillPattern(pattern: string, id: string): string {
   return pattern.replaceAll("{id}", id);
+}
+
+function jjCommitId(repoRoot: string, revision: string): string {
+  return shellCommandRunner("jj", ["log", "--ignore-working-copy", "--at-op=@", "-r", revision, "--no-graph", "-T", "commit_id"], repoRoot);
 }
 
 type MutationOptions = {
@@ -40,6 +45,8 @@ export function runStart(id: string, repoRoot = process.cwd(), mutationOptions: 
   assertTransition(status, "in_progress", `Start ${id}`);
 
   const engineName = String(asRecord(parsed.frontmatter.workspace).engine ?? config.vcs.engine);
+  const targetRef = String(asRecord(parsed.frontmatter.base).revision ?? config.project.defaultBase);
+  const seedDescription = `${id}: ${String(parsed.frontmatter.title ?? id)}`;
   const workspacePath = path.resolve(repoRoot, config.storage.root, config.storage.workspacesDir, fillPattern(config.workspace.pathPattern, id));
   const workspaceName = String(asRecord(parsed.frontmatter.workspace).name ?? config.workspace.namePattern.replace("{id}", id));
   const workspaceRelativePath = path.relative(repoRoot, workspacePath);
@@ -52,6 +59,13 @@ export function runStart(id: string, repoRoot = process.cwd(), mutationOptions: 
     changePath: filePath,
     createdAt: new Date().toISOString(),
     branch: String(asRecord(parsed.frontmatter.branch).name ?? `cy/${id}`),
+    ...(engineName === "jj"
+      ? {
+          targetRef,
+          baseCommitId: jjCommitId(repoRoot, targetRef),
+          seedDescription,
+        }
+      : {}),
   };
 
   if (mutationOptions.dryRun) {
@@ -81,6 +95,8 @@ export function runStart(id: string, repoRoot = process.cwd(), mutationOptions: 
 
   return [
     `Started ${id} in ${workspaceRelativePath}`,
+    ...(createdMetadata.targetRef ? [`Base: ${createdMetadata.targetRef} ${createdMetadata.baseCommitId ?? ""}`.trim()] : []),
+    ...(createdMetadata.workspaceChangeId ? [`Workspace change: ${createdMetadata.workspaceChangeId}`] : []),
     `Next: cd ${workspaceRelativePath}`,
     `Hydration: copied ${hydrateResult.copied.length}, skipped ${hydrateResult.skipped.length}`,
     `Then: cy verify ${id}`,
