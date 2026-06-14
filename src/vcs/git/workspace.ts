@@ -8,6 +8,12 @@ const LOG_FORMAT = ["%H", "%h", "%an", "%ae", "%aI", "%s", "%P"].join(FIELD_SEPA
 
 type GitFileStatus = "modified" | "added" | "deleted" | "renamed" | "copied" | "unknown";
 type GitHunkSelection = NonNullable<NeutralSelection["hunks"]>[number];
+type GitWorkingCopyFile = {
+	path: string;
+	previousPath?: string | null;
+	status: GitFileStatus;
+	statusCode: string;
+};
 
 type GitPatchFile = {
 	path: string;
@@ -87,8 +93,37 @@ function mapGitStatus(code: string): GitFileStatus {
 	return "unknown";
 }
 
-function parsePorcelainStatus(output: string) {
-	const files: Array<{ path: string; previousPath?: string | null; status: GitFileStatus }> = [];
+function isGitConflictStatus(code: string): boolean {
+	return ["DD", "AU", "UD", "UA", "DU", "AA", "UU"].includes(code);
+}
+
+function stripGitStatusCode(file: GitWorkingCopyFile) {
+	const { statusCode: _statusCode, ...publicFile } = file;
+	return publicFile;
+}
+
+function conflictFromGitStatus(file: GitWorkingCopyFile) {
+	if (!isGitConflictStatus(file.statusCode)) {
+		return null;
+	}
+	return {
+		id: `git-conflict:${file.path}`,
+		path: file.path,
+		message: `Git reports an unresolved ${file.statusCode} conflict for ${file.path}.`,
+		commitIds: [],
+		stackIds: [],
+	};
+}
+
+function parsePorcelainStatus(output: string): GitWorkingCopyFile[] {
+	if (output.includes("\0")) {
+		return parsePorcelainStatusZ(output);
+	}
+	return parsePorcelainStatusLines(output);
+}
+
+function parsePorcelainStatusLines(output: string): GitWorkingCopyFile[] {
+	const files: GitWorkingCopyFile[] = [];
 	for (const line of output.split("\n")) {
 		if (!line.trim()) {
 			continue;
@@ -104,12 +139,49 @@ function parsePorcelainStatus(output: string) {
 				path: renameParts[1],
 				previousPath: renameParts[0],
 				status: "renamed",
+				statusCode,
 			});
 			continue;
 		}
 		files.push({
 			path: pathPart,
 			status: mapGitStatus(statusCode),
+			statusCode,
+		});
+	}
+	return files;
+}
+
+function parsePorcelainStatusZ(output: string): GitWorkingCopyFile[] {
+	const files: GitWorkingCopyFile[] = [];
+	const entries = output.split("\0").filter((entry) => entry.length > 0);
+	for (let index = 0; index < entries.length; index += 1) {
+		const entry = entries[index] ?? "";
+		if (entry.length < 4) {
+			continue;
+		}
+		const statusCode = entry.slice(0, 2);
+		const pathPart = entry.slice(3);
+		if (!pathPart) {
+			continue;
+		}
+		if (statusCode.includes("R") || statusCode.includes("C")) {
+			const previousPath = entries[index + 1] ?? null;
+			if (previousPath) {
+				index += 1;
+			}
+			files.push({
+				path: pathPart,
+				previousPath,
+				status: mapGitStatus(statusCode),
+				statusCode,
+			});
+			continue;
+		}
+		files.push({
+			path: pathPart,
+			status: mapGitStatus(statusCode),
+			statusCode,
 		});
 	}
 	return files;
@@ -261,7 +333,7 @@ async function isIndexClean(repoCwd: string, runner: VcsCommandRunner): Promise<
 async function readWorkingCopyFiles(repoCwd: string, runner: VcsCommandRunner) {
 	const result = await runner({
 		command: "git",
-		args: ["status", "--porcelain=v1", "--untracked-files=all"],
+		args: ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
 		cwd: repoCwd,
 	});
 	return result.ok ? parsePorcelainStatus(result.stdout) : [];
@@ -270,7 +342,7 @@ async function readWorkingCopyFiles(repoCwd: string, runner: VcsCommandRunner) {
 async function readRawStatus(repoCwd: string, runner: VcsCommandRunner): Promise<string | null> {
 	const result = await runner({
 		command: "git",
-		args: ["status", "--porcelain=v1", "--untracked-files=all"],
+		args: ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
 		cwd: repoCwd,
 	});
 	return result.ok ? result.stdout : null;
@@ -279,7 +351,7 @@ async function readRawStatus(repoCwd: string, runner: VcsCommandRunner): Promise
 async function readRawStatusForPaths(repoCwd: string, runner: VcsCommandRunner, paths: string[]): Promise<string | null> {
 	const result = await runner({
 		command: "git",
-		args: ["status", "--porcelain=v1", "--untracked-files=all", "--", ...paths],
+		args: ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--", ...paths],
 		cwd: repoCwd,
 	});
 	return result.ok ? result.stdout : null;
@@ -401,22 +473,25 @@ export async function loadGitWorkspaceState(
 			},
 		});
 	}
+	const conflicts = workingCopyFiles
+		.map((file) => conflictFromGitStatus(file))
+		.filter((conflict): conflict is NonNullable<ReturnType<typeof conflictFromGitStatus>> => Boolean(conflict));
 
 	return {
 		projectId: cwd,
 		provider: "git" as const,
 		targetRef,
 		headId,
-		mode: "normal" as const,
+		mode: conflicts.length > 0 ? ("conflicted" as const) : ("normal" as const),
 		capabilities: gitCapabilities(),
 		stacks,
 		appliedStackIds,
 		workingCopy: {
-			files: workingCopyFiles,
-			hasConflicts: workingCopyFiles.some((file) => file.status === "unknown" && file.path.includes("both")),
+			files: workingCopyFiles.map(stripGitStatusCode),
+			hasConflicts: conflicts.length > 0,
 			summary: workingCopySummary(workingCopyFiles),
 		},
-		conflicts: [],
+		conflicts,
 	};
 }
 
@@ -676,6 +751,11 @@ export async function applyGitWorkspaceOperation(
 			cwd: repoCwd,
 		});
 		if (!amendResult.ok) {
+			await runner({
+				command: "git",
+				args: ["restore", "--staged", "--", ...paths],
+				cwd: repoCwd,
+			});
 			return unsupportedGitApply(operation, amendResult.stderr.trim() || "Could not amend the Git commit.");
 		}
 		const rewrittenHeadId = (await readHeadCommit(repoCwd, runner)) ?? operation.commitId;
@@ -702,13 +782,26 @@ export async function applyGitWorkspaceOperation(
 		if (!message) {
 			return unsupportedGitApply(operation, "Could not read the Git HEAD commit message.");
 		}
+		const headBeforeRewrite = (await readHeadCommit(repoCwd, runner)) ?? operation.selection.commitId;
+		if (!headBeforeRewrite) {
+			return unsupportedGitApply(operation, "Could not read the Git HEAD commit before rewriting.");
+		}
+		const recoveryRef = `refs/changeyard/recovery/${headBeforeRewrite.slice(0, 12)}`;
+		const recoveryResult = await runner({
+			command: "git",
+			args: ["update-ref", recoveryRef, headBeforeRewrite],
+			cwd: repoCwd,
+		});
+		if (!recoveryResult.ok) {
+			return unsupportedGitApply(operation, recoveryResult.stderr.trim() || "Could not create a Git recovery ref before rewriting commits.");
+		}
 		const resetResult = await runner({
 			command: "git",
 			args: ["reset", "--soft", "HEAD^"],
 			cwd: repoCwd,
 		});
 		if (!resetResult.ok) {
-			return unsupportedGitApply(operation, resetResult.stderr.trim() || "Could not rewind the Git HEAD commit.");
+			return failedGitRewriteApply(operation, resetResult.stderr.trim() || "Could not rewind the Git HEAD commit.", recoveryRef);
 		}
 		const unstageResult = await runner({
 			command: "git",
@@ -716,7 +809,7 @@ export async function applyGitWorkspaceOperation(
 			cwd: repoCwd,
 		});
 		if (!unstageResult.ok) {
-			return unsupportedGitApply(operation, unstageResult.stderr.trim() || "Could not unstage selected Git paths.");
+			return failedGitRewriteApply(operation, unstageResult.stderr.trim() || "Could not unstage selected Git paths.", recoveryRef);
 		}
 		if (!(await isIndexClean(repoCwd, runner))) {
 			const recommitResult = await runner({
@@ -725,7 +818,7 @@ export async function applyGitWorkspaceOperation(
 				cwd: repoCwd,
 			});
 			if (!recommitResult.ok) {
-				return unsupportedGitApply(operation, recommitResult.stderr.trim() || "Could not recreate the remaining Git commit.");
+				return failedGitRewriteApply(operation, recommitResult.stderr.trim() || "Could not recreate the remaining Git commit.", recoveryRef);
 			}
 		}
 		return {
@@ -736,7 +829,10 @@ export async function applyGitWorkspaceOperation(
 			affectedStackIds: [],
 			affectedCommitIds: operation.selection.commitId ? [operation.selection.commitId] : [],
 			affectedPaths: paths,
-			recovery: null,
+			recovery: {
+				refName: recoveryRef,
+				instructions: [`Run \`git reset --hard ${recoveryRef}\` to restore the branch tip from before this rewrite.`],
+			},
 			diagnostics: [],
 		};
 	}

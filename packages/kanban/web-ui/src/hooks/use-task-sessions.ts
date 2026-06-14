@@ -46,6 +46,7 @@ interface StartTaskSessionResult {
 
 interface StartTaskSessionOptions {
 	resumeFromTrash?: boolean;
+	resumeSessionId?: string;
 }
 
 export interface UseTaskSessionsResult {
@@ -150,7 +151,7 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 				return { ok: false, message: "No project selected." };
 			}
 			try {
-				const kickoffPrompt = options?.resumeFromTrash ? "" : task.prompt.trim();
+				const kickoffPrompt = options?.resumeFromTrash || options?.resumeSessionId ? "" : task.prompt.trim();
 				const trpcClient = getRuntimeTrpcClient(currentProjectId);
 				const geometry =
 					getTerminalGeometry(task.id) ?? estimateTaskSessionGeometry(window.innerWidth, window.innerHeight);
@@ -161,10 +162,11 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 					images: options?.resumeFromTrash ? undefined : task.images,
 					startInPlanMode: options?.resumeFromTrash ? undefined : task.startInPlanMode,
 					resumeFromTrash: options?.resumeFromTrash,
+					resumeSessionId: options?.resumeSessionId,
 					baseRef: task.baseRef,
 					cols: geometry.cols,
 					rows: geometry.rows,
-					agentId: task.agentId,
+					agentId: options?.resumeSessionId ? "codex" : task.agentId,
 					clineSettings: task.clineSettings,
 				});
 				if (!payload.ok || !payload.summary) {

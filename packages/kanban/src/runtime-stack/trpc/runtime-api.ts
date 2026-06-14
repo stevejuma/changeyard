@@ -217,7 +217,9 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 							taskId: body.taskId,
 							baseRef: body.baseRef,
 						});
-				const shouldCaptureTurnCheckpoint = !body.resumeFromTrash && !isHomeAgentSessionId(body.taskId);
+				const isExternalSessionResume = Boolean(body.resumeSessionId);
+				const shouldCaptureTurnCheckpoint =
+					!body.resumeFromTrash && !isExternalSessionResume && !isHomeAgentSessionId(body.taskId);
 
 				// Per-task config source-of-truth precedence:
 				//
@@ -338,10 +340,11 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					args: resolved.args,
 					autonomousModeEnabled: scopedRuntimeConfig.agentAutonomousModeEnabled,
 					cwd: taskCwd,
-					prompt: body.prompt,
+					prompt: isExternalSessionResume ? "" : body.prompt,
 					images: body.images,
 					startInPlanMode: body.startInPlanMode,
 					resumeFromTrash: body.resumeFromTrash,
+					resumeSessionId: body.resumeSessionId,
 					cols: body.cols,
 					rows: body.rows,
 					workspaceId: workspaceScope.workspaceId,

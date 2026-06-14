@@ -18,6 +18,11 @@ export const defaultConfig: ChangeyardConfig = {
     engine: "plain-copy",
     fallback: "plain-copy",
     appliedStacks: [],
+    remoteBookmarks: {
+      mode: "local",
+      prefixes: [],
+      remotes: [],
+    },
   },
   workspace: {
     pathPattern: "{id}/repo",

@@ -21,6 +21,8 @@ GitHub availability is checked for stack submission flows:
 
 - `gh auth status --hostname github.com`
 
+The app does not run `jj git fetch` during state, inventory, branches, workspace, or diff reads. It only reads refs already present in the local JJ/Git store. Fetching remains an explicit user or external workflow action.
+
 ## Stack And Bookmark State
 
 The JJ stack reader derives stacks from local bookmarks relative to the configured target.
@@ -83,6 +85,57 @@ The template emits:
 - current-working-copy flag
 
 The graph builder turns those rows into neutral stacks and commits.
+
+## Branch Inventory And Remote Bookmark Scope
+
+Inventory is separate from stack derivation. Stack heads remain local-bookmark based, while inventory can optionally include remote-only bookmarks for branch discovery.
+
+By default, inventory uses local discovery:
+
+```sh
+jj bookmark list \
+  --ignore-working-copy \
+  --at-op=@ \
+  --template '<tab-separated bookmark row>'
+```
+
+That default intentionally avoids `--all-remotes`, so repositories with thousands of company remote branches do not enumerate all locally-known remote bookmarks on every Branches read.
+
+Remote inventory discovery is configured under `vcs.remoteBookmarks` in `.changeyard/config.jsonc` or `.changeyard/config.local.jsonc`:
+
+```jsonc
+{
+  "vcs": {
+    "remoteBookmarks": {
+      "mode": "local", // "local", "tracked", or "all"
+      "remotes": ["origin"],
+      "prefixes": ["steve/", "team/app/"]
+    }
+  }
+}
+```
+
+Modes:
+
+- `local`: default. Do not pass remote-expansion flags to `jj bookmark list`.
+- `tracked`: pass `--tracked` and any configured `--remote <name>` filters.
+- `all`: pass `--all-remotes` and any configured `--remote <name>` filters.
+
+When `prefixes` are configured, each prefix is converted to a JJ bookmark-name pattern by appending `*` unless the value already ends with `*`. For example, `steve/` becomes `steve/*`.
+
+If `remoteBookmarks.mode` is omitted but `prefixes` or `remotes` are configured, the mode is treated as `all` because those filters are only meaningful for remote discovery. Without the object, the default config is equivalent to:
+
+```jsonc
+{
+  "vcs": {
+    "remoteBookmarks": {
+      "mode": "local",
+      "remotes": [],
+      "prefixes": []
+    }
+  }
+}
+```
 
 ## Working Copy And Conflicts
 

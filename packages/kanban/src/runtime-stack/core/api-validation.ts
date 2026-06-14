@@ -228,10 +228,12 @@ export function parseTaskSessionStartRequest(value: unknown): RuntimeTaskSession
 	if (!baseRef) {
 		throw new Error("Task session baseRef cannot be empty.");
 	}
+	const resumeSessionId = parsed.resumeSessionId?.trim();
 	return {
 		...parsed,
 		taskId,
 		baseRef,
+		resumeSessionId: resumeSessionId || undefined,
 	};
 }
 
@@ -562,29 +564,45 @@ export function parseShellSessionStartRequest(value: unknown): RuntimeShellSessi
 
 export function parseHookIngestRequest(value: unknown): RuntimeHookIngestRequest {
 	const parsed = parseWithSchema(runtimeHookIngestRequestSchema, value);
-	const taskId = parsed.taskId.trim();
-	const workspaceId = parsed.workspaceId.trim();
+	const taskId = parsed.taskId?.trim() ?? "";
+	const workspaceId = parsed.workspaceId?.trim() ?? "";
+	const workspacePath = parsed.workspacePath?.trim() ?? "";
 	if (!taskId) {
 		throw new Error("Missing taskId");
 	}
-	if (!workspaceId) {
-		throw new Error("Missing workspaceId");
+	if (!workspaceId && !workspacePath) {
+		throw new Error("Missing workspaceId or workspacePath");
 	}
 	const metadata = parsed.metadata
 		? {
 				activityText: parsed.metadata.activityText?.trim(),
 				toolName: parsed.metadata.toolName?.trim(),
+				toolInputSummary: parsed.metadata.toolInputSummary?.trim(),
 				finalMessage: parsed.metadata.finalMessage?.trim(),
 				hookEventName: parsed.metadata.hookEventName?.trim(),
 				notificationType: parsed.metadata.notificationType?.trim(),
 				source: parsed.metadata.source?.trim(),
 			}
 		: undefined;
+	const externalSession = parsed.externalSession
+		? {
+				provider: parsed.externalSession.provider?.trim(),
+				sessionId: parsed.externalSession.sessionId?.trim() || null,
+				transcriptPath: parsed.externalSession.transcriptPath?.trim() || null,
+				resumeCommand: parsed.externalSession.resumeCommand?.map((part) => part.trim()).filter(Boolean),
+				source: parsed.externalSession.source?.trim() || null,
+			}
+		: undefined;
+	if (externalSession && !externalSession.provider) {
+		throw new Error("External session provider is required.");
+	}
 	return {
 		...parsed,
 		taskId,
-		workspaceId,
+		workspaceId: workspaceId || undefined,
+		workspacePath: workspacePath || undefined,
 		metadata,
+		externalSession: externalSession as RuntimeHookIngestRequest["externalSession"],
 	};
 }
 

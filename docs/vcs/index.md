@@ -18,6 +18,7 @@ The VCS app is a provider-neutral UI for repository stacks, workspace state, dif
 - Branches UI: `packages/vcs/src/views/branches-view.tsx`
 - Runtime API bridge: `packages/vcs/src/runtime/vcs-api.ts`
 - Backend adapter: `src/vcs/adapter.ts`
+- Project config schema/defaults: `src/config/schema.ts`, `src/config/defaults.ts`
 - JJ state reader: `src/vcs/jj/state.ts`
 - JJ workspace engine: `src/vcs/jj/workspace.ts`
 - JJ preview engine: `src/vcs/jj/preview.ts`
@@ -55,3 +56,7 @@ Mutation-capable UI flows call `previewVcsOperation` before `applyVcsOperation`.
 - conflicts and diagnostics
 
 The Apply button is enabled only when the loaded preview still matches the pending operation.
+
+## Remote Discovery Rule
+
+Read paths must not run `jj git fetch`. Remote bookmark discovery is local-store only and defaults to `vcs.remoteBookmarks.mode = "local"`, which avoids `jj bookmark list --all-remotes`. Projects that need remote-only inventory can opt into `mode = "all"` or `mode = "tracked"` and should scope discovery with `remotes` and `prefixes`.

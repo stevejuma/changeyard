@@ -38,6 +38,7 @@ export interface AgentAdapterLaunchInput {
 	images?: RuntimeTaskImage[];
 	startInPlanMode?: boolean;
 	resumeFromTrash?: boolean;
+	resumeSessionId?: string;
 	env?: Record<string, string | undefined>;
 	workspaceId?: string;
 }
@@ -756,10 +757,15 @@ const codexAdapter: AgentSessionAdapter = {
 			codexArgs.push("--dangerously-bypass-approvals-and-sandbox");
 		}
 
-		if (input.resumeFromTrash) {
-			if (!codexArgs.includes("resume")) {
-				codexArgs.push("resume");
-			}
+			if (input.resumeSessionId?.trim()) {
+				if (!codexArgs.includes("resume")) {
+					codexArgs.push("resume");
+				}
+				codexArgs.push(input.resumeSessionId.trim());
+			} else if (input.resumeFromTrash) {
+				if (!codexArgs.includes("resume")) {
+					codexArgs.push("resume");
+				}
 			if (!hasCliOption(codexArgs, "--last")) {
 				codexArgs.push("--last");
 			}

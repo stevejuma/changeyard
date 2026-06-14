@@ -1,6 +1,7 @@
 // PTY-backed runtime for non-Cline task sessions and the workspace shell terminal.
 // It owns process lifecycle, terminal protocol filtering, and summary updates
 // for command-driven agents such as Claude Code, Codex, Gemini, and shell sessions.
+import { readFile } from "node:fs/promises";
 import type {
 	RuntimeTaskHookActivity,
 	RuntimeTaskImage,
@@ -43,6 +44,8 @@ const MAX_AUTO_RESTARTS_PER_WINDOW = 3;
 // has attached.
 const OSC_FOREGROUND_QUERY_REPLY = "\u001b]10;rgb:e6e6/eded/f3f3\u001b\\";
 const OSC_BACKGROUND_QUERY_REPLY = "\u001b]11;rgb:1717/1717/2121\u001b\\";
+const EXTERNAL_TRANSCRIPT_POLL_MS = 1_500;
+const MAX_EXTERNAL_TRANSCRIPT_BYTES = 2 * 1024 * 1024;
 
 type RestartableSessionRequest =
 	| { kind: "task"; request: StartTaskSessionRequest }
@@ -86,6 +89,7 @@ export interface StartTaskSessionRequest {
 	images?: RuntimeTaskImage[];
 	startInPlanMode?: boolean;
 	resumeFromTrash?: boolean;
+	resumeSessionId?: string;
 	cols?: number;
 	rows?: number;
 	env?: Record<string, string | undefined>;
@@ -100,6 +104,15 @@ export interface StartShellSessionRequest {
 	binary: string;
 	args?: string[];
 	env?: Record<string, string | undefined>;
+}
+
+export interface UpsertExternalTaskSessionRequest {
+	taskId: string;
+	agentId: RuntimeTaskSessionSummary["agentId"];
+	workspacePath: string | null;
+	externalSession: NonNullable<RuntimeTaskSessionSummary["externalSession"]>;
+	state?: RuntimeTaskSessionState;
+	reviewReason?: RuntimeTaskSessionReviewReason;
 }
 
 function now(): number {
@@ -123,6 +136,7 @@ function createDefaultSummary(taskId: string): RuntimeTaskSessionSummary {
 		warningMessage: null,
 		latestTurnCheckpoint: null,
 		previousTurnCheckpoint: null,
+		externalSession: null,
 	};
 }
 
@@ -202,9 +216,92 @@ function hasCodexStartupUiRendered(text: string): boolean {
 	return stripped.includes("openai codex (v");
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function findStringValue(value: unknown, keys: Set<string>, depth = 0): string | null {
+	if (depth > 8) {
+		return null;
+	}
+	if (typeof value === "string") {
+		return null;
+	}
+	if (Array.isArray(value)) {
+		for (const item of value) {
+			const found = findStringValue(item, keys, depth + 1);
+			if (found) return found;
+		}
+		return null;
+	}
+	if (!isRecord(value)) {
+		return null;
+	}
+	for (const [key, child] of Object.entries(value)) {
+		if (keys.has(key) && typeof child === "string" && child.trim()) {
+			return child.trim();
+		}
+	}
+	for (const child of Object.values(value)) {
+		const found = findStringValue(child, keys, depth + 1);
+		if (found) return found;
+	}
+	return null;
+}
+
+function hasRecordStringValue(value: unknown, key: string, expected: string, depth = 0): boolean {
+	if (depth > 8) {
+		return false;
+	}
+	if (Array.isArray(value)) {
+		return value.some((item) => hasRecordStringValue(item, key, expected, depth + 1));
+	}
+	if (!isRecord(value)) {
+		return false;
+	}
+	if (value[key] === expected) {
+		return true;
+	}
+	return Object.values(value).some((child) => hasRecordStringValue(child, key, expected, depth + 1));
+}
+
+function extractExternalTranscriptActivity(raw: string): Partial<RuntimeTaskHookActivity> | null {
+	const lines = raw.trim().split("\n").filter(Boolean).slice(-200);
+	for (let index = lines.length - 1; index >= 0; index -= 1) {
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(lines[index] ?? "");
+		} catch {
+			continue;
+		}
+		const assistantText = hasRecordStringValue(parsed, "role", "assistant")
+			? findStringValue(parsed, new Set(["text", "content", "message"]))
+			: null;
+		if (assistantText) {
+			return {
+				activityText: `Assistant: ${assistantText.slice(0, 240)}`,
+				finalMessage: assistantText,
+				hookEventName: "transcript.tail",
+				source: "codex-transcript",
+			};
+		}
+		const toolName = findStringValue(parsed, new Set(["tool_name", "toolName", "tool", "name"]));
+		if (toolName) {
+			return {
+				activityText: `Using ${toolName}`,
+				toolName,
+				hookEventName: "transcript.tail",
+				source: "codex-transcript",
+			};
+		}
+	}
+	return null;
+}
+
 export class TerminalSessionManager implements TerminalSessionService {
 	private readonly entries = new Map<string, SessionEntry>();
 	private readonly summaryListeners = new Set<(summary: RuntimeTaskSessionSummary) => void>();
+	private readonly externalTranscriptTimers = new Map<string, NodeJS.Timeout>();
 
 	private trySendDeferredCodexStartupInput(taskId: string): boolean {
 		const entry = this.entries.get(taskId);
@@ -233,6 +330,47 @@ export class TerminalSessionManager implements TerminalSessionService {
 			}
 		}
 		return false;
+	}
+
+	private ensureExternalTranscriptTailer(taskId: string, transcriptPath: string | null): void {
+		if (!transcriptPath || this.externalTranscriptTimers.has(taskId)) {
+			return;
+		}
+		const timer = setInterval(() => {
+			void this.pollExternalTranscript(taskId, transcriptPath);
+		}, EXTERNAL_TRANSCRIPT_POLL_MS);
+		timer.unref();
+		this.externalTranscriptTimers.set(taskId, timer);
+		void this.pollExternalTranscript(taskId, transcriptPath);
+	}
+
+	private stopExternalTranscriptTailer(taskId: string): void {
+		const timer = this.externalTranscriptTimers.get(taskId);
+		if (!timer) {
+			return;
+		}
+		clearInterval(timer);
+		this.externalTranscriptTimers.delete(taskId);
+	}
+
+	private async pollExternalTranscript(taskId: string, transcriptPath: string): Promise<void> {
+		const entry = this.entries.get(taskId);
+		if (!entry || entry.summary.externalSession?.transcriptPath !== transcriptPath || entry.active) {
+			this.stopExternalTranscriptTailer(taskId);
+			return;
+		}
+		try {
+			const raw = await readFile(transcriptPath, "utf8");
+			const tail = raw.length > MAX_EXTERNAL_TRANSCRIPT_BYTES
+				? raw.slice(raw.length - MAX_EXTERNAL_TRANSCRIPT_BYTES)
+				: raw;
+			const activity = extractExternalTranscriptActivity(tail);
+			if (activity) {
+				this.applyHookActivity(taskId, activity);
+			}
+		} catch {
+			// Best effort only: Codex may rotate or create the transcript file after hooks start.
+		}
 	}
 
 	onSummary(listener: (summary: RuntimeTaskSessionSummary) => void): () => void {
@@ -265,6 +403,34 @@ export class TerminalSessionManager implements TerminalSessionService {
 
 	listSummaries(): RuntimeTaskSessionSummary[] {
 		return Array.from(this.entries.values()).map((entry) => cloneSummary(entry.summary));
+	}
+
+	upsertExternalTaskSession(request: UpsertExternalTaskSessionRequest): RuntimeTaskSessionSummary {
+		const entry = this.ensureEntry(request.taskId);
+		const existingExternalSession = entry.summary.externalSession ?? null;
+		const externalSession: NonNullable<RuntimeTaskSessionSummary["externalSession"]> = {
+			provider: request.externalSession.provider,
+			sessionId: request.externalSession.sessionId ?? existingExternalSession?.sessionId ?? null,
+			transcriptPath: request.externalSession.transcriptPath ?? existingExternalSession?.transcriptPath ?? null,
+			resumeCommand: request.externalSession.resumeCommand.length > 0
+				? [...request.externalSession.resumeCommand]
+				: (existingExternalSession?.resumeCommand ?? []),
+			source: request.externalSession.source ?? existingExternalSession?.source ?? null,
+		};
+		const summary = updateSummary(entry, {
+			state: request.state ?? (entry.summary.state === "idle" ? "running" : entry.summary.state),
+			agentId: request.agentId,
+			workspacePath: request.workspacePath ?? entry.summary.workspacePath,
+			pid: null,
+			startedAt: entry.summary.startedAt ?? now(),
+			lastOutputAt: now(),
+			exitCode: null,
+			reviewReason: request.reviewReason ?? entry.summary.reviewReason,
+			externalSession,
+		});
+		this.ensureExternalTranscriptTailer(request.taskId, externalSession.transcriptPath);
+		this.emitSummary(summary);
+		return cloneSummary(summary);
 	}
 
 	attach(taskId: string, listener: TerminalSessionListener): (() => void) | null {
@@ -307,6 +473,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 			entry.active.session.stop();
 			entry.active = null;
 		}
+		this.stopExternalTranscriptTailer(request.taskId);
 		entry.terminalStateMirror?.dispose();
 		entry.terminalStateMirror = null;
 
@@ -332,6 +499,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 			images: request.images,
 			startInPlanMode: request.startInPlanMode,
 			resumeFromTrash: request.resumeFromTrash,
+			resumeSessionId: request.resumeSessionId,
 			env: request.env,
 			workspaceId: request.workspaceId,
 		});
@@ -499,6 +667,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 				latestHookActivity: null,
 				latestTurnCheckpoint: null,
 				previousTurnCheckpoint: null,
+				externalSession: null,
 			});
 			this.emitSummary(summary);
 			throw new Error(formatSpawnFailure(commandBinary, error));
@@ -544,6 +713,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 			warningMessage: null,
 			latestTurnCheckpoint: null,
 			previousTurnCheckpoint: null,
+			externalSession: null,
 		});
 		this.emitSummary(entry.summary);
 

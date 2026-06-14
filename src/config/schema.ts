@@ -67,6 +67,23 @@ export const configSchema = {
           items: { type: "string", minLength: 1 },
           uniqueItems: true,
         },
+        remoteBookmarks: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            mode: { type: "string", enum: ["local", "tracked", "all"] },
+            prefixes: {
+              type: "array",
+              items: { type: "string", minLength: 1 },
+              uniqueItems: true,
+            },
+            remotes: {
+              type: "array",
+              items: { type: "string", minLength: 1 },
+              uniqueItems: true,
+            },
+          },
+        },
       },
     },
     workspace: {

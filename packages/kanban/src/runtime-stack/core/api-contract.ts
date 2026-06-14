@@ -1024,6 +1024,15 @@ export const runtimeTaskTurnCheckpointSchema = z.object({
 });
 export type RuntimeTaskTurnCheckpoint = z.infer<typeof runtimeTaskTurnCheckpointSchema>;
 
+export const runtimeExternalTaskSessionSchema = z.object({
+	provider: z.string().min(1),
+	sessionId: z.string().nullable().default(null),
+	transcriptPath: z.string().nullable().default(null),
+	resumeCommand: z.array(z.string()).default([]),
+	source: z.string().nullable().default(null),
+});
+export type RuntimeExternalTaskSession = z.infer<typeof runtimeExternalTaskSessionSchema>;
+
 export const runtimeTaskSessionSummarySchema = z.object({
 	taskId: z.string(),
 	state: runtimeTaskSessionStateSchema,
@@ -1041,6 +1050,7 @@ export const runtimeTaskSessionSummarySchema = z.object({
 	warningMessage: z.string().nullable().optional(),
 	latestTurnCheckpoint: runtimeTaskTurnCheckpointSchema.nullable().optional(),
 	previousTurnCheckpoint: runtimeTaskTurnCheckpointSchema.nullable().optional(),
+	externalSession: runtimeExternalTaskSessionSchema.nullable().optional(),
 });
 export type RuntimeTaskSessionSummary = z.infer<typeof runtimeTaskSessionSummarySchema>;
 
@@ -2004,6 +2014,7 @@ export const runtimeTaskSessionStartRequestSchema = z.object({
 	startInPlanMode: z.boolean().optional(),
 	mode: runtimeTaskSessionModeSchema.optional(),
 	resumeFromTrash: z.boolean().optional(),
+	resumeSessionId: z.string().optional(),
 	baseRef: z.string(),
 	cols: z.number().int().positive().optional(),
 	rows: z.number().int().positive().optional(),
@@ -2366,10 +2377,12 @@ export const runtimeHookEventSchema = z.enum(["to_review", "to_in_progress", "ac
 export type RuntimeHookEvent = z.infer<typeof runtimeHookEventSchema>;
 
 export const runtimeHookIngestRequestSchema = z.object({
-	taskId: z.string(),
-	workspaceId: z.string(),
+	taskId: z.string().optional(),
+	workspaceId: z.string().optional(),
+	workspacePath: z.string().optional(),
 	event: runtimeHookEventSchema,
 	metadata: runtimeTaskHookActivitySchema.partial().optional(),
+	externalSession: runtimeExternalTaskSessionSchema.partial().optional(),
 });
 export type RuntimeHookIngestRequest = z.infer<typeof runtimeHookIngestRequestSchema>;
 

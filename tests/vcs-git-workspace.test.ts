@@ -57,8 +57,8 @@ function createGitRunner(calls: string[] = []): VcsCommandRunner {
 				return ok("");
 			case "git log --topo-order --date-order --reverse --format=\u001e%H\u001f%h\u001f%an\u001f%ae\u001f%aI\u001f%s\u001f%P origin/main..feature/api":
 				return ok("\u001ebbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001fbbbbbbb\u001fAda\u001fada@example.com\u001f2026-06-14T09:00:00Z\u001fAPI change\u001faaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-			case "git status --porcelain=v1 --untracked-files=all":
-				return ok(" M src/api.ts\nA  src/new.ts\n?? tmp.txt");
+			case "git status --porcelain=v1 -z --untracked-files=all":
+				return ok(" M src/api.ts\0A  src/new.ts\0?? tmp.txt\0");
 			case "git diff --name-status --find-renames":
 				return ok("M\tsrc/api.ts\nA\tsrc/new.ts");
 			case "git diff --patch --find-renames --diff-algorithm=histogram":
@@ -92,12 +92,12 @@ function createGitOperationRunner(
 				return ok("origin/main");
 			case "gh auth status --hostname github.com":
 				return ok("Logged in");
-			case "git status --porcelain=v1 --untracked-files=all":
-				return ok(options.dirty ? " M src/api.ts\n" : "");
-			case "git status --porcelain=v1 --untracked-files=all -- src/api.ts":
-				return ok(" M src/api.ts\n");
-			case "git status --porcelain=v1 --untracked-files=all -- tmp.txt":
-				return ok("?? tmp.txt\n");
+			case "git status --porcelain=v1 -z --untracked-files=all":
+				return ok(options.dirty ? " M src/api.ts\0" : "");
+			case "git status --porcelain=v1 -z --untracked-files=all -- src/api.ts":
+				return ok(" M src/api.ts\0");
+			case "git status --porcelain=v1 -z --untracked-files=all -- tmp.txt":
+				return ok("?? tmp.txt\0");
 			case "git rev-parse --verify HEAD":
 				return ok(headHash);
 			case `git rev-parse --verify ${headHash}^{commit}`:
@@ -223,7 +223,30 @@ test("loadGitWorkspaceState maps local branches into neutral stacks", async () =
 		["src/new.ts", "added"],
 		["tmp.txt", "unknown"],
 	]);
-	assert.ok(calls.includes("git status --porcelain=v1 --untracked-files=all"));
+	assert.ok(calls.includes("git status --porcelain=v1 -z --untracked-files=all"));
+});
+
+test("loadGitWorkspaceState reports Git conflict mode from unmerged porcelain status", async () => {
+	const calls: string[] = [];
+	const runner = createGitRunner(calls);
+	const state = await loadGitWorkspaceState(
+		"/repo",
+		async (input) => {
+			const joined = `${input.command} ${input.args.join(" ")}`;
+			if (joined === "git status --porcelain=v1 -z --untracked-files=all") {
+				return ok("UU src/api.ts\0");
+			}
+			return runner(input);
+		},
+		{ targetBranch: "origin/main" },
+	);
+
+	assert.equal(state.mode, "conflicted");
+	assert.equal(state.workingCopy.hasConflicts, true);
+	assert.deepEqual(state.workingCopy.files.map((file) => [file.path, file.status]), [["src/api.ts", "unknown"]]);
+	assert.equal(state.conflicts.length, 1);
+	assert.equal(state.conflicts[0]?.path, "src/api.ts");
+	assert.match(state.conflicts[0]?.message ?? "", /UU conflict/);
 });
 
 test("loadGitWorkspaceDiff returns neutral patch and file summary", async () => {
@@ -380,6 +403,8 @@ test("applyGitWorkspaceOperation uncommits selected paths from the current Git H
 	assert.equal(result.ok, true);
 	assert.equal(result.operation.kind, "uncommit_changes");
 	assert.deepEqual(result.affectedPaths, ["package.json"]);
+	assert.match(result.recovery?.instructions.join("\n") ?? "", new RegExp(`refs/changeyard/recovery/${headHash.slice(0, 12)}`));
+	assert.ok(calls.includes(`git update-ref refs/changeyard/recovery/${headHash.slice(0, 12)} ${headHash}`));
 	assert.ok(calls.includes("git reset --soft HEAD^"));
 	assert.ok(calls.includes("git restore --staged -- package.json"));
 });

@@ -211,13 +211,19 @@ export async function getJjDiff(repoRoot: string) {
 
 export async function getJjInventory(repoRoot: string) {
 	const config = loadConfig(repoRoot);
-	return await loadJjInventory(repoRoot, runVcsCommand, { targetBranch: config.vcs.targetBranch ?? null });
+	return await loadJjInventory(repoRoot, runVcsCommand, {
+		targetBranch: config.vcs.targetBranch ?? null,
+		remoteBookmarks: config.vcs.remoteBookmarks,
+	});
 }
 
 export async function getJjBranchesData(repoRoot: string) {
 	const config = loadConfig(repoRoot);
 	const detect = await detectVcsState(repoRoot, runVcsCommand);
-	const options = { targetBranch: config.vcs.targetBranch ?? null };
+	const options = {
+		targetBranch: config.vcs.targetBranch ?? null,
+		remoteBookmarks: config.vcs.remoteBookmarks,
+	};
 	if (detect.repository.kind === "git") {
 		const state = await loadGitWorkspaceState(repoRoot, runVcsCommand, {
 			...options,
