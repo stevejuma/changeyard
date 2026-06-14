@@ -253,7 +253,7 @@ function normalizeStatus(code: string): VcsJjUnassignedChange["status"] {
 export async function readJjUnassignedChanges(cwd: string, runner: VcsCommandRunner): Promise<VcsJjUnassignedChange[]> {
 	const result = await runner({
 		command: "jj",
-		args: ["diff", "--summary", "-r", "@"],
+		args: ["diff", "--ignore-working-copy", "--summary", "-r", "@"],
 		cwd,
 	});
 	if (!result.ok) {

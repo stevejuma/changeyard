@@ -583,9 +583,9 @@ async function getJjWorkspaceChanges(cwd: string): Promise<RuntimeWorkspaceChang
 	}
 
 	const [summaryOutput, patchResult, headCommitOutput] = await Promise.all([
-		getJjStdout(["diff", "--summary"], repoRoot).catch(() => ""),
-		runJj(repoRoot, ["diff", "--git"], { trimStdout: false }),
-		getJjStdout(["log", "-r", "@", "--no-graph", "-T", "commit_id"], repoRoot).catch(() => ""),
+		getJjStdout(["diff", "--ignore-working-copy", "--summary"], repoRoot).catch(() => ""),
+		runJj(repoRoot, ["diff", "--ignore-working-copy", "--git"], { trimStdout: false }),
+		getJjStdout(["log", "--ignore-working-copy", "--at-op=@", "-r", "@", "--no-graph", "-T", "commit_id"], repoRoot).catch(() => ""),
 	]);
 	const patchOutput = patchResult.ok ? patchResult.stdout : "";
 	const patchEntries = parseGitStylePatchEntries(patchOutput);
@@ -645,7 +645,7 @@ async function getJjWorkspaceChangesBetweenRefs(
 		throw new Error("Could not resolve jj repository root.");
 	}
 
-	const patchResult = await runJj(repoRoot, ["diff", "--from", input.fromRef, "--to", input.toRef, "--git"], {
+	const patchResult = await runJj(repoRoot, ["diff", "--ignore-working-copy", "--from", input.fromRef, "--to", input.toRef, "--git"], {
 		trimStdout: false,
 	});
 	if (!patchResult.ok || !patchResult.stdout.trim()) {
@@ -674,7 +674,7 @@ async function getJjWorkspaceChangesFromRef(input: ChangesFromRefInput): Promise
 		throw new Error("Could not resolve jj repository root.");
 	}
 
-	const patchResult = await runJj(repoRoot, ["diff", "--from", input.fromRef, "--git"], {
+	const patchResult = await runJj(repoRoot, ["diff", "--ignore-working-copy", "--from", input.fromRef, "--git"], {
 		trimStdout: false,
 	});
 	if (!patchResult.ok || !patchResult.stdout.trim()) {

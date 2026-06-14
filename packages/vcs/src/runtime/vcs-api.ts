@@ -115,10 +115,6 @@ type RepositoryLogQueryArg = WorkspaceQueryArg & {
 	input: RuntimeGitLogRequest;
 };
 
-type ProjectsQueryArg = {
-	preferredWorkspaceId?: string | null;
-};
-
 type PickProjectDirectoryArg = {
 	workspaceId?: string | null;
 };
@@ -255,14 +251,14 @@ export const vcsApi = createApi({
 		"Projects",
 	],
 	endpoints: (builder) => ({
-		getProjects: builder.query<RuntimeProjectsResponse, ProjectsQueryArg | void>({
-			queryFn: async (arg, { signal }) => {
+		getProjects: builder.query<RuntimeProjectsResponse, void>({
+			queryFn: async (_arg, { signal }) => {
 				try {
 					return {
 						data: await fetchTrpcQuery<RuntimeProjectsResponse>(
 							"projects.list",
 							undefined,
-							arg?.preferredWorkspaceId ?? null,
+							null,
 							{ signal },
 						),
 					};

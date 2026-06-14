@@ -113,7 +113,7 @@ function createPreviewRunner(commandLog: string[]) {
 					stderr: "",
 					exitCode: 0,
 				};
-			case "jj diff --summary -r @":
+			case "jj diff --ignore-working-copy --summary -r @":
 				return {
 					ok: true,
 					stdout: "M src/app.ts",

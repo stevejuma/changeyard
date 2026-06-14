@@ -106,6 +106,11 @@ function readWorkspaceIdFromRequest(request: IncomingMessage, requestUrl: URL): 
 	return null;
 }
 
+function shouldResolveWorkspaceScopeForRequest(requestUrl: URL): boolean {
+	const trpcPath = requestUrl.pathname.replace(/^\/api\/trpc\//, "");
+	return trpcPath !== "projects.list";
+}
+
 export async function createRuntimeServer(deps: CreateRuntimeServerDependencies): Promise<RuntimeServer> {
 	const serveWebAssets = deps.serveWebAssets ?? true;
 	const webUiDir = serveWebAssets ? getWebUiDir() : null;
@@ -134,6 +139,12 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 		requestedWorkspaceId: string | null;
 		workspaceScope: RuntimeTrpcWorkspaceScope | null;
 	}> => {
+		if (!shouldResolveWorkspaceScopeForRequest(requestUrl)) {
+			return {
+				requestedWorkspaceId: null,
+				workspaceScope: null,
+			};
+		}
 		const requestedWorkspaceId = readWorkspaceIdFromRequest(request, requestUrl);
 		if (!requestedWorkspaceId) {
 			return {
@@ -505,7 +516,8 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 		// ── End passcode gate ─────────────────────────────────────────────────
 		(request as IncomingMessage & { __kanbanUpgradeHandled?: boolean }).__kanbanUpgradeHandled = true;
 		const requestedWorkspaceId = requestUrl.searchParams.get("workspaceId")?.trim() || null;
-		deps.runtimeStateHub.handleUpgrade(request, socket, head, { requestedWorkspaceId });
+		const streamMode = requestUrl.searchParams.get("stream") === "vcs" ? "vcs" : "runtime";
+		deps.runtimeStateHub.handleUpgrade(request, socket, head, { requestedWorkspaceId, streamMode });
 	});
 	const terminalWebSocketBridge = createTerminalWebSocketBridge({
 		server,

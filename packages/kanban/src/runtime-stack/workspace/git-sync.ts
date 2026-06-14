@@ -150,9 +150,9 @@ function parseJjDiffStatTotals(output: string): { additions: number; deletions: 
 async function probeJjWorkspaceState(cwd: string): Promise<GitWorkspaceProbe> {
 	const repoRoot = await getJjStdout(["workspace", "root"], cwd);
 	const [summaryOutput, diffStatOutput, headCommit, currentBranch, jjChangeId] = await Promise.all([
-		getJjStdout(["diff", "--summary"], repoRoot).catch(() => ""),
-		getJjStdout(["diff", "--stat"], repoRoot).catch(() => ""),
-		getJjStdout(["log", "-r", "@", "--no-graph", "-T", "commit_id"], repoRoot).catch(() => null),
+		getJjStdout(["diff", "--ignore-working-copy", "--summary"], repoRoot).catch(() => ""),
+		getJjStdout(["diff", "--ignore-working-copy", "--stat"], repoRoot).catch(() => ""),
+		getJjStdout(["log", "--ignore-working-copy", "--at-op=@", "-r", "@", "--no-graph", "-T", "commit_id"], repoRoot).catch(() => null),
 		getJjCurrentBookmark(repoRoot),
 		getJjCurrentChangeId(repoRoot),
 	]);
@@ -312,7 +312,7 @@ export async function getGitSyncSummary(
 ): Promise<RuntimeGitSyncSummary> {
 	const probe = options?.probe ?? (await probeGitWorkspaceState(cwd));
 	if (probe.engine === "jj") {
-		const diffStatOutput = await getJjStdout(["diff", "--stat"], probe.repoRoot).catch(() => "");
+		const diffStatOutput = await getJjStdout(["diff", "--ignore-working-copy", "--stat"], probe.repoRoot).catch(() => "");
 		const totals = parseJjDiffStatTotals(diffStatOutput);
 		return {
 			currentBranch: probe.currentBranch,

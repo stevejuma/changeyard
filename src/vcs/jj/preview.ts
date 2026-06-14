@@ -135,7 +135,7 @@ async function unassignedPaths(
 ): Promise<Set<string>> {
 	const result = await runner({
 		command: "jj",
-		args: ["diff", "--summary", "-r", "@"],
+		args: ["diff", "--ignore-working-copy", "--summary", "-r", "@"],
 		cwd,
 	});
 	if (!result.ok) {

@@ -44,7 +44,7 @@ test("loadJjState returns grouped stacks from one bounded graph read and working
 					stderr: "",
 					exitCode: 0,
 				};
-			case "jj diff --summary -r @":
+			case "jj diff --ignore-working-copy --summary -r @":
 				return { ok: true, stdout: "M src/vcs/jj/state.ts", stderr: "", exitCode: 0 };
 			default:
 				return { ok: false, stdout: "", stderr: `${joined} not mocked`, exitCode: 1 };
@@ -59,7 +59,7 @@ test("loadJjState returns grouped stacks from one bounded graph read and working
 	assert.equal(result.stacks[0]?.isCheckedOut, true);
 	assert.equal(result.unassignedChanges[0]?.path, "src/vcs/jj/state.ts");
 	assert.equal(result.unassignedChanges[0]?.status, "modified");
-	assert.ok(calls.includes("jj diff --summary -r @"));
+	assert.ok(calls.includes("jj diff --ignore-working-copy --summary -r @"));
 	assert.equal(calls.filter((call) => call.startsWith("jj log --ignore-working-copy --at-op=@ --revisions (::")).length, 1);
 });
 
@@ -103,7 +103,7 @@ test("loadJjState uses configured remote target as the base boundary", async () 
 						stderr: "",
 						exitCode: 0,
 					};
-				case "jj diff --summary -r @":
+				case "jj diff --ignore-working-copy --summary -r @":
 					return { ok: true, stdout: "", stderr: "", exitCode: 0 };
 				default:
 					return { ok: false, stdout: "", stderr: `${joined} not mocked`, exitCode: 1 };

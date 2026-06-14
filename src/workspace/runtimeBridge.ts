@@ -218,9 +218,9 @@ export function readTaskWorkspaceHead(options: {
   cwd: string;
 }): TaskWorkspaceHeadInfo {
   if (options.repositoryKind === "jj") {
-    const headResult = runCommand("jj", ["log", "-r", "@", "--no-graph", "-T", "commit_id"], options.cwd);
-    const changeIdResult = runCommand("jj", ["log", "-r", "@", "--no-graph", "-T", "change_id.short()"], options.cwd);
-    const bookmarkResult = runCommand("jj", ["bookmark", "list", "-r", "@"], options.cwd);
+    const headResult = runCommand("jj", ["log", "--ignore-working-copy", "--at-op=@", "-r", "@", "--no-graph", "-T", "commit_id"], options.cwd);
+    const changeIdResult = runCommand("jj", ["log", "--ignore-working-copy", "--at-op=@", "-r", "@", "--no-graph", "-T", "change_id.short()"], options.cwd);
+    const bookmarkResult = runCommand("jj", ["bookmark", "list", "--ignore-working-copy", "--at-op=@", "-r", "@"], options.cwd);
     let branch: string | null = null;
     if (bookmarkResult.ok) {
       for (const line of bookmarkResult.stdout.split("\n")) {
