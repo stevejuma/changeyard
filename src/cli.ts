@@ -27,6 +27,7 @@ import { getStatus, runStatus } from "./commands/status.js";
 import { runSync } from "./commands/sync.js";
 import { runTui } from "./commands/tui.js";
 import { runConfig } from "./commands/config.js";
+import { getDashboardStatus, runDashboardStart, runDashboardStatus, runDashboardStop } from "./commands/dashboard.js";
 import { runUi } from "./commands/ui.js";
 import { runValidate } from "./commands/validate.js";
 import { runVerify } from "./commands/verify.js";
@@ -139,6 +140,9 @@ function usage(): string {
 Usage:
   cy [-i|--tui] [--connect <url>] [--host <host>] [--port <port|auto>] [--project <path>] [--debug]
   cy dashboard [--host <host>] [--port <port|auto>] [--project <path>] [--open|--no-open] [--json]
+  cy dashboard start [--host <host>] [--port <port|auto>] [--project <path>] [--open|--no-open] [--json]
+  cy dashboard stop [--project <path>] [--json]
+  cy dashboard status [--project <path>] [--json]
   cy --kanban [--host <host>] [--port <port|auto>] [--open|--no-open]
   cy --vcs [--host <host>] [--port <port|auto>] [--open|--no-open]
   cy init [--dry-run] [--tools all|none|<tool-id>[,<tool-id>...]]
@@ -244,7 +248,7 @@ function commandUsage(command: string): string {
     status: `${"status".padEnd(12)}print one change summary.\n\nExample:\n${commandExamples(["cy status CY-0001"])}`,
     plan: `${"plan".padEnd(12)}inspect planning status, generate planning prompts, toggle strict mode, or manage adapter mirrors.\n\nExamples:\n${commandExamples(["cy plan status CY-0001", "cy plan status CY-0001 --json", "cy plan prompt CY-0001 proposal", "cy plan strict enable CY-0001", "cy plan export CY-0001 --format openspec", "cy plan import CY-0001 --format speckit --dry-run"])}`,
     ui: `${"ui".padEnd(12)}removed. Use cy --kanban instead.\n\nExamples:\n${commandExamples(["cy --kanban --no-open", "cy --kanban --host 127.0.0.1 --port 4310"])}`,
-    dashboard: `${"dashboard".padEnd(12)}start the local Changeyard dashboard, Kanban, and VCS web runtime.\n\nExamples:\n${commandExamples(["cy dashboard", "cy dashboard --no-open", "cy dashboard --host 127.0.0.1 --port auto", "cy dashboard --project /path/to/repo --json"])}`,
+    dashboard: `${"dashboard".padEnd(12)}start or manage the local Changeyard dashboard, Kanban, and VCS web runtime.\n\nExamples:\n${commandExamples(["cy dashboard", "cy dashboard --no-open", "cy dashboard start --no-open", "cy dashboard status", "cy dashboard stop", "cy dashboard --host 127.0.0.1 --port auto", "cy dashboard --project /path/to/repo --json"])}`,
     server: `${"server".padEnd(12)}removed. Use cy dashboard instead.\n\nExamples:\n${commandExamples(["cy dashboard --no-open", "cy dashboard --host 127.0.0.1 --port auto"])}`,
     tui: `${"tui".padEnd(12)}removed. Use cy --tui or cy -i instead.\n\nExamples:\n${commandExamples(["cy --tui", "cy --tui --connect http://127.0.0.1:4310", "cy --tui --project /path/to/repo --debug"])}`,
     config: `${"config".padEnd(12)}print config as JSON. Interactive config lives inside the TUI at /config.\n\nExamples:\n${commandExamples([
@@ -491,14 +495,27 @@ async function main(): Promise<void> {
         throw new Error("cy ui was removed. Use `cy --kanban` instead.");
       }
       case "dashboard": {
-        const rawPort = stringFlag(args.flags, "port");
-        output = await runUi({
+        const dashboardAction = args.positional[0] ?? "";
+        const dashboardOptions = {
           open: args.flags["no-open"] === true ? false : args.flags.open === true ? true : undefined,
           host: stringFlag(args.flags, "host"),
-          port: rawPort === "auto" ? "auto" : rawPort ? Number(rawPort) : undefined,
+          port: parsePortFlag(args.flags),
           project: projectRoot,
-          openPath: "/",
-        }, process.cwd());
+        };
+        if (dashboardAction === "start") {
+          output = await runDashboardStart(repoRoot, dashboardOptions);
+        } else if (dashboardAction === "stop") {
+          output = await runDashboardStop(repoRoot);
+        } else if (dashboardAction === "status") {
+          output = json ? getDashboardStatus(repoRoot) : runDashboardStatus(repoRoot);
+        } else if (dashboardAction) {
+          throw new Error("Unknown dashboard command. Expected: cy dashboard, cy dashboard start, cy dashboard stop, or cy dashboard status.");
+        } else {
+          output = await runUi({
+            ...dashboardOptions,
+            openPath: "/",
+          }, process.cwd());
+        }
         break;
       }
       case "server": {

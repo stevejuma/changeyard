@@ -18,6 +18,7 @@ import {
   runPlanStrictEnable,
 } from "../src/commands/plan.js";
 import { runCreate } from "../src/commands/create.js";
+import { getDashboardStatus, runDashboardStatus } from "../src/commands/dashboard.js";
 import { runHydrate } from "../src/commands/hydrate.js";
 import { runInit } from "../src/commands/init.js";
 import { runLand } from "../src/commands/land.js";
@@ -458,6 +459,18 @@ test("cli quick --help shows quick-mode examples", () => {
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /cy quick --title "Fix typo in README"/);
   assert.match(result.stdout, /cy quick --dry-run --title "Tighten release note copy"/);
+});
+
+test("cli dashboard --help shows lifecycle commands", () => {
+  const result = spawnSync(nodeBinary(), [cliBinPath(), "dashboard", "--help"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /cy dashboard start --no-open/);
+  assert.match(result.stdout, /cy dashboard status/);
+  assert.match(result.stdout, /cy dashboard stop/);
 });
 
 test("create can generate an openspec-lite planned change", () => {
@@ -1234,6 +1247,21 @@ test("shell completions include core commands", () => {
   const completions = runCompletions();
   assert.match(completions, /complete -F _cy_complete cy changeyard/);
   assert.match(completions, /doctor recover/);
+});
+
+test("dashboard status reports stopped when no server is recorded", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    const status = getDashboardStatus(repo);
+    assert.equal(status.running, false);
+    assert.equal(status.stale, false);
+    assert.equal(status.pid, null);
+    assert.equal(status.url, null);
+    assert.match(runDashboardStatus(repo), /dashboard: stopped/);
+  } finally {
+    cleanup(repo);
+  }
 });
 
 test("jj workspace engine creates and verifies expected jj workspace", () => {

@@ -6,6 +6,7 @@ import { defineConfig, type Plugin, type ResolvedConfig, transformWithEsbuild } 
 
 const rootPkg = JSON.parse(readFileSync(resolve(__dirname, "../package.json"), "utf-8")) as { version: string };
 const XTERM_CHUNK_NAME = "xterm-vendor";
+const webNodeModulesDir = resolve(__dirname, "node_modules");
 const vcsSrcDir = resolve(__dirname, "../../vcs/src");
 const vcsSrcPrefix = `${vcsSrcDir.replaceAll("\\", "/")}/`;
 
@@ -183,6 +184,8 @@ export default defineConfig({
 	resolve: {
 		alias: {
 			"@": resolve(__dirname, "src"),
+			"react-dom": resolve(webNodeModulesDir, "react-dom"),
+			"react": resolve(webNodeModulesDir, "react"),
 			"@runtime-agent-catalog": resolve(__dirname, "../src/runtime-stack/core/agent-catalog.ts"),
 			"@runtime-cline-tool-call-display": resolve(__dirname, "../src/runtime-stack/cline-sdk/cline-tool-call-display.ts"),
 			"@runtime-home-agent-session": resolve(__dirname, "../src/runtime-stack/core/home-agent-session.ts"),
