@@ -9,7 +9,7 @@ import { changesRoot, storageRoot, workspacesRoot } from "../paths.js";
 import { validatePlanningForGate } from "../planning/validation.js";
 import { findChangeFile } from "../state/id.js";
 import type { Frontmatter } from "../types.js";
-import { readWorkspaceMetadata } from "../workspace/marker.js";
+import { readWorkspaceMetadata, resolveWorkspaceChangePath } from "../workspace/marker.js";
 import { createWorkspaceEngine } from "../workspace/index.js";
 import { assertTransition } from "../state/transitions.js";
 import { createProvider } from "../providers/index.js";
@@ -66,7 +66,7 @@ export function runComplete(id: string, options: CompleteOptions = {}, cwd = pro
   if (!id) throw new Error("change id is required");
   const metadata = readWorkspaceMetadata(id, cwd);
   const config = loadConfig(metadata.repoRoot);
-  const changePath = findChangeFile(changesRoot(metadata.repoRoot, config), id) ?? metadata.changePath;
+  const changePath = metadata.engine === "jj" ? resolveWorkspaceChangePath(metadata) : findChangeFile(changesRoot(metadata.repoRoot, config), id) ?? metadata.changePath;
   const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
   runVerify(id, cwd);
   assertTransition(String(parsed.frontmatter.status ?? ""), "ready_for_pr", `Complete ${id}`);

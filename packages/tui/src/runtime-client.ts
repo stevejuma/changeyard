@@ -59,6 +59,8 @@ export type ChangeActionResponse = {
 export type WorkspaceStatus = {
   id: string;
   status: string;
+  rootStatus: string;
+  workspaceStatus: string | null;
   path: string | null;
   engine: string | null;
   name: string | null;

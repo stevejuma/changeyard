@@ -58,6 +58,8 @@ export function createMockRuntimeClient(overrides: Partial<RuntimeClient> = {}):
     workspaceStatus: async (id: string) => ({
       id,
       status: "ready",
+      rootStatus: "ready",
+      workspaceStatus: null,
       path: null,
       engine: null,
       name: null,

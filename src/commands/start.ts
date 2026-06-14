@@ -24,6 +24,41 @@ function jjCommitId(repoRoot: string, revision: string): string {
   return shellCommandRunner("jj", ["log", "--ignore-working-copy", "--at-op=@", "-r", revision, "--no-graph", "-T", "commit_id"], repoRoot);
 }
 
+function commandResult(command: string, args: string[], cwd: string): { ok: true; output: string } | { ok: false; error: string } {
+  try {
+    return { ok: true, output: shellCommandRunner(command, args, cwd) };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+function jjPathHasConflicts(repoRoot: string, relativePath: string): boolean {
+  const result = commandResult("jj", ["resolve", "--list", "--", relativePath], repoRoot);
+  if (result.ok) return result.output.trim().length > 0;
+  if (result.error.includes("No conflicts found")) return false;
+  throw new Error(`Could not inspect jj conflicts for ${relativePath}: ${result.error}`);
+}
+
+function jjPathIsDirty(repoRoot: string, relativePath: string): boolean {
+  return shellCommandRunner("jj", ["diff", "--name-only", "--", relativePath], repoRoot).trim().length > 0;
+}
+
+function seedJjChangeMetadata(repoRoot: string, id: string, targetRef: string, changePath: string): string | null {
+  const relativePath = path.relative(repoRoot, changePath);
+  if (jjPathHasConflicts(repoRoot, relativePath)) {
+    throw new Error(`Change metadata has conflicts: ${relativePath}. Resolve them before running cy start ${id}.`);
+  }
+  if (!jjPathIsDirty(repoRoot, relativePath)) return null;
+
+  shellCommandRunner("jj", ["commit", "-m", `${id}: Add change metadata`, "--", relativePath], repoRoot);
+  shellCommandRunner("jj", ["bookmark", "set", targetRef, "-r", "@-"], repoRoot);
+
+  if (jjPathIsDirty(repoRoot, relativePath)) {
+    throw new Error(`Change metadata is still dirty after seeding ${id}; aborting before workspace creation.`);
+  }
+  return `Metadata seed: committed ${id} to ${targetRef}`;
+}
+
 type MutationOptions = {
   dryRun?: boolean;
 };
@@ -50,6 +85,8 @@ export function runStart(id: string, repoRoot = process.cwd(), mutationOptions: 
   const workspacePath = path.resolve(repoRoot, config.storage.root, config.storage.workspacesDir, fillPattern(config.workspace.pathPattern, id));
   const workspaceName = String(asRecord(parsed.frontmatter.workspace).name ?? config.workspace.namePattern.replace("{id}", id));
   const workspaceRelativePath = path.relative(repoRoot, workspacePath);
+  const workspaceChangePath = path.join(workspacePath, path.relative(repoRoot, filePath));
+  const metadataSeedMessage = engineName === "jj" && !mutationOptions.dryRun ? seedJjChangeMetadata(repoRoot, id, targetRef, filePath) : null;
   const metadata: WorkspaceMetadata = {
     changeId: id,
     engine: engineName,
@@ -57,6 +94,7 @@ export function runStart(id: string, repoRoot = process.cwd(), mutationOptions: 
     path: workspacePath,
     repoRoot,
     changePath: filePath,
+    ...(engineName === "jj" ? { workspaceChangePath } : {}),
     createdAt: new Date().toISOString(),
     branch: String(asRecord(parsed.frontmatter.branch).name ?? `cy/${id}`),
     ...(engineName === "jj"
@@ -91,10 +129,11 @@ export function runStart(id: string, repoRoot = process.cwd(), mutationOptions: 
       path: workspaceRelativePath,
     },
   };
-  writeFileSync(filePath, writeFrontmatter(nextFrontmatter, parsed.body));
+  writeFileSync(engineName === "jj" ? workspaceChangePath : filePath, writeFrontmatter(nextFrontmatter, parsed.body));
 
   return [
     `Started ${id} in ${workspaceRelativePath}`,
+    ...(metadataSeedMessage ? [metadataSeedMessage] : []),
     ...(createdMetadata.targetRef ? [`Base: ${createdMetadata.targetRef} ${createdMetadata.baseCommitId ?? ""}`.trim()] : []),
     ...(createdMetadata.workspaceChangeId ? [`Workspace change: ${createdMetadata.workspaceChangeId}`] : []),
     `Next: cd ${workspaceRelativePath}`,

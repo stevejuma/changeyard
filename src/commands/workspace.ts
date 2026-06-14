@@ -6,12 +6,15 @@ import { changesRoot, workspacesRoot } from "../paths.js";
 import { findChangeFile } from "../state/id.js";
 import type { ChangeStatus, WorkspaceMetadata } from "../types.js";
 import { shellCommandRunner } from "../workspace/commandRunner.js";
+import { resolveWorkspaceChangePath } from "../workspace/marker.js";
 import { deleteTaskWorkspace, verifyTaskWorkspace, type WorkspaceRepositoryKind } from "../workspace/runtimeBridge.js";
 import { isDenied } from "../workspace/patterns.js";
 
 export type WorkspaceStatus = {
   id: string;
   status: string;
+  rootStatus: string;
+  workspaceStatus: string | null;
   path: string | null;
   engine: string | null;
   name: string | null;
@@ -63,12 +66,23 @@ export function readWorkspaceMetadataFromRoot(id: string, repoRoot: string): Wor
   return asWorkspaceMetadata(JSON.parse(readFileSync(metadataPath, "utf8")));
 }
 
+function statusFromChangePath(changePath: string): ChangeStatus | string {
+  const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
+  return String(parsed.frontmatter.status ?? "unknown");
+}
+
 function changeStatus(id: string, repoRoot: string): ChangeStatus | string {
   const config = loadConfig(repoRoot);
   const changePath = findChangeFile(changesRoot(repoRoot, config), id);
   if (!changePath) return "unknown";
-  const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
-  return String(parsed.frontmatter.status ?? "unknown");
+  return statusFromChangePath(changePath);
+}
+
+function workspaceChangeStatus(metadata: WorkspaceMetadata): string | null {
+  if (metadata.engine !== "jj") return null;
+  const changePath = resolveWorkspaceChangePath(metadata);
+  if (!existsSync(changePath)) return null;
+  return String(statusFromChangePath(changePath));
 }
 
 function commandOutput(command: string, args: string[], cwd: string): string {
@@ -185,11 +199,15 @@ export function getWorkspaceStatus(id: string, repoRoot = process.cwd()): Worksp
   if (!id) throw new Error("change id is required");
   const config = loadConfig(repoRoot);
   const metadata = readWorkspaceMetadataFromRoot(id, repoRoot);
-  const status = changeStatus(id, repoRoot);
+  const rootStatus = String(changeStatus(id, repoRoot));
+  const activeWorkspaceStatus = metadata ? workspaceChangeStatus(metadata) : null;
+  const status = activeWorkspaceStatus ?? rootStatus;
   if (!metadata) {
     return {
       id,
       status,
+      rootStatus,
+      workspaceStatus: null,
       path: null,
       engine: null,
       name: null,
@@ -244,6 +262,8 @@ export function getWorkspaceStatus(id: string, repoRoot = process.cwd()): Worksp
   return {
     id,
     status,
+    rootStatus,
+    workspaceStatus: activeWorkspaceStatus,
     path: metadata.path,
     engine: metadata.engine,
     name: metadata.name,
@@ -283,6 +303,8 @@ function formatWorkspaceStatus(status: WorkspaceStatus): string {
   const lines = [
     `id: ${status.id}`,
     `status: ${status.status}`,
+    `rootStatus: ${status.rootStatus}`,
+    ...(status.workspaceStatus && status.workspaceStatus !== status.rootStatus ? [`workspaceStatus: ${status.workspaceStatus}`] : []),
     `workspacePath: ${status.path ?? "missing"}`,
     `engine: ${status.engine ?? "unknown"}`,
     `dirty: ${String(status.dirty)}`,

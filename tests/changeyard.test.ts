@@ -1747,6 +1747,41 @@ test("jj workspace engine can verify a real jj workspace when jj is installed", 
   }
 });
 
+test("jj start commits metadata seed and leaves unrelated root wip", () => {
+  if (!hasCommand("git") || !hasCommand("jj")) return;
+  const repo = tempRepo();
+  try {
+    runCommand("git", ["init", "-b", "main"], repo);
+    runCommand("jj", ["git", "init", "--colocate"], repo);
+    runCommand("jj", ["config", "set", "--repo", "user.name", "Changeyard Test"], repo);
+    runCommand("jj", ["config", "set", "--repo", "user.email", "changeyard@example.test"], repo);
+    runCommand("jj", ["config", "set", "--repo", "signing.behavior", "drop"], repo);
+    writeFileSync(path.join(repo, "README.md"), "# repo\n");
+    runCommand("jj", ["commit", "-m", "initial"], repo);
+    runCommand("jj", ["bookmark", "set", "main", "-r", "@-"], repo);
+
+    runInit(repo);
+    writeFileSync(path.join(repo, ".changeyard", "config.local.jsonc"), `{"vcs":{"engine":"jj","fallback":"plain-copy"},"checks":{"standard":["node -v"]}}\n`);
+    runCommand("jj", ["commit", "-m", "init changeyard"], repo);
+    runCommand("jj", ["bookmark", "set", "main", "-r", "@-"], repo);
+
+    runCreate({ template: "agent-task", title: "Seed jj metadata" }, repo);
+    writeFileSync(path.join(repo, "root-wip.txt"), "root only\n");
+
+    assert.match(runStart("CY-0001", repo), /Metadata seed: committed CY-0001 to main/);
+    const rootChangePath = path.join(repo, ".changeyard", "changes", "CY-0001-seed-jj-metadata.md");
+    const workspaceChangePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo", ".changeyard", "changes", "CY-0001-seed-jj-metadata.md");
+    assert.equal(parseFrontmatter(readFileSync(rootChangePath, "utf8")).frontmatter.status, "ready");
+    assert.equal(parseFrontmatter(readFileSync(workspaceChangePath, "utf8")).frontmatter.status, "in_progress");
+    assert.equal(commandOutput("jj", ["file", "show", "-r", "main", "--", ".changeyard/changes/CY-0001-seed-jj-metadata.md"], repo).includes("status: ready"), true);
+    const rootDiff = commandOutput("jj", ["diff", "--name-only"], repo).split("\n").filter(Boolean);
+    assert.equal(rootDiff.includes("root-wip.txt"), true);
+    assert.equal(rootDiff.includes(".changeyard/changes/CY-0001-seed-jj-metadata.md"), false);
+  } finally {
+    cleanup(repo);
+  }
+});
+
 test("land rebases and lands a described jj workspace task commit without root wip", () => {
   if (!hasCommand("git") || !hasCommand("jj")) return;
   const repo = tempRepo();
@@ -1773,6 +1808,10 @@ test("land rebases and lands a described jj workspace task commit without root w
     assert.ok(metadata.baseCommitId);
     assert.ok(metadata.workspaceChangeId);
     assert.equal(metadata.seedDescription, "CY-0001: Land jj workspace");
+    const rootChangePath = path.join(repo, ".changeyard", "changes", "CY-0001-land-jj-workspace.md");
+    const workspaceChangePath = path.join(workspacePath, ".changeyard", "changes", "CY-0001-land-jj-workspace.md");
+    assert.equal(parseFrontmatter(readFileSync(rootChangePath, "utf8")).frontmatter.status, "ready");
+    assert.equal(parseFrontmatter(readFileSync(workspaceChangePath, "utf8")).frontmatter.status, "in_progress");
 
     const advanceWorkspace = path.join(repo, ".changeyard", "workspaces", "advance-main", "repo");
     mkdirSync(path.dirname(advanceWorkspace), { recursive: true });
@@ -1783,13 +1822,15 @@ test("land rebases and lands a described jj workspace task commit without root w
     rmSync(path.dirname(advanceWorkspace), { recursive: true, force: true });
 
     writeFileSync(path.join(workspacePath, "landed.txt"), "landed\n");
-    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-land-jj-workspace.md");
-    updateSection(changePath, "Acceptance Criteria", "- [x] JJ workspace work is landed locally");
-    updateSection(changePath, "Completion Notes", "Implemented the workspace file. Checks ran: node -v.");
+    updateSection(workspaceChangePath, "Acceptance Criteria", "- [x] JJ workspace work is landed locally");
+    updateSection(workspaceChangePath, "Completion Notes", "Implemented the workspace file. Checks ran: node -v.");
     writeFileSync(path.join(repo, "root-wip.txt"), "root only\n");
 
     assert.match(runComplete("CY-0001", { noPr: true }, workspacePath), /Next: cy land CY-0001/);
+    assert.equal(parseFrontmatter(readFileSync(rootChangePath, "utf8")).frontmatter.status, "ready");
+    assert.equal(parseFrontmatter(readFileSync(workspaceChangePath, "utf8")).frontmatter.status, "ready_for_pr");
     assert.match(runLand("CY-0001", { dryRun: true }, repo), /landingDescription: blocked/);
+    assert.match(runLand("CY-0001", { dryRun: true }, repo), /metadataSource: workspace/);
     assert.throws(
       () => runLand("CY-0001", {}, repo),
       /Replace the generated task description before landing: jj describe -m "CY-0001: <summary of landed work>"/,
@@ -1805,6 +1846,11 @@ test("land rebases and lands a described jj workspace task commit without root w
     assert.notEqual(rootWipResult.status, 0);
     const parsed = parseFrontmatter(commandOutput("jj", ["file", "show", "-r", "main", "--", ".changeyard/changes/CY-0001-land-jj-workspace.md"], repo));
     assert.equal(parsed.frontmatter.status, "merged");
+    runCommand("jj", ["rebase", "-r", "@", "-d", "main"], repo);
+    const metadataConflicts = spawnSync("jj", ["resolve", "--list", "--", ".changeyard/changes/CY-0001-land-jj-workspace.md"], { cwd: repo, encoding: "utf8" });
+    assert.notEqual(metadataConflicts.status, 0);
+    assert.match(String(metadataConflicts.stderr ?? ""), /No conflicts found/);
+    assert.equal(commandOutput("jj", ["diff", "--name-only"], repo).split("\n").filter(Boolean).includes("root-wip.txt"), true);
   } finally {
     cleanup(repo);
   }

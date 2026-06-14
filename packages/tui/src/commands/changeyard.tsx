@@ -236,6 +236,8 @@ export function useChangeyardActions() {
       const result = await client.workspaceStatus(selected.id);
       const lines = [
         `status: ${result.status}`,
+        `root status: ${result.rootStatus}`,
+        ...(result.workspaceStatus && result.workspaceStatus !== result.rootStatus ? [`workspace status: ${result.workspaceStatus}`] : []),
         `workspace: ${result.path ?? "missing"}`,
         `engine: ${result.engine ?? "unknown"}`,
         `dirty: ${String(result.dirty)}`,

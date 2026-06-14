@@ -7,6 +7,7 @@ import { findChangeFile } from "../state/id.js";
 import { assertTransition } from "../state/transitions.js";
 import type { Frontmatter, WorkspaceMetadata } from "../types.js";
 import { shellCommandRunner } from "../workspace/commandRunner.js";
+import { resolveWorkspaceChangePath } from "../workspace/marker.js";
 import { deleteWorkspace, getWorkspaceStatus, readWorkspaceMetadataFromRoot, validateLandingDescription, workspaceMetadataPath } from "./workspace.js";
 
 export type LandOptions = {
@@ -45,7 +46,7 @@ function writeWorkspaceMetadata(repoRoot: string, id: string, metadata: Workspac
   writeFileSync(workspaceMetadataPath(id, repoRoot), `${JSON.stringify(metadata, null, 2)}\n`);
 }
 
-function updateMergedChangeFile(repoRoot: string, workspacePath: string, changePath: string, body: string, frontmatter: Frontmatter): void {
+function updateMergedChangeFile(changePath: string, body: string, frontmatter: Frontmatter): void {
   const nextFrontmatter: Frontmatter = {
     ...frontmatter,
     status: "merged",
@@ -57,17 +58,18 @@ function updateMergedChangeFile(repoRoot: string, workspacePath: string, changeP
       mergedLocally: true,
     },
   };
-  const workspaceChangePath = path.join(workspacePath, path.relative(repoRoot, changePath));
-  mkdirSync(path.dirname(workspaceChangePath), { recursive: true });
-  writeFileSync(workspaceChangePath, writeFrontmatter(nextFrontmatter, body));
+  mkdirSync(path.dirname(changePath), { recursive: true });
+  writeFileSync(changePath, writeFrontmatter(nextFrontmatter, body));
 }
 
 export function runLand(id: string, options: LandOptions = {}, repoRoot = process.cwd()): string {
   if (!id) throw new Error("change id is required");
   const config = loadConfig(repoRoot);
   const target = options.target ?? config.project.defaultBase;
-  const changePath = findChangeFile(changesRoot(repoRoot, config), id);
-  if (!changePath) throw new Error(`Change not found: ${id}`);
+  const rootChangePath = findChangeFile(changesRoot(repoRoot, config), id);
+  if (!rootChangePath) throw new Error(`Change not found: ${id}`);
+  const metadata = readWorkspaceMetadataFromRoot(id, repoRoot);
+  const changePath = metadata?.engine === "jj" ? resolveWorkspaceChangePath(metadata) : rootChangePath;
   const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
   const currentStatus = String(parsed.frontmatter.status ?? "unknown");
   if (currentStatus === "merged") {
@@ -78,7 +80,6 @@ export function runLand(id: string, options: LandOptions = {}, repoRoot = proces
   }
   assertTransition(currentStatus, "merged", `Land ${id}`);
 
-  const metadata = readWorkspaceMetadataFromRoot(id, repoRoot);
   if (!metadata) throw new Error(`Workspace metadata not found for ${id}; run cy workspace status ${id}`);
   if (metadata.engine !== "jj") {
     throw new Error(`cy land currently supports JJ workspaces only; workspace engine ${metadata.engine} is not supported yet.`);
@@ -103,6 +104,7 @@ export function runLand(id: string, options: LandOptions = {}, repoRoot = proces
       `workspaceChange: ${workspaceChangeId}`,
       `targetMoved: ${String(targetMoved)}`,
       `landingDescription: ${descriptionError ? "blocked" : "ok"}`,
+      `metadataSource: ${metadata.engine === "jj" ? "workspace" : "root"}`,
       `workspaceFiles: ${workspaceFiles.length === 0 ? "none" : workspaceFiles.join(", ")}`,
       `description: ${description.split("\n")[0] ?? description}`,
     ];
@@ -128,7 +130,7 @@ export function runLand(id: string, options: LandOptions = {}, repoRoot = proces
       workspaceCommitId: jjCommitId(metadata.path, workspaceChangeId),
     };
   }
-  updateMergedChangeFile(repoRoot, metadata.path, changePath, parsed.body, parsed.frontmatter);
+  updateMergedChangeFile(changePath, parsed.body, parsed.frontmatter);
   commandOutput("jj", ["status"], metadata.path);
   nextMetadata = {
     ...nextMetadata,
