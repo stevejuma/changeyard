@@ -1,3 +1,6 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import path from "node:path";
 import { createEffect, createMemo, onCleanup, onMount } from "solid-js";
 import { useCommandDialog } from "../component/dialog-command";
 import { useAppState, createPresets, presetIndexFromArg, parseSlashCommand, type PreviewTab } from "../context/app-state";
@@ -21,6 +24,11 @@ import {
   prependActivityEvent,
   type ActivityEventDraft,
 } from "../utils/activity-events";
+import {
+  buildDiagnosticBundle,
+  diagnosticBundleFileExtension,
+  diagnosticBundleFormatFromArg,
+} from "../utils/diagnostic-bundle";
 import { isRefreshRelevantRuntimeEvent, runtimeEventLabel } from "../utils/runtime-events";
 
 const ACTIVITY_EVENTS_KEY = "activity_events";
@@ -274,6 +282,51 @@ export function useChangeyardActions() {
     }
   }
 
+  function exportDiagnostics(formatArg?: string) {
+    const format = diagnosticBundleFormatFromArg(formatArg);
+    const generatedAt = new Date().toISOString();
+    const extension = diagnosticBundleFileExtension(format);
+    const outputDir = path.join(homedir(), ".changeyard", "tui-diagnostics");
+    const outputPath = path.join(
+      outputDir,
+      `changeyard-tui-diagnostics-${generatedAt.replace(/[:.]/g, "-")}.${extension}`,
+    );
+    const content = buildDiagnosticBundle({
+      generatedAt,
+      runtimeUrl: state.runtimeUrl,
+      workspaceId: state.activeWorkspaceId,
+      runtimeHealthy: state.runtimeHealthy,
+      eventRefreshMode: state.eventRefreshMode,
+      lastRefreshAt: state.lastRefreshAt,
+      lastRefreshError: state.lastRefreshError,
+      status: state.status,
+      error: state.error,
+      selected: state.selected,
+      detail: state.detail,
+      changes: state.changes,
+      doctor: state.doctor,
+      projectConfig: composerSettings.project.config,
+      runtimeConfig: {
+        selectedAgentId: composerSettings.runtime.selectedAgentId,
+        agents: composerSettings.runtime.agents,
+      },
+      selectedAgent: composerSettings.selectedAgent(),
+      activityEvents: state.activityEvents,
+    }, format);
+
+    mkdirSync(outputDir, { recursive: true });
+    writeFileSync(outputPath, content, "utf8");
+    state.setStatus(`Exported diagnostics to ${outputPath}`);
+    recordActivity({
+      kind: "export",
+      status: "success",
+      title: "Diagnostics exported",
+      description: outputPath,
+      changeId: state.selected?.id,
+    });
+    dialog.replace(() => <DialogMessage title="Diagnostics exported" lines={[outputPath, `format: ${format}`]} />);
+  }
+
   async function createChangeFromPreset(presetId?: string, titleOverride?: string) {
     const preset = createPresets[presetIndexFromArg(presetId)] ?? createPresets[0];
     const title = titleOverride ?? `Quick TUI change ${new Date().toISOString().slice(11, 19).replace(/:/g, "-")}`;
@@ -378,6 +431,8 @@ export function useChangeyardActions() {
       activity: () => setPreviewTab("activity"),
       history: () => setPreviewTab("activity"),
       diagnostics: () => setPreviewTab("diagnostics"),
+      "export-diagnostics": (args) => exportDiagnostics(args[0]),
+      export: (args) => exportDiagnostics(args[0]),
       setup: () => setPreviewTab("setup"),
       themes: () => route.config("appearance"),
       config: (args) => route.config(configTabFromArg(args)),
@@ -473,6 +528,7 @@ export function useChangeyardActions() {
     showWorkspaceStatus,
     deleteSelectedWorkspace,
     refreshWithActivity,
+    exportDiagnostics,
     executeSlash,
     goToWorkspace,
     setPreviewTab,
@@ -796,6 +852,15 @@ export function RegisterChangeyardCommands() {
       description: "Show the latest doctor result",
       slash: { name: "diagnostics" },
       onSelect: () => actions.setPreviewTab("diagnostics"),
+    },
+    {
+      title: "Export diagnostics",
+      value: "diagnostics.export",
+      category: "Diagnostics",
+      description: "Write a markdown diagnostic bundle to local TUI state",
+      slash: { name: "export-diagnostics", aliases: ["export"] },
+      keywords: ["bundle", "markdown", "json", "activity"],
+      onSelect: () => actions.exportDiagnostics(),
     },
     {
       title: "Show setup guide",

@@ -5,6 +5,7 @@ export type ActivityEventKind =
   | "create"
   | "doctor"
   | "setup"
+  | "export"
   | "error";
 
 export type ActivityEventStatus = "started" | "success" | "failure" | "info";
