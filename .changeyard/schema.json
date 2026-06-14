@@ -167,6 +167,48 @@
             "jj",
             "git-worktree"
           ]
+        },
+        "targetBranch": {
+          "type": "string",
+          "minLength": 1
+        },
+        "appliedStacks": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "remoteBookmarks": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": [
+                "local",
+                "tracked",
+                "all"
+              ]
+            },
+            "prefixes": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true
+            },
+            "remotes": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true
+            }
+          }
         }
       }
     },
@@ -355,6 +397,18 @@
         },
         "allowLocalFolder": {
           "type": "boolean"
+        },
+        "titlePattern": {
+          "type": "string"
+        },
+        "bodyFromChange": {
+          "type": "boolean"
+        },
+        "labels": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
