@@ -36,6 +36,7 @@ import { runSync } from "../src/commands/sync.js";
 import { runValidate } from "../src/commands/validate.js";
 import { runVerify } from "../src/commands/verify.js";
 import { deleteWorkspace, getWorkspaceStatus } from "../src/commands/workspace.js";
+import { createChangeyardBoardService } from "../src/board/boardService.js";
 import {
   cliBinNames,
   ensureExecutable,
@@ -1777,6 +1778,41 @@ test("jj start commits metadata seed and leaves unrelated root wip", () => {
     const rootDiff = commandOutput("jj", ["diff", "--name-only"], repo).split("\n").filter(Boolean);
     assert.equal(rootDiff.includes("root-wip.txt"), true);
     assert.equal(rootDiff.includes(".changeyard/changes/CY-0001-seed-jj-metadata.md"), false);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("jj workspace status overlays root status in list, board, and next action", () => {
+  if (!hasCommand("git") || !hasCommand("jj")) return;
+  const repo = tempRepo();
+  try {
+    runCommand("git", ["init", "-b", "main"], repo);
+    runCommand("jj", ["git", "init", "--colocate"], repo);
+    runCommand("jj", ["config", "set", "--repo", "user.name", "Changeyard Test"], repo);
+    runCommand("jj", ["config", "set", "--repo", "user.email", "changeyard@example.test"], repo);
+    runCommand("jj", ["config", "set", "--repo", "signing.behavior", "drop"], repo);
+    writeFileSync(path.join(repo, "README.md"), "# repo\n");
+    runCommand("jj", ["commit", "-m", "initial"], repo);
+    runCommand("jj", ["bookmark", "set", "main", "-r", "@-"], repo);
+
+    runInit(repo);
+    writeFileSync(path.join(repo, ".changeyard", "config.local.jsonc"), `{"vcs":{"engine":"jj","fallback":"plain-copy"},"checks":{"standard":["node -v"]}}\n`);
+    runCommand("jj", ["commit", "-m", "init changeyard"], repo);
+    runCommand("jj", ["bookmark", "set", "main", "-r", "@-"], repo);
+
+    runCreate({ template: "agent-task", title: "Overlay workspace status" }, repo);
+    runStart("CY-0001", repo);
+
+    const rootChangePath = path.join(repo, ".changeyard", "changes", "CY-0001-overlay-workspace-status.md");
+    assert.equal(parseFrontmatter(readFileSync(rootChangePath, "utf8")).frontmatter.status, "ready");
+    assert.equal(getStatus("CY-0001", repo).status, "in_progress");
+    assert.match(runStatus("CY-0001", repo), /status: in_progress/);
+    assert.equal(listChanges(repo).find((change) => change.id === "CY-0001")?.status, "in_progress");
+    assert.match(runList(repo), /CY-0001\tin_progress/);
+    assert.equal(getNextAction("CY-0001", repo).nextKind, "complete");
+    const boardCards = createChangeyardBoardService(repo).getBoard().columns.flatMap((column) => column.cards);
+    assert.equal(boardCards.find((card) => card.id === "CY-0001")?.status, "in_progress");
   } finally {
     cleanup(repo);
   }

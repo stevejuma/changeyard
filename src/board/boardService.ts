@@ -6,11 +6,11 @@ import { runReviewComplete, runReviewStart, type ReviewDecision } from "../comma
 import { runStart } from "../commands/start.js";
 import { runSync } from "../commands/sync.js";
 import { loadConfig } from "../config/loadConfig.js";
-import { parseFrontmatter } from "../documents/frontmatter.js";
 import { parseSections } from "../documents/sections.js";
 import { changesRoot, workspacesRoot } from "../paths.js";
 import { getPlanningStatusSummary } from "../planning/status.js";
 import { findChangeFile } from "../state/id.js";
+import { readOverlayChangeDocument } from "../state/workspaceOverlay.js";
 import type { Frontmatter, WorkspaceMetadata } from "../types.js";
 import { createWorkspaceEngine } from "../workspace/index.js";
 import {
@@ -59,10 +59,11 @@ function verifyWorkspace(metadata: WorkspaceMetadata | null): { valid: boolean; 
 }
 
 function toCard(repoRoot: string, filePath: string): Omit<ChangeyardCardDetail, "dependencies"> {
-  const parsed = parseFrontmatter(readFileSync(filePath, "utf8"));
-  const frontmatter = parsed.frontmatter;
-  const id = String(frontmatter.id ?? path.basename(filePath, ".md"));
+  const rootParsed = readOverlayChangeDocument(filePath, null);
+  const id = String(rootParsed.frontmatter.id ?? path.basename(filePath, ".md"));
   const metadata = readWorkspaceMetadataIfPresent(repoRoot, id);
+  const parsed = readOverlayChangeDocument(filePath, metadata);
+  const frontmatter = parsed.frontmatter;
   const verification = verifyWorkspace(metadata);
   const workspaceFrontmatter = asRecord(frontmatter.workspace);
   const branchFrontmatter = asRecord(frontmatter.branch);
