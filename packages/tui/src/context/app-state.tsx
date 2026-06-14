@@ -1,8 +1,9 @@
 import { createStore } from "solid-js/store";
 import { createSimpleContext } from "./helper";
 import type { ChangeDetail, ChangeListItem, DoctorResponse, PlanningSectionId } from "../runtime-client";
+import type { ActivityEvent } from "../utils/activity-events";
 
-export type PreviewTab = "detail" | "planning" | "workspace" | "review" | "activity" | "diagnostics";
+export type PreviewTab = "detail" | "planning" | "workspace" | "review" | "activity" | "diagnostics" | "setup";
 
 export type CreatePreset = {
   id: "quick" | "planned" | "strict" | "legacy";
@@ -60,6 +61,12 @@ export const { use: useAppState, provider: AppStateProvider } = createSimpleCont
       planningPrompt: null as string | null,
       doctor: null as DoctorResponse | null,
       runtimeHealthy: false,
+      runtimeUrl: null as string | null,
+      activeWorkspaceId: null as string | null,
+      lastRefreshAt: null as string | null,
+      lastRefreshError: null as string | null,
+      eventRefreshMode: "unavailable" as "events" | "polling" | "unavailable",
+      activityEvents: [] as ActivityEvent[],
     });
 
     return {
@@ -95,6 +102,24 @@ export const { use: useAppState, provider: AppStateProvider } = createSimpleCont
       },
       get runtimeHealthy() {
         return store.runtimeHealthy;
+      },
+      get runtimeUrl() {
+        return store.runtimeUrl;
+      },
+      get activeWorkspaceId() {
+        return store.activeWorkspaceId;
+      },
+      get lastRefreshAt() {
+        return store.lastRefreshAt;
+      },
+      get lastRefreshError() {
+        return store.lastRefreshError;
+      },
+      get eventRefreshMode() {
+        return store.eventRefreshMode;
+      },
+      get activityEvents() {
+        return store.activityEvents;
       },
       get selected() {
         return store.changes[store.selectedIndex] ?? null;
@@ -134,6 +159,24 @@ export const { use: useAppState, provider: AppStateProvider } = createSimpleCont
       },
       setRuntimeHealthy(runtimeHealthy: boolean) {
         setStore("runtimeHealthy", runtimeHealthy);
+      },
+      setRuntimeUrl(runtimeUrl: string | null) {
+        setStore("runtimeUrl", runtimeUrl);
+      },
+      setActiveWorkspaceId(activeWorkspaceId: string | null) {
+        setStore("activeWorkspaceId", activeWorkspaceId);
+      },
+      setLastRefreshAt(lastRefreshAt: string | null) {
+        setStore("lastRefreshAt", lastRefreshAt);
+      },
+      setLastRefreshError(lastRefreshError: string | null) {
+        setStore("lastRefreshError", lastRefreshError);
+      },
+      setEventRefreshMode(eventRefreshMode: "events" | "polling" | "unavailable") {
+        setStore("eventRefreshMode", eventRefreshMode);
+      },
+      setActivityEvents(activityEvents: ActivityEvent[]) {
+        setStore("activityEvents", activityEvents);
       },
     };
   },

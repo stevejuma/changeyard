@@ -3,6 +3,9 @@ import { useTheme } from "../context/theme";
 import { badgeText, type PreviewTab } from "../context/app-state";
 import type { ChangeDetail, ChangeListItem, DoctorResponse } from "../runtime-client";
 import { buildActivityItems } from "../utils/activity";
+import type { ActivityEvent } from "../utils/activity-events";
+import type { DiagnosticRow } from "../utils/diagnostics";
+import type { SetupChecklistItem } from "../utils/setup-guide";
 
 function Spacer() {
   return <box height={1} />;
@@ -83,9 +86,9 @@ export function ReviewPanel(props: { detail: ChangeDetail }) {
   );
 }
 
-export function ActivityPanel(props: { changes: ChangeListItem[]; doctor: DoctorResponse | null }) {
+export function ActivityPanel(props: { changes: ChangeListItem[]; doctor: DoctorResponse | null; events: ActivityEvent[] }) {
   const { theme } = useTheme();
-  const items = () => buildActivityItems({ changes: props.changes, doctor: props.doctor }).slice(0, 80);
+  const items = () => buildActivityItems({ changes: props.changes, doctor: props.doctor, events: props.events }).slice(0, 80);
   return (
     <box flexDirection="column">
       <text fg={theme.text}>activity</text>
@@ -102,27 +105,36 @@ export function ActivityPanel(props: { changes: ChangeListItem[]; doctor: Doctor
   );
 }
 
-export function DiagnosticsPanel(props: { doctor: DoctorResponse | null }) {
+export function DiagnosticsPanel(props: { rows: DiagnosticRow[] }) {
   const { theme } = useTheme();
   return (
     <box flexDirection="column">
       <text fg={theme.text}>diagnostics</text>
-      <Show when={props.doctor} fallback={<text fg={theme.textMuted}>Run /doctor to load diagnostics.</text>}>
-        {(doctor) => (
-          <>
-            <text fg={theme.textMuted}>ok: {doctor().ok.length}</text>
-            <For each={doctor().ok}>
-              {(line) => <text fg={theme.success}>ok: {line}</text>}
-            </For>
-            <For each={doctor().warnings}>
-              {(line) => <text fg={theme.warning}>warning: {line}</text>}
-            </For>
-            <For each={doctor().notes}>
-              {(line) => <text fg={theme.textMuted}>note: {line}</text>}
-            </For>
-          </>
-        )}
+      <Show when={props.rows.length > 0} fallback={<text fg={theme.textMuted}>Run /doctor to add doctor diagnostics.</text>}>
+        <For each={props.rows}>
+          {(row) => (
+            <text fg={row.severity === "success" ? theme.success : row.severity === "warning" ? theme.warning : row.severity === "error" ? theme.error : theme.textMuted}>
+              {row.section} {row.title}: {row.value}
+            </text>
+          )}
+        </For>
       </Show>
+    </box>
+  );
+}
+
+export function SetupGuidePanel(props: { items: SetupChecklistItem[] }) {
+  const { theme } = useTheme();
+  return (
+    <box flexDirection="column">
+      <text fg={theme.text}>setup guide</text>
+      <For each={props.items}>
+        {(item) => (
+          <text fg={item.status === "done" ? theme.success : item.status === "todo" ? theme.warning : theme.textMuted}>
+            {item.status}: {item.title} - {item.detail} ({item.command})
+          </text>
+        )}
+      </For>
     </box>
   );
 }
@@ -133,13 +145,19 @@ export function PreviewPanel(props: {
   prompt: string | null;
   changes: ChangeListItem[];
   doctor: DoctorResponse | null;
+  activityEvents: ActivityEvent[];
+  diagnosticsRows: DiagnosticRow[];
+  setupItems: SetupChecklistItem[];
 }) {
   const { theme } = useTheme();
   if (props.tab === "activity") {
-    return <ActivityPanel changes={props.changes} doctor={props.doctor} />;
+    return <ActivityPanel changes={props.changes} doctor={props.doctor} events={props.activityEvents} />;
   }
   if (props.tab === "diagnostics") {
-    return <DiagnosticsPanel doctor={props.doctor} />;
+    return <DiagnosticsPanel rows={props.diagnosticsRows} />;
+  }
+  if (props.tab === "setup") {
+    return <SetupGuidePanel items={props.setupItems} />;
   }
   return (
     <Show

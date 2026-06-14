@@ -1,4 +1,4 @@
-import { For, Show } from "solid-js";
+import { createMemo, For, Show } from "solid-js";
 import { useKeyboard, useRenderer } from "@opentui/solid";
 import { TextareaRenderable } from "@opentui/core";
 import { Prompt } from "../component/prompt";
@@ -9,6 +9,9 @@ import { useTheme } from "../context/theme";
 import { useAppState, groupChanges } from "../context/app-state";
 import { useChangeyardActions } from "../commands/changeyard";
 import { useDialog } from "../ui/dialog";
+import { useComposerSettings } from "../context/composer-settings";
+import { buildDiagnosticsRows } from "../utils/diagnostics";
+import { buildSetupChecklist } from "../utils/setup-guide";
 
 export function Workspace() {
   const { theme } = useTheme();
@@ -16,8 +19,30 @@ export function Workspace() {
   const actions = useChangeyardActions();
   const dialog = useDialog();
   const renderer = useRenderer();
+  const composerSettings = useComposerSettings();
 
   const grouped = () => groupChanges(state.changes);
+  const diagnosticsRows = createMemo(() =>
+    buildDiagnosticsRows({
+      runtimeUrl: state.runtimeUrl,
+      workspaceId: state.activeWorkspaceId,
+      runtimeHealthy: state.runtimeHealthy,
+      eventRefreshMode: state.eventRefreshMode,
+      lastRefreshAt: state.lastRefreshAt,
+      lastRefreshError: state.lastRefreshError,
+      projectConfig: composerSettings.project.config,
+      runtimeConfig: composerSettings.runtime.loaded ? composerSettings.runtime : null,
+      selectedAgent: composerSettings.selectedAgent(),
+      doctor: state.doctor,
+    }),
+  );
+  const setupItems = createMemo(() =>
+    buildSetupChecklist({
+      projectConfig: composerSettings.project.config,
+      runtimeConfig: composerSettings.runtime.loaded ? composerSettings.runtime : null,
+      selectedAgent: composerSettings.selectedAgent(),
+    }),
+  );
 
   useKeyboard((evt) => {
     if (dialog.stack.length > 0) return;
@@ -94,6 +119,9 @@ export function Workspace() {
               prompt={state.planningPrompt}
               changes={state.changes}
               doctor={state.doctor}
+              activityEvents={state.activityEvents}
+              diagnosticsRows={diagnosticsRows()}
+              setupItems={setupItems()}
             />
           </box>
           <box alignItems="center" paddingTop={1} paddingBottom={1} paddingLeft={2} paddingRight={2}>

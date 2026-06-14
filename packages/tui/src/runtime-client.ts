@@ -102,6 +102,12 @@ type ProjectsResponse = {
   projects: Array<{ id: string; path: string; name: string }>;
 };
 
+export type RuntimeEventSubscription = {
+  mode: "events" | "unavailable";
+  unsubscribe: () => void;
+  reason?: string;
+};
+
 export class RuntimeClientError extends Error {
   constructor(message: string, readonly status?: number) {
     super(message);
@@ -115,6 +121,14 @@ export class RuntimeClient {
 
   constructor(runtimeUrl: string) {
     this.origin = new URL(runtimeUrl).origin;
+  }
+
+  getRuntimeUrl(): string {
+    return this.origin;
+  }
+
+  getWorkspaceId(): string | null {
+    return this.workspaceId;
   }
 
   async health(): Promise<void> {
@@ -245,6 +259,69 @@ export class RuntimeClient {
   async doctorProject(): Promise<DoctorResponse> {
     await this.ensureWorkspace();
     return await this.query<DoctorResponse>("changes.doctor");
+  }
+
+  subscribeToRuntimeEvents(onEvent: (event: unknown) => void): RuntimeEventSubscription {
+    if (!this.workspaceId) {
+      return { mode: "unavailable", reason: "workspace not selected", unsubscribe: () => {} };
+    }
+    if (typeof WebSocket === "undefined") {
+      return { mode: "unavailable", reason: "websocket unavailable", unsubscribe: () => {} };
+    }
+
+    let closed = false;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let socket: WebSocket | null = null;
+    let reconnectAttempt = 0;
+    const workspaceId = this.workspaceId;
+
+    const openSocket = () => {
+      if (closed) return;
+      const url = new URL(this.origin);
+      url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+      url.pathname = "/api/runtime/ws";
+      url.search = "";
+      url.searchParams.set("workspaceId", workspaceId);
+      url.searchParams.set("stream", "vcs");
+
+      socket = new WebSocket(url.toString());
+      socket.addEventListener("open", () => {
+        reconnectAttempt = 0;
+      });
+      socket.addEventListener("message", (message) => {
+        try {
+          onEvent(JSON.parse(String(message.data)));
+        } catch {
+          // Ignore malformed stream messages.
+        }
+      });
+      socket.addEventListener("close", () => {
+        socket = null;
+        if (closed) return;
+        const delay = Math.min(5000, 250 * 2 ** reconnectAttempt);
+        reconnectAttempt += 1;
+        reconnectTimer = setTimeout(() => {
+          reconnectTimer = null;
+          openSocket();
+        }, delay);
+      });
+      socket.addEventListener("error", () => {
+        socket?.close();
+      });
+    };
+
+    openSocket();
+
+    return {
+      mode: "events",
+      unsubscribe: () => {
+        closed = true;
+        if (reconnectTimer) clearTimeout(reconnectTimer);
+        if (socket && socket.readyState !== WebSocket.CLOSED && socket.readyState !== WebSocket.CLOSING) {
+          socket.close();
+        }
+      },
+    };
   }
 
   private async ensureWorkspace(): Promise<void> {

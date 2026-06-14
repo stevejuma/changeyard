@@ -1,4 +1,4 @@
-import { createMemo, onCleanup, onMount } from "solid-js";
+import { createEffect, createMemo, onCleanup, onMount } from "solid-js";
 import { useCommandDialog } from "../component/dialog-command";
 import { useAppState, createPresets, presetIndexFromArg, parseSlashCommand, type PreviewTab } from "../context/app-state";
 import { useRoute } from "../context/route";
@@ -14,6 +14,16 @@ import { configTabFromArg } from "../views/config-view";
 import { useTheme } from "../context/theme";
 import { useComposerSettings } from "../context/composer-settings";
 import { firstPromptSection } from "../context/app-state";
+import { useKV } from "../context/kv";
+import {
+  createActivityEvent,
+  normalizeActivityEvents,
+  prependActivityEvent,
+  type ActivityEventDraft,
+} from "../utils/activity-events";
+import { isRefreshRelevantRuntimeEvent, runtimeEventLabel } from "../utils/runtime-events";
+
+const ACTIVITY_EVENTS_KEY = "activity_events";
 
 export function useChangeyardActions() {
   const state = useAppState();
@@ -22,13 +32,22 @@ export function useChangeyardActions() {
   const dialog = useDialog();
   const toast = useToast();
   const composerSettings = useComposerSettings();
+  const kv = useKV();
+
+  function recordActivity(draft: ActivityEventDraft) {
+    const next = prependActivityEvent(state.activityEvents, createActivityEvent(draft));
+    state.setActivityEvents(next);
+    kv.set(ACTIVITY_EVENTS_KEY, next);
+  }
 
   async function refresh(nextSelectedId = state.selected?.id) {
     state.setError(null);
+    state.setRuntimeUrl(client.getRuntimeUrl());
     try {
       await client.health();
       state.setRuntimeHealthy(true);
-      await client.selectCurrentWorkspace();
+      const workspaceId = await client.selectCurrentWorkspace();
+      state.setActiveWorkspaceId(workspaceId);
       const nextChanges = await client.listChanges();
       state.setChanges(nextChanges);
       const desiredIndex = nextSelectedId ? nextChanges.findIndex((change) => change.id === nextSelectedId) : 0;
@@ -36,9 +55,32 @@ export function useChangeyardActions() {
       state.setSelectedIndex(clampedIndex);
       const nextSelected = nextChanges[clampedIndex] ?? null;
       state.setDetail(nextSelected ? await client.getChange(nextSelected.id) : null);
+      state.setLastRefreshAt(new Date().toISOString());
+      state.setLastRefreshError(null);
       state.setStatus(nextChanges.length === 0 ? "No changes yet. Run /create quick to start." : "Ready");
     } catch (caught) {
       state.setRuntimeHealthy(false);
+      state.setLastRefreshError(caught instanceof Error ? caught.message : String(caught));
+      throw caught;
+    }
+  }
+
+  async function refreshWithActivity(source: "manual" | "runtime-event", description = "Reloaded change list and selected detail") {
+    try {
+      await refresh();
+      recordActivity({
+        kind: source === "manual" ? "refresh" : "runtime-event",
+        status: "success",
+        title: source === "manual" ? "Refresh" : "Runtime event",
+        description,
+      });
+    } catch (caught) {
+      recordActivity({
+        kind: "error",
+        status: "failure",
+        title: "Refresh failed",
+        description: caught instanceof Error ? caught.message : String(caught),
+      });
       throw caught;
     }
   }
@@ -69,6 +111,13 @@ export function useChangeyardActions() {
     }
     state.setError(null);
     state.setStatus(`${action} ${selected.id}...`);
+    recordActivity({
+      kind: "lifecycle",
+      status: "started",
+      title: `${action} started`,
+      description: selected.title,
+      changeId: selected.id,
+    });
     try {
       if (action === "complete") {
         await DialogAlert.show(dialog, "Complete change", `Complete ${selected.id} without opening a PR?`);
@@ -97,9 +146,23 @@ export function useChangeyardActions() {
       }
       await refresh(selected.id);
       goToWorkspace(selected.id);
+      recordActivity({
+        kind: "lifecycle",
+        status: "success",
+        title: `${action} completed`,
+        description: selected.title,
+        changeId: selected.id,
+      });
     } catch (caught) {
       state.setError(caught instanceof Error ? caught.message : String(caught));
       state.setStatus("Action failed");
+      recordActivity({
+        kind: "lifecycle",
+        status: "failure",
+        title: `${action} failed`,
+        description: caught instanceof Error ? caught.message : String(caught),
+        changeId: selected.id,
+      });
       toast.error(caught);
     }
   }
@@ -123,9 +186,22 @@ export function useChangeyardActions() {
       dialog.clear();
       await refresh(created.id);
       goToWorkspace(created.id);
+      recordActivity({
+        kind: "create",
+        status: "success",
+        title: `Created ${created.id}`,
+        description: created.title,
+        changeId: created.id,
+      });
     } catch (caught) {
       state.setError(caught instanceof Error ? caught.message : String(caught));
       state.setStatus("Create failed");
+      recordActivity({
+        kind: "create",
+        status: "failure",
+        title: "Create failed",
+        description: caught instanceof Error ? caught.message : String(caught),
+      });
       toast.error(caught);
     }
   }
@@ -166,8 +242,8 @@ export function useChangeyardActions() {
 
     const commandMap: Record<string, (args: string[]) => void | Promise<void>> = {
       help: () => dialog.replace(() => <DialogHelp />),
-      refresh: () => void refresh(),
-      r: () => void refresh(),
+      refresh: () => void refreshWithActivity("manual"),
+      r: () => void refreshWithActivity("manual"),
       sidebar: () => state.toggleSidebar(),
       home: () => route.home(),
       create: (args) => {
@@ -191,6 +267,7 @@ export function useChangeyardActions() {
       activity: () => setPreviewTab("activity"),
       history: () => setPreviewTab("activity"),
       diagnostics: () => setPreviewTab("diagnostics"),
+      setup: () => setPreviewTab("setup"),
       themes: () => route.config("appearance"),
       config: (args) => route.config(configTabFromArg(args)),
       agents: () => route.config("agent"),
@@ -200,8 +277,20 @@ export function useChangeyardActions() {
         void composerSettings.initProject().then((result) => {
           void composerSettings.refreshProjectConfig();
           state.setStatus(result.message);
+          recordActivity({
+            kind: "setup",
+            status: "success",
+            title: "Init completed",
+            description: result.message.split("\n")[0] ?? "Project initialized",
+          });
           dialog.replace(() => <DialogMessage title="Init" lines={result.message.split("\n")} />);
         }).catch((caught) => {
+          recordActivity({
+            kind: "setup",
+            status: "failure",
+            title: "Init failed",
+            description: caught instanceof Error ? caught.message : String(caught),
+          });
           toast.error(caught);
         });
       },
@@ -209,8 +298,20 @@ export function useChangeyardActions() {
         void composerSettings.updateProject().then((result) => {
           void composerSettings.refreshProjectConfig();
           state.setStatus(result.message);
+          recordActivity({
+            kind: "setup",
+            status: "success",
+            title: "Update completed",
+            description: result.message.split("\n")[0] ?? "Project scaffold updated",
+          });
           dialog.replace(() => <DialogMessage title="Update" lines={result.message.split("\n")} />);
         }).catch((caught) => {
+          recordActivity({
+            kind: "setup",
+            status: "failure",
+            title: "Update failed",
+            description: caught instanceof Error ? caught.message : String(caught),
+          });
           toast.error(caught);
         });
       },
@@ -223,8 +324,20 @@ export function useChangeyardActions() {
             ...report.warnings.map((warning) => `warning: ${warning}`),
             ...report.notes.map((note) => `note: ${note}`),
           ];
+          recordActivity({
+            kind: "doctor",
+            status: report.warnings.length > 0 ? "info" : "success",
+            title: "Doctor completed",
+            description: `${report.ok.length} ok, ${report.warnings.length} warning, ${report.notes.length} note`,
+          });
           dialog.replace(() => <DialogMessage title="Doctor" lines={lines.length > 0 ? lines : ["No issues found."]} />);
         }).catch((caught) => {
+          recordActivity({
+            kind: "doctor",
+            status: "failure",
+            title: "Doctor failed",
+            description: caught instanceof Error ? caught.message : String(caught),
+          });
           toast.error(caught);
         });
       },
@@ -245,6 +358,7 @@ export function useChangeyardActions() {
     runAction,
     createChangeFromPreset,
     loadPrompt,
+    refreshWithActivity,
     executeSlash,
     goToWorkspace,
     setPreviewTab,
@@ -259,16 +373,31 @@ export function RegisterChangeyardCommands() {
   const theme = useTheme();
   const composerSettings = useComposerSettings();
   const actions = useChangeyardActions();
+  const kv = useKV();
+  const { client } = useRuntime();
+
+  createEffect(() => {
+    if (!kv.ready) return;
+    state.setActivityEvents(normalizeActivityEvents(kv.get(ACTIVITY_EVENTS_KEY)));
+  });
 
   onMount(() => {
+    let unsubscribeRuntimeEvents = () => {};
     void actions.refresh().then(() => {
       if (state.changes.length === 1 && route.data.type === "home") {
         actions.updateSelection(0);
       }
+      const subscription = client.subscribeToRuntimeEvents((event) => {
+        if (!isRefreshRelevantRuntimeEvent(event, state.activeWorkspaceId)) return;
+        void actions.refreshWithActivity("runtime-event", runtimeEventLabel(event)).catch(() => {});
+      });
+      unsubscribeRuntimeEvents = subscription.unsubscribe;
+      state.setEventRefreshMode(subscription.mode === "events" ? "events" : "polling");
     }).catch((caught) => {
       state.setRuntimeHealthy(false);
       state.setError(caught instanceof Error ? caught.message : String(caught));
       state.setStatus("Runtime connection failed");
+      state.setEventRefreshMode("polling");
     });
     const interval = setInterval(() => {
       if (route.data.type !== "workspace") return;
@@ -276,7 +405,10 @@ export function RegisterChangeyardCommands() {
         state.setStatus("Runtime refresh failed");
       });
     }, 5000);
-    onCleanup(() => clearInterval(interval));
+    onCleanup(() => {
+      clearInterval(interval);
+      unsubscribeRuntimeEvents();
+    });
   });
 
   command.register(() => [
@@ -394,7 +526,7 @@ export function RegisterChangeyardCommands() {
       category: "Change",
       description: "Reload change list and selected detail",
       slash: { name: "refresh", aliases: ["r"] },
-      onSelect: () => void actions.refresh(),
+      onSelect: () => void actions.refreshWithActivity("manual"),
     },
     {
       title: "Toggle sidebar",
@@ -517,6 +649,14 @@ export function RegisterChangeyardCommands() {
       description: "Show the latest doctor result",
       slash: { name: "diagnostics" },
       onSelect: () => actions.setPreviewTab("diagnostics"),
+    },
+    {
+      title: "Show setup guide",
+      value: "setup",
+      category: "Setup",
+      description: "Show project setup checklist and commands",
+      slash: { name: "setup" },
+      onSelect: () => actions.setPreviewTab("setup"),
     },
   ]);
 

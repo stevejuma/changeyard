@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
 import { filterCommandItems, scoreCommandItem } from "../src/utils/command-search";
 import { buildActivityItems } from "../src/utils/activity";
+import { normalizeActivityEvents, prependActivityEvent } from "../src/utils/activity-events";
+import { buildDiagnosticsRows } from "../src/utils/diagnostics";
 import {
   getHistoryNavigationAction,
   normalizePromptHistory,
   prependPromptHistoryEntry,
   resolvePromptHistoryEntry,
 } from "../src/utils/prompt-history";
+import { isRefreshRelevantRuntimeEvent, runtimeEventLabel } from "../src/utils/runtime-events";
+import { buildSetupChecklist } from "../src/utils/setup-guide";
 import { formatStatusRows } from "../src/utils/status-format";
 
 function assertEqual<T>(actual: T, expected: T, message: string) {
@@ -114,8 +118,95 @@ const activity = buildActivityItems({
     planning: null,
   }],
   doctor: { ok: ["provider: noop"], warnings: ["missing metadata"], notes: [] },
+  events: prependActivityEvent([], {
+    kind: "lifecycle",
+    status: "success",
+    title: "Validated CY-0002",
+    description: "Activity item",
+    changeId: "CY-0002",
+  }),
 });
-assertEqual(activity.length, 3, "activity includes changes and doctor rows");
-assertEqual(activity[1]?.severity, "warning", "doctor warnings are highlighted");
+assertEqual(activity.length, 4, "activity includes persisted events, changes, and doctor rows");
+assertEqual(activity[0]?.severity, "success", "successful persisted events are highlighted");
+assertEqual(activity[2]?.severity, "warning", "doctor warnings are highlighted");
+
+const normalizedEvents = normalizeActivityEvents([
+  {
+    id: "event:1",
+    kind: "doctor",
+    status: "success",
+    title: "Doctor completed",
+    description: "1 ok",
+    createdAt: "2026-01-01T00:00:00.000Z",
+  },
+  { id: "bad" },
+]);
+assertEqual(normalizedEvents.length, 1, "activity event normalization filters malformed rows");
+
+const diagnostics = buildDiagnosticsRows({
+  runtimeUrl: "http://127.0.0.1:6174",
+  workspaceId: "workspace-1",
+  runtimeHealthy: true,
+  eventRefreshMode: "events",
+  lastRefreshAt: "2026-01-01T00:00:00.000Z",
+  lastRefreshError: null,
+  projectConfig: {
+    initialized: true,
+    providerType: "github",
+    vcsEngine: "jj",
+    vcsFallback: "plain-copy",
+    projectDefaultBase: "main",
+  },
+  runtimeConfig: {
+    selectedAgentId: "codex",
+    agents: [{
+      id: "codex",
+      label: "Codex",
+      binary: "codex",
+      command: "codex",
+      defaultArgs: [],
+      installed: true,
+      configured: true,
+    }],
+  },
+  selectedAgent: {
+    id: "codex",
+    label: "Codex",
+    binary: "codex",
+    command: "codex",
+    defaultArgs: [],
+    installed: true,
+    configured: true,
+  },
+  doctor: { ok: ["config"], warnings: [], notes: [] },
+});
+assert(diagnostics.some((row) => row.id === "runtime:events" && row.value === "events"), "diagnostics includes refresh mode");
+assert(diagnostics.some((row) => row.id === "agent:state" && row.severity === "success"), "diagnostics includes agent state");
+
+const checklist = buildSetupChecklist({
+  projectConfig: {
+    initialized: false,
+    providerType: "noop",
+    vcsEngine: "plain-copy",
+    vcsFallback: "plain-copy",
+    projectDefaultBase: "",
+  },
+  runtimeConfig: { selectedAgentId: "codex", agents: [] },
+  selectedAgent: null,
+});
+assertEqual(checklist[0]?.status, "todo", "setup checklist identifies missing initialization");
+assert(checklist.some((item) => item.command === "/agents" && item.status === "todo"), "setup checklist points to agent setup");
+
+assertEqual(
+  isRefreshRelevantRuntimeEvent({ type: "vcs_project_event", workspaceId: "workspace-1", kind: "worktree_changes" }, "workspace-1"),
+  true,
+  "runtime VCS event refreshes active workspace",
+);
+assertEqual(
+  isRefreshRelevantRuntimeEvent({ type: "vcs_project_event", workspaceId: "other" }, "workspace-1"),
+  false,
+  "runtime events from another workspace are ignored",
+);
+assertEqual(runtimeEventLabel({ type: "vcs_project_event", kind: "vcs/head" }), "vcs_project_event vcs/head", "runtime event label includes kind");
 
 process.stdout.write("ok - workflow helper tests\n");

@@ -16,9 +16,15 @@ function mockChangeDetail(id: string, title = "Mock"): ChangeDetail {
 
 export function createMockRuntimeClient(overrides: Partial<RuntimeClient> = {}): RuntimeClient {
   let changes: ChangeListItem[] = [];
+  let workspaceId: string | null = null;
   const client = {
+    getRuntimeUrl: () => "http://127.0.0.1:0",
+    getWorkspaceId: () => workspaceId,
     health: async () => {},
-    selectCurrentWorkspace: async () => "mock-workspace",
+    selectCurrentWorkspace: async () => {
+      workspaceId = "mock-workspace";
+      return workspaceId;
+    },
     listChanges: async () => changes,
     getChange: async (id: string) => {
       const item = changes.find((change) => change.id === id);
@@ -130,6 +136,11 @@ export function createMockRuntimeClient(overrides: Partial<RuntimeClient> = {}):
         warnings: [],
         notes: [],
       }) satisfies DoctorResponse,
+    subscribeToRuntimeEvents: () => ({
+      mode: "unavailable",
+      reason: "mock runtime",
+      unsubscribe: () => {},
+    }),
     ...overrides,
   };
 
