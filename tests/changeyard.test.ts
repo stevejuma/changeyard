@@ -18,7 +18,7 @@ import {
   runPlanStrictEnable,
 } from "../src/commands/plan.js";
 import { runCreate } from "../src/commands/create.js";
-import { getDashboardStatus, runDashboardStatus } from "../src/commands/dashboard.js";
+import { getHubStatus, runHubStatus } from "../src/commands/hub.js";
 import { runHydrate } from "../src/commands/hydrate.js";
 import { runInit } from "../src/commands/init.js";
 import { runLand } from "../src/commands/land.js";
@@ -461,16 +461,37 @@ test("cli quick --help shows quick-mode examples", () => {
   assert.match(result.stdout, /cy quick --dry-run --title "Tighten release note copy"/);
 });
 
-test("cli dashboard --help shows lifecycle commands", () => {
-  const result = spawnSync(nodeBinary(), [cliBinPath(), "dashboard", "--help"], {
+test("cli help describes commands and hub lifecycle", () => {
+  const help = spawnSync(nodeBinary(), [cliBinPath(), "--help"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+  });
+  assert.equal(help.status, 0, help.stderr);
+  assert.match(help.stdout, /Commands:/);
+  assert.match(help.stdout, /cy create\s+create a local markdown change/);
+  assert.match(help.stdout, /cy hub\s+manage the shared UI\/runtime hub/);
+  assert.match(help.stdout, /cy --kanban\s+open the Kanban browser client/);
+
+  const result = spawnSync(nodeBinary(), [cliBinPath(), "hub", "--help"], {
     cwd: process.cwd(),
     encoding: "utf8",
   });
 
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /cy dashboard start --no-open/);
-  assert.match(result.stdout, /cy dashboard status/);
-  assert.match(result.stdout, /cy dashboard stop/);
+  assert.match(result.stdout, /cy hub start --no-open/);
+  assert.match(result.stdout, /cy hub status/);
+  assert.match(result.stdout, /cy hub restart/);
+  assert.match(result.stdout, /cy hub stop/);
+});
+
+test("cli dashboard command is removed", () => {
+  const result = spawnSync(nodeBinary(), [cliBinPath(), "dashboard"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /cy dashboard was removed/);
 });
 
 test("create can generate an openspec-lite planned change", () => {
@@ -1247,18 +1268,21 @@ test("shell completions include core commands", () => {
   const completions = runCompletions();
   assert.match(completions, /complete -F _cy_complete cy changeyard/);
   assert.match(completions, /doctor recover/);
+  assert.match(completions, /hub config/);
+  assert.match(completions, /--dashboard/);
+  assert.doesNotMatch(completions, /(^|\s)dashboard(?=\s|")/);
 });
 
-test("dashboard status reports stopped when no server is recorded", () => {
+test("hub status reports stopped when no server is recorded", () => {
   const repo = tempRepo();
   try {
     runInit(repo);
-    const status = getDashboardStatus(repo);
+    const status = getHubStatus(repo);
     assert.equal(status.running, false);
     assert.equal(status.stale, false);
     assert.equal(status.pid, null);
     assert.equal(status.url, null);
-    assert.match(runDashboardStatus(repo), /dashboard: stopped/);
+    assert.match(runHubStatus(repo), /hub: stopped/);
   } finally {
     cleanup(repo);
   }

@@ -3,8 +3,8 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { findRepoRoot } from "../config/loadConfig.js";
-import { createChangeyardUiApi, importKanbanServerModule } from "./ui.js";
 import { repoFileUrl } from "../dev/paths.js";
+import { ensureHubServer } from "./hub.js";
 
 export type TuiMode = "board" | "config";
 
@@ -41,26 +41,9 @@ function assertBunAvailable(): void {
     throw new Error([
       "cy --tui requires Bun because OpenTUI's renderer runs through Bun for this client.",
       "Install Bun from https://bun.sh, then retry `cy --tui`.",
-      "Node-only commands such as `cy --kanban`, `cy --vcs`, and `cy dashboard` do not require Bun.",
+      "Node-only commands such as `cy --dashboard`, `cy --kanban`, `cy --vcs`, and `cy hub` do not require Bun.",
     ].join("\n"));
   }
-}
-
-async function startEmbeddedRuntime(options: TuiOptions, repoRoot: string): Promise<{
-  url: string;
-  close: () => Promise<void>;
-}> {
-  const loaded = await importKanbanServerModule();
-
-  return await loaded.startChangeyardRuntime({
-    repoRoot,
-    host: options.host ?? "127.0.0.1",
-    port: options.port ?? "auto",
-    mode: "tui",
-    openBrowser: false,
-    serveWebAssets: false,
-    changeyardApi: createChangeyardUiApi(),
-  });
 }
 
 function runBunTui(input: {
@@ -102,36 +85,35 @@ export async function runTui(options: TuiOptions = {}, cwd = process.cwd()): Pro
   assertBunAvailable();
   const repoRoot = findRepoRoot(options.project ?? cwd);
   const entrypoint = resolveTuiEntrypoint();
-  const embedded = options.connect ? null : await startEmbeddedRuntime(options, repoRoot);
-  const runtimeUrl = options.connect ?? embedded?.url;
+  const hub = options.connect ? null : await ensureHubServer(repoRoot, {
+    host: options.host,
+    port: options.port,
+    open: false,
+    project: options.project,
+  });
+  const runtimeUrl = options.connect ?? hub?.url;
   if (!runtimeUrl) {
     throw new Error("Missing runtime URL for cy --tui.");
   }
 
-  try {
-    const code = await runBunTui({
-      entrypoint,
-      runtimeUrl,
-      projectRoot: path.resolve(repoRoot),
-      debug: options.debug,
-      smokeTest: options.smokeTest,
-      smokeCreateAll: options.smokeCreateAll,
-      mode: options.mode,
-      configTab: options.configTab,
-    });
-    if (code !== 0) {
-      throw new Error([
-        `OpenTUI exited with status ${code}.`,
-        "Fallback options:",
-        "- retry with `cy --tui --debug`",
-        "- launch the browser UI with `cy --kanban`",
-        "- inspect changes with `cy list` and `cy status <id>`",
-      ].join("\n"));
-    }
-    return options.mode === "config" ? "Changeyard config closed." : "Changeyard TUI closed.";
-  } finally {
-    if (embedded) {
-      await embedded.close();
-    }
+  const code = await runBunTui({
+    entrypoint,
+    runtimeUrl,
+    projectRoot: path.resolve(repoRoot),
+    debug: options.debug,
+    smokeTest: options.smokeTest,
+    smokeCreateAll: options.smokeCreateAll,
+    mode: options.mode,
+    configTab: options.configTab,
+  });
+  if (code !== 0) {
+    throw new Error([
+      `OpenTUI exited with status ${code}.`,
+      "Fallback options:",
+      "- retry with `cy --tui --debug`",
+      "- launch the browser UI with `cy --kanban`",
+      "- inspect changes with `cy list` and `cy status <id>`",
+    ].join("\n"));
   }
+  return options.mode === "config" ? "Changeyard config closed." : "Changeyard TUI closed.";
 }

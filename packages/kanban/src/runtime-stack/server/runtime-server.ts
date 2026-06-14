@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { createServer, type IncomingMessage } from "node:http";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { join } from "node:path";
 
@@ -12,6 +12,8 @@ import {
 import { createClineWatcherRegistry } from "../cline-sdk/cline-watcher-registry.js";
 import type {
 	RuntimeCommandRunResponse,
+	RuntimeHubClientSurface,
+	RuntimeHubRestartResponse,
 	RuntimeRunUpdateResponse,
 	RuntimeUpdateStatusResponse,
 	RuntimeWorkspaceStateResponse,
@@ -46,7 +48,7 @@ import { createProjectsApi } from "../trpc/projects-api.js";
 import { createRuntimeApi } from "../trpc/runtime-api.js";
 import { createVcsApi } from "../trpc/vcs-api.js";
 import { createWorkspaceApi } from "../trpc/workspace-api.js";
-import { getWebUiDir, normalizeRequestPath, readAsset, readMountedAsset } from "./assets.js";
+import { getWebUiDir, normalizeRequestPath, readAsset, readMountedAsset, type RuntimeAsset } from "./assets.js";
 import { handleHttpRequest, handleSocketUpgrade } from "./middleware.js";
 import type { RuntimeStateHub } from "./runtime-state-hub.js";
 import type { WorkspaceRegistry } from "./workspace-registry.js";
@@ -80,6 +82,7 @@ export interface CreateRuntimeServerDependencies {
 	pickDirectoryPathFromSystemDialog: () => string | null;
 	getUpdateStatus: () => RuntimeUpdateStatusResponse;
 	runUpdateNow: () => Promise<RuntimeRunUpdateResponse>;
+	requestRestart?: () => Promise<RuntimeHubRestartResponse>;
 }
 
 export interface RuntimeServer {
@@ -156,8 +159,43 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				workspaceId: requestedWorkspaceContext.workspaceId,
 				workspacePath: requestedWorkspaceContext.repoPath,
 			},
-		};
 	};
+};
+
+function normalizeRuntimeClientSurface(value: string | null): RuntimeHubClientSurface {
+	if (
+		value === "dashboard" ||
+		value === "kanban" ||
+		value === "vcs" ||
+		value === "tui" ||
+		value === "api" ||
+		value === "unknown"
+	) {
+		return value;
+	}
+	return "unknown";
+}
+
+function requestHasMatchingEtag(request: IncomingMessage, etag: string): boolean {
+	const header = request.headers["if-none-match"];
+	const values = Array.isArray(header) ? header : header ? [header] : [];
+	return values.some((value: string) => value.split(",").map((part: string) => part.trim()).includes(etag));
+}
+
+function writeAssetResponse(request: IncomingMessage, response: ServerResponse, asset: RuntimeAsset): void {
+	const headers = {
+		"Content-Type": asset.contentType,
+		"Cache-Control": asset.cacheControl,
+		ETag: asset.etag,
+	};
+	if (requestHasMatchingEtag(request, asset.etag)) {
+		response.writeHead(304, headers);
+		response.end();
+		return;
+	}
+	response.writeHead(200, headers);
+	response.end(asset.content);
+}
 
 	const getScopedTerminalManager = async (scope: RuntimeTrpcWorkspaceScope): Promise<TerminalSessionManager> =>
 		await deps.ensureTerminalManagerForWorkspace(scope.workspaceId, scope.workspacePath);
@@ -229,6 +267,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				prepareForStateReset,
 				getUpdateStatus: deps.getUpdateStatus,
 				runUpdateNow: deps.runUpdateNow,
+				requestRestart: deps.requestRestart,
 			}),
 			workspaceApi: createWorkspaceApi({
 				ensureTerminalManagerForWorkspace: deps.ensureTerminalManagerForWorkspace,
@@ -448,11 +487,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 					return;
 				}
 				const asset = await readMountedAsset(webUiDir, pathname, "/kanban");
-				res.writeHead(200, {
-					"Content-Type": asset.contentType,
-					"Cache-Control": "no-store",
-				});
-				res.end(asset.content);
+				writeAssetResponse(req, res, asset);
 				return;
 			}
 			if (pathname === "/vcs" || pathname.startsWith("/vcs/")) {
@@ -462,11 +497,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 					return;
 				}
 				const asset = await readMountedAsset(webUiDir, pathname, "/vcs");
-				res.writeHead(200, {
-					"Content-Type": asset.contentType,
-					"Cache-Control": "no-store",
-				});
-				res.end(asset.content);
+				writeAssetResponse(req, res, asset);
 				return;
 			}
 
@@ -477,11 +508,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 			}
 
 			const asset = await readAsset(webUiDir, pathname);
-			res.writeHead(200, {
-				"Content-Type": asset.contentType,
-				"Cache-Control": "no-store",
-			});
-			res.end(asset.content);
+			writeAssetResponse(req, res, asset);
 		} catch {
 			res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
 			res.end("Not Found");
@@ -522,7 +549,14 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 		(request as IncomingMessage & { __kanbanUpgradeHandled?: boolean }).__kanbanUpgradeHandled = true;
 		const requestedWorkspaceId = requestUrl.searchParams.get("workspaceId")?.trim() || null;
 		const streamMode = requestUrl.searchParams.get("stream") === "vcs" ? "vcs" : "runtime";
-		deps.runtimeStateHub.handleUpgrade(request, socket, head, { requestedWorkspaceId, streamMode });
+		const surface = normalizeRuntimeClientSurface(requestUrl.searchParams.get("surface"));
+		const userAgent = request.headers["user-agent"];
+		deps.runtimeStateHub.handleUpgrade(request, socket, head, {
+			requestedWorkspaceId,
+			streamMode,
+			surface,
+			userAgent: typeof userAgent === "string" ? userAgent : null,
+		});
 	});
 	const terminalWebSocketBridge = createTerminalWebSocketBridge({
 		server,

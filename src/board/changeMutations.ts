@@ -1,9 +1,10 @@
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { repoAppStatePath } from "../app-state.js";
 import { loadConfig } from "../config/loadConfig.js";
 import { parseFrontmatter, writeFrontmatter } from "../documents/frontmatter.js";
 import { replaceSection } from "../documents/sections.js";
-import { changesRoot, storageRoot } from "../paths.js";
+import { changesRoot } from "../paths.js";
 import { replaceMarkedSection } from "../planning/sections.js";
 import type { PlanningSectionId } from "../planning/types.js";
 import { findChangeFile } from "../state/id.js";
@@ -70,9 +71,7 @@ function nowIso(): string {
 }
 
 function lockPath(repoRoot: string, id: string): string {
-  const config = loadConfig(repoRoot);
-  const root = storageRoot(repoRoot, config);
-  return path.join(root, "locks", `${id}.lock`);
+  return repoAppStatePath(repoRoot, "locks", "changes", `${id}.lock`);
 }
 
 function acquireLock(repoRoot: string, id: string): () => void {

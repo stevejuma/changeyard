@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { dirname, extname, join, normalize, resolve, sep } from "node:path";
+import { createHash } from "node:crypto";
+import { dirname, extname, join, normalize, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const MIME_TYPES: Record<string, string> = {
@@ -21,6 +22,8 @@ const MIME_TYPES: Record<string, string> = {
 export interface RuntimeAsset {
 	content: Buffer;
 	contentType: string;
+	cacheControl: string;
+	etag: string;
 }
 
 export function getWebUiDir(): string {
@@ -86,11 +89,14 @@ export async function readAsset(rootDir: string, requestPathname: string): Promi
 	let resolvedPath = resolveAssetPath(rootDir, requestPathname);
 
 	try {
-		const content = await readFile(resolvedPath);
+		const rawContent = await readFile(resolvedPath);
 		const extension = extname(resolvedPath).toLowerCase();
+		const content = extension === ".html" ? await addAssetCacheBusters(rootDir, rawContent) : rawContent;
 		return {
 			content,
 			contentType: MIME_TYPES[extension] ?? "application/octet-stream",
+			cacheControl: cacheControlForAsset(rootDir, resolvedPath),
+			etag: etagForContent(content),
 		};
 	} catch (error) {
 		if (!shouldFallbackToIndexHtml(requestPathname)) {
@@ -101,8 +107,51 @@ export async function readAsset(rootDir: string, requestPathname: string): Promi
 		return {
 			content,
 			contentType: MIME_TYPES[".html"],
+			cacheControl: "no-store",
+			etag: etagForContent(content),
 		};
 	}
+}
+
+function cacheControlForAsset(rootDir: string, resolvedPath: string): string {
+	const relativePath = relative(rootDir, resolvedPath).replaceAll("\\", "/");
+	if (relativePath.startsWith("assets/") && extname(resolvedPath)) {
+		return "public, max-age=31536000, immutable";
+	}
+	return "no-store";
+}
+
+function etagForContent(content: Buffer): string {
+	return `"${createHash("sha256").update(content).digest("base64url")}"`;
+}
+
+async function addAssetCacheBusters(rootDir: string, content: Buffer): Promise<Buffer> {
+	const html = content.toString("utf8");
+	const matches = Array.from(html.matchAll(/\b(?:src|href)="(\/assets\/[^"?]+)"/g));
+	if (matches.length === 0) {
+		return content;
+	}
+	const cacheBusterByPath = new Map<string, string>();
+	for (const match of matches) {
+		const assetPath = match[1];
+		if (!assetPath || cacheBusterByPath.has(assetPath)) {
+			continue;
+		}
+		try {
+			const assetContent = await readFile(resolveAssetPath(rootDir, assetPath));
+			cacheBusterByPath.set(assetPath, createHash("sha256").update(assetContent).digest("base64url").slice(0, 16));
+		} catch {
+			continue;
+		}
+	}
+	if (cacheBusterByPath.size === 0) {
+		return content;
+	}
+	let nextHtml = html;
+	for (const [assetPath, cacheBuster] of cacheBusterByPath) {
+		nextHtml = nextHtml.replaceAll(`"${assetPath}"`, `"${assetPath}?v=${cacheBuster}"`);
+	}
+	return Buffer.from(nextHtml, "utf8");
 }
 
 export async function readMountedAsset(

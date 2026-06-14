@@ -1455,6 +1455,26 @@ export const runtimeClineMcpServerAuthStatusSchema = z.object({
 });
 export type RuntimeClineMcpServerAuthStatus = z.infer<typeof runtimeClineMcpServerAuthStatusSchema>;
 
+export const runtimeHubClientSurfaceSchema = z.enum(["dashboard", "kanban", "vcs", "tui", "api", "unknown"]);
+export type RuntimeHubClientSurface = z.infer<typeof runtimeHubClientSurfaceSchema>;
+
+export const runtimeHubClientSummarySchema = z.object({
+	id: z.string(),
+	surface: runtimeHubClientSurfaceSchema,
+	connectedAt: z.number(),
+	workspaceId: z.string().nullable(),
+	streamMode: z.enum(["runtime", "vcs"]),
+	userAgent: z.string().nullable(),
+});
+export type RuntimeHubClientSummary = z.infer<typeof runtimeHubClientSummarySchema>;
+
+export const runtimeHubClientsSummarySchema = z.object({
+	total: z.number().int().nonnegative(),
+	bySurface: z.record(runtimeHubClientSurfaceSchema, z.number().int().nonnegative()),
+	clients: z.array(runtimeHubClientSummarySchema),
+});
+export type RuntimeHubClientsSummary = z.infer<typeof runtimeHubClientsSummarySchema>;
+
 export const runtimeStateStreamSnapshotMessageSchema = z.object({
 	type: z.literal("snapshot"),
 	currentProjectId: z.string().nullable(),
@@ -1462,6 +1482,7 @@ export const runtimeStateStreamSnapshotMessageSchema = z.object({
 	workspaceState: runtimeWorkspaceStateResponseSchema.nullable(),
 	workspaceMetadata: runtimeWorkspaceMetadataSchema.nullable(),
 	clineSessionContextVersion: z.number().int().nonnegative(),
+	hubClients: runtimeHubClientsSummarySchema.optional(),
 });
 export type RuntimeStateStreamSnapshotMessage = z.infer<typeof runtimeStateStreamSnapshotMessageSchema>;
 
@@ -1555,6 +1576,14 @@ export type RuntimeStateStreamClineSessionContextUpdatedMessage = z.infer<
 	typeof runtimeStateStreamClineSessionContextUpdatedMessageSchema
 >;
 
+export const runtimeStateStreamHubClientsUpdatedMessageSchema = z.object({
+	type: z.literal("hub_clients_updated"),
+	hubClients: runtimeHubClientsSummarySchema,
+});
+export type RuntimeStateStreamHubClientsUpdatedMessage = z.infer<
+	typeof runtimeStateStreamHubClientsUpdatedMessageSchema
+>;
+
 export const runtimeStateStreamErrorMessageSchema = z.object({
 	type: z.literal("error"),
 	message: z.string(),
@@ -1573,6 +1602,7 @@ export const runtimeStateStreamMessageSchema = z.discriminatedUnion("type", [
 	runtimeStateStreamTaskChatClearedMessageSchema,
 	runtimeStateStreamMcpAuthUpdatedMessageSchema,
 	runtimeStateStreamClineSessionContextUpdatedMessageSchema,
+	runtimeStateStreamHubClientsUpdatedMessageSchema,
 	runtimeStateStreamErrorMessageSchema,
 ]);
 export type RuntimeStateStreamMessage = z.infer<typeof runtimeStateStreamMessageSchema>;
@@ -2030,6 +2060,12 @@ export const runtimeRunUpdateResponseSchema = z.object({
 	message: z.string(),
 });
 export type RuntimeRunUpdateResponse = z.infer<typeof runtimeRunUpdateResponseSchema>;
+
+export const runtimeHubRestartResponseSchema = z.object({
+	ok: z.boolean(),
+	message: z.string(),
+});
+export type RuntimeHubRestartResponse = z.infer<typeof runtimeHubRestartResponseSchema>;
 
 export const runtimeAgentDefinitionSchema = z.object({
 	id: runtimeAgentIdSchema,

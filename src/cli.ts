@@ -27,8 +27,7 @@ import { getStatus, runStatus } from "./commands/status.js";
 import { runSync } from "./commands/sync.js";
 import { runTui } from "./commands/tui.js";
 import { runConfig } from "./commands/config.js";
-import { getDashboardStatus, runDashboardStart, runDashboardStatus, runDashboardStop } from "./commands/dashboard.js";
-import { runUi } from "./commands/ui.js";
+import { getHubStatus, runHubForeground, runHubOpen, runHubRestart, runHubStart, runHubStatus, runHubStop } from "./commands/hub.js";
 import { runValidate } from "./commands/validate.js";
 import { runVerify } from "./commands/verify.js";
 import { deleteWorkspace, getWorkspaceStatus, listWorkspaceStatuses, runWorkspaceList, runWorkspaceStatus } from "./commands/workspace.js";
@@ -40,7 +39,7 @@ import type { ValidationGate } from "./planning/validation.js";
 import type { CreateOptions } from "./commands/create.js";
 import { readWorkspaceMetadata } from "./workspace/marker.js";
 
-type CommandName = "init" | "update" | "create" | "quick" | "validate" | "sync" | "start" | "verify" | "hydrate" | "complete" | "next" | "land" | "workspace" | "review" | "doctor" | "completions" | "recover" | "list" | "status" | "plan" | "ui" | "server" | "dashboard" | "tui" | "config" | "hooks" | "install" | "uninstall" | "help";
+type CommandName = "init" | "update" | "create" | "quick" | "validate" | "sync" | "start" | "verify" | "hydrate" | "complete" | "next" | "land" | "workspace" | "review" | "doctor" | "completions" | "recover" | "list" | "status" | "plan" | "ui" | "server" | "dashboard" | "hub" | "tui" | "config" | "hooks" | "install" | "uninstall" | "help";
 
 type ParsedArgs = {
   command: string;
@@ -139,10 +138,11 @@ function usage(): string {
 
 Usage:
   cy [-i|--tui] [--connect <url>] [--host <host>] [--port <port|auto>] [--project <path>] [--debug]
-  cy dashboard [--host <host>] [--port <port|auto>] [--project <path>] [--open|--no-open] [--json]
-  cy dashboard start [--host <host>] [--port <port|auto>] [--project <path>] [--open|--no-open] [--json]
-  cy dashboard stop [--project <path>] [--json]
-  cy dashboard status [--project <path>] [--json]
+  cy --dashboard [--host <host>] [--port <port|auto>] [--open|--no-open]
+  cy hub start [--host <host>] [--port <port|auto>] [--project <path>] [--open|--no-open] [--json]
+  cy hub stop [--project <path>] [--json]
+  cy hub status [--project <path>] [--json]
+  cy hub restart [--host <host>] [--port <port|auto>] [--project <path>] [--open|--no-open] [--json]
   cy --kanban [--host <host>] [--port <port|auto>] [--open|--no-open]
   cy --vcs [--host <host>] [--port <port|auto>] [--open|--no-open]
   cy init [--dry-run] [--tools all|none|<tool-id>[,<tool-id>...]]
@@ -181,8 +181,9 @@ Usage:
 
 Global options:
   -i, --tui     start the OpenTUI terminal interface
-  --kanban      start the local Changeyard web UI
-  --vcs         start the local Changeyard VCS web UI
+  --dashboard   open the dashboard browser client
+  --kanban      open the Kanban browser client
+  --vcs         open the VCS browser client
   --json         print machine-readable output
   --dry-run      simulate mutating commands without writing
   --verbose      print additional diagnostic output
@@ -194,6 +195,23 @@ Aliases:
   cy begin    -> start
   cy check    -> verify
   cy done     -> complete
+
+Commands:
+  cy create      create a local markdown change
+  cy sync        sync change metadata to the configured provider
+  cy start       create a task workspace
+  cy verify      verify a task workspace
+  cy complete    validate and mark work ready to land
+  cy next        show the next actionable workflow command
+  cy land        land ready workspace work locally
+  cy workspace   inspect or clean task workspaces
+  cy review      manage review artifacts
+  cy plan        inspect and update planning sections
+  cy hub         manage the shared UI/runtime hub
+  cy --dashboard open the dashboard browser client
+  cy --kanban    open the Kanban browser client
+  cy --vcs       open the VCS browser client
+  cy --tui       open the terminal client
 `;
 }
 
@@ -248,8 +266,9 @@ function commandUsage(command: string): string {
     status: `${"status".padEnd(12)}print one change summary.\n\nExample:\n${commandExamples(["cy status CY-0001"])}`,
     plan: `${"plan".padEnd(12)}inspect planning status, generate planning prompts, toggle strict mode, or manage adapter mirrors.\n\nExamples:\n${commandExamples(["cy plan status CY-0001", "cy plan status CY-0001 --json", "cy plan prompt CY-0001 proposal", "cy plan strict enable CY-0001", "cy plan export CY-0001 --format openspec", "cy plan import CY-0001 --format speckit --dry-run"])}`,
     ui: `${"ui".padEnd(12)}removed. Use cy --kanban instead.\n\nExamples:\n${commandExamples(["cy --kanban --no-open", "cy --kanban --host 127.0.0.1 --port 4310"])}`,
-    dashboard: `${"dashboard".padEnd(12)}start or manage the local Changeyard dashboard, Kanban, and VCS web runtime.\n\nExamples:\n${commandExamples(["cy dashboard", "cy dashboard --no-open", "cy dashboard start --no-open", "cy dashboard status", "cy dashboard stop", "cy dashboard --host 127.0.0.1 --port auto", "cy dashboard --project /path/to/repo --json"])}`,
-    server: `${"server".padEnd(12)}removed. Use cy dashboard instead.\n\nExamples:\n${commandExamples(["cy dashboard --no-open", "cy dashboard --host 127.0.0.1 --port auto"])}`,
+    dashboard: `${"dashboard".padEnd(12)}removed. Use cy --dashboard to open the dashboard or cy hub to manage the runtime.\n\nExamples:\n${commandExamples(["cy --dashboard", "cy hub status", "cy hub restart"])}`,
+    hub: `${"hub".padEnd(12)}manage the shared Changeyard UI/runtime hub used by dashboard, Kanban, VCS, and TUI clients.\n\nExamples:\n${commandExamples(["cy hub start --no-open", "cy hub status", "cy hub restart", "cy hub stop", "cy --dashboard", "cy --kanban", "cy --vcs"])}`,
+    server: `${"server".padEnd(12)}removed. Use cy hub instead.\n\nExamples:\n${commandExamples(["cy hub start --no-open", "cy hub status", "cy --dashboard"])}`,
     tui: `${"tui".padEnd(12)}removed. Use cy --tui or cy -i instead.\n\nExamples:\n${commandExamples(["cy --tui", "cy --tui --connect http://127.0.0.1:4310", "cy --tui --project /path/to/repo --debug"])}`,
     config: `${"config".padEnd(12)}print config as JSON. Interactive config lives inside the TUI at /config.\n\nExamples:\n${commandExamples([
       "cy config --json",
@@ -280,13 +299,14 @@ function commandBaseName(command: string): CommandName {
 function removedInvocationMessage(command: string): string | null {
   if (command === "tui") return "cy tui was removed. Use `cy --tui` or `cy -i` instead.";
   if (command === "ui" || command === "kanban") return "cy ui was removed. Use `cy --kanban` instead.";
-  if (command === "server") return "cy server was removed. Use `cy dashboard` instead.";
+  if (command === "dashboard") return "cy dashboard was removed. Use cy --dashboard to open the dashboard or cy hub <start|status|stop|restart> to manage the runtime.";
+  if (command === "server") return "cy server was removed. Use `cy hub` instead.";
   if (command === "view" || command === "menu") return `cy ${command} was removed. Use \`cy --tui\` or \`cy -i\` instead.`;
   return null;
 }
 
 function countRootLaunchFlags(flags: Record<string, string | boolean | string[]>): number {
-  return ["tui", "kanban", "vcs"].filter((name) => asBooleanFlag(flags, name)).length;
+  return ["tui", "dashboard", "kanban", "vcs"].filter((name) => asBooleanFlag(flags, name)).length;
 }
 
 function parsePortFlag(flags: Record<string, string | boolean | string[]>): number | "auto" | undefined {
@@ -340,23 +360,24 @@ async function main(): Promise<void> {
       throw new Error(removedMessage);
     }
     if (rootLaunchFlags > 1) {
-      throw new Error("Choose only one launch target: --tui, --kanban, or --vcs.");
+      throw new Error("Choose only one launch target: --tui, --dashboard, --kanban, or --vcs.");
     }
     if (args.explicitCommand && rootLaunchFlags > 0) {
-      throw new Error("Launch flags must be used without a subcommand. Use `cy --tui`, `cy --kanban`, or `cy --vcs`.");
+      throw new Error("Launch flags must be used without a subcommand. Use `cy --tui`, `cy --dashboard`, `cy --kanban`, or `cy --vcs`.");
     }
 
-    if (asBooleanFlag(args.flags, "kanban") || asBooleanFlag(args.flags, "vcs")) {
-      output = await runUi({
+    if (asBooleanFlag(args.flags, "dashboard") || asBooleanFlag(args.flags, "kanban") || asBooleanFlag(args.flags, "vcs")) {
+      const launchCommand = asBooleanFlag(args.flags, "dashboard") ? "dashboard" : asBooleanFlag(args.flags, "vcs") ? "vcs" : "kanban";
+      output = await runHubOpen(repoRoot, {
         open: args.flags["no-open"] === true ? false : args.flags.open === true ? true : undefined,
         host: stringFlag(args.flags, "host"),
         port: parsePortFlag(args.flags),
-        openPath: asBooleanFlag(args.flags, "vcs") ? "/vcs" : "/kanban",
-      }, process.cwd());
+        project: projectRoot,
+      }, asBooleanFlag(args.flags, "dashboard") ? "/" : asBooleanFlag(args.flags, "vcs") ? "/vcs" : "/kanban");
       if (json) {
-        console.log(JSON.stringify({ ok: true, ...jsonPayload(asBooleanFlag(args.flags, "vcs") ? "vcs" : "kanban", output) }, null, 2));
+        console.log(JSON.stringify({ ok: true, ...jsonPayload(launchCommand, output) }, null, 2));
       } else if (shouldShowText) {
-        outputLine(asBooleanFlag(args.flags, "vcs") ? "vcs" : "kanban", output);
+        outputLine(launchCommand, output);
       }
       return;
     }
@@ -494,32 +515,33 @@ async function main(): Promise<void> {
       case "ui": {
         throw new Error("cy ui was removed. Use `cy --kanban` instead.");
       }
-      case "dashboard": {
-        const dashboardAction = args.positional[0] ?? "";
-        const dashboardOptions = {
+      case "hub": {
+        const hubAction = args.positional[0] ?? "";
+        const hubOptions = {
           open: args.flags["no-open"] === true ? false : args.flags.open === true ? true : undefined,
           host: stringFlag(args.flags, "host"),
           port: parsePortFlag(args.flags),
           project: projectRoot,
         };
-        if (dashboardAction === "start") {
-          output = await runDashboardStart(repoRoot, dashboardOptions);
-        } else if (dashboardAction === "stop") {
-          output = await runDashboardStop(repoRoot);
-        } else if (dashboardAction === "status") {
-          output = json ? getDashboardStatus(repoRoot) : runDashboardStatus(repoRoot);
-        } else if (dashboardAction) {
-          throw new Error("Unknown dashboard command. Expected: cy dashboard, cy dashboard start, cy dashboard stop, or cy dashboard status.");
+        if (hubAction === "start") {
+          output = await runHubStart(repoRoot, hubOptions);
+        } else if (hubAction === "stop") {
+          output = await runHubStop(repoRoot);
+        } else if (hubAction === "status") {
+          output = json ? getHubStatus(repoRoot) : runHubStatus(repoRoot);
+        } else if (hubAction === "restart") {
+          output = await runHubRestart(repoRoot, hubOptions);
+        } else if (hubAction === "run") {
+          output = await runHubForeground(repoRoot, hubOptions);
+        } else if (hubAction) {
+          throw new Error("Unknown hub command. Expected: cy hub start, cy hub stop, cy hub status, or cy hub restart.");
         } else {
-          output = await runUi({
-            ...dashboardOptions,
-            openPath: "/",
-          }, process.cwd());
+          output = commandUsage("hub");
         }
         break;
       }
       case "server": {
-        throw new Error("cy server was removed. Use `cy dashboard` instead.");
+        throw new Error("cy server was removed. Use `cy hub` instead.");
       }
       case "tui": {
         throw new Error("cy tui was removed. Use `cy --tui` or `cy -i` instead.");

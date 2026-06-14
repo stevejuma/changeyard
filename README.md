@@ -124,7 +124,10 @@ cy review complete CY-0001 --decision approve
 cy doctor
 cy list
 cy status CY-0001
-cy --kanban --no-open
+cy hub start --no-open
+cy --dashboard
+cy --kanban
+cy --vcs
 ```
 
 Planning-specific commands:
@@ -176,7 +179,11 @@ The default provider is `noop`, which updates the local change metadata without 
 
 The default workspace engine is `plain-copy`. `cy start <id>` copies the repository into `.changeyard/workspaces/<id>/repo`, excluding VCS data, Changeyard runtime state, and configured `neverCopy` patterns. Changeyard also includes `jj` and `git-worktree` engines: set `vcs.engine` to `jj` to run `jj workspace add --name <workspace> <path>`, or `git-worktree` to run `git worktree add -b <branch> <path>`. Start writes workspace metadata next to the checkout, hydrates explicitly allowlisted files, updates the change to `in_progress`, and prints the next `cd` and `cy verify` commands. `cy verify <id>` must be run from inside that workspace and checks both the workspace marker and the engine-specific workspace status before allowing work to proceed.
 
-`cy --kanban` starts a local board UI backed by the same markdown and workspace metadata. The current UI reads all changes, shows provider/workspace details, creates planned changes, edits planning sections inline with conflict-safe writes, validates planning gates, and can trigger `sync` and `start` actions without creating any separate Kanban state files. `cy --vcs` opens the same runtime directly on the VCS view.
+`cy hub` manages one shared local UI/runtime process. `cy --dashboard`, `cy --kanban`, `cy --vcs`, and `cy --tui` reuse that hub by default instead of starting separate backends. The dashboard is served at `/`, Kanban at `/kanban`, and VCS at `/vcs`; `cy hub status`, `cy hub restart`, and `cy hub stop` manage the background process. Hub pid/state/log files and change-write locks are stored in Changeyard app state, not in the project worktree: set `CHANGEYARD_HOME` to override the location, otherwise macOS uses `~/Library/Application Support/Changeyard`, Linux uses `${XDG_STATE_HOME:-~/.local/state}/changeyard`, and Windows uses `%LOCALAPPDATA%/Changeyard`. Existing repo-local dashboard server state is still tolerated so old processes can be stopped cleanly.
+
+For source development, use `pnpm run ui:dev` for the Kanban/dashboard shell and `pnpm run ui:vcs:dev` for the VCS shell. These scripts run the frontend with Vite HMR and restart the runtime wrapper when backend/server source changes. The managed hub restart button is intended for built `cy hub start` processes, not for foreground dev servers.
+
+The Kanban UI reads all changes, shows provider/workspace details, creates planned changes, edits planning sections inline with conflict-safe writes, validates planning gates, and can trigger `sync` and `start` actions without creating any separate Kanban state files.
 
 ## Doctor, recovery, JSON, and errors
 

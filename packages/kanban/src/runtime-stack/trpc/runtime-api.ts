@@ -18,6 +18,7 @@ import { updateGlobalRuntimeConfig, updateRuntimeConfig } from "../config/runtim
 import type {
 	RuntimeCommandRunResponse,
 	RuntimeAgentId,
+	RuntimeHubRestartResponse,
 	RuntimeRunUpdateResponse,
 	RuntimeUpdateStatusResponse,
 } from "../core/api-contract.js";
@@ -71,6 +72,7 @@ export interface CreateRuntimeApiDependencies {
 	prepareForStateReset?: () => Promise<void>;
 	getUpdateStatus: () => RuntimeUpdateStatusResponse;
 	runUpdateNow: () => Promise<RuntimeRunUpdateResponse>;
+	requestRestart?: () => Promise<RuntimeHubRestartResponse>;
 }
 
 async function resolveExistingTaskCwdOrEnsure(options: {
@@ -788,6 +790,15 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 		},
 		runUpdateNow: async () => {
 			return await deps.runUpdateNow();
+		},
+		restartHub: async () => {
+			if (!deps.requestRestart) {
+				return {
+					ok: false,
+					message: "Hub restart is only available for managed hub processes. Start this runtime with `cy hub start`.",
+				};
+			}
+			return await deps.requestRestart();
 		},
 	};
 }

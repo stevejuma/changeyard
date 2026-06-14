@@ -143,9 +143,21 @@ test("ui server serves health, manifest, and the current shell entrypoint", asyn
 
       const shellResponse = await fetch(server.url);
       assert.equal(shellResponse.status, 200);
+      assert.equal(shellResponse.headers.get("cache-control"), "no-store");
       const shellHtml = await shellResponse.text();
       assert.match(shellHtml, /<!doctype html>/i);
       assert.match(shellHtml, /<div id="root"><\/div>/);
+      const assetPath = /src="([^"]*\/assets\/[^"]+\.js(?:\?[^"]+)?)"/.exec(shellHtml)?.[1];
+      assert.ok(assetPath);
+      const assetResponse = await fetch(`${origin}${assetPath}`);
+      assert.equal(assetResponse.status, 200);
+      assert.equal(assetResponse.headers.get("cache-control"), "public, max-age=31536000, immutable");
+      const etag = assetResponse.headers.get("etag");
+      assert.ok(etag);
+      const cachedAssetResponse = await fetch(`${origin}${assetPath}`, {
+        headers: { "if-none-match": etag },
+      });
+      assert.equal(cachedAssetResponse.status, 304);
     } finally {
       await server.close();
     }

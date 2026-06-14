@@ -18,6 +18,7 @@ function runtimeStreamUrl(workspaceId: string): string {
 	const url = new URL(`${protocol}//${window.location.host}/api/runtime/ws`);
 	url.searchParams.set("workspaceId", workspaceId);
 	url.searchParams.set("stream", "vcs");
+	url.searchParams.set("surface", "vcs");
 	return url.toString();
 }
 

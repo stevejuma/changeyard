@@ -2,6 +2,8 @@ import { useEffect, useReducer } from "react";
 
 import type {
 	RuntimeClineMcpServerAuthStatus,
+	RuntimeHubClientSurface,
+	RuntimeHubClientsSummary,
 	RuntimeProjectSummary,
 	RuntimeStateStreamClineSessionContextUpdatedMessage,
 	RuntimeStateStreamMcpAuthUpdatedMessage,
@@ -43,7 +45,21 @@ function getRuntimeStreamUrl(workspaceId: string | null): string {
 	if (workspaceId) {
 		url.searchParams.set("workspaceId", workspaceId);
 	}
+	url.searchParams.set("surface", detectRuntimeClientSurface(window.location.pathname));
 	return url.toString();
+}
+
+function detectRuntimeClientSurface(pathname: string): RuntimeHubClientSurface {
+	if (pathname === "/") {
+		return "dashboard";
+	}
+	if (pathname === "/kanban" || pathname.startsWith("/kanban/")) {
+		return "kanban";
+	}
+	if (pathname === "/vcs" || pathname.startsWith("/vcs/")) {
+		return "vcs";
+	}
+	return "unknown";
 }
 
 export interface UseRuntimeStateStreamResult {
@@ -56,6 +72,7 @@ export interface UseRuntimeStateStreamResult {
 	latestTaskReadyForReview: RuntimeStateStreamTaskReadyForReviewMessage | null;
 	latestMcpAuthStatuses: RuntimeClineMcpServerAuthStatus[] | null;
 	clineSessionContextVersion: number;
+	hubClients: RuntimeHubClientsSummary | null;
 	streamError: string | null;
 	isRuntimeDisconnected: boolean;
 	hasReceivedSnapshot: boolean;
@@ -71,6 +88,7 @@ interface RuntimeStateStreamStore {
 	latestTaskReadyForReview: RuntimeStateStreamTaskReadyForReviewMessage | null;
 	latestMcpAuthStatuses: RuntimeClineMcpServerAuthStatus[] | null;
 	clineSessionContextVersion: number;
+	hubClients: RuntimeHubClientsSummary | null;
 	streamError: string | null;
 	isRuntimeDisconnected: boolean;
 	hasReceivedSnapshot: boolean;
@@ -85,6 +103,7 @@ type RuntimeStateStreamAction =
 			payload: RuntimeStateStreamProjectsMessage;
 			nextProjectId: string | null;
 	  }
+	| { type: "hub_clients_updated"; hubClients: RuntimeHubClientsSummary }
 	| { type: "task_chat_message"; payload: RuntimeStateStreamTaskChatMessage }
 	| { type: "task_chat_cleared"; payload: RuntimeStateStreamTaskChatClearedMessage }
 	| { type: "workspace_metadata_updated"; workspaceMetadata: RuntimeWorkspaceMetadata }
@@ -107,6 +126,7 @@ function createInitialRuntimeStateStreamStore(requestedWorkspaceId: string | nul
 		latestTaskReadyForReview: null,
 		latestMcpAuthStatuses: null,
 		clineSessionContextVersion: 0,
+		hubClients: null,
 		streamError: null,
 		isRuntimeDisconnected: false,
 		hasReceivedSnapshot: false,
@@ -162,6 +182,7 @@ function runtimeStateStreamReducer(
 			hasReceivedSnapshot: false,
 			latestMcpAuthStatuses: state.latestMcpAuthStatuses,
 			clineSessionContextVersion: state.clineSessionContextVersion,
+			hubClients: state.hubClients,
 		};
 	}
 	if (action.type === "stream_connected") {
@@ -191,6 +212,7 @@ function runtimeStateStreamReducer(
 			latestTaskReadyForReview: state.latestTaskReadyForReview,
 			latestMcpAuthStatuses: state.latestMcpAuthStatuses,
 			clineSessionContextVersion: action.payload.clineSessionContextVersion,
+			hubClients: action.payload.hubClients ?? state.hubClients,
 			streamError: null,
 			isRuntimeDisconnected: false,
 			hasReceivedSnapshot: true,
@@ -253,6 +275,12 @@ function runtimeStateStreamReducer(
 		return {
 			...state,
 			clineSessionContextVersion: action.payload.version,
+		};
+	}
+	if (action.type === "hub_clients_updated") {
+		return {
+			...state,
+			hubClients: action.hubClients,
 		};
 	}
 	if (action.type === "workspace_state_updated") {
@@ -459,6 +487,13 @@ export function useRuntimeStateStream(requestedWorkspaceId: string | null): UseR
 						});
 						return;
 					}
+					if (payload.type === "hub_clients_updated") {
+						dispatch({
+							type: "hub_clients_updated",
+							hubClients: payload.hubClients,
+						});
+						return;
+					}
 					if (payload.type === "error") {
 						dispatch({
 							type: "stream_error",
@@ -511,6 +546,7 @@ export function useRuntimeStateStream(requestedWorkspaceId: string | null): UseR
 		latestTaskReadyForReview: state.latestTaskReadyForReview,
 		latestMcpAuthStatuses: state.latestMcpAuthStatuses,
 		clineSessionContextVersion: state.clineSessionContextVersion,
+		hubClients: state.hubClients,
 		streamError: state.streamError,
 		isRuntimeDisconnected: state.isRuntimeDisconnected,
 		hasReceivedSnapshot: state.hasReceivedSnapshot,

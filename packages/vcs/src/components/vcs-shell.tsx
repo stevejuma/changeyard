@@ -1,4 +1,4 @@
-import { GitBranch, History, Layers3, Settings, Terminal, Workflow } from "lucide-react";
+import { GitBranch, History, Layers3, LayoutDashboard, Settings, Terminal, Workflow } from "lucide-react";
 import type { ReactNode } from "react";
 import { useState } from "react";
 
@@ -16,6 +16,11 @@ const navItems = [
 	{ href: "/vcs/jj", label: "Workspace", icon: Layers3 },
 	{ href: "/vcs/jj/branches", label: "Branches", icon: GitBranch },
 	{ href: "/vcs/jj/history", label: "History", icon: History },
+] as const;
+
+const surfaceLinks = [
+	{ href: "/", label: "Dashboard", icon: LayoutDashboard },
+	{ href: "/kanban", label: "Kanban", icon: Workflow },
 ] as const;
 
 const CONSOLE_HEIGHT_LIMITS = {
@@ -112,6 +117,23 @@ export function VcsShell({
 								);
 							})}
 						</nav>
+						<div className="hidden h-5 w-px bg-border lg:block" />
+						<nav className="hidden items-center gap-1 lg:flex" aria-label="Changeyard surfaces">
+							{surfaceLinks.map((item) => {
+								const Icon = item.icon;
+								return (
+									<a
+										key={item.href}
+										href={item.href}
+										data-changeyard-surface-link
+										className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-text-secondary hover:bg-surface-2 hover:text-text-primary"
+									>
+										<Icon size={14} />
+										<span>{item.label}</span>
+									</a>
+								);
+							})}
+						</nav>
 						{actions}
 						<Button
 							variant="ghost"
@@ -170,6 +192,20 @@ export function VcsShell({
 						<Settings size={14} />
 						Settings
 					</button>
+					{surfaceLinks.map((item) => {
+						const Icon = item.icon;
+						return (
+							<a
+								key={item.href}
+								href={item.href}
+								data-changeyard-surface-link
+								className="inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-md border border-transparent bg-transparent px-2 text-xs font-medium text-text-secondary hover:bg-surface-3 hover:text-text-primary"
+							>
+								<Icon size={14} />
+								{item.label}
+							</a>
+						);
+					})}
 				</nav>
 				<main className="min-h-0 flex-1 overflow-hidden bg-surface-0">{children}</main>
 				{isConsoleOpen ? (

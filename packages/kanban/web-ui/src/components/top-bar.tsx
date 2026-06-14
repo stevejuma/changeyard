@@ -9,6 +9,7 @@ import {
 	CircleArrowDown,
 	Command,
 	GitBranch,
+	LayoutDashboard,
 	Menu,
 	Play,
 	Plus,
@@ -43,6 +44,34 @@ type SettingsSection = "shortcuts";
 type CreateShortcutResult = { ok: boolean; message?: string };
 
 const MOBILE_TOUCH_TARGET = "min-w-[44px] min-h-[44px]";
+
+function HeaderSurfaceLink({
+	href,
+	label,
+	icon,
+	iconOnly = false,
+}: {
+	href: string;
+	label: string;
+	icon: React.ReactNode;
+	iconOnly?: boolean;
+}): React.ReactElement {
+	return (
+		<a
+			href={href}
+			data-changeyard-surface-link
+			aria-label={label}
+			title={label}
+			className={cn(
+				"inline-flex items-center justify-center rounded-md border border-transparent bg-transparent font-medium text-text-secondary hover:bg-surface-3 hover:text-text-primary focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent",
+				iconOnly ? MOBILE_TOUCH_TARGET : "h-7 gap-1.5 px-2 text-xs",
+			)}
+		>
+			{icon}
+			{iconOnly ? null : <span>{label}</span>}
+		</a>
+	);
+}
 
 function getWorkspacePathSegments(path: string): string[] {
 	return path
@@ -658,6 +687,9 @@ export function TopBar({
 									className="ml-0.5 mr-0.5"
 								/>
 							) : null}
+							<div className="mx-1 h-5 w-px bg-border" />
+							<HeaderSurfaceLink href="/" label="Dashboard" icon={<LayoutDashboard size={14} />} />
+							<HeaderSurfaceLink href="/vcs" label="VCS" icon={<GitBranch size={14} />} />
 						</>
 					) : null}
 
@@ -686,6 +718,8 @@ export function TopBar({
 									className={MOBILE_TOUCH_TARGET}
 								/>
 							) : null}
+							<HeaderSurfaceLink href="/" label="Dashboard" icon={<LayoutDashboard size={16} />} iconOnly />
+							<HeaderSurfaceLink href="/vcs" label="VCS" icon={<GitBranch size={16} />} iconOnly />
 						</>
 					) : null}
 

@@ -53,6 +53,7 @@ import type {
 	RuntimeGitSyncResponse,
 	RuntimeHookIngestRequest,
 	RuntimeHookIngestResponse,
+	RuntimeHubRestartResponse,
 	RuntimeOpenFileRequest,
 	RuntimeOpenFileResponse,
 	RuntimeProjectAddRequest,
@@ -195,6 +196,7 @@ import {
 	runtimeGitSyncResponseSchema,
 	runtimeHookIngestRequestSchema,
 	runtimeHookIngestResponseSchema,
+	runtimeHubRestartResponseSchema,
 	runtimeOpenFileRequestSchema,
 	runtimeOpenFileResponseSchema,
 	runtimeProjectAddRequestSchema,
@@ -372,6 +374,7 @@ export interface RuntimeTrpcContext {
 		openFile: (input: RuntimeOpenFileRequest) => Promise<RuntimeOpenFileResponse>;
 		getUpdateStatus: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeUpdateStatusResponse>;
 		runUpdateNow: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeRunUpdateResponse>;
+		restartHub: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeHubRestartResponse>;
 	};
 	workspaceApi: {
 		loadGitSummary: (
@@ -748,6 +751,9 @@ export const runtimeAppRouter = t.router({
 		}),
 		runUpdateNow: t.procedure.output(runtimeRunUpdateResponseSchema).mutation(async ({ ctx }) => {
 			return await ctx.runtimeApi.runUpdateNow(ctx.workspaceScope);
+		}),
+		restartHub: t.procedure.output(runtimeHubRestartResponseSchema).mutation(async ({ ctx }) => {
+			return await ctx.runtimeApi.restartHub(ctx.workspaceScope);
 		}),
 	}),
 	vcs: t.router({

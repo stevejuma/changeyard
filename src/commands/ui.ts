@@ -34,6 +34,7 @@ export type UiOptions = {
   open?: boolean;
   project?: string;
   openPath?: "/" | "/kanban" | "/vcs";
+  restartHub?: () => Promise<{ ok: boolean; message: string }>;
 };
 
 const PLANNING_SECTION_TITLES: Record<PlanningSectionId, string> = {
@@ -433,7 +434,14 @@ export function importKanbanServerModule() {
   return importKanbanServer(import.meta.url);
 }
 
-export async function runUi(options: UiOptions = {}, cwd = process.cwd()): Promise<string> {
+export async function startUiRuntime(options: UiOptions = {}, cwd = process.cwd()): Promise<{
+  server: {
+    url: string;
+    close: () => Promise<void>;
+  };
+  repoRoot: string;
+  displayUrl: string;
+}> {
   assertUiNodeVersion();
   const repoRoot = findRepoRoot(options.project ?? cwd);
   const config = loadConfig(repoRoot);
@@ -450,7 +458,14 @@ export async function runUi(options: UiOptions = {}, cwd = process.cwd()): Promi
     open: options.open ?? config.ui?.open ?? true,
     openPath: options.openPath ?? "/",
     changeyardApi: createChangeyardUiApi(),
+    requestRestart: options.restartHub,
   });
+  const displayUrl = new URL(options.openPath ?? "/", server.url).toString();
+  return { server, repoRoot, displayUrl };
+}
+
+export async function runUi(options: UiOptions = {}, cwd = process.cwd()): Promise<string> {
+  const { server, displayUrl } = await startUiRuntime(options, cwd);
   const runtimeProcess = process as typeof process & {
     stderr: { write: (text: string) => void };
   };
@@ -465,6 +480,5 @@ export async function runUi(options: UiOptions = {}, cwd = process.cwd()): Promi
     },
   });
 
-  const displayUrl = new URL(options.openPath ?? "/", server.url).toString();
   return `Changeyard UI running at ${displayUrl}`;
 }

@@ -6,8 +6,11 @@ import { WebSocket, WebSocketServer } from "ws";
 import type { ClineTaskMessage, ClineTaskSessionService } from "../cline-sdk/cline-task-session-service.js";
 import type {
 	RuntimeClineMcpServerAuthStatus,
+	RuntimeHubClientsSummary,
+	RuntimeHubClientSurface,
 	RuntimeStateStreamClineSessionContextUpdatedMessage,
 	RuntimeStateStreamErrorMessage,
+	RuntimeStateStreamHubClientsUpdatedMessage,
 	RuntimeStateStreamMcpAuthUpdatedMessage,
 	RuntimeStateStreamMessage,
 	RuntimeStateStreamProjectsMessage,
@@ -27,6 +30,14 @@ import type { ResolvedWorkspaceStreamTarget, WorkspaceRegistry } from "./workspa
 import { createChokidarVcsProjectWatcher } from "./vcs-project-watcher.js";
 
 const TASK_SESSION_STREAM_BATCH_MS = 150;
+const HUB_CLIENT_SURFACES: readonly RuntimeHubClientSurface[] = [
+	"dashboard",
+	"kanban",
+	"vcs",
+	"tui",
+	"api",
+	"unknown",
+];
 
 export interface DisposeRuntimeStateWorkspaceOptions {
 	disconnectClients?: boolean;
@@ -52,6 +63,8 @@ export interface RuntimeStateHub {
 		context: {
 			requestedWorkspaceId: string | null;
 			streamMode?: "runtime" | "vcs";
+			surface?: RuntimeHubClientSurface;
+			userAgent?: string | null;
 		},
 	) => void;
 	disposeWorkspace: (workspaceId: string, options?: DisposeRuntimeStateWorkspaceOptions) => void;
@@ -74,6 +87,8 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 	const runtimeStateClients = new Set<WebSocket>();
 	const runtimeStateWorkspaceIdByClient = new Map<WebSocket, string>();
 	const runtimeStateMetadataClients = new Set<WebSocket>();
+	const runtimeHubClientSummaryByClient = new Map<WebSocket, RuntimeHubClientsSummary["clients"][number]>();
+	let nextRuntimeHubClientId = 1;
 	let clineSessionContextVersion = 0;
 	const runtimeStateWebSocketServer = new WebSocketServer({ noServer: true });
 	const workspaceMetadataMonitor = createWorkspaceMetadataMonitor({
@@ -101,6 +116,37 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 			client.send(JSON.stringify(payload));
 		} catch {
 			// Ignore websocket write errors; close handlers clean up disconnected sockets.
+		}
+	};
+
+	const summarizeHubClients = (): RuntimeHubClientsSummary => {
+		const bySurface = Object.fromEntries(HUB_CLIENT_SURFACES.map((surface) => [surface, 0])) as Record<
+			RuntimeHubClientSurface,
+			number
+		>;
+		const clients = Array.from(runtimeHubClientSummaryByClient.values()).sort(
+			(left, right) => left.connectedAt - right.connectedAt,
+		);
+		for (const client of clients) {
+			bySurface[client.surface] += 1;
+		}
+		return {
+			total: clients.length,
+			bySurface,
+			clients,
+		};
+	};
+
+	const broadcastHubClientsUpdated = () => {
+		if (runtimeStateClients.size === 0) {
+			return;
+		}
+		const payload: RuntimeStateStreamHubClientsUpdatedMessage = {
+			type: "hub_clients_updated",
+			hubClients: summarizeHubClients(),
+		};
+		for (const client of runtimeStateClients) {
+			sendRuntimeStateMessage(client, payload);
 		}
 	};
 
@@ -282,6 +328,9 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 		}
 		runtimeStateWorkspaceIdByClient.delete(client);
 		runtimeStateClients.delete(client);
+		if (runtimeHubClientSummaryByClient.delete(client)) {
+			broadcastHubClientsUpdated();
+		}
 	};
 
 	const disposeWorkspace = (workspaceId: string, options?: DisposeRuntimeStateWorkspaceOptions) => {
@@ -406,6 +455,13 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 				(context as { streamMode?: unknown }).streamMode === "vcs"
 					? "vcs"
 					: "runtime";
+			const surface =
+				typeof context === "object" &&
+				context !== null &&
+				"surface" in context &&
+				HUB_CLIENT_SURFACES.includes((context as { surface?: RuntimeHubClientSurface }).surface ?? "unknown")
+					? ((context as { surface: RuntimeHubClientSurface }).surface)
+					: "unknown";
 			const workspace: ResolvedWorkspaceStreamTarget = await deps.workspaceRegistry.resolveWorkspaceForStream(
 				requestedWorkspaceId,
 				{
@@ -453,6 +509,21 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 				state for a client that never finished the handshake.
 			*/
 			runtimeStateClients.add(client);
+			runtimeHubClientSummaryByClient.set(client, {
+				id: `client-${nextRuntimeHubClientId++}`,
+				surface,
+				connectedAt: Date.now(),
+				workspaceId: workspace.workspaceId ?? null,
+				streamMode,
+				userAgent:
+					typeof context === "object" &&
+					context !== null &&
+					"userAgent" in context &&
+					typeof (context as { userAgent?: unknown }).userAgent === "string"
+						? (context as { userAgent: string }).userAgent
+						: null,
+			});
+			broadcastHubClientsUpdated();
 			let monitorWorkspaceId: string | null = null;
 			let didConnectWorkspaceMonitor = false;
 
@@ -517,6 +588,7 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 					workspaceState,
 					workspaceMetadata,
 					clineSessionContextVersion,
+					hubClients: summarizeHubClients(),
 				} satisfies RuntimeStateStreamSnapshotMessage);
 				if (client.readyState !== WebSocket.OPEN) {
 					if (monitorWorkspaceId) {
@@ -642,6 +714,7 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 			}
 			taskSessionBroadcastTimersByWorkspaceId.clear();
 			pendingTaskSessionSummariesByWorkspaceId.clear();
+			runtimeHubClientSummaryByClient.clear();
 			for (const unsubscribe of terminalSummaryUnsubscribeByWorkspaceId.values()) {
 				try {
 					unsubscribe();
