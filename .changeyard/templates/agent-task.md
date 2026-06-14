@@ -11,7 +11,6 @@ requiredSections:
   - Motivation
   - Plan
   - Acceptance Criteria
-  - Scope Boundaries
   - Agent Plan
   - Completion Notes
 validation:
@@ -34,20 +33,6 @@ Explain why this work matters.
 # Acceptance Criteria
 
 - [ ] Replace this item with measurable completion criteria
-
-# Scope Boundaries
-
-## In scope
-
-- List the paths, modules, commands, or behaviors this task is allowed to change.
-
-## Out of scope
-
-- Unrelated requests, opportunistic refactors, and formatting-only edits outside touched files.
-
-## New task triggers
-
-- Create a new Changeyard change if the work expands into unrelated files or undeclared subsystems.
 
 # Agent Plan
 
