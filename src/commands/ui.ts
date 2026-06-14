@@ -5,9 +5,12 @@ import type { ChangeyardCard, ChangeyardCardDetail } from "../board/boardTypes.j
 import { createChangeyardBoardService } from "../board/boardService.js";
 import { runComplete } from "./complete.js";
 import { createChange } from "./create.js";
+import { runLand } from "./land.js";
+import { getNextAction } from "./next.js";
 import { getPlanPrompt } from "./plan.js";
 import { runReviewComplete, runReviewStart, type ReviewDecision } from "./review.js";
 import { runVerify } from "./verify.js";
+import { deleteWorkspace, getWorkspaceStatus, listWorkspaceStatuses } from "./workspace.js";
 import { validateChangeFile } from "../documents/validateDocument.js";
 import { changesRoot, storageRoot } from "../paths.js";
 import { parseMarkedSections } from "../planning/sections.js";
@@ -212,6 +215,32 @@ export function createChangeyardUiApi() {
         noPr: input.noPr ?? true,
         profile: input.profile,
       }, path.resolve(repoRoot, workspacePath));
+      return {
+        message,
+        change: toChangeDetail(createChangeyardBoardService(repoRoot).getCard(input.id)),
+      };
+    },
+    nextAction(repoRoot: string, input: { id: string }) {
+      return getNextAction(input.id, repoRoot);
+    },
+    landChange(repoRoot: string, input: { id: string; target?: string; keepWorkspace?: boolean }) {
+      const message = runLand(input.id, {
+        target: input.target,
+        keepWorkspace: input.keepWorkspace,
+      }, repoRoot);
+      return {
+        message,
+        change: toChangeDetail(createChangeyardBoardService(repoRoot).getCard(input.id)),
+      };
+    },
+    workspaceStatus(repoRoot: string, input: { id: string }) {
+      return getWorkspaceStatus(input.id, repoRoot);
+    },
+    workspaceList(repoRoot: string) {
+      return listWorkspaceStatuses(repoRoot);
+    },
+    workspaceDelete(repoRoot: string, input: { id: string; force?: boolean }) {
+      const message = deleteWorkspace(input.id, { force: input.force }, repoRoot);
       return {
         message,
         change: toChangeDetail(createChangeyardBoardService(repoRoot).getCard(input.id)),

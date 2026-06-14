@@ -16,6 +16,15 @@ export { runStart } from "./commands/start.js";
 export { runVerify } from "./commands/verify.js";
 export { runHydrate } from "./commands/hydrate.js";
 export { runComplete } from "./commands/complete.js";
+export { getNextAction, runNext } from "./commands/next.js";
+export { runLand } from "./commands/land.js";
+export {
+  deleteWorkspace,
+  getWorkspaceStatus,
+  listWorkspaceStatuses,
+  runWorkspaceList,
+  runWorkspaceStatus,
+} from "./commands/workspace.js";
 export { runReviewStart, runReviewComplete } from "./commands/review.js";
 export { runUi } from "./commands/ui.js";
 export { loadConfig, findRepoRoot } from "./config/loadConfig.js";

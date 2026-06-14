@@ -35,6 +35,7 @@ export function DialogHelp() {
         <text fg={theme.textMuted}>{keybind.print("sidebar_toggle")} sidebar</text>
         <text fg={theme.textMuted}>Enter create change from title</text>
         <text fg={theme.textMuted}>/config configure project, planning, agent, and appearance</text>
+        <text fg={theme.textMuted}>/next /land /workspace-status lifecycle actions</text>
         <text fg={theme.textMuted}>/init /update /doctor setup and diagnostics</text>
       </box>
       <box flexDirection="row" justifyContent="flex-end" paddingBottom={1}>
