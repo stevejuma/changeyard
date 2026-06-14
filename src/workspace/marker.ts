@@ -26,3 +26,7 @@ export function readWorkspaceMetadata(id: string, cwd: string): WorkspaceMetadat
   if (!existsSync(marker.metadataPath)) throw new Error(`Workspace metadata not found: ${marker.metadataPath}`);
   return JSON.parse(readFileSync(marker.metadataPath, "utf8")) as WorkspaceMetadata;
 }
+
+export function resolveWorkspaceChangePath(metadata: WorkspaceMetadata): string {
+  return metadata.workspaceChangePath ?? path.join(metadata.path, path.relative(metadata.repoRoot, metadata.changePath));
+}

@@ -5,13 +5,13 @@ import { parseFrontmatter } from "../documents/frontmatter.js";
 import { changesRoot } from "../paths.js";
 import { findChangeFile } from "../state/id.js";
 import { createWorkspaceEngine } from "../workspace/index.js";
-import { readWorkspaceMetadata } from "../workspace/marker.js";
+import { readWorkspaceMetadata, resolveWorkspaceChangePath } from "../workspace/marker.js";
 
 export function runVerify(id: string, cwd = process.cwd()): string {
   if (!id) throw new Error("change id is required");
   const metadata = readWorkspaceMetadata(id, cwd);
   const config = loadConfig(metadata.repoRoot);
-  const changePath = findChangeFile(changesRoot(metadata.repoRoot, config), id) ?? metadata.changePath;
+  const changePath = metadata.engine === "jj" ? resolveWorkspaceChangePath(metadata) : findChangeFile(changesRoot(metadata.repoRoot, config), id) ?? metadata.changePath;
   const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
   if (parsed.frontmatter.status !== "in_progress") {
     throw new Error(`Change ${id} is not in progress: ${String(parsed.frontmatter.status ?? "unknown")}`);

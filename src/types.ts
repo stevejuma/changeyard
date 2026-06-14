@@ -192,6 +192,7 @@ export type WorkspaceMetadata = {
   path: string;
   repoRoot: string;
   changePath: string;
+  workspaceChangePath?: string;
   createdAt: string;
   branch?: string;
   targetRef?: string;

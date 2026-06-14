@@ -1215,6 +1215,8 @@ export type RuntimeChangeyardChangeGetRequest = z.infer<typeof runtimeChangeyard
 export const runtimeChangeyardWorkspaceStatusSchema = z.object({
 	id: z.string(),
 	status: z.string(),
+	rootStatus: z.string(),
+	workspaceStatus: z.string().nullable(),
 	path: z.string().nullable(),
 	engine: z.string().nullable(),
 	name: z.string().nullable(),
