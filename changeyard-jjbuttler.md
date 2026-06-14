@@ -1121,11 +1121,11 @@ The current Changeyard app functionality must not be affected. Enforce this with
 Recommended verification commands for every implementation PR:
 
 ```bash
-npm install
-npm run build
-npm test
-npm run lint --if-present
-npm run typecheck --if-present
+pnpm install
+pnpm run build
+pnpm test
+pnpm run lint --if-present
+pnpm run typecheck --if-present
 node ./dist/cli.js --help || true
 ```
 
@@ -1142,7 +1142,7 @@ The agent should adjust these commands based on actual package scripts discovere
 **Tasks:**
 
 - [ ] Clone `stevejuma/changeyard` locally.
-- [ ] Record Node/npm/pnpm/yarn expectations.
+- [ ] Record Node/pnpm/pnpm/yarn expectations.
 - [ ] Read root `package.json` and workspace package scripts.
 - [ ] Inspect `packages/kanban` build/runtime structure.
 - [ ] Inspect `packages/tui` for CLI patterns or shared types.
@@ -1161,15 +1161,15 @@ The agent should adjust these commands based on actual package scripts discovere
 git clone https://github.com/stevejuma/changeyard.git
 cd changeyard
 node --version
-npm --version
+pnpm --version
 find . -name 'AIDEV*' -o -name 'AGENTS.md' -o -name 'CLAUDE.md'
 cat package.json
 find packages -maxdepth 3 -type f | sort | sed -n '1,200p'
 find src -maxdepth 3 -type f | sort | sed -n '1,200p'
 grep -R "vcs.engine\|git-worktree\|jj\|provider\|ui" -n src packages tests || true
-npm install
-npm run build
-npm test
+pnpm install
+pnpm run build
+pnpm test
 ```
 
 **Deliverables:**

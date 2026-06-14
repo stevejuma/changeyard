@@ -161,8 +161,8 @@ No provider write behavior changes. Runtime event subscription is read-only and 
 
 ## Expected Checks
 
-- `npm run build:cli`
-- `npm run check:tui`
+- `pnpm run build:cli`
+- `pnpm run check:tui`
 - Focused TUI helper tests
 
 ## Manual Scenarios
@@ -173,8 +173,8 @@ No provider write behavior changes. Runtime event subscription is read-only and 
 
 ## Result
 
-- `npm run build:cli` passed.
-- `npm run check:tui` passed.
+- `pnpm run build:cli` passed.
+- `pnpm run check:tui` passed.
 <!-- cy:verification:end -->
 
 # Acceptance Criteria
@@ -211,7 +211,7 @@ No provider write behavior changes. Runtime event subscription is read-only and 
 4. Wire action recording into create/lifecycle/doctor/refresh commands and display persisted rows in the activity panel.
 5. Add runtime diagnostics/setup panels and palette/slash commands.
 6. Add best-effort runtime event subscription with fallback polling.
-7. Run `npm run build:cli` and `npm run check:tui`; complete the change with notes.
+7. Run `pnpm run build:cli` and `pnpm run check:tui`; complete the change with notes.
 
 # Completion Notes
 
@@ -219,7 +219,7 @@ Implemented persisted local TUI activity events, richer diagnostics rows, a setu
 
 Verification:
 
-- `npm run build:cli`
-- `npm run check:tui`
+- `pnpm run build:cli`
+- `pnpm run check:tui`
 
 Residual risk: runtime WebSocket support is best-effort in the TUI environment; when unavailable the existing polling path remains active.

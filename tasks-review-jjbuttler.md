@@ -61,19 +61,19 @@ Status: `completed`
 
 Status: `in_progress`
 
-- [x] `npm --workspace @changeyard/vcs run typecheck`
-- [x] `npm --workspace @changeyard/vcs run test`
-- [x] `npm --workspace @changeyard/vcs run build`
-- [x] `npm run build`
+- [x] `pnpm --filter @changeyard/vcs run typecheck`
+- [x] `pnpm --filter @changeyard/vcs run test`
+- [x] `pnpm --filter @changeyard/vcs run build`
+- [x] `pnpm run build`
 - [x] Focused VCS runtime/UI server tests
 - [x] Browser QA for flagged VCS routes
 
 Verification notes:
 
-- `npm --workspace @changeyard/vcs run typecheck` passed.
-- `npm --workspace @changeyard/vcs run test` passed.
-- `npm --workspace @changeyard/vcs run build` passed.
-- `npm run build` passed.
+- `pnpm --filter @changeyard/vcs run typecheck` passed.
+- `pnpm --filter @changeyard/vcs run test` passed.
+- `pnpm --filter @changeyard/vcs run build` passed.
+- `pnpm run build` passed.
 - `node --test --test-force-exit dist/tests/ui-server.test.js --test-name-pattern='ui server serves the standalone VCS shell when CHANGEYARD_VCS=1 is enabled|ui server exposes vcs\\.'` passed.
-- `npm test` passed: 177 tests, 0 failures.
+- `pnpm test` passed: 177 tests, 0 failures.
 - Browser QA loaded `/vcs/`, `/vcs/jj`, `/vcs/jj/branches`, `/vcs/jj/history`, and `/vcs/settings` against `http://127.0.0.1:4174` with screenshots in `/tmp/vcs-review-*.png`.

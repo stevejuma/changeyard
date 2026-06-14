@@ -69,8 +69,8 @@ Status: completed
 Verification notes:
 
 - Automated checks passed:
-  - `npm --workspace @changeyard/vcs run test -- branches-stack-model.test.ts`
-  - `npm --workspace @changeyard/vcs run typecheck`
+  - `pnpm --filter @changeyard/vcs run test -- branches-stack-model.test.ts`
+  - `pnpm --filter @changeyard/vcs run typecheck`
 - VCS dev server is running at `http://127.0.0.1:4174/vcs/`.
 - `/vcs/jj/branches` returned HTTP 200 from the local dev server.
 - In-app browser was unavailable in this session, so visual checkpoint items remain pending user review.
@@ -98,8 +98,8 @@ Status: implementation complete, stopped for checkpoint verification
 Verification notes:
 
 - Automated checks passed:
-  - `npm --workspace @changeyard/vcs run test -- branches-stack-model.test.ts`
-  - `npm --workspace @changeyard/vcs run typecheck`
+  - `pnpm --filter @changeyard/vcs run test -- branches-stack-model.test.ts`
+  - `pnpm --filter @changeyard/vcs run typecheck`
 - `/vcs/jj/branches` returned HTTP 200 from the local dev server.
 - Visual interaction checkpoint remains pending user review.
 - Follow-up fix after checkpoint review:
@@ -131,25 +131,25 @@ Verification notes:
     - `node --test --import tsx tests/vcs-jj-read.test.ts tests/vcs-jj-apply.test.ts tests/vcs-jj-preview.test.ts tests/vcs-jj-inventory.test.ts tests/vcs-jj-state.test.ts`
     - `node --test --import tsx tests/ui-server.test.ts`
     - `node --test --import tsx tests/schema-validator.test.ts tests/vcs-detect.test.ts`
-    - `npm --workspace @changeyard/kanban run typecheck`
-    - `npm --workspace @changeyard/tui run typecheck`
-    - `npm run build:cli`
-    - `npm --workspace @changeyard/vcs run test -- branches-stack-model.test.ts`
-    - `npm --workspace @changeyard/vcs run typecheck`
+    - `pnpm --filter @changeyard/kanban run typecheck`
+    - `pnpm --filter @changeyard/tui run typecheck`
+    - `pnpm run build:cli`
+    - `pnpm --filter @changeyard/vcs run test -- branches-stack-model.test.ts`
+    - `pnpm --filter @changeyard/vcs run typecheck`
     - `/vcs/jj/branches?workspaceId=jj-sample-repo` returned HTTP 200
     - `node --test --import tsx tests/vcs-jj-read.test.ts tests/vcs-jj-state.test.ts tests/vcs-jj-graph.test.ts`
     - `node --test --import tsx tests/vcs-jj-read.test.ts tests/vcs-jj-apply.test.ts tests/vcs-jj-preview.test.ts tests/vcs-jj-inventory.test.ts tests/vcs-jj-state.test.ts tests/vcs-jj-graph.test.ts`
-    - `npm --workspace @changeyard/kanban run typecheck`
+    - `pnpm --filter @changeyard/kanban run typecheck`
   - Follow-up alignment with the stricter branch-page stack-row model:
     - Branch rows now attach stack metadata only when the row name matches the derived `stack.id`.
     - Inner stack bookmarks are detected as contained by the top stack, but no longer render as their own stack row.
     - The branch list shows a stack chip and ordered head names only on the derived stack id row.
     - JJ stack derivation no longer filters out a `trunk` bookmark when the configured base is a different bookmark such as `main`.
   - Additional automated checks passed:
-    - `npm --workspace @changeyard/vcs run test -- branches-stack-model.test.ts`
+    - `pnpm --filter @changeyard/vcs run test -- branches-stack-model.test.ts`
     - `node --test --import tsx tests/vcs-jj-graph.test.ts`
     - `node --test --import tsx tests/vcs-jj-read.test.ts tests/vcs-jj-state.test.ts tests/vcs-jj-graph.test.ts tests/vcs-jj-inventory.test.ts`
-    - `npm --workspace @changeyard/vcs run typecheck`
+    - `pnpm --filter @changeyard/vcs run typecheck`
   - Branches visual cleanup:
     - Branch list rows are compact single rows separated by borders.
     - Branch rows now show branch name and target commit message only; metadata chips were removed.
@@ -168,10 +168,10 @@ Verification notes:
     - JJ inventory now includes target commit title and timestamp for branch rows.
   - Additional automated checks passed:
     - `node --test --import tsx tests/vcs-jj-inventory.test.ts`
-    - `npm --workspace @changeyard/vcs run test -- branches-stack-model.test.ts`
-    - `npm --workspace @changeyard/vcs run typecheck`
-    - `npm --workspace @changeyard/kanban run typecheck`
-    - `npm --workspace @changeyard/tui run typecheck`
+    - `pnpm --filter @changeyard/vcs run test -- branches-stack-model.test.ts`
+    - `pnpm --filter @changeyard/vcs run typecheck`
+    - `pnpm --filter @changeyard/kanban run typecheck`
+    - `pnpm --filter @changeyard/tui run typecheck`
     - `/vcs/jj/branches?workspaceId=jj-sample-repo` returned HTTP 200
     - `/vcs/jj/branches?workspaceId=jj-sample-repo&ref=feature%2Fcloud-runner` returned HTTP 200
     - `/vcs/jj/branches?workspaceId=jj-sample-repo&ref=feature%2Freadme-polish` returned HTTP 200
@@ -223,8 +223,8 @@ Verification notes:
 - Existing preview/apply/submit controls remain visible in the Repository panel and each stack change card.
 - Existing `data.unassignedChanges` rendering remains visible in the Details panel as the Working copy section.
 - Automated checks passed:
-  - `npm --workspace @changeyard/vcs run typecheck`
-  - `npm --workspace @changeyard/vcs run test -- routes.test.ts branches-stack-model.test.ts`
+  - `pnpm --filter @changeyard/vcs run typecheck`
+  - `pnpm --filter @changeyard/vcs run test -- routes.test.ts branches-stack-model.test.ts`
 - Browser verification passed at `/vcs/jj?workspaceId=jj-sample-but`:
   - navigation link and page heading show `Workspace`
   - `Workspace stacks` renders stack lanes from `data.stacks`
@@ -264,8 +264,8 @@ Verification notes:
 - Workspace now renders a focused `Working Copy` column plus only applied stack lanes, using the existing stack derivation output.
 - Old Workspace stats, repository panel, preview/apply/submit controls, mutation controls, details panel, and current diff panel were removed from the Workspace route.
 - Automated checks passed:
-  - `npm --workspace @changeyard/vcs run test -- branches-stack-model.test.ts routes.test.ts`
-  - `npm --workspace @changeyard/vcs run typecheck`
+  - `pnpm --filter @changeyard/vcs run test -- branches-stack-model.test.ts routes.test.ts`
+  - `pnpm --filter @changeyard/vcs run typecheck`
 
 ## Milestone 5: Event-Driven VCS Cache And Watcher Abstraction
 
@@ -299,9 +299,9 @@ Status: implementation complete, stopped for checkpoint verification
 
 - [x] Run watcher tests.
 - [x] Run focused JJ/VCS tests.
-- [x] Run `npm --workspace @changeyard/vcs run test`.
+- [x] Run `pnpm --filter @changeyard/vcs run test`.
 - [x] Run VCS and runtime typechecks.
-- [x] Run full `npm test`.
+- [x] Run full `pnpm test`.
 - [x] Start the VCS UI locally.
 - [x] Open `/vcs/jj/branches`.
 - [x] Open `/vcs/jj`.
@@ -324,15 +324,15 @@ Verification notes:
 - Automated checks passed:
   - `node --import tsx --test packages/kanban/src/runtime-stack/server/vcs-project-watcher.test.ts`
   - `node --import tsx --test tests/vcs-detect.test.ts tests/vcs-jj-state.test.ts tests/vcs-jj-preview.test.ts tests/vcs-jj-apply.test.ts tests/vcs-jj-diff.test.ts tests/vcs-jj-read.test.ts tests/vcs-jj-inventory.test.ts`
-  - `npm --workspace @changeyard/vcs run test`
-  - `npm --workspace @changeyard/vcs run typecheck`
-  - `npm --workspace @changeyard/kanban run runtime:typecheck`
-  - `npm --workspace @changeyard/vcs run e2e`
-- `npm test` passed all 187 tests when rerun outside the sandbox; the first sandboxed run built successfully but failed runtime/JJ integration tests because it could not bind runtime ports or access JJ secure config under `~/.config/jj/repos`.
+  - `pnpm --filter @changeyard/vcs run test`
+  - `pnpm --filter @changeyard/vcs run typecheck`
+  - `pnpm --filter @changeyard/kanban run runtime:typecheck`
+  - `pnpm --filter @changeyard/vcs run e2e`
+- `pnpm test` passed all 187 tests when rerun outside the sandbox; the first sandboxed run built successfully but failed runtime/JJ integration tests because it could not bind runtime ports or access JJ secure config under `~/.config/jj/repos`.
 - VCS dev server is running at `http://127.0.0.1:4374/vcs/` for manual verification. Ports `4174` and `4274` were already occupied by existing node listeners that did not respond to HTTP.
-  - `npm --workspace @changeyard/kanban run typecheck`
-  - `npm run build:cli`
-  - `npm --workspace @changeyard/kanban run build`
+  - `pnpm --filter @changeyard/kanban run typecheck`
+  - `pnpm run build:cli`
+  - `pnpm --filter @changeyard/kanban run build`
 - `node --test --import tsx tests/ui-server.test.ts` failed in the sandbox before config assertions because runtime port allocation was unavailable and JJ config access under `~/.config/jj` was blocked.
 - Retried the targeted `changes project config` test unsandboxed after rebuilding dist; it hung in the runtime server test harness and was stopped after roughly two minutes.
 - Browser verification used the VCS dev server at `http://127.0.0.1:4274/vcs/` because stale listeners occupied lower ports.
@@ -400,11 +400,11 @@ Verification notes:
         - Added watcher coverage for semantic worktree, JJ activity, and JJ head events after startup.
       - Automated checks passed:
         - `node --test --import tsx tests/vcs-jj-diff.test.ts`
-        - `npm --workspace @changeyard/vcs run typecheck`
-        - `npm run build:cli`
+        - `pnpm --filter @changeyard/vcs run typecheck`
+        - `pnpm run build:cli`
         - `node --import tsx --test packages/kanban/src/runtime-stack/server/vcs-project-watcher.test.ts`
-        - `npm --workspace @changeyard/kanban run runtime:typecheck`
-        - `npm --workspace @changeyard/vcs run test -- branches-stack-model.test.ts routes.test.ts`
+        - `pnpm --filter @changeyard/kanban run runtime:typecheck`
+        - `pnpm --filter @changeyard/vcs run test -- branches-stack-model.test.ts routes.test.ts`
 - Manually verified to be working as expected.
 
 ## Milestone 6: Deterministic VCS E2E Harness And RTK Adoption
@@ -420,7 +420,7 @@ Status: completed
 - [x] Fixture creates a dependent multi-head stack.
 - [x] Fixture creates a remote-only branch.
 - [x] Fixture can leave a dirty working-copy `README.md` for Working Copy coverage.
-- [x] Wire fixture generation into root package scripts for npm and pnpm usage.
+- [x] Wire fixture generation into root package scripts for pnpm and pnpm usage.
 - [x] Add VCS-local Playwright config.
 - [x] Add initial fixture-backed E2E coverage for Branches.
 - [x] Add initial fixture-backed E2E coverage for Workspace apply/files/diff flow.
@@ -435,16 +435,16 @@ Status: completed
 ### STOP: Verify VCS E2E Harness
 
 - [x] Run fixture generation with a temp path.
-- [x] Run `npm --workspace @changeyard/vcs run test`.
-- [x] Run `npm --workspace @changeyard/vcs run typecheck`.
-- [x] Run `npm --workspace @changeyard/vcs run e2e`.
+- [x] Run `pnpm --filter @changeyard/vcs run test`.
+- [x] Run `pnpm --filter @changeyard/vcs run typecheck`.
+- [x] Run `pnpm --filter @changeyard/vcs run e2e`.
 - [x] Record verification notes below before continuing deeper RTK migration.
 
 Verification notes:
 
 - Added `scripts/create-vcs-jj-fixture.ts`.
 - Root script added:
-  - `npm run vcs:fixture -- <path> --force`
+  - `pnpm run vcs:fixture -- <path> --force`
   - `pnpm vcs:fixture -- <path> --force`
 - The fixture generator was verified at `/private/tmp/changeyard-vcs-fixture-script-check`.
 - Added `packages/vcs/playwright.config.ts`.
@@ -496,28 +496,28 @@ Verification notes:
     - Removed obsolete legacy query/mutation hooks from `packages/vcs/src/runtime/trpc-client.ts`; that file is now only the low-level RTK transport helper boundary.
     - Extended fixture-backed E2E to open the console, wait for the runtime shell session, stop it, and close the console panel.
 - Automated checks passed:
-  - `npm run vcs:fixture -- /private/tmp/changeyard-vcs-fixture-script-check --force --json`
-  - `npm run vcs:fixture -- /private/tmp/changeyard-vcs-npm-check --force --clean --json`
+  - `pnpm run vcs:fixture -- /private/tmp/changeyard-vcs-fixture-script-check --force --json`
+  - `pnpm run vcs:fixture -- /private/tmp/changeyard-vcs-pnpm-check --force --clean --json`
   - `pnpm vcs:fixture -- /private/tmp/changeyard-vcs-pnpm-check --force --clean --json`
-  - `npm --workspace @changeyard/vcs run e2e -- --list`
-  - `npm --workspace @changeyard/vcs run e2e`
-  - `npm --workspace @changeyard/vcs run test`
-  - `npm --workspace @changeyard/vcs run typecheck`
-  - `npm --workspace @changeyard/vcs run e2e` (7 fixture-backed tests, including console start/stop)
+  - `pnpm --filter @changeyard/vcs run e2e -- --list`
+  - `pnpm --filter @changeyard/vcs run e2e`
+  - `pnpm --filter @changeyard/vcs run test`
+  - `pnpm --filter @changeyard/vcs run typecheck`
+  - `pnpm --filter @changeyard/vcs run e2e` (7 fixture-backed tests, including console start/stop)
   - Final RTK adoption check:
     - `rg` found no VCS component imports of legacy TRPC hooks or direct TRPC mutations.
     - `packages/vcs/src/runtime/trpc-client.ts` now only exports low-level fetch/post helpers used by the RTK service layer.
     - Obsolete Workspace `refreshState` / `refreshDiff` props were removed.
-    - `npm --workspace @changeyard/vcs run typecheck` passed.
-    - `npm --workspace @changeyard/vcs run test` passed.
-    - `npm --workspace @changeyard/vcs run e2e` passed with 7 fixture-backed tests.
-  - `npm --workspace @changeyard/vcs run typecheck`
-  - `npm --workspace @changeyard/vcs run test -- branches-stack-model.test.ts routes.test.ts`
+    - `pnpm --filter @changeyard/vcs run typecheck` passed.
+    - `pnpm --filter @changeyard/vcs run test` passed.
+    - `pnpm --filter @changeyard/vcs run e2e` passed with 7 fixture-backed tests.
+  - `pnpm --filter @changeyard/vcs run typecheck`
+  - `pnpm --filter @changeyard/vcs run test -- branches-stack-model.test.ts routes.test.ts`
 - E2E sandbox note:
   - The sandboxed E2E run failed before tests because the runtime could not bind a local port.
   - The same suite passed outside the sandbox, where the runtime server and Chromium could start normally.
 - `pnpm install` completed outside the sandbox with `CI=true`; the pnpm lockfile was already up to date.
-- `npm install` was rerun afterward to restore the npm workspace `node_modules` layout used by the repository's npm scripts.
+- `pnpm install` was rerun afterward to restore the pnpm workspace `node_modules` layout used by the repository's pnpm scripts.
 
 ## Milestone 7: VCS SPA Routing
 
@@ -553,9 +553,9 @@ Verification notes:
 - Added fixture-backed E2E coverage that sets a browser-document probe, navigates Workspace -> Branches -> History -> Settings, and verifies the probe survives route changes and browser back.
 - Updated fixture-backed E2E coverage so Settings opens over History without changing the URL.
 - Automated checks passed:
-  - `npm --workspace @changeyard/vcs run test`
-  - `npm --workspace @changeyard/vcs run typecheck`
-  - `npm --workspace @changeyard/vcs run e2e` outside the sandbox, with 8 fixture-backed tests
+  - `pnpm --filter @changeyard/vcs run test`
+  - `pnpm --filter @changeyard/vcs run typecheck`
+  - `pnpm --filter @changeyard/vcs run e2e` outside the sandbox, with 8 fixture-backed tests
 - The sandboxed E2E run failed before tests because local runtime port binding is restricted; the escalated run passed.
 - In-app browser was connected and showed the VCS app, but browser-control clicking timed out in the extension. The same route-switch behavior passed in the Playwright E2E browser.
 - Follow-up in-app browser verification passed on `http://127.0.0.1:4274/vcs/jj/branches?workspaceId=jj-sample-but&ref=origin%2Ftrunk`: clicking the Settings button opened the Settings dialog and left the URL unchanged.
@@ -583,9 +583,9 @@ Status: completed
 - [x] Run focused VCS tests.
 - [x] Run VCS typecheck.
 - [x] Run CLI/runtime build checks.
-- [x] Run `npm --workspace @changeyard/vcs run test`.
-- [x] Run `npm --workspace @changeyard/vcs run e2e`.
-- [x] Run `npm test`.
+- [x] Run `pnpm --filter @changeyard/vcs run test`.
+- [x] Run `pnpm --filter @changeyard/vcs run e2e`.
+- [x] Run `pnpm test`.
 - [ ] Manually scroll Branches target history in a large JJ repo.
 - [ ] Manually scroll History operations and selected operation commits in a large JJ repo.
 - [x] Record verification notes below.
@@ -599,15 +599,15 @@ Verification notes:
 - If operation-list pagination sees non-linear operation parents, it returns a diagnostic and falls back to the previous growing-limit strategy.
 - The repository-log frontend hook keeps an explicit offset fallback for non-JJ callers that still return `hasMore` without a cursor.
 - Automated checks passed:
-  - `npm --workspace @changeyard/vcs run typecheck`
-  - `npm run build:cli`
-  - `npm --workspace @changeyard/kanban run runtime:typecheck`
+  - `pnpm --filter @changeyard/vcs run typecheck`
+  - `pnpm run build:cli`
+  - `pnpm --filter @changeyard/kanban run runtime:typecheck`
   - `node --import tsx --test tests/vcs-jj-operations.test.ts`
-  - `npm --workspace @changeyard/vcs run test`
-  - `npm --workspace @changeyard/vcs run e2e` outside the sandbox, with 8 fixture-backed tests
-  - `npm test` outside the sandbox, with 191 tests passing on the final diff
+  - `pnpm --filter @changeyard/vcs run test`
+  - `pnpm --filter @changeyard/vcs run e2e` outside the sandbox, with 8 fixture-backed tests
+  - `pnpm test` outside the sandbox, with 191 tests passing on the final diff
 - Sandbox note:
-  - The first `npm test` run failed only because the sandbox blocked runtime port probing and JJ secure repo config writes under `~/.config/jj/repos`.
+  - The first `pnpm test` run failed only because the sandbox blocked runtime port probing and JJ secure repo config writes under `~/.config/jj/repos`.
   - The same full suite passed outside the sandbox.
 
 ## Final Verification
@@ -615,9 +615,9 @@ Verification notes:
 Status: pending
 
 - [ ] Run focused JJ/VCS tests.
-- [ ] Run `npm --workspace @changeyard/vcs run test`.
-- [ ] Run `npm --workspace @changeyard/vcs run e2e`.
-- [ ] Run `npm test`.
+- [ ] Run `pnpm --filter @changeyard/vcs run test`.
+- [ ] Run `pnpm --filter @changeyard/vcs run e2e`.
+- [ ] Run `pnpm test`.
 - [ ] Manually inspect `/vcs/jj/branches`.
 - [ ] Manually inspect `/vcs/jj`.
 - [ ] Record final verification results.

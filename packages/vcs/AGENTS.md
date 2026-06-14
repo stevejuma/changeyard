@@ -51,7 +51,7 @@ Do not recreate controls that already exist:
 
 ## E2E Fixture
 
-- Use `npm run vcs:fixture -- <path> --force` or `pnpm vcs:fixture -- <path> --force` to create a deterministic JJ/Git repository for manual or automated UI testing.
+- Use `pnpm run vcs:fixture -- <path> --force` or `pnpm vcs:fixture -- <path> --force` to create a deterministic JJ/Git repository for manual or automated UI testing.
 - The fixture includes:
   - target/base `origin/main`
   - independent stacks

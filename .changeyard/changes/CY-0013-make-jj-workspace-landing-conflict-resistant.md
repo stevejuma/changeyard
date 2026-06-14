@@ -162,10 +162,10 @@ JJ workspace creation and landing behavior change. Provider behavior is unchange
 
 ## Expected Checks
 
-- `npm run build:cli`
+- `pnpm run build:cli`
 - `node --test --test-force-exit dist/tests/changeyard.test.js`
-- `npm --workspace @changeyard/kanban run runtime:build`
-- `npm run check:tui`
+- `pnpm --filter @changeyard/kanban run runtime:build`
+- `pnpm run check:tui`
 
 ## Manual Scenarios
 
@@ -178,10 +178,10 @@ JJ workspace creation and landing behavior change. Provider behavior is unchange
 
 Passed:
 
-- `npm run build:cli`
+- `pnpm run build:cli`
 - `node --test --test-force-exit dist/tests/changeyard.test.js`
-- `npm --workspace @changeyard/kanban run runtime:build`
-- `npm run check:tui`
+- `pnpm --filter @changeyard/kanban run runtime:build`
+- `pnpm run check:tui`
 <!-- cy:verification:end -->
 
 # Acceptance Criteria
@@ -208,9 +208,9 @@ Implemented conflict-resistant JJ start/land flow. `cy start` now creates a desc
 
 Checks passed:
 
-- `npm run build:cli`
+- `pnpm run build:cli`
 - `node --test --test-force-exit dist/tests/changeyard.test.js`
-- `npm --workspace @changeyard/kanban run runtime:build`
-- `npm run check:tui`
+- `pnpm --filter @changeyard/kanban run runtime:build`
+- `pnpm run check:tui`
 
 Residual risk: Git/plain-copy landing remains conservative and outside this JJ-focused change.

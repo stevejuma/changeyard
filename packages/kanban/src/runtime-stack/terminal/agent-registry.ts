@@ -49,7 +49,7 @@ function isRuntimeDebugModeEnabled(): boolean {
 }
 
 export function detectInstalledCommands(): string[] {
-	const candidates = [...RUNTIME_AGENT_CATALOG.map((entry) => entry.binary), "npx"];
+	const candidates = [...RUNTIME_AGENT_CATALOG.map((entry) => entry.binary), "pnpm"];
 	const detected: string[] = [];
 
 	for (const candidate of candidates) {

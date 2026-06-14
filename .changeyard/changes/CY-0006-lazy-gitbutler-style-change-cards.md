@@ -152,8 +152,8 @@ Queries operate on the existing Changeyard workspace checkout if the change has 
 ## 3. Verification
 
 - [x] Add/update tests
-- [x] Run `npm run check`
-- [x] Run `npm --prefix packages/kanban/web-ui run test`
+- [x] Run `pnpm run check`
+- [x] Run `pnpm --dir packages/kanban/web-ui run test`
 <!-- cy:tasks:end -->
 
 <!-- cy:verification:start -->
@@ -161,8 +161,8 @@ Queries operate on the existing Changeyard workspace checkout if the change has 
 
 ## Expected Checks
 
-- `npm run check`
-- `npm --prefix packages/kanban/web-ui run test`
+- `pnpm run check`
+- `pnpm --dir packages/kanban/web-ui run test`
 
 ## Manual Scenarios
 
@@ -174,8 +174,8 @@ Queries operate on the existing Changeyard workspace checkout if the change has 
 
 Passed:
 
-- `npm --prefix packages/kanban/web-ui run test` (82 files, 531 tests)
-- `npm run check`
+- `pnpm --dir packages/kanban/web-ui run test` (82 files, 531 tests)
+- `pnpm run check`
 <!-- cy:verification:end -->
 
 # Acceptance Criteria
@@ -228,10 +228,10 @@ Implemented lazy GitButler-style canonical change cards.
 
 Verification:
 
-- `npm --prefix packages/kanban/web-ui run test` passed.
-- `npm run check` passed.
+- `pnpm --dir packages/kanban/web-ui run test` passed.
+- `pnpm run check` passed.
 
 Notes:
 
-- Installed dependencies in the isolated workspace to run checks; npm lockfile metadata churn was restored before completion.
+- Installed dependencies in the isolated workspace to run checks; pnpm lockfile metadata churn was restored before completion.
 - Board responses do not return full patch text. JJ commit file summaries still rely on parsing jj git-style diff output internally because that is the existing compactable source for file stats.

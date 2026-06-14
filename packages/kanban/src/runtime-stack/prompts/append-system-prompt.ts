@@ -114,9 +114,6 @@ export function resolveAppendSystemPromptCommandPrefix(
 		return fallbackCommandPrefix;
 	}
 
-	if (installation.packageManager === UpdatePackageManager.NPX) {
-		return "npx -y kanban";
-	}
 	if (installation.packageManager === UpdatePackageManager.PNPM) {
 		return "pnpm dlx kanban";
 	}

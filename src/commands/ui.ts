@@ -32,7 +32,8 @@ export type UiOptions = {
   host?: string;
   port?: number | "auto";
   open?: boolean;
-  openPath?: "/" | "/vcs";
+  project?: string;
+  openPath?: "/" | "/kanban" | "/vcs";
 };
 
 const PLANNING_SECTION_TITLES: Record<PlanningSectionId, string> = {
@@ -434,11 +435,11 @@ export function importKanbanServerModule() {
 
 export async function runUi(options: UiOptions = {}, cwd = process.cwd()): Promise<string> {
   assertUiNodeVersion();
-  const repoRoot = findRepoRoot(cwd);
+  const repoRoot = findRepoRoot(options.project ?? cwd);
   const config = loadConfig(repoRoot);
   const moduleUrl = resolveUiServerModuleUrl();
   if (!existsSync(fileURLToPath(moduleUrl))) {
-    throw new Error("Changeyard UI runtime was not found. Run npm run build or set CHANGEYARD_DEV=1.");
+    throw new Error("Changeyard UI runtime was not found. Run pnpm run build or set CHANGEYARD_DEV=1.");
   }
 
   const loaded = await importKanbanServer(import.meta.url);
@@ -464,6 +465,6 @@ export async function runUi(options: UiOptions = {}, cwd = process.cwd()): Promi
     },
   });
 
-  const displayUrl = options.openPath === "/vcs" ? new URL("/vcs", server.url).toString() : server.url;
+  const displayUrl = new URL(options.openPath ?? "/", server.url).toString();
   return `Changeyard UI running at ${displayUrl}`;
 }

@@ -158,8 +158,8 @@ The screens remain behind `CHANGEYARD_VCS=1` and continue to use the current JJ/
 
 ## Expected Checks
 
-- `npm run build`
-- `npm --workspace @changeyard/vcs run test`
+- `pnpm run build`
+- `pnpm --filter @changeyard/vcs run test`
 - `node --test dist/tests/ui-server.test.js --test-name-pattern='ui server serves the standalone VCS shell when CHANGEYARD_VCS=1 is enabled|ui server exposes vcs\\.'`
 
 ## Manual Scenarios
@@ -170,11 +170,11 @@ The screens remain behind `CHANGEYARD_VCS=1` and continue to use the current JJ/
 
 ## Result
 
-- `npm run build`
+- `pnpm run build`
 - `node --test --test-force-exit dist/tests/ui-server.test.js`
-- `npm test`
-- `npm run check:tui`
-- `npm pack --dry-run`
+- `pnpm test`
+- `pnpm run check:tui`
+- `pnpm pack --dry-run`
 - `node --test --import tsx tests/changeyard.test.ts --test-name-pattern='hydrate copies allowlisted files and skips denied secrets'`
 - Playwright manual QA against `http://127.0.0.1:4311` for `/vcs/jj/branches`, `/vcs/jj/history`, and `/vcs/settings`
 <!-- cy:verification:end -->
@@ -223,11 +223,11 @@ Added the missing VCS supporting screens, finished the standalone VCS route wiri
 
 Checks run:
 
-- `npm run build`
+- `pnpm run build`
 - `node --test --test-force-exit dist/tests/ui-server.test.js`
-- `npm test`
-- `npm run check:tui`
-- `npm pack --dry-run`
+- `pnpm test`
+- `pnpm run check:tui`
+- `pnpm pack --dry-run`
 - `node --test --import tsx tests/changeyard.test.ts --test-name-pattern='hydrate copies allowlisted files and skips denied secrets'`
 - Browser QA screenshots captured at `/tmp/vcs-jj-branches-verified.png`, `/tmp/vcs-jj-history-verified.png`, and `/tmp/vcs-settings-verified.png`
 

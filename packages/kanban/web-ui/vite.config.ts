@@ -6,9 +6,95 @@ import { defineConfig, type Plugin, type ResolvedConfig, transformWithEsbuild } 
 
 const rootPkg = JSON.parse(readFileSync(resolve(__dirname, "../package.json"), "utf-8")) as { version: string };
 const XTERM_CHUNK_NAME = "xterm-vendor";
+const vcsSrcDir = resolve(__dirname, "../../vcs/src");
+const vcsSrcPrefix = `${vcsSrcDir.replaceAll("\\", "/")}/`;
 
 function isXtermModule(id: string): boolean {
 	return id.includes("/node_modules/@xterm/") || id.includes("\\node_modules\\@xterm\\");
+}
+
+function isVcsSourceModule(id: string): boolean {
+	const normalized = id.replaceAll("\\", "/");
+	return (
+		normalized === vcsSrcDir.replaceAll("\\", "/") ||
+		normalized.startsWith(vcsSrcPrefix) ||
+		normalized.includes("/packages/vcs/src/") ||
+		normalized.startsWith("../../vcs/src/")
+	);
+}
+
+function isNodeModule(id: string, packageName: string): boolean {
+	return id.includes(`/node_modules/${packageName}/`) || id.includes(`\\node_modules\\${packageName}\\`);
+}
+
+function unifiedVcsRoutePlugin(): Plugin {
+	const virtualId = "virtual:changeyard-vcs-route";
+	const resolvedVirtualId = `\0${virtualId}`;
+
+	return {
+		name: "changeyard-unified-vcs-route",
+		enforce: "pre",
+		async resolveId(source, importer, options) {
+			if (source === virtualId) {
+				return resolvedVirtualId;
+			}
+			if (!source.startsWith("@/") || !importer || !isVcsSourceModule(importer)) {
+				return null;
+			}
+			const resolved = await this.resolve(resolve(vcsSrcDir, source.slice(2)), importer, {
+				...options,
+				skipSelf: true,
+			});
+			return resolved ?? resolve(vcsSrcDir, source.slice(2));
+		},
+		load(id) {
+			if (id !== resolvedVirtualId) {
+				return null;
+			}
+			return `
+import { createElement, useEffect } from "react";
+import { Provider } from "react-redux";
+import VcsApp from ${JSON.stringify(resolve(vcsSrcDir, "App.tsx"))};
+import { AppErrorBoundary } from ${JSON.stringify(resolve(vcsSrcDir, "components/app-error-boundary.tsx"))};
+import { TooltipProvider } from ${JSON.stringify(resolve(vcsSrcDir, "components/ui/tooltip.tsx"))};
+import { vcsStore } from ${JSON.stringify(resolve(vcsSrcDir, "runtime/vcs-store.ts"))};
+import { applyThemeToDocument, readStoredThemeId } from ${JSON.stringify(resolve(vcsSrcDir, "utils/vcs-theme.ts"))};
+import { VcsRouterProvider } from ${JSON.stringify(resolve(vcsSrcDir, "utils/vcs-router.tsx"))};
+import ${JSON.stringify(resolve(vcsSrcDir, "styles/globals.css"))};
+
+export default function ChangeyardVcsRoute() {
+	useEffect(() => {
+		applyThemeToDocument(readStoredThemeId());
+	}, []);
+
+	return createElement(
+		AppErrorBoundary,
+		null,
+		createElement(
+			Provider,
+			{ store: vcsStore },
+			createElement(
+				TooltipProvider,
+				null,
+				createElement(VcsRouterProvider, null, createElement(VcsApp)),
+			),
+		),
+	);
+}
+`;
+		},
+		transform(code, id) {
+			if (!isVcsSourceModule(id) || !code.includes("@/")) {
+				return null;
+			}
+			return {
+				code: code.replace(/(["'])@\/([^"']+)\1/g, (_match, quote: string, sourcePath: string) => {
+					return `${quote}${resolve(vcsSrcDir, sourcePath)}${quote}`;
+				}),
+				map: null,
+			};
+		},
+	};
 }
 
 function selectiveBuildMinifyPlugin(): Plugin {
@@ -55,7 +141,7 @@ export default defineConfig({
 	// 770 KB raw and 108.5 KB gzipped across emitted frontend assets.
 	// Compared with fully minifying everything, this costs about 545 KB raw and
 	// 58.5 KB gzipped, which is the current tradeoff for keeping OpenCode stable.
-	plugins: [tailwindcss(), react(), selectiveBuildMinifyPlugin()],
+	plugins: [unifiedVcsRoutePlugin(), tailwindcss(), react(), selectiveBuildMinifyPlugin()],
 	envPrefix: ["VITE_"],
 	define: {
 		__APP_VERSION__: JSON.stringify(rootPkg.version),
@@ -71,6 +157,23 @@ export default defineConfig({
 				manualChunks(id) {
 					if (isXtermModule(id)) {
 						return XTERM_CHUNK_NAME;
+					}
+					if (isNodeModule(id, "react") || isNodeModule(id, "react-dom") || isNodeModule(id, "scheduler")) {
+						return "react-vendor";
+					}
+					if (
+						isNodeModule(id, "@radix-ui") ||
+						isNodeModule(id, "lucide-react") ||
+						isNodeModule(id, "sonner") ||
+						isNodeModule(id, "motion")
+					) {
+						return "ui-vendor";
+					}
+					if (isNodeModule(id, "@trpc") || isNodeModule(id, "@reduxjs") || isNodeModule(id, "react-redux")) {
+						return "runtime-vendor";
+					}
+					if (isVcsSourceModule(id)) {
+						return "vcs-app";
 					}
 					return undefined;
 				},

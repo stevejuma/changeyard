@@ -36,7 +36,7 @@ const updateAvailableStatus: RuntimeUpdateStatusResponse = {
 	latestVersion: "0.2.0",
 	updateAvailable: true,
 	updateTiming: "startup",
-	installCommand: "npm install -g kanban@latest",
+	installCommand: "pnpm install -g kanban@latest",
 };
 
 describe("useUpdateNotification", () => {
@@ -101,7 +101,7 @@ describe("useUpdateNotification", () => {
 		expect(getState().availableUpdate).toEqual({
 			currentVersion: "0.1.0",
 			latestVersion: "0.2.0",
-			installCommand: "npm install -g kanban@latest",
+			installCommand: "pnpm install -g kanban@latest",
 		});
 	});
 

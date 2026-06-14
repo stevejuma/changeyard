@@ -734,7 +734,7 @@ export function TopBar({
 						<input
 							value={newShortcutCommand}
 							onChange={(event) => setNewShortcutCommand(event.target.value)}
-							placeholder="npm run dev"
+							placeholder="pnpm run dev"
 							disabled={isCreateShortcutSaving}
 							className="h-8 w-full rounded-md border border-border bg-surface-2 px-2 text-xs text-text-primary placeholder:text-text-tertiary focus:border-border-focus focus:outline-none disabled:opacity-60"
 						/>

@@ -6,6 +6,7 @@ export const TASK_START_IN_PLAN_MODE_STORAGE_KEY = LocalStorageKey.TaskStartInPl
 export const TASK_AUTO_REVIEW_ENABLED_STORAGE_KEY = LocalStorageKey.TaskAutoReviewEnabled;
 export const TASK_AUTO_REVIEW_MODE_STORAGE_KEY = LocalStorageKey.TaskAutoReviewMode;
 const DETAIL_TASK_QUERY_PARAM = "task";
+export const KANBAN_BASE_PATH = "/kanban";
 
 export function normalizeStoredTaskAutoReviewMode(value: string): TaskAutoReviewMode | null {
 	if (value === "commit" || value === "pr") {
@@ -54,6 +55,9 @@ export function countTasksByColumn(board: BoardData): {
 
 export function parseProjectIdFromPathname(pathname: string): string | null {
 	const segments = pathname.split("/").filter((segment) => segment.length > 0);
+	if (segments[0] === KANBAN_BASE_PATH.slice(1)) {
+		segments.shift();
+	}
 	if (segments.length === 0) {
 		return null;
 	}
@@ -69,7 +73,7 @@ export function parseProjectIdFromPathname(pathname: string): string | null {
 }
 
 export function buildProjectPathname(projectId: string): string {
-	return `/${encodeURIComponent(projectId)}`;
+	return `${KANBAN_BASE_PATH}/${encodeURIComponent(projectId)}`;
 }
 
 export function parseDetailTaskIdFromSearch(search: string): string | null {

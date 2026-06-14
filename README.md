@@ -55,22 +55,22 @@ See [docs/planning-profiles.md](docs/planning-profiles.md) for the current plann
 ## Install for local development
 
 ```bash
-npm install
-npm run build
-npm run pack:check
-npm run cy:install
-npm link
+pnpm install
+pnpm run build
+pnpm run pack:check
+pnpm run cy:install
+pnpm link --global
 ```
 
 Changeyard now requires Node.js 22 or newer.
 
-`npm run cy:install` installs `cy` and `changeyard` into `~/.local/bin` by default using the existing safe installer. Remove them again with:
+`pnpm run cy:install` installs `cy` and `changeyard` into `~/.local/bin` by default using the existing safe installer. Remove them again with:
 
 ```bash
-npm run cy:uninstall
+pnpm run cy:uninstall
 ```
 
-`npm link` remains available as an alternative development flow.
+`pnpm link --global` remains available as an alternative development flow.
 
 After installing or linking, both command names are available:
 
@@ -207,8 +207,8 @@ For planned changes, the workflow extends this with inline planning sections and
 ## Development
 
 ```bash
-npm run check
-npm test
+pnpm run check
+pnpm test
 ```
 
 ## Release smoke checks
@@ -216,10 +216,10 @@ npm test
 Before publishing, run:
 
 ```bash
-npm run check
-npm test
-npm run pack:check
-npm run smoke:forge -- github
+pnpm run check
+pnpm test
+pnpm run pack:check
+pnpm run smoke:forge -- github
 ```
 
-`npm run pack:check` rebuilds the package and runs `npm pack --dry-run` so the packaged `dist/` output, README, and binary metadata can be inspected before release. `npm run smoke:forge -- <provider>` is a non-destructive prerequisite check for the live forge checklist in `docs/live-forge-smoke.md`; set `CHANGEYARD_LIVE_SMOKE=1` and provider-specific environment variables before using it for release validation.
+`pnpm run pack:check` rebuilds the package and runs `pnpm pack --dry-run` so the packaged `dist/` output, README, and binary metadata can be inspected before release. `pnpm run smoke:forge -- <provider>` is a non-destructive prerequisite check for the live forge checklist in `docs/live-forge-smoke.md`; set `CHANGEYARD_LIVE_SMOKE=1` and provider-specific environment variables before using it for release validation.

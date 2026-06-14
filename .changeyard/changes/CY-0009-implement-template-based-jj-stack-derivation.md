@@ -162,8 +162,8 @@ Work remains behind the existing `CHANGEYARD_VCS=1` VCS surface and uses the exi
 ## Expected Checks
 
 - `node --test dist/tests/vcs-jj-graph.test.js dist/tests/vcs-jj-state.test.js dist/tests/vcs-jj-stack-submit.test.js`
-- `npm --workspace @changeyard/vcs run test`
-- `npm test`
+- `pnpm --filter @changeyard/vcs run test`
+- `pnpm test`
 
 ## Manual Scenarios
 
@@ -174,8 +174,8 @@ Work remains behind the existing `CHANGEYARD_VCS=1` VCS surface and uses the exi
 
 - Passed: `node --test --import tsx tests/vcs-jj-graph.test.ts tests/vcs-jj-read.test.ts tests/vcs-jj-state.test.ts tests/vcs-jj-stack-submit.test.ts`
 - Passed: `node --test --import tsx tests/vcs-jj-preview.test.ts tests/vcs-jj-apply.test.ts`
-- Passed: `npm --workspace @changeyard/vcs run test`
-- Passed: `npm test` (183 tests)
+- Passed: `pnpm --filter @changeyard/vcs run test`
+- Passed: `pnpm test` (183 tests)
 <!-- cy:verification:end -->
 
 # Acceptance Criteria
@@ -215,6 +215,6 @@ Work remains behind the existing `CHANGEYARD_VCS=1` VCS surface and uses the exi
 
 Implemented canonical template-based JJ stack derivation. `vcs.jjState` now exposes `stacks`, the read model uses bounded template graph reads with batching and malformed-row diagnostics, dependent bookmarks group into multi-head stacks, stacked PR submit resolves through stack heads, and the VCS board renders stack head chains plus actionable changes.
 
-Verification passed with focused JJ/VCS tests, the VCS frontend test suite, and full `npm test` after installing the workspace lockfile dependencies with `npm ci` and `npm ci --prefix packages/kanban/web-ui`.
+Verification passed with focused JJ/VCS tests, the VCS frontend test suite, and full `pnpm test` after installing the workspace lockfile dependencies with `pnpm install --frozen-lockfile` and `pnpm install --frozen-lockfile --prefix packages/kanban/web-ui`.
 
 Remaining risk: merge-heavy graphs still follow primary-parent ordering for actionable changes and emit diagnostics, as planned.

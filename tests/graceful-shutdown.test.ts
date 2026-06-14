@@ -34,7 +34,7 @@ test("duplicate wrapper SIGINT does not force a second shutdown exit", async () 
 	let resolveClose: (() => void) | null = null;
 	let closeCallCount = 0;
 	const previousNpmExecPath = process.env.npm_execpath;
-	process.env.npm_execpath = "/usr/local/lib/node_modules/npm/bin/npm-cli.js";
+	process.env.npm_execpath = "/usr/local/lib/node_modules/pnpm/bin/pnpm-cli.js";
 
 	try {
 		installCliShutdownHandlers({

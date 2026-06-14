@@ -93,12 +93,12 @@ The current settings UI only exposes a narrow subset of Changeyard project confi
 Implemented project-level Changeyard settings editing in the web UI and expanded the backend contract to read and write provider type, VCS engine/fallback, default base, and core planning defaults through `.changeyard/config.local.jsonc`. The settings dialog now loads and saves this config alongside existing runtime settings, and the task base-ref options now include the current JJ working-copy `changeId` when it is not already represented by a bookmark.
 
 Checks run:
-- `npm run check`
-- `npm --prefix packages/kanban/web-ui run test -- src/components/runtime-settings-dialog.test.tsx src/hooks/use-task-branch-options.test.ts`
-- `npm run check:tui`
-- `npm run pack:check`
-- `npm run build && node --test --test-name-pattern "changes project config routes expose and persist core changeyard settings" dist/tests/ui-server.test.js`
-- `npm test`
+- `pnpm run check`
+- `pnpm --dir packages/kanban/web-ui run test -- src/components/runtime-settings-dialog.test.tsx src/hooks/use-task-branch-options.test.ts`
+- `pnpm run check:tui`
+- `pnpm run pack:check`
+- `pnpm run build && node --test --test-name-pattern "changes project config routes expose and persist core changeyard settings" dist/tests/ui-server.test.js`
+- `pnpm test`
 
 Residual risk:
 - The UI server test environment still logs cleanup warnings for stale temporary project paths during shutdown, but the new project-config route and JJ base-ref behavior are verified and passing.

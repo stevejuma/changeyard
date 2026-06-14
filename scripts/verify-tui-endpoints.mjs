@@ -34,7 +34,7 @@ function assertContains(filePaths, needles, label) {
   const existing = filePaths.map((filePath) => path.join(root, filePath)).filter((filePath) => existsSync(filePath));
   if (existing.length === 0) {
     console.error(`Missing ${label}. Checked: ${filePaths.join(", ")}`);
-    console.error(useSource ? "Source dev mode expects TypeScript sources in the repo." : "Run: npm run build");
+    console.error(useSource ? "Source dev mode expects TypeScript sources in the repo." : "Run: pnpm run build");
     process.exit(1);
   }
   for (const filePath of existing) {
@@ -47,7 +47,7 @@ function assertContains(filePaths, needles, label) {
   }
   console.error(`${label} is stale or incomplete. Checked: ${existing.map((p) => path.relative(root, p)).join(", ")}`);
   console.error(`Missing: ${needles.join(", ")}`);
-  console.error(useSource ? "Update source files in the repo." : "Run: npm run build");
+  console.error(useSource ? "Update source files in the repo." : "Run: pnpm run build");
   process.exit(1);
 }
 

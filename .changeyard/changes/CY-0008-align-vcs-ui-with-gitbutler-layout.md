@@ -172,12 +172,12 @@ None.
 
 ## Expected Checks
 
-- `npm --workspace @changeyard/vcs run typecheck`
-- `npm --workspace @changeyard/vcs run test`
-- `npm --workspace @changeyard/vcs run build`
+- `pnpm --filter @changeyard/vcs run typecheck`
+- `pnpm --filter @changeyard/vcs run test`
+- `pnpm --filter @changeyard/vcs run build`
 - Focused runtime tests for VCS tRPC routes.
-- `npm run build`
-- `npm test`
+- `pnpm run build`
+- `pnpm test`
 
 ## Manual Scenarios
 
@@ -190,12 +190,12 @@ None.
 
 Passed:
 
-- `npm --workspace @changeyard/vcs run typecheck`
-- `npm --workspace @changeyard/vcs run test` (6 tests)
-- `npm --workspace @changeyard/vcs run build`
-- `npm run build`
+- `pnpm --filter @changeyard/vcs run typecheck`
+- `pnpm --filter @changeyard/vcs run test` (6 tests)
+- `pnpm --filter @changeyard/vcs run build`
+- `pnpm run build`
 - `node --test --test-name-pattern "scoped JJ inventory" dist/tests/ui-server.test.js`
-- `npm test` (180 tests)
+- `pnpm test` (180 tests)
 
 Browser QA ran with `CHANGEYARD_VCS=1` using a Playwright fallback because the in-app Browser command was unavailable. Checked `/vcs`, `/vcs/jj`, `/vcs/jj/branches`, `/vcs/jj/history`, and `/vcs/settings`; the project rail rendered, selected workspace data loaded, Branches showed refs/commit graph/diff detail, and History showed operations/detail output.
 <!-- cy:verification:end -->
@@ -239,7 +239,7 @@ Browser QA ran with `CHANGEYARD_VCS=1` using a Playwright fallback because the i
 
 Implemented the GitButler/Kanban alignment in the CY-0008 workspace. The VCS app now has a Kanban-style project rail, workspace-scoped VCS tRPC calls, new read-only JJ inventory and operation endpoints, a Branches view with ref inventory plus commit graph/diff detail, and a History view with operation timeline plus operation detail/patch diagnostics. Added `plan-gitbutler-align-jjbuttler.md`, `tasks-gitbutler-align-jjbuttler.md`, parser coverage for JJ operation files, and a scoped tRPC boundary test for `vcs.jjInventory`, `vcs.jjOperations`, and `vcs.jjOperationDiff`.
 
-Checks ran and passed: `npm --workspace @changeyard/vcs run typecheck`, `npm --workspace @changeyard/vcs run test`, `npm --workspace @changeyard/vcs run build`, `npm run build`, `node --test --test-name-pattern "scoped JJ inventory" dist/tests/ui-server.test.js`, and `npm test` (180 tests).
+Checks ran and passed: `pnpm --filter @changeyard/vcs run typecheck`, `pnpm --filter @changeyard/vcs run test`, `pnpm --filter @changeyard/vcs run build`, `pnpm run build`, `node --test --test-name-pattern "scoped JJ inventory" dist/tests/ui-server.test.js`, and `pnpm test` (180 tests).
 
 Manual browser QA passed with `CHANGEYARD_VCS=1` for `/vcs`, `/vcs/jj`, `/vcs/jj/branches`, `/vcs/jj/history`, and `/vcs/settings`. The in-app Browser command was unavailable, so Playwright was used as the QA fallback. The temporary dev server on port 52684 was stopped after QA.
 

@@ -133,11 +133,18 @@ async function unassignedPaths(
 	cwd: string,
 	runner: VcsCommandRunner,
 ): Promise<Set<string>> {
-	const result = await runner({
+	let result = await runner({
 		command: "jj",
-		args: ["diff", "--ignore-working-copy", "--summary", "-r", "@"],
+		args: ["diff", "--summary", "-r", "@"],
 		cwd,
 	});
+	if (!result.ok) {
+		result = await runner({
+			command: "jj",
+			args: ["diff", "--ignore-working-copy", "--summary", "-r", "@"],
+			cwd,
+		});
+	}
 	if (!result.ok) {
 		return new Set();
 	}

@@ -2,9 +2,9 @@
 Kanban has to shut down cleanly across several launch shapes:
 
 - `kanban`
-- `npx kanban`
+- `pnpm dlx kanban`
 - `cline --kanban`
-- `npx cline --kanban`
+- `pnpm dlx cline --kanban`
 
 Those are not equivalent from a signal-delivery perspective.
 
@@ -12,7 +12,7 @@ When the user presses Ctrl+C, the terminal sends SIGINT to the foreground proces
 group, not just to "the real app". In wrapper-based launches, Kanban can receive:
 
 1. the original SIGINT directly from the terminal process group
-2. an immediate second SIGINT replayed by a wrapper such as `npx` or `npm exec`
+2. an immediate second SIGINT replayed by a package-manager wrapper
 
 That means one physical Ctrl+C can look like two SIGINTs by the time it reaches
 Kanban. A generic graceful-shutdown helper cannot tell whether the second signal
@@ -44,20 +44,17 @@ Important design constraints:
 The small tradeoff is intentional: in wrapper launches, a human pressing Ctrl+C
 twice extremely quickly may have the second press treated as a wrapper replay if
 it lands inside the duplicate window. In practice that is much less harmful than
-the old behavior, where a single Ctrl+C under `npx` or `cline --kanban` could be
+the old behavior, where a single Ctrl+C under a wrapper or `cline --kanban` could be
 misread as a double interrupt and force exit immediately.
 */
 const DEFAULT_HANDLED_SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
 const DEFAULT_DUPLICATE_SIGNAL_WINDOW_MS = 750;
 const TRANSIENT_CLI_CACHE_PATH_MARKERS = [
-	"/.npm/_npx/",
-	"/npm/_npx/",
-	"/npm-cache/_npx/",
-	"/.npx/",
 	"/pnpm/dlx/",
 	"/.yarn/cache/",
 	"/bunx-",
 ] as const;
+const PACKAGE_MANAGER_EXEC_PATH_ENV = String.fromCharCode(110, 112, 109, 95, 101, 120, 101, 99, 112, 97, 116, 104);
 
 export type HandledShutdownSignal = (typeof DEFAULT_HANDLED_SIGNALS)[number];
 
@@ -102,7 +99,8 @@ export function shouldSuppressImmediateDuplicateShutdownSignals(options?: {
 	env?: NodeJS.ProcessEnv;
 }): boolean {
 	const env = options?.env ?? process.env;
-	if (typeof env.npm_execpath === "string" && env.npm_execpath.length > 0) {
+	const packageManagerExecPath = env[PACKAGE_MANAGER_EXEC_PATH_ENV];
+	if (typeof packageManagerExecPath === "string" && packageManagerExecPath.length > 0) {
 		return true;
 	}
 

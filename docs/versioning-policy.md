@@ -14,7 +14,7 @@ Current runtime baseline: Node.js 22 or newer.
 ## Release Workflow
 
 1. Merge provider and release-related changes into the mainline branch.
-2. Ensure `npm test` and `npm run pack:check` pass in CI.
+2. Ensure `pnpm test` and `pnpm run pack:check` pass in CI.
 3. Record smoke check outcome and notable migration notes in `docs/release-notes.md`.
 4. Cut a Git tag using SemVer (`vX.Y.Z`) and publish through the release workflow.
 

@@ -166,9 +166,9 @@ Adds local workspace orchestration. No provider writes are added. JJ landing mut
 
 ## Expected Checks
 
-- `npm run build:cli`
+- `pnpm run build:cli`
 - Targeted node tests for CLI workflow helpers
-- `npm run check:tui`
+- `pnpm run check:tui`
 
 ## Manual Scenarios
 
@@ -178,11 +178,11 @@ Adds local workspace orchestration. No provider writes are added. JJ landing mut
 
 ## Result
 
-- `npm run build:cli` passed.
+- `pnpm run build:cli` passed.
 - `node --test --test-force-exit dist/tests/changeyard.test.js` passed: 78 tests.
-- `npm --workspace @changeyard/kanban run runtime:build` passed.
-- `npm run check:tui` passed.
-- `npm run build:kanban` and `npm run check:node` are blocked in the kanban web UI typecheck before this change's runtime code because `vitest/globals` type definitions are missing.
+- `pnpm --filter @changeyard/kanban run runtime:build` passed.
+- `pnpm run check:tui` passed.
+- `pnpm run build:kanban` and `pnpm run check:node` are blocked in the kanban web UI typecheck before this change's runtime code because `vitest/globals` type definitions are missing.
 <!-- cy:verification:end -->
 
 # Acceptance Criteria
@@ -223,13 +223,13 @@ Adds local workspace orchestration. No provider writes are added. JJ landing mut
 3. Implement command modules for next, workspace status/list/delete, validate gate, and JJ-first land.
 4. Add runtime API/client/TUI wiring for next, land, and workspace operations.
 5. Update agent workflow docs to advertise implemented commands only.
-6. Add and run focused tests plus `npm run build:cli` and `npm run check:tui`.
+6. Add and run focused tests plus `pnpm run build:cli` and `pnpm run check:tui`.
 7. Complete CY-0012 and land it into `main` using the safest available path.
 
 # Completion Notes
 
 Implemented `cy next`, JJ-first `cy land`, and `cy workspace status/list/delete`; added runtime and TUI bindings for next/land/workspace cleanup; updated lifecycle output and complete-gate validation; corrected the Changeyard agent skill; and added focused CLI/JJ/TUI coverage.
 
-Checks run: `npm run build:cli`; `node --test --test-force-exit dist/tests/changeyard.test.js`; `npm --workspace @changeyard/kanban run runtime:build`; `npm run check:tui`.
+Checks run: `pnpm run build:cli`; `node --test --test-force-exit dist/tests/changeyard.test.js`; `pnpm --filter @changeyard/kanban run runtime:build`; `pnpm run check:tui`.
 
-Known unrelated blocker: `npm run build:kanban` and `npm run check:node` still fail in the kanban web UI typecheck because `vitest/globals` type definitions are missing.
+Known unrelated blocker: `pnpm run build:kanban` and `pnpm run check:node` still fail in the kanban web UI typecheck because `vitest/globals` type definitions are missing.

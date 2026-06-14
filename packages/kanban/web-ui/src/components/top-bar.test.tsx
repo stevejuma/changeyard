@@ -82,7 +82,7 @@ describe("TopBar script shortcut onboarding", () => {
 		expect(document.body.textContent).toContain("Set up your first script shortcut");
 
 		const commandInput = Array.from(document.body.querySelectorAll("input")).find(
-			(input) => input.placeholder === "npm run dev",
+			(input) => input.placeholder === "pnpm run dev",
 		) as HTMLInputElement | undefined;
 		expect(commandInput).toBeDefined();
 		expect(commandInput?.value).toBe("");

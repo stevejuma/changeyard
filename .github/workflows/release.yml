@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: Publish to npm
+        description: Publish to the package registry
         required: false
         default: "false"
 
@@ -22,21 +22,22 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          registry-url: https://registry.npmjs.org
+          cache: pnpm
+      - name: Enable package manager
+        run: corepack enable
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
       - name: Build and validate package
-        run: npm run pack:check
+        run: pnpm run pack:check
       - name: Run install-from-tarball smoke
-        run: npm run smoke:install
-      - name: Publish to npm
+        run: pnpm run smoke:install
+      - name: Publish to package registry
         if: ${{ github.event_name == 'release' || github.event.inputs.publish == 'true' }}
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN }}
         run: |
           if [ -z "${NODE_AUTH_TOKEN}" ]; then
-            echo "NPM_TOKEN missing; skipping publish"
+            echo "NODE_AUTH_TOKEN missing; skipping publish"
             exit 0
           fi
-          npm publish --provenance --access public
+          pnpm publish --provenance --access public

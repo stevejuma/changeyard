@@ -159,8 +159,8 @@ No provider write behavior changes. Diagnostics may report provider/VCS/workspac
 
 ## Expected Checks
 
-- `npm run build:cli`
-- `npm run check:tui`
+- `pnpm run build:cli`
+- `pnpm run check:tui`
 - Focused `bun` tests for changed TUI helpers where applicable
 
 ## Manual Scenarios
@@ -171,8 +171,8 @@ No provider write behavior changes. Diagnostics may report provider/VCS/workspac
 
 ## Result
 
-- `npm run build:cli` passed.
-- `npm run check:tui` passed.
+- `pnpm run build:cli` passed.
+- `pnpm run check:tui` passed.
 - `bun run ./packages/tui/tests/workflow-helpers.test.ts` passed during focused verification.
 <!-- cy:verification:end -->
 
@@ -210,7 +210,7 @@ No provider write behavior changes. Diagnostics may report provider/VCS/workspac
 3. Implement slice 1 helpers and UI integration: command palette search, prompt history, and richer status bar.
 4. Implement slice 2 read-only depth: activity/history and diagnostics surfaces backed by existing or small read-only runtime APIs.
 5. Add focused tests for helper behavior and update smoke coverage where practical.
-6. Run `npm run build:cli` and `npm run check:tui`; record results and any remaining risk in Completion Notes.
+6. Run `pnpm run build:cli` and `pnpm run check:tui`; record results and any remaining risk in Completion Notes.
 
 # Completion Notes
 
@@ -222,8 +222,8 @@ Implemented Cline-inspired TUI workflow controls in the CY-0010 workspace:
 
 Verification:
 
-- `npm run build:cli` passed.
-- `npm run check:tui` passed.
+- `pnpm run build:cli` passed.
+- `pnpm run check:tui` passed.
 - Focused helper test `bun run ./packages/tui/tests/workflow-helpers.test.ts` passed before the full TUI check.
 
 Remaining risk:

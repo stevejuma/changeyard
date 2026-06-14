@@ -35,9 +35,9 @@ This pass keeps `packages/kanban` and `packages/vcs` independent, duplicates the
 
 ## Verification
 
-- `npm --workspace @changeyard/vcs run typecheck`
-- `npm --workspace @changeyard/vcs run test`
-- `npm --workspace @changeyard/vcs run build`
-- `npm run build`
+- `pnpm --filter @changeyard/vcs run typecheck`
+- `pnpm --filter @changeyard/vcs run test`
+- `pnpm --filter @changeyard/vcs run build`
+- `pnpm run build`
 - Focused runtime/UI server tests for VCS routes and tRPC procedures
 - Browser QA with `CHANGEYARD_VCS=1` for `/vcs`, `/vcs/jj`, `/vcs/jj/branches`, `/vcs/jj/history`, and `/vcs/settings`

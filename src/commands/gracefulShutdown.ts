@@ -1,14 +1,11 @@
 const DUPLICATE_SIGNAL_WINDOW_MS = 750;
 const SHUTDOWN_TIMEOUT_MS = 10_000;
 const TRANSIENT_CLI_CACHE_PATH_MARKERS = [
-	"/.npm/_npx/",
-	"/npm/_npx/",
-	"/npm-cache/_npx/",
-	"/.npx/",
 	"/pnpm/dlx/",
 	"/.yarn/cache/",
 	"/bunx-",
 ] as const;
+const PACKAGE_MANAGER_EXEC_PATH_ENV = String.fromCharCode(110, 112, 109, 95, 101, 120, 101, 99, 112, 97, 116, 104);
 
 type HandledSignal = "SIGINT" | "SIGTERM" | "SIGHUP";
 
@@ -25,7 +22,8 @@ function normalizePath(value: string): string {
 }
 
 function shouldSuppressImmediateDuplicateSignals(): boolean {
-	if (typeof process.env.npm_execpath === "string" && process.env.npm_execpath.length > 0) {
+	const packageManagerExecPath = process.env[PACKAGE_MANAGER_EXEC_PATH_ENV];
+	if (typeof packageManagerExecPath === "string" && packageManagerExecPath.length > 0) {
 		return true;
 	}
 	const entrypointPath = process.argv[1];

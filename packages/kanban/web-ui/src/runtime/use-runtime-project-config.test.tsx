@@ -131,7 +131,7 @@ describe("useRuntimeProjectConfig", () => {
 
 	it("clears the previous project config immediately when switching workspaces", async () => {
 		const projectAConfig = createRuntimeConfigResponse("claude", [
-			{ label: "Ship it", command: "npm run ship", icon: "rocket" },
+			{ label: "Ship it", command: "pnpm run ship", icon: "rocket" },
 		]);
 		const projectBDeferred = createDeferred<RuntimeConfigResponse>();
 		fetchRuntimeConfigMock.mockResolvedValueOnce(projectAConfig);

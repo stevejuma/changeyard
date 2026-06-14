@@ -12,8 +12,8 @@ This package contains the Kanban frontend served by the runtime.
 
 ## Scripts
 
-- `npm run dev`
-- `npm run build`
-- `npm run typecheck`
-- `npm run test`
-- `npm run e2e`
+- `pnpm run dev`
+- `pnpm run build`
+- `pnpm run typecheck`
+- `pnpm run test`
+- `pnpm run e2e`

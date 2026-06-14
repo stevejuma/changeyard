@@ -45,7 +45,7 @@ Objective: Make `packages/kanban` the canonical ChangeYard kanban package, finis
 - [x] Re-run a non-test-code search for visible `Cline` strings and clear the remaining simple product-branding cases in the history shell.
 - [x] Update tests that assert visible shell copy.
 - [x] Manual UI smoke:
-  - [x] `npm run cli ui`
+  - [x] `pnpm run cli ui`
   - [x] confirm no visible `Cline` branding remains in the main shell, dialogs, manifest, and service-worker metadata
 
 Note: keep compatibility identifiers as-is for now:
@@ -87,20 +87,20 @@ Note: keep compatibility identifiers as-is for now:
 
 ## 5) Verification
 
-- [x] `npm --workspace @changeyard/kanban run typecheck`
-- [x] `npm --workspace @changeyard/kanban run build`
-- [x] `npm run build:cli`
+- [x] `pnpm --filter @changeyard/kanban run typecheck`
+- [x] `pnpm --filter @changeyard/kanban run build`
+- [x] `pnpm run build:cli`
 - [x] Targeted UI test pass for rebrand-sensitive components
 - [x] Direct JJ task-workspace smoke against built runtime modules
-- [x] Full `npm run cli ui` smoke after the remaining rebrand and bridge work
+- [x] Full `pnpm run cli ui` smoke after the remaining rebrand and bridge work
 - [x] Manual Git project workflow smoke
 - [x] Manual JJ project workflow smoke through the UI/runtime API surface
 
 Manual validation log:
 - Replaced the old vendored-upstream cutover checklist with the native-package/WorkspaceEngine migration plan.
-- `npm --workspace @changeyard/kanban run typecheck` passed after the first JJ-aware runtime changes.
-- `npm --workspace @changeyard/kanban run build` passed after branding and JJ runtime changes.
-- `npm run build:cli` passed.
+- `pnpm --filter @changeyard/kanban run typecheck` passed after the first JJ-aware runtime changes.
+- `pnpm --filter @changeyard/kanban run build` passed after branding and JJ runtime changes.
+- `pnpm run build:cli` passed.
 - Added root workspace runtime detection helpers in `src/workspace/runtimeBridge.ts` and exported them from the root package.
 - Extended `src/workspace/runtimeBridge.ts` with shared task-workspace create/delete/head helpers for Git and JJ.
 - `packages/kanban/src/server/index.js` now loads the root workspace runtime bridge for repository detection, with a local fallback for package-only development before the root CLI build exists.
@@ -120,8 +120,8 @@ Manual validation log:
   - `src/components/runtime-settings-dialog.test.tsx`
   - `src/components/task-agent-model-picker.test.tsx`
 - Direct JJ task-workspace smoke passed for create/info/delete against the built runtime module.
-- Earlier server smoke succeeded with `npm run cli -- ui --host 127.0.0.1 --port 3491 --no-open`, `/api/health`, and `/manifest.json`.
-- `npm run cli -- ui --host 127.0.0.1 --port 3492 --no-open` served successfully after the workspace-bridge change.
+- Earlier server smoke succeeded with `pnpm run cli -- ui --host 127.0.0.1 --port 3491 --no-open`, `/api/health`, and `/manifest.json`.
+- `pnpm run cli -- ui --host 127.0.0.1 --port 3492 --no-open` served successfully after the workspace-bridge change.
 - `GET /api/health` returned `{"ok":true}` after the workspace-bridge change.
 - `GET /manifest.json` still returned `ChangeYard` for both `name` and `short_name`.
 - `GET /api/trpc/projects.list?batch=1&input=%7B%7D` returned a live project payload after the workspace-bridge change, proving the runtime server path still booted correctly.
@@ -132,24 +132,24 @@ Manual validation log:
   - `getGitRefs(cwd)`
   - `getGitLog({ cwd, maxCount: 3 })`
   - `getCommitDiff({ cwd, commitHash })`
-- `npm run build:cli` passed after extending the shared runtime bridge with task-workspace helpers.
-- `npm --workspace @changeyard/kanban run typecheck` passed after the task-worktree bridge refactor.
-- `npm --workspace @changeyard/kanban run build` passed after the task-worktree bridge refactor.
+- `pnpm run build:cli` passed after extending the shared runtime bridge with task-workspace helpers.
+- `pnpm --filter @changeyard/kanban run typecheck` passed after the task-worktree bridge refactor.
+- `pnpm --filter @changeyard/kanban run build` passed after the task-worktree bridge refactor.
 - Direct built-module JJ task-workspace verification passed for:
   - `ensureTaskWorktreeIfDoesntExist({ cwd, taskId, baseRef })`
   - `getTaskWorkspaceInfo({ cwd, taskId, baseRef })`
   - `deleteTaskWorktree({ repoPath: cwd, taskId })`
-- `npm run build:cli` passed after removing the vendored upstream tree.
-- `npm --workspace @changeyard/kanban run build` still passed after removing the vendored upstream tree.
-- `npm run cli -- ui --host 127.0.0.1 --port 3493 --no-open` still served successfully after removing the vendored upstream tree.
+- `pnpm run build:cli` passed after removing the vendored upstream tree.
+- `pnpm --filter @changeyard/kanban run build` still passed after removing the vendored upstream tree.
+- `pnpm run cli -- ui --host 127.0.0.1 --port 3493 --no-open` still served successfully after removing the vendored upstream tree.
 - `GET /api/health` returned `{"ok":true}` after vendored-tree removal.
 - `GET /api/trpc/projects.list?batch=1&input=%7B%7D` returned a live project payload after vendored-tree removal.
 - `GET /manifest.json` still returned `ChangeYard` for both `name` and `short_name` after vendored-tree removal.
 - Added repository-neutral TRPC aliases in `packages/kanban/src/runtime-stack/trpc/app-router.ts` and `workspace-api.ts`, then moved the history UI to those aliases.
 - Updated visible history-shell labels from Git-specific wording to repository-neutral wording in the web UI.
-- `npm --workspace @changeyard/kanban run typecheck` passed after the repository-history alias pass.
-- `npm --prefix packages/kanban/web-ui run test -- --run src/components/git-history/use-git-history-data.test.tsx src/components/remote-file-browser-dialog.test.tsx` passed after the repository-history relabeling pass.
-- `npm --workspace @changeyard/kanban run build` passed after the repository-history alias and UI relabeling pass.
+- `pnpm --filter @changeyard/kanban run typecheck` passed after the repository-history alias pass.
+- `pnpm --dir packages/kanban/web-ui run test -- --run src/components/git-history/use-git-history-data.test.tsx src/components/remote-file-browser-dialog.test.tsx` passed after the repository-history relabeling pass.
+- `pnpm --filter @changeyard/kanban run build` passed after the repository-history alias and UI relabeling pass.
 - Extended the root workspace runtime bridge with `verifyTaskWorkspace()` and `publishTaskWorkspace()`, then exposed matching async wrappers in the kanban runtime bridge.
 - Kept the root `WorkspaceEngine` surface synchronous and treated `packages/kanban` as the async adapter boundary.
 - Tightened JJ-only unsupported responses so pull, branch switching, and discard return explicit user-facing guidance instead of generic not-implemented errors.
@@ -158,7 +158,7 @@ Manual validation log:
   - the settings docs link now points at the local repo docs
   - the issue link now points at the ChangeYard repo
   - the provider base-URL placeholder no longer shows `api.cline.bot`
-- Live UI verification passed against `npm run cli -- ui --host 127.0.0.1 --port 3494 --no-open`:
+- Live UI verification passed against `pnpm run cli -- ui --host 127.0.0.1 --port 3494 --no-open`:
   - `GET /api/health` returned `{"ok":true}`
   - `GET /manifest.json` returned `ChangeYard`
   - Playwright screenshots of the main shell, onboarding modal, and settings dialog showed no visible `Cline` branding

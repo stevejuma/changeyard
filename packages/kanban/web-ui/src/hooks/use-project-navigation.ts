@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { notifyError, showAppToast } from "@/components/app-toaster";
-import { buildProjectPathname, parseProjectIdFromPathname } from "@/hooks/app-utils";
+import { KANBAN_BASE_PATH, buildProjectPathname, parseProjectIdFromPathname } from "@/hooks/app-utils";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import { useRuntimeStateStream } from "@/runtime/use-runtime-state-stream";
 import { isLocalhostAccess } from "@/utils/localhost-detection";
@@ -224,8 +224,8 @@ export function useProjectNavigation({ onProjectSwitchStart }: UseProjectNavigat
 			return;
 		}
 		const nextUrl = new URL(window.location.href);
-		if (nextUrl.pathname !== "/") {
-			window.history.replaceState({}, "", `/${nextUrl.search}${nextUrl.hash}`);
+		if (nextUrl.pathname !== KANBAN_BASE_PATH) {
+			window.history.replaceState({}, "", `${KANBAN_BASE_PATH}${nextUrl.search}${nextUrl.hash}`);
 		}
 		setRequestedProjectId(null);
 	}, [hasNoProjects, requestedProjectId]);

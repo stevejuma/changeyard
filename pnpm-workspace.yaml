@@ -1,2 +1,8 @@
+packages:
+  - packages/kanban
+  - packages/kanban/web-ui
+  - packages/tui
+  - packages/vcs
+
 allowBuilds:
   esbuild: set this to true or false

@@ -27,7 +27,7 @@ The earlier vendored upstream source tree has been removed. This repo now keeps 
 2. Copy only the specific files, behavior, or structure that the native `packages/kanban` package still needs.
 3. Update the commit and version recorded in this file.
 4. Reconcile any upstream file moves or new runtime/web dependencies before landing the native package changes.
-5. Re-run `npm run check`, `npm test`, and `npm run pack:check`.
+5. Re-run `pnpm run check`, `pnpm test`, and `pnpm run pack:check`.
 
 ## Notes
 

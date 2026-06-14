@@ -24,7 +24,7 @@ function parsePackJson(output) {
   const trimmed = output.trim();
   const match = /(\[\s*\{[\s\S]*\}\s*\])\s*$/.exec(trimmed);
   if (!match) {
-    throw new Error(`Could not locate npm pack JSON output in:\n${output}`);
+    throw new Error(`Could not locate pnpm pack JSON output in:\n${output}`);
   }
   return JSON.parse(match[1]);
 }
@@ -72,17 +72,17 @@ async function stopChild(child) {
   });
 }
 
-if (!ensureBinary("node") || !ensureBinary("npm")) {
-  throw new Error("Node and npm must be available for install smoke testing");
+if (!ensureBinary("node") || !ensureBinary("pnpm")) {
+  throw new Error("Node and pnpm must be available for install smoke testing");
 }
 
 const workdir = mkdtempSync(path.join(os.tmpdir(), "changeyard-smoke-install-"));
 let packagedArtifact = "";
 try {
-  const packResult = run("npm", ["pack", "--silent", "--json"], projectRoot);
+  const packResult = run("pnpm", ["pack", "--json"], projectRoot);
   const [packed] = parsePackJson(packResult);
   if (!packed || !packed.filename) {
-    throw new Error("npm pack did not return an archive name");
+    throw new Error("pnpm pack did not return an archive name");
   }
   packagedArtifact = packed.filename;
 
@@ -94,10 +94,10 @@ try {
   mkdirSync(installDir, { recursive: true });
   writeFileSync(path.join(workdir, "artifact.sha256"), `${archiveHash.digest("hex")}  ${packagedArtifact}\n`);
 
-  run("npm", ["init", "-y"], installDir);
-  run("npm", ["install", artifactPath], installDir);
+  writeFileSync(path.join(installDir, "package.json"), JSON.stringify({ private: true, type: "module" }, null, 2));
+  run("pnpm", ["add", artifactPath], installDir);
 
-  const help = run("npx", ["changeyard", "--help"], installDir);
+  const help = run("pnpm", ["exec", "changeyard", "--help"], installDir);
   if (!/Changeyard/.test(help)) {
     throw new Error("Installed package did not expose a usable changeyard CLI");
   }

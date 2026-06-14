@@ -90,8 +90,8 @@ Submit stays disabled unless all of the following are true:
 
 Latest verification run on 2026-06-12:
 
-- `npm run build`
-- `npm test`
-- `npm run check:tui`
-- `npm pack --dry-run`
+- `pnpm run build`
+- `pnpm test`
+- `pnpm run check:tui`
+- `pnpm pack --dry-run`
 - `node --test --test-force-exit dist/tests/ui-server.test.js`

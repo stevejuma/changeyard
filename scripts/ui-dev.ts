@@ -46,8 +46,8 @@ async function main(): Promise<void> {
 	const devUrl = `http://${DEV_HOST}:${DEV_WEB_PORT}${workspacePath}`;
 
 	const viteChild = spawn(
-		"npm",
-		["--prefix", "packages/kanban/web-ui", "run", "dev", "--", "--host", DEV_HOST, "--port", String(DEV_WEB_PORT)],
+		"pnpm",
+		["--dir", "packages/kanban/web-ui", "run", "dev", "--", "--host", DEV_HOST, "--port", String(DEV_WEB_PORT)],
 		{
 			cwd: repoRoot,
 			stdio: "inherit",

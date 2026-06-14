@@ -121,8 +121,8 @@ Confirm current repo facts before product code changes:
 
 M0 findings captured on 2026-06-11:
 
-- Root package manager/scripts are npm-based; root workspaces currently include `packages/kanban` and `packages/tui`.
-- Baseline verification passed: `npm run build`, `npm test`, `npm run check:tui`, and `npm pack --dry-run`.
+- Root package manager/scripts are pnpm-based; root workspaces currently include `packages/kanban` and `packages/tui`.
+- Baseline verification passed: `pnpm run build`, `pnpm test`, `pnpm run check:tui`, and `pnpm pack --dry-run`.
 - Runtime APIs are tRPC-based in `packages/kanban/src/runtime-stack/trpc/app-router.ts`.
 - The Changeyard bridge for markdown-backed project behavior is created in `src/commands/ui.ts` via `createChangeyardUiApi()`.
 - The existing browser UI is built from `packages/kanban/web-ui`; a new `packages/vcs` package will need explicit workspace and root build integration.
@@ -146,7 +146,7 @@ M1 implementation landed on 2026-06-11:
 - Integrated the VCS package into the root workspace/build flow and copied its built assets into the Kanban runtime distribution without creating a source-level dependency from `packages/kanban` to `packages/vcs`.
 - Added feature-gated `/vcs` and `/vcs/jj` asset serving in the UI runtime behind `CHANGEYARD_VCS=1`.
 - Added server tests covering both flag-off `404` behavior and flag-on shell delivery.
-- Verified the milestone with `npm run build`, `node --test dist/tests/ui-server.test.js`, and `npm pack --dry-run`.
+- Verified the milestone with `pnpm run build`, `node --test dist/tests/ui-server.test.js`, and `pnpm pack --dry-run`.
 
 ### M2 - tRPC VCS Detection
 
@@ -181,7 +181,7 @@ M3 implementation landed on 2026-06-11:
 - Adapted the useful `jj-stack` graph behavior into Changeyard-owned domain models and added `node:test` coverage for sibling and deeper stack layouts.
 - Extended the runtime API contract and tRPC router with `vcs.jjState` and a read-only `vcs.jjDiff` procedure.
 - Updated the standalone `/vcs/jj` route to render real stack lanes, branch segments, change cards, working-copy file summaries, diagnostics, and a read-only current-change diff panel.
-- Verified the milestone with `npm run build`, focused JJ VCS tests, and a full `npm test` pass.
+- Verified the milestone with `pnpm run build`, focused JJ VCS tests, and a full `pnpm test` pass.
 
 ### M4 - Preview-Only Interactions
 
@@ -254,17 +254,17 @@ M8 implementation landed on 2026-06-12:
 - Added a JJ VCS usage and architecture note at `docs/vcs-jj.md`.
 - Kept the standalone VCS UI defensive with explicit empty/loading/diagnostic states for repo detection, JJ state, diff previews, and stacked PR submission readiness.
 - Hardened runtime shutdown cleanup by suppressing expected missing/non-repository workspace warnings during cleanup, which removed a large `ui-server.test` log flood and restored reliable suite completion.
-- Re-ran the full verification matrix successfully: `npm run build`, `npm test`, `npm run check:tui`, `npm pack --dry-run`, `node --test --test-force-exit dist/tests/ui-server.test.js`, and `node --test --import tsx tests/changeyard.test.ts --test-name-pattern='hydrate copies allowlisted files and skips denied secrets'`.
+- Re-ran the full verification matrix successfully: `pnpm run build`, `pnpm test`, `pnpm run check:tui`, `pnpm pack --dry-run`, `node --test --test-force-exit dist/tests/ui-server.test.js`, and `node --test --import tsx tests/changeyard.test.ts --test-name-pattern='hydrate copies allowlisted files and skips denied secrets'`.
 - Verified the supporting screens in a live flagged browser session with Playwright against `http://127.0.0.1:4311` for `/vcs/jj/branches`, `/vcs/jj/history`, and `/vcs/settings`.
 
 ## Test Plan
 
 Baseline:
 
-- `npm run build`
-- `npm test`
-- `npm run check:tui`
-- `npm pack --dry-run`
+- `pnpm run build`
+- `pnpm test`
+- `pnpm run check:tui`
+- `pnpm pack --dry-run`
 
 Backend:
 

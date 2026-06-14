@@ -55,7 +55,7 @@ Recent board work restored the combined change/task workflow, but the detail sur
 - [ ] Task and change detail left panels render as properties sidebars with readable chips and metadata rows.
 - [ ] Change detail headers show valid lifecycle actions aligned to the right, including verify and complete when available.
 - [ ] Change details can show workspace change summary, file list, and diffs when a change has recorded workspace changes, with an empty state otherwise.
-- [ ] `npm run check` and relevant kanban web UI tests pass.
+- [ ] `pnpm run check` and relevant kanban web UI tests pass.
 
 # Scope Boundaries
 
@@ -95,10 +95,10 @@ Implemented in `.changeyard/workspaces/CY-0005/repo`.
 
 Checks:
 
-- `npm run check`
-- `npm --prefix packages/kanban/web-ui run test`
+- `pnpm run check`
+- `pnpm --dir packages/kanban/web-ui run test`
 
 Manual smoke:
 
-- `KANBAN_WEB_UI_PORT=4174 npm run ui:dev` started and shut down cleanly with one interrupt.
+- `KANBAN_WEB_UI_PORT=4174 pnpm run ui:dev` started and shut down cleanly with one interrupt.
 - Playwright loaded the Vite page without bundle/import errors, but the runtime WebSocket returned `403`, so the page showed the disconnected state instead of a fully connected board.

@@ -25,12 +25,12 @@ Align `/vcs` with the GitButler-style workflow requested by the product review: 
 
 ## Verification
 
-- `npm --workspace @changeyard/vcs run typecheck`
-- `npm --workspace @changeyard/vcs run test`
-- `npm --workspace @changeyard/vcs run build`
+- `pnpm --filter @changeyard/vcs run typecheck`
+- `pnpm --filter @changeyard/vcs run test`
+- `pnpm --filter @changeyard/vcs run build`
 - Focused runtime tests for VCS tRPC routes and feature flag behavior.
-- `npm run build`
-- `npm test`
+- `pnpm run build`
+- `pnpm test`
 - Browser QA with `CHANGEYARD_VCS=1` for `/vcs`, `/vcs/jj`, `/vcs/jj/branches`, `/vcs/jj/history`, and `/vcs/settings`.
 
 ## Assumptions

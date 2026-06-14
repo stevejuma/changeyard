@@ -46,7 +46,7 @@ import { createProjectsApi } from "../trpc/projects-api.js";
 import { createRuntimeApi } from "../trpc/runtime-api.js";
 import { createVcsApi } from "../trpc/vcs-api.js";
 import { createWorkspaceApi } from "../trpc/workspace-api.js";
-import { getVcsUiDir, getWebUiDir, normalizeRequestPath, readAsset, readMountedAsset } from "./assets.js";
+import { getWebUiDir, normalizeRequestPath, readAsset, readMountedAsset } from "./assets.js";
 import { handleHttpRequest, handleSocketUpgrade } from "./middleware.js";
 import type { RuntimeStateHub } from "./runtime-state-hub.js";
 import type { WorkspaceRegistry } from "./workspace-registry.js";
@@ -114,21 +114,12 @@ function shouldResolveWorkspaceScopeForRequest(requestUrl: URL): boolean {
 export async function createRuntimeServer(deps: CreateRuntimeServerDependencies): Promise<RuntimeServer> {
 	const serveWebAssets = deps.serveWebAssets ?? true;
 	const webUiDir = serveWebAssets ? getWebUiDir() : null;
-	const vcsUiEnabled = process.env.CHANGEYARD_VCS === "1";
-	const vcsUiDir = serveWebAssets && vcsUiEnabled ? getVcsUiDir() : null;
 
 	if (webUiDir) {
 		try {
 			await readFile(join(webUiDir, "index.html"));
 		} catch {
-			throw new Error("Could not find web UI assets. Run `npm run build` to generate and package the web UI.");
-		}
-	}
-	if (vcsUiDir) {
-		try {
-			await readFile(join(vcsUiDir, "index.html"));
-		} catch {
-			throw new Error("Could not find VCS UI assets. Run `npm run build` to generate and package the VCS UI.");
+			throw new Error("Could not find web UI assets. Run `pnpm run build` to generate and package the web UI.");
 		}
 	}
 
@@ -450,13 +441,27 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				res.end('{"error":"Not found"}');
 				return;
 			}
-			if (pathname === "/vcs" || pathname.startsWith("/vcs/")) {
-				if (!vcsUiDir) {
+			if (pathname === "/kanban" || pathname.startsWith("/kanban/")) {
+				if (!webUiDir) {
 					res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" });
 					res.end("Not Found");
 					return;
 				}
-				const asset = await readMountedAsset(vcsUiDir, pathname, "/vcs");
+				const asset = await readMountedAsset(webUiDir, pathname, "/kanban");
+				res.writeHead(200, {
+					"Content-Type": asset.contentType,
+					"Cache-Control": "no-store",
+				});
+				res.end(asset.content);
+				return;
+			}
+			if (pathname === "/vcs" || pathname.startsWith("/vcs/")) {
+				if (!webUiDir) {
+					res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" });
+					res.end("Not Found");
+					return;
+				}
+				const asset = await readMountedAsset(webUiDir, pathname, "/vcs");
 				res.writeHead(200, {
 					"Content-Type": asset.contentType,
 					"Cache-Control": "no-store",

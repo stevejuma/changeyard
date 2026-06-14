@@ -38,7 +38,7 @@ function HookHarness({
 	sendTaskSessionInput,
 	currentProjectId = "project-1",
 	selectedShortcutLabel = "Ship",
-	shortcuts = [{ label: "Ship", command: "npm run ship" }],
+	shortcuts = [{ label: "Ship", command: "pnpm run ship" }],
 }: {
 	onSnapshot: (snapshot: HookSnapshot) => void;
 	prepareTerminalForShortcut: Parameters<typeof useShortcutActions>[0]["prepareTerminalForShortcut"];
@@ -127,7 +127,7 @@ describe("useShortcutActions", () => {
 		expect(sendTaskSessionInput).toHaveBeenNthCalledWith(1, "__home_terminal__", "\u0003", {
 			appendNewline: false,
 		});
-		expect(sendTaskSessionInput).toHaveBeenNthCalledWith(2, "__home_terminal__", "npm run ship", {
+		expect(sendTaskSessionInput).toHaveBeenNthCalledWith(2, "__home_terminal__", "pnpm run ship", {
 			appendNewline: true,
 		});
 		expect(showAppToastMock).not.toHaveBeenCalled();
@@ -160,7 +160,7 @@ describe("useShortcutActions", () => {
 
 		expect(waitForTerminalLikelyPromptMock).toHaveBeenCalledWith("__home_terminal__", 3000);
 		expect(sendTaskSessionInput).toHaveBeenCalledTimes(1);
-		expect(sendTaskSessionInput).toHaveBeenNthCalledWith(1, "__home_terminal__", "npm run ship", {
+		expect(sendTaskSessionInput).toHaveBeenNthCalledWith(1, "__home_terminal__", "pnpm run ship", {
 			appendNewline: true,
 		});
 	});
@@ -168,7 +168,7 @@ describe("useShortcutActions", () => {
 	it("saves a created shortcut and selects it", async () => {
 		saveRuntimeConfigMock.mockResolvedValue({
 			selectedShortcutLabel: "Run",
-			shortcuts: [{ label: "Run", command: "npm run dev", icon: "play" }],
+			shortcuts: [{ label: "Run", command: "pnpm run dev", icon: "play" }],
 		});
 		const prepareTerminalForShortcut = vi.fn(async () => ({
 			hadExistingOpenTerminal: true,
@@ -196,13 +196,13 @@ describe("useShortcutActions", () => {
 		await act(async () => {
 			await requireSnapshot(latestSnapshot).handleCreateShortcut({
 				label: "Run",
-				command: "npm run dev",
+				command: "pnpm run dev",
 				icon: "play",
 			});
 		});
 
 		expect(saveRuntimeConfigMock).toHaveBeenCalledWith("project-1", {
-			shortcuts: [{ label: "Run", command: "npm run dev", icon: "play" }],
+			shortcuts: [{ label: "Run", command: "pnpm run dev", icon: "play" }],
 			selectedShortcutLabel: "Run",
 		});
 		expect(showAppToastMock).not.toHaveBeenCalled();

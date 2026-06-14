@@ -34,7 +34,7 @@ if (useSource) {
 }
 
 if (!existsSync(distCli)) {
-  console.error("Changeyard CLI is not built. Run npm run build:cli or set CHANGEYARD_DEV=1 for source mode.");
+  console.error("Changeyard CLI is not built. Run pnpm run build:cli or set CHANGEYARD_DEV=1 for source mode.");
   process.exit(1);
 }
 

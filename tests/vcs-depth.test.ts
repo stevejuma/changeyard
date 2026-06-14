@@ -136,6 +136,7 @@ test("jj engine publishes bookmarks to a local bare remote", () => {
     runCommand("git", ["remote", "add", "origin", remote], repo);
     runCommand("jj", ["git", "init", "--colocate"], repo);
     configureTestJjIdentity(repo);
+    runCommand("jj", ["describe", "-m", "initial"], repo);
 
     const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
     const metadata: WorkspaceMetadata = {
@@ -150,6 +151,7 @@ test("jj engine publishes bookmarks to a local bare remote", () => {
     };
     const engine = new JjWorkspaceEngine();
     const created = engine.create({ repoRoot: repo, workspacePath, metadata, neverCopy: [] });
+    writeFileSync(path.join(created.path, "WORKSPACE.md"), "# workspace marker\n");
     runCommand("jj", ["describe", "-m", "workspace commit"], created.path);
     engine.publish({ cwd: created.path, metadata: created, branch: created.branch! });
 
@@ -243,8 +245,9 @@ test("workspace verification surfaces missing binaries and conflict states", () 
   const conflictedJj = new JjWorkspaceEngine((command, args) => {
     const joined = `${command} ${args.join(" ")}`;
     if (joined === "jj workspace root") return tempPath;
-    if (joined === "jj workspace list") return "cy/CY-0001";
+    if (joined === "jj workspace list") return "cy-CY-0001";
     if (joined === "jj status") return "Changes to commit:\nconflict: README.md";
+    if (joined === "jj resolve --list") return "README.md";
     return "";
   });
   const conflictedJjResult = conflictedJj.verify({ cwd: tempPath, metadata: { ...metadata, engine: "jj" } });

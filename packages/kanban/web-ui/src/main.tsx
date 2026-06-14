@@ -1,7 +1,7 @@
+import { lazy, Suspense } from "react";
 import ReactDOM from "react-dom/client";
 import { Toaster } from "sonner";
 
-import App from "@/App";
 import { AppErrorBoundary } from "@/components/app-error-boundary";
 import { PasscodeGateProvider } from "@/components/passcode-gate";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -25,11 +25,21 @@ if (!root) {
 	throw new Error("Root element was not found.");
 }
 
+const RootApp = lazy(() =>
+	window.location.pathname === "/kanban" || window.location.pathname.startsWith("/kanban/")
+		? import("@/App")
+		: window.location.pathname === "/vcs" || window.location.pathname.startsWith("/vcs/")
+			? import("virtual:changeyard-vcs-route")
+			: import("@/Dashboard"),
+);
+
 ReactDOM.createRoot(root).render(
 	<PasscodeGateProvider>
 		<AppErrorBoundary>
 			<TooltipProvider>
-				<App />
+				<Suspense fallback={null}>
+					<RootApp />
+				</Suspense>
 				<Toaster
 					theme="dark"
 					position="bottom-right"

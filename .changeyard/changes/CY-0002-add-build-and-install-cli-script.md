@@ -74,13 +74,13 @@ The repo already has `cy install` and `cy uninstall`, but they are easy to miss 
 
 # Completion Notes
 
-Added `cy:install` and `cy:uninstall` to the root `package.json`, both delegating to the existing development CLI entrypoint so they reuse the current install and uninstall safety checks. Updated the README local development install section to document the new script flow and keep `npm link` as an alternative.
+Added `cy:install` and `cy:uninstall` to the root `package.json`, both delegating to the existing development CLI entrypoint so they reuse the current install and uninstall safety checks. Updated the README local development install section to document the new script flow and keep `pnpm link --global` as an alternative.
 
 Checks run:
-- `npm run cy:install -- --dry-run` (expected refusal against existing non-Changeyard `~/.local/bin/changeyard`)
-- `CHANGEYARD_INSTALL_DIR="$(mktemp -d)" npm run cy:install -- --dry-run`
-- `npm run cy:uninstall -- --dry-run`
-- `npm run check`
+- `pnpm run cy:install -- --dry-run` (expected refusal against existing non-Changeyard `~/.local/bin/changeyard`)
+- `CHANGEYARD_INSTALL_DIR="$(mktemp -d)" pnpm run cy:install -- --dry-run`
+- `pnpm run cy:uninstall -- --dry-run`
+- `pnpm run check`
 
 Residual risk:
 - The new scripts intentionally use the development CLI path (`cy:dev`) rather than forcing a built dist install, so they are aimed at local repo development convenience only.

@@ -27,7 +27,7 @@ function resolveTuiEntrypoint(): string {
   ].map((url) => fileURLToPath(url));
   const found = candidates.find((candidate) => existsSync(candidate));
   if (!found) {
-    throw new Error("Changeyard TUI assets were not found. Run npm run build:tui or reinstall the package.");
+    throw new Error("Changeyard TUI assets were not found. Run pnpm run build:tui or reinstall the package.");
   }
   return found;
 }
@@ -41,7 +41,7 @@ function assertBunAvailable(): void {
     throw new Error([
       "cy --tui requires Bun because OpenTUI's renderer runs through Bun for this client.",
       "Install Bun from https://bun.sh, then retry `cy --tui`.",
-      "Node-only commands such as `cy --kanban`, `cy --vcs`, and `cy server` do not require Bun.",
+      "Node-only commands such as `cy --kanban`, `cy --vcs`, and `cy dashboard` do not require Bun.",
     ].join("\n"));
   }
 }

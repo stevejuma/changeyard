@@ -20,7 +20,7 @@ export default defineConfig({
 		trace: "retain-on-failure",
 	},
 	webServer: {
-		command: `VCS_WEB_UI_HOST=${host} VCS_WEB_UI_PORT=${port} npm run ui:vcs:dev`,
+		command: `VCS_WEB_UI_HOST=${host} VCS_WEB_UI_PORT=${port} pnpm run ui:vcs:dev`,
 		cwd: repoRoot,
 		url: `${baseURL}/vcs/`,
 		reuseExistingServer: !process.env.CI,

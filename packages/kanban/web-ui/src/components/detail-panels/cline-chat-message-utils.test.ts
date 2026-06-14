@@ -22,11 +22,11 @@ describe("parseToolMessageContent", () => {
 
 	it("parses tool errors", () => {
 		const parsed = parseToolMessageContent(
-			["Tool: Execute", "Input:", "npm run test", "Error:", "Command failed"].join("\n"),
+			["Tool: Execute", "Input:", "pnpm run test", "Error:", "Command failed"].join("\n"),
 		);
 
 		expect(parsed.toolName).toBe("Execute");
-		expect(parsed.input).toBe("npm run test");
+		expect(parsed.input).toBe("pnpm run test");
 		expect(parsed.output).toBeNull();
 		expect(parsed.error).toBe("Command failed");
 		expect(parsed.durationMs).toBeNull();
@@ -37,7 +37,7 @@ describe("parseToolMessageContent", () => {
 			[
 				"Tool: Bash",
 				"Input:",
-				"npm test",
+				"pnpm test",
 				"Output:",
 				"\x1b[1m\x1b[46m RUN \x1b[49m\x1b[22m src/app.test.ts",
 				"\x1b[32m \u2713\x1b[39m should work",
@@ -49,7 +49,7 @@ describe("parseToolMessageContent", () => {
 
 	it("strips ANSI escape codes from error", () => {
 		const parsed = parseToolMessageContent(
-			["Tool: Bash", "Input:", "npm test", "Error:", "\x1b[31mFailed\x1b[39m: test suite crashed"].join("\n"),
+			["Tool: Bash", "Input:", "pnpm test", "Error:", "\x1b[31mFailed\x1b[39m: test suite crashed"].join("\n"),
 		);
 
 		expect(parsed.error).toBe("Failed: test suite crashed");
@@ -284,10 +284,10 @@ describe("kanban command display", () => {
 		expect(display.toolName).toBe("run_commands");
 	});
 
-	it("detects kanban commands with npx prefix", () => {
+	it("detects kanban commands with pnpm exec prefix", () => {
 		const display = getToolDisplay(
 			"run_commands",
-			JSON.stringify({ commands: ['npx -y kanban task create --prompt "Test"'] }),
+			JSON.stringify({ commands: ['pnpm dlx kanban task create --prompt "Test"'] }),
 		);
 		expect(display.toolName).toBe("Creating task");
 		expect(display.inputSummary).toBe("Test");

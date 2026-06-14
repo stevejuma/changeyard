@@ -152,9 +152,9 @@ No provider protocol change expected. Workspace behavior should continue to foll
 
 ## Expected Checks
 
-- `npm run check:node`
+- `pnpm run check:node`
 - Focused web UI tests for unified board behavior
-- `npm test`
+- `pnpm test`
 
 ## Manual Scenarios
 
@@ -167,9 +167,9 @@ No provider protocol change expected. Workspace behavior should continue to foll
 
 Automated checks passed:
 
-- `npm run check:node`
-- `npm test`
-- `npm --prefix packages/kanban/web-ui run test -- src/components/changeyard/change-board.test.tsx`
+- `pnpm run check:node`
+- `pnpm test`
+- `pnpm --dir packages/kanban/web-ui run test -- src/components/changeyard/change-board.test.tsx`
 
 Covered scenarios:
 
@@ -221,9 +221,9 @@ Added a new `changes.updateStatus` runtime path for allowed direct lifecycle tra
 
 Verification completed with:
 
-- `npm run check:node`
-- `npm test`
-- `npm --prefix packages/kanban/web-ui run test -- src/components/changeyard/change-board.test.tsx`
+- `pnpm run check:node`
+- `pnpm test`
+- `pnpm --dir packages/kanban/web-ui run test -- src/components/changeyard/change-board.test.tsx`
 
 Manual browser verification covered the `All / Changes / Planned` filter behavior and the change-detail modal on a live `cy ui` instance. Disposable quick/planned workspace fixtures were created for that pass and removed afterwards so the workspace diff stayed clean.
 

@@ -58,9 +58,9 @@ The UI must respect Changeyard workspace metadata and engine behavior:
 ## Running locally
 
 ```bash
-npm install
-npm run build
-npm run cli -- ui --no-open
+pnpm install
+pnpm run build
+pnpm run cli -- ui --no-open
 ```
 
 The UI binds to localhost by default and serves board data from the current repository root.

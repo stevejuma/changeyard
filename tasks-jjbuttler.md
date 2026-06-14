@@ -31,10 +31,10 @@ Current focus: ready for review and follow-up iteration on defects or polish onl
 
 Status: `completed`
 
-- [x] Run `npm run build`
-- [x] Run `npm test`
-- [x] Run `npm run check:tui`
-- [x] Run `npm pack --dry-run`
+- [x] Run `pnpm run build`
+- [x] Run `pnpm test`
+- [x] Run `pnpm run check:tui`
+- [x] Run `pnpm pack --dry-run`
 - [x] Confirm package manager and workspace scripts
 - [x] Confirm tRPC runtime integration points
 - [x] Confirm frontend package/build integration points
@@ -69,9 +69,9 @@ Acceptance checks:
 
 Verification notes:
 
-- [x] `npm run build`
+- [x] `pnpm run build`
 - [x] `node --test dist/tests/ui-server.test.js`
-- [x] `npm pack --dry-run`
+- [x] `pnpm pack --dry-run`
 
 ## M2: tRPC VCS Detection
 
@@ -97,10 +97,10 @@ Acceptance checks:
 
 Verification notes:
 
-- [x] `npm run build`
+- [x] `pnpm run build`
 - [x] `node --test dist/tests/vcs-detect.test.js`
 - [x] `node --test dist/tests/ui-server.test.js`
-- [x] `npm pack --dry-run`
+- [x] `pnpm pack --dry-run`
 
 ## M3: JJ Read Model And Stack Graph
 
@@ -128,9 +128,9 @@ Acceptance checks:
 
 Verification notes:
 
-- [x] `npm run build`
+- [x] `pnpm run build`
 - [x] `node --test dist/tests/vcs-detect.test.js dist/tests/vcs-jj-diff.test.js dist/tests/vcs-jj-graph.test.js dist/tests/vcs-jj-state.test.js`
-- [x] `npm test`
+- [x] `pnpm test`
 
 ## M4: Preview-Only UI Interactions
 
@@ -156,10 +156,10 @@ Acceptance checks:
 
 Verification notes:
 
-- [x] `npm run build`
+- [x] `pnpm run build`
 - [x] `node --test dist/tests/vcs-detect.test.js dist/tests/vcs-jj-diff.test.js dist/tests/vcs-jj-graph.test.js dist/tests/vcs-jj-preview.test.js dist/tests/vcs-jj-state.test.js`
-- [x] `npm --workspace @changeyard/vcs run test`
-- [x] `npm test`
+- [x] `pnpm --filter @changeyard/vcs run test`
+- [x] `pnpm test`
 
 ## M5: Confirmed JJ Mutations
 
@@ -188,7 +188,7 @@ Acceptance checks:
 
 Verification notes:
 
-- [x] `npm run build`
+- [x] `pnpm run build`
 - [x] `node --test dist/tests/vcs-jj-apply.test.js`
 - [x] `node --test dist/tests/vcs-jj-preview.test.js dist/tests/vcs-jj-apply.test.js`
 - [x] `node --test --test-name-pattern='vcs.applyOperation' dist/tests/ui-server.test.js`
@@ -202,8 +202,8 @@ Verification notes:
 - [x] `node --test --test-name-pattern='restore_file previews' dist/tests/ui-server.test.js`
 - [x] `node --test --test-name-pattern='undo_last previews|redo_last previews' dist/tests/ui-server.test.js`
 - [x] `node --test dist/tests/vcs-jj-integration.test.js`
-- [x] `npm --workspace @changeyard/vcs run test`
-- [x] `npm test`
+- [x] `pnpm --filter @changeyard/vcs run test`
+- [x] `pnpm test`
 
 ## M6: Vendored Stacked PR Publishing
 
@@ -236,13 +236,13 @@ Acceptance checks:
 
 Verification notes:
 
-- [x] `npm run build`
+- [x] `pnpm run build`
 - [x] `node --test dist/tests/vcs-jj-stack-submit.test.js`
 - [x] `node --test dist/tests/ui-server.test.js`
 - [x] `node --test dist/tests/vcs-jj-stack-submit.test.js --test-name-pattern='submitJjStack|previewJjStackSubmit'`
-- [x] `npm --workspace @changeyard/vcs run test`
+- [x] `pnpm --filter @changeyard/vcs run test`
 - [x] `node --test dist/tests/ui-server.test.js --test-name-pattern='ui server exposes vcs.submitStack through the runtime tRPC boundary|ui server exposes vcs.submitStackPreview through the runtime tRPC boundary'`
-- [x] `npm test`
+- [x] `pnpm test`
 
 ## M7: Branches, History, And Settings
 
@@ -291,11 +291,11 @@ Acceptance checks:
 
 ## Verification Notes
 
-- `npm run build` passed.
+- `pnpm run build` passed.
 - `node --test --test-force-exit dist/tests/ui-server.test.js` passed: 26 tests, 0 failures.
-- `npm test` passed: 177 tests, 0 failures.
-- `npm run check:tui` passed, including 12/12 TUI interaction tests.
-- `npm pack --dry-run` passed; package dry-run produced `changeyard-0.1.0.tgz` metadata without writing a tracked tarball.
+- `pnpm test` passed: 177 tests, 0 failures.
+- `pnpm run check:tui` passed, including 12/12 TUI interaction tests.
+- `pnpm pack --dry-run` passed; package dry-run produced `changeyard-0.1.0.tgz` metadata without writing a tracked tarball.
 - `node --test --import tsx tests/changeyard.test.ts --test-name-pattern='hydrate copies allowlisted files and skips denied secrets'` passed.
 - Live browser QA passed for `/vcs/jj/branches`, `/vcs/jj/history`, and `/vcs/settings` against a flagged local server.
 - Runtime shutdown cleanup now suppresses expected missing/non-repository workspace warnings, which removed the prior `ui-server.test` log flood.

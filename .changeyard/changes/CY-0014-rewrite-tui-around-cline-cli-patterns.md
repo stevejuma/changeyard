@@ -141,7 +141,7 @@ Convert `packages/tui` to React/OpenTUI, reorganizing source around Cline-like `
 - Prefer Cline visual/interaction parity for the first React migration over an unrelated design refresh.
 - Keep runtime ownership in `packages/kanban/src/runtime-stack`; the TUI should call runtime APIs rather than spawn agents itself.
 - Use Cline SDK sessions only when selected agent is `cline`; use existing PTY-backed sessions for Codex, Claude, Cursor, Copilot, Droid, and Kiro.
-- Keep `cy server` and non-interactive workflow commands stable.
+- Keep non-interactive workflow commands stable.
 
 ## Data / State Impact
 
@@ -185,9 +185,9 @@ The work changes launch routing and TUI packaging. The web runtime, VCS UI, and 
 
 ## Expected Checks
 
-- `npm run build:cli`
-- `npm --workspace @changeyard/tui run typecheck`
-- `npm --workspace @changeyard/tui run test`
+- `pnpm run build:cli`
+- `pnpm --filter @changeyard/tui run typecheck`
+- `pnpm --filter @changeyard/tui run test`
 - `node scripts/verify-tui-endpoints.mjs`
 - CLI tests or targeted Node tests for launcher routing.
 - TUI smoke launch where practical.
@@ -207,11 +207,11 @@ The work changes launch routing and TUI packaging. The web runtime, VCS UI, and 
 
 Passed:
 
-- `npm run build`
-- `npm run check:tui`
-- `npm run smoke:tui`
-- `npm run smoke:install`
-- `npm pack --dry-run --json --ignore-scripts`
+- `pnpm run build`
+- `pnpm run check:tui`
+- `pnpm run smoke:tui`
+- `pnpm run smoke:install`
+- `pnpm pack --dry-run --json --ignore-scripts`
 - `node dist/src/cli.js --kanban --no-open --port auto` startup probe
 - Removed invocation probes for `cy ui`, `cy tui`, `cy view`, and interactive `cy config`
 <!-- cy:verification:end -->
@@ -271,4 +271,4 @@ Replaced the Solid TUI with a React/OpenTUI shell inspired by Cline CLI: landing
 
 Changed launch routing to `cy`/`cy -i`/`cy --tui`, `cy --kanban`, and `cy --vcs`; old `cy tui`, `cy ui`, `cy view`, `cy menu`, and interactive `cy config` now return migration hints while `cy config --json` remains available. Packaging now builds and ships `packages/tui/dist`, bundles React/OpenTUI React into the TUI artifact, and promotes runtime dependencies needed by packed installs.
 
-Verification passed with `npm run build`, `npm run check:tui`, `npm run smoke:tui`, `npm run smoke:install`, dry pack file-list inspection, local `cy --kanban --no-open --port auto` startup probe, and targeted removed-invocation probes.
+Verification passed with `pnpm run build`, `pnpm run check:tui`, `pnpm run smoke:tui`, `pnpm run smoke:install`, dry pack file-list inspection, local `cy --kanban --no-open --port auto` startup probe, and targeted removed-invocation probes.

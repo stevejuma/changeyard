@@ -154,7 +154,7 @@ test("ui server serves health, manifest, and the current shell entrypoint", asyn
   }
 });
 
-test("ui server keeps /vcs unavailable unless CHANGEYARD_VCS=1 is enabled", async () => {
+test("ui server serves the VCS shell from the dashboard runtime by default", async () => {
   const repo = tempRepo();
   const originalFlag = process.env.CHANGEYARD_VCS;
   try {
@@ -170,7 +170,10 @@ test("ui server keeps /vcs unavailable unless CHANGEYARD_VCS=1 is enabled", asyn
 
     try {
       const response = await fetch(`${origin}/vcs`);
-      assert.equal(response.status, 404);
+      assert.equal(response.status, 200);
+      const html = await response.text();
+      assert.match(html, /<title>Changeyard<\/title>/i);
+      assert.match(html, /<div id="root"><\/div>/);
     } finally {
       await server.close();
     }
@@ -180,7 +183,7 @@ test("ui server keeps /vcs unavailable unless CHANGEYARD_VCS=1 is enabled", asyn
   }
 });
 
-test("ui server serves the standalone VCS shell when CHANGEYARD_VCS=1 is enabled", async () => {
+test("ui server serves VCS routes from the unified dashboard shell", async () => {
   const repo = tempRepo();
   const originalFlag = process.env.CHANGEYARD_VCS;
   try {
@@ -198,7 +201,7 @@ test("ui server serves the standalone VCS shell when CHANGEYARD_VCS=1 is enabled
       const response = await fetch(`${origin}/vcs/jj`);
       assert.equal(response.status, 200);
       const html = await response.text();
-      assert.match(html, /Changeyard VCS/i);
+      assert.match(html, /<title>Changeyard<\/title>/i);
       assert.match(html, /<div id="root"><\/div>/);
     } finally {
       await server.close();

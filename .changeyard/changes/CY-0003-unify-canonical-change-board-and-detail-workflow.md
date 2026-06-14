@@ -43,7 +43,7 @@ The current UI splits canonical changes from the visible kanban board, which mak
 - [ ] Replace the top-level change strip workflow with a canonical change board that groups all changes, including quick changes, into lifecycle columns.
 - [ ] Add full change-detail modal support with markdown preview and full-body editing backed by a new change update API.
 - [ ] Ensure agent hooks are present before starting task sessions and surface progress through the existing runtime session flow.
-- [ ] Reuse the runtime graceful shutdown helper from `cy ui` and `cy server` so the first quit signal performs a clean shutdown.
+- [ ] Reuse the runtime graceful shutdown helper from the web UI and headless runtime command so the first quit signal performs a clean shutdown.
 - [ ] Cover the behavior with focused runtime and web UI tests, then run targeted verification commands.
 
 # Acceptance Criteria
@@ -52,7 +52,7 @@ The current UI splits canonical changes from the visible kanban board, which mak
 - [x] Clicking a canonical change card opens a modal that renders the full markdown body and supports switching between preview and edit modes.
 - [x] Saving change detail edits persists the full markdown body with conflict protection instead of only planning-section edits.
 - [x] Starting an agent task installs missing agent hooks for the selected agent before launch and preserves runtime hook-based progress updates.
-- [x] `cy ui` and `cy server` exit cleanly on a single quit signal without requiring a second interrupt in the normal case.
+- [x] The web UI and headless runtime command exit cleanly on a single quit signal without requiring a second interrupt in the normal case.
 
 # Scope Boundaries
 
@@ -85,8 +85,8 @@ The current UI splits canonical changes from the visible kanban board, which mak
 
 Implemented a canonical change board in the web UI and replaced the top strip plus inline planning panel with a modal detail workflow. Quick changes now render in the same lifecycle columns as other canonical changes. The detail modal supports preview and full-body markdown editing through a new `changes.updateBody` mutation with `updatedAt` conflict protection.
 
-Task start now ensures the selected agent's Changeyard hooks and prompts exist before launching the session. `cy ui` and `cy server` now use a shared graceful-shutdown helper that suppresses immediate duplicate wrapper signals and closes cleanly on the first interrupt.
+Task start now ensures the selected agent's Changeyard hooks and prompts exist before launching the session. The web UI and headless runtime command now use a shared graceful-shutdown helper that suppresses immediate duplicate wrapper signals and closes cleanly on the first interrupt.
 
 Checks run:
-- `npm run check:node`
-- `npm test` reached the full dist test suite, all reported tests passed, then the process lingered after the UI-server test; the run was manually stopped after the passing output was captured.
+- `pnpm run check:node`
+- `pnpm test` reached the full dist test suite, all reported tests passed, then the process lingered after the UI-server test; the run was manually stopped after the passing output was captured.

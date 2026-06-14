@@ -46,8 +46,8 @@ async function main(): Promise<void> {
 	const devUrl = `http://${DEV_HOST}:${DEV_WEB_PORT}/vcs/`;
 
 	const viteChild = spawn(
-		"npm",
-		["--workspace", "@changeyard/vcs", "run", "dev", "--", "--host", DEV_HOST, "--port", String(DEV_WEB_PORT)],
+		"pnpm",
+		["--filter", "@changeyard/vcs", "run", "dev", "--", "--host", DEV_HOST, "--port", String(DEV_WEB_PORT)],
 		{
 			cwd: repoRoot,
 			stdio: "inherit",

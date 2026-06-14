@@ -22,7 +22,6 @@ import { listChanges, runList } from "./commands/list.js";
 import { getNextAction, runNext } from "./commands/next.js";
 import { runRecover } from "./commands/recover.js";
 import { runReviewComplete, runReviewStart } from "./commands/review.js";
-import { runServer } from "./commands/server.js";
 import { runStart } from "./commands/start.js";
 import { getStatus, runStatus } from "./commands/status.js";
 import { runSync } from "./commands/sync.js";
@@ -40,7 +39,7 @@ import type { ValidationGate } from "./planning/validation.js";
 import type { CreateOptions } from "./commands/create.js";
 import { readWorkspaceMetadata } from "./workspace/marker.js";
 
-type CommandName = "init" | "update" | "create" | "quick" | "validate" | "sync" | "start" | "verify" | "hydrate" | "complete" | "next" | "land" | "workspace" | "review" | "doctor" | "completions" | "recover" | "list" | "status" | "plan" | "ui" | "server" | "tui" | "config" | "hooks" | "install" | "uninstall" | "help";
+type CommandName = "init" | "update" | "create" | "quick" | "validate" | "sync" | "start" | "verify" | "hydrate" | "complete" | "next" | "land" | "workspace" | "review" | "doctor" | "completions" | "recover" | "list" | "status" | "plan" | "ui" | "server" | "dashboard" | "tui" | "config" | "hooks" | "install" | "uninstall" | "help";
 
 type ParsedArgs = {
   command: string;
@@ -139,6 +138,7 @@ function usage(): string {
 
 Usage:
   cy [-i|--tui] [--connect <url>] [--host <host>] [--port <port|auto>] [--project <path>] [--debug]
+  cy dashboard [--host <host>] [--port <port|auto>] [--project <path>] [--open|--no-open] [--json]
   cy --kanban [--host <host>] [--port <port|auto>] [--open|--no-open]
   cy --vcs [--host <host>] [--port <port|auto>] [--open|--no-open]
   cy init [--dry-run] [--tools all|none|<tool-id>[,<tool-id>...]]
@@ -170,7 +170,6 @@ Usage:
   cy plan strict disable CY-0001 [--dry-run]
   cy plan export CY-0001 --format openspec [--dry-run]
   cy plan import CY-0001 --format speckit [--dry-run]
-  cy server [--host <host>] [--port <port|auto>] [--project <path>] [--json]
   cy config --json [--project <path>]
   cy hooks ingest --event to_review|to_in_progress|activity
   cy install [--dir <path>] [--dry-run]
@@ -245,7 +244,8 @@ function commandUsage(command: string): string {
     status: `${"status".padEnd(12)}print one change summary.\n\nExample:\n${commandExamples(["cy status CY-0001"])}`,
     plan: `${"plan".padEnd(12)}inspect planning status, generate planning prompts, toggle strict mode, or manage adapter mirrors.\n\nExamples:\n${commandExamples(["cy plan status CY-0001", "cy plan status CY-0001 --json", "cy plan prompt CY-0001 proposal", "cy plan strict enable CY-0001", "cy plan export CY-0001 --format openspec", "cy plan import CY-0001 --format speckit --dry-run"])}`,
     ui: `${"ui".padEnd(12)}removed. Use cy --kanban instead.\n\nExamples:\n${commandExamples(["cy --kanban --no-open", "cy --kanban --host 127.0.0.1 --port 4310"])}`,
-    server: `${"server".padEnd(12)}start the local Changeyard runtime API without opening the browser UI.\n\nExamples:\n${commandExamples(["cy server", "cy server --host 127.0.0.1 --port auto", "cy server --project /path/to/repo --json"])}`,
+    dashboard: `${"dashboard".padEnd(12)}start the local Changeyard dashboard, Kanban, and VCS web runtime.\n\nExamples:\n${commandExamples(["cy dashboard", "cy dashboard --no-open", "cy dashboard --host 127.0.0.1 --port auto", "cy dashboard --project /path/to/repo --json"])}`,
+    server: `${"server".padEnd(12)}removed. Use cy dashboard instead.\n\nExamples:\n${commandExamples(["cy dashboard --no-open", "cy dashboard --host 127.0.0.1 --port auto"])}`,
     tui: `${"tui".padEnd(12)}removed. Use cy --tui or cy -i instead.\n\nExamples:\n${commandExamples(["cy --tui", "cy --tui --connect http://127.0.0.1:4310", "cy --tui --project /path/to/repo --debug"])}`,
     config: `${"config".padEnd(12)}print config as JSON. Interactive config lives inside the TUI at /config.\n\nExamples:\n${commandExamples([
       "cy config --json",
@@ -276,6 +276,7 @@ function commandBaseName(command: string): CommandName {
 function removedInvocationMessage(command: string): string | null {
   if (command === "tui") return "cy tui was removed. Use `cy --tui` or `cy -i` instead.";
   if (command === "ui" || command === "kanban") return "cy ui was removed. Use `cy --kanban` instead.";
+  if (command === "server") return "cy server was removed. Use `cy dashboard` instead.";
   if (command === "view" || command === "menu") return `cy ${command} was removed. Use \`cy --tui\` or \`cy -i\` instead.`;
   return null;
 }
@@ -346,7 +347,7 @@ async function main(): Promise<void> {
         open: args.flags["no-open"] === true ? false : args.flags.open === true ? true : undefined,
         host: stringFlag(args.flags, "host"),
         port: parsePortFlag(args.flags),
-        openPath: asBooleanFlag(args.flags, "vcs") ? "/vcs" : "/",
+        openPath: asBooleanFlag(args.flags, "vcs") ? "/vcs" : "/kanban",
       }, process.cwd());
       if (json) {
         console.log(JSON.stringify({ ok: true, ...jsonPayload(asBooleanFlag(args.flags, "vcs") ? "vcs" : "kanban", output) }, null, 2));
@@ -489,14 +490,19 @@ async function main(): Promise<void> {
       case "ui": {
         throw new Error("cy ui was removed. Use `cy --kanban` instead.");
       }
-      case "server": {
+      case "dashboard": {
         const rawPort = stringFlag(args.flags, "port");
-        output = await runServer({
+        output = await runUi({
+          open: args.flags["no-open"] === true ? false : args.flags.open === true ? true : undefined,
           host: stringFlag(args.flags, "host"),
           port: rawPort === "auto" ? "auto" : rawPort ? Number(rawPort) : undefined,
           project: projectRoot,
+          openPath: "/",
         }, process.cwd());
         break;
+      }
+      case "server": {
+        throw new Error("cy server was removed. Use `cy dashboard` instead.");
       }
       case "tui": {
         throw new Error("cy tui was removed. Use `cy --tui` or `cy -i` instead.");

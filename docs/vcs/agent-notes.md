@@ -39,21 +39,21 @@ Use this checklist when modifying the VCS app, especially the JJ provider.
 Useful focused commands:
 
 ```sh
-npm run build:cli
+pnpm run build:cli
 node --test dist/tests/vcs-jj-workspace.test.js
 node --test dist/tests/vcs-jj-preview.test.js dist/tests/vcs-jj-apply.test.js
 node --test --test-name-pattern "workspace stack membership|committed hunk discard" dist/tests/vcs-jj-integration.test.js
-npm --workspace @changeyard/vcs run test
-npm --workspace @changeyard/vcs run typecheck
-npm --workspace @changeyard/vcs run e2e -- --grep "Workspace applies and unapplies"
-npm --workspace @changeyard/kanban run typecheck
+pnpm --filter @changeyard/vcs run test
+pnpm --filter @changeyard/vcs run typecheck
+pnpm --filter @changeyard/vcs run e2e -- --grep "Workspace applies and unapplies"
+pnpm --filter @changeyard/kanban run typecheck
 git diff --check
 ```
 
 Run broader E2E when changing shared helpers like `ensureStackApplied`, preview policy, drag/drop payloads, or Workspace selection behavior:
 
 ```sh
-npm --workspace @changeyard/vcs run e2e
+pnpm --filter @changeyard/vcs run e2e
 ```
 
 ## Common Pitfalls

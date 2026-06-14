@@ -126,7 +126,7 @@ The implementation must stop at explicit verification checkpoints before continu
 
 - Run watcher tests.
 - Run focused JJ/VCS tests.
-- Run `npm --workspace @changeyard/vcs run test`.
+- Run `pnpm --filter @changeyard/vcs run test`.
 - Run VCS and runtime typechecks.
 - Start the VCS UI.
 - Open `/vcs/jj/branches` and `/vcs/jj`.
@@ -146,8 +146,8 @@ The implementation must stop at explicit verification checkpoints before continu
   - a remote-only branch
   - a file-backed Git remote for push/fetch behavior
   - an optional dirty working-copy change
-- Wire fixture generation into package scripts so it can be run with npm or pnpm:
-  - `npm run vcs:fixture -- <path> --force`
+- Wire fixture generation into package scripts so it can be run with pnpm or pnpm:
+  - `pnpm run vcs:fixture -- <path> --force`
   - `pnpm vcs:fixture -- <path> --force`
 - Add VCS package Playwright E2E coverage against the generated fixture.
 - Cover the current critical routes before continuing migration:
@@ -166,10 +166,10 @@ The implementation must stop at explicit verification checkpoints before continu
 ### STOP: Verify VCS E2E Harness And RTK Adoption
 
 - Run fixture generation with a temp path.
-- Run `npm --workspace @changeyard/vcs run test`.
-- Run `npm --workspace @changeyard/vcs run typecheck`.
-- Run `npm --workspace @changeyard/vcs run e2e`.
-- Open the generated fixture manually with `npm run vcs:fixture -- <path> --force` when visual verification is needed.
+- Run `pnpm --filter @changeyard/vcs run test`.
+- Run `pnpm --filter @changeyard/vcs run typecheck`.
+- Run `pnpm --filter @changeyard/vcs run e2e`.
+- Open the generated fixture manually with `pnpm run vcs:fixture -- <path> --force` when visual verification is needed.
 - Record notes in `TASKS.md` after verification.
 
 ## Milestone 7: VCS SPA Routing
@@ -213,9 +213,9 @@ The implementation must stop at explicit verification checkpoints before continu
 - Run cursor helper/unit tests.
 - Run focused VCS tests.
 - Run VCS typecheck and build checks.
-- Run `npm --workspace @changeyard/vcs run test`.
-- Run `npm --workspace @changeyard/vcs run e2e`.
-- Run `npm test`.
+- Run `pnpm --filter @changeyard/vcs run test`.
+- Run `pnpm --filter @changeyard/vcs run e2e`.
+- Run `pnpm test`.
 - Open Branches target history and scroll several pages in a large JJ repo.
 - Open History and scroll operations plus selected operation commits.
 - Verify no repeated full-history rereads and no duplicate rows.
@@ -224,8 +224,8 @@ The implementation must stop at explicit verification checkpoints before continu
 ## Final Verification
 
 - Run focused JJ/VCS tests.
-- Run `npm --workspace @changeyard/vcs run test`.
-- Run `npm --workspace @changeyard/vcs run e2e`.
-- Run `npm test`.
+- Run `pnpm --filter @changeyard/vcs run test`.
+- Run `pnpm --filter @changeyard/vcs run e2e`.
+- Run `pnpm test`.
 - Manually inspect `/vcs/jj/branches` and `/vcs/jj`.
 - Update `TASKS.md` with final verification results.

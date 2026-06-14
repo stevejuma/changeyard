@@ -9,13 +9,13 @@
     "./server": "./dist/server/index.js"
   },
   "scripts": {
-    "web:build": "npm --prefix web-ui run build",
-    "web:typecheck": "npm --prefix web-ui run typecheck",
-    "build": "npm run web:build && npm run runtime:build && node scripts/build.mjs",
-    "typecheck": "node --check src/index.js && node --check src/server/index.js && npm run web:typecheck && npx tsc -p tsconfig.runtime.json --noEmit",
+    "web:build": "pnpm --dir web-ui run build",
+    "web:typecheck": "pnpm --dir web-ui run typecheck",
+    "build": "pnpm run web:build && pnpm run runtime:build && node scripts/build.mjs",
+    "typecheck": "node --check src/index.js && node --check src/server/index.js && pnpm run web:typecheck && pnpm exec tsc -p tsconfig.runtime.json --noEmit",
     "test": "node --test",
-    "runtime:build": "npx tsc -p tsconfig.runtime.json",
-    "runtime:typecheck": "npx tsc -p tsconfig.runtime.json --noEmit"
+    "runtime:build": "pnpm exec tsc -p tsconfig.runtime.json",
+    "runtime:typecheck": "pnpm exec tsc -p tsconfig.runtime.json --noEmit"
   },
   "engines": {
     "node": ">=22.0.0"
