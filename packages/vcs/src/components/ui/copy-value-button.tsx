@@ -2,6 +2,7 @@ import { Check, Copy } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { cn } from "@/components/ui/cn";
+import { copyTextToClipboard } from "@/utils/clipboard";
 
 interface CopyValueButtonProps {
 	label?: string | null;
@@ -62,9 +63,13 @@ export function CopyValueButton({
 			aria-label={`Copy ${labelForA11y}`}
 			onClick={(event) => {
 				event.stopPropagation();
-				void navigator.clipboard?.writeText(copyValue);
-				setCopied(true);
-				scheduleReset();
+				void copyTextToClipboard(copyValue).then((success) => {
+					if (!success) {
+						return;
+					}
+					setCopied(true);
+					scheduleReset();
+				});
 			}}
 		>
 			{normalizedLabel ? (

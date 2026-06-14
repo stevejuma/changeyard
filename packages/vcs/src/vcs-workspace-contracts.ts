@@ -121,6 +121,13 @@ export type VcsWorkspaceOperation =
 	| { kind: "unapply_stack"; stackId: string }
 	| { kind: "create_stack"; name: string; selection?: VcsChangeSelection }
 	| { kind: "create_commit"; stackId: string; message: string; selection: VcsChangeSelection }
+	| { kind: "begin_edit_commit"; targetCommitId: string; message: string }
+	| { kind: "save_edit_commit"; editCommitId: string; targetCommitId: string; returnToCommitId?: string }
+	| { kind: "abort_edit_commit"; editCommitId: string; returnToCommitId?: string }
+	| { kind: "track_remote_bookmark"; bookmarkName: string; remoteName?: string }
+	| { kind: "untrack_remote_bookmark"; bookmarkName: string; remoteName?: string }
+	| { kind: "checkout_commit"; commitId: string }
+	| { kind: "abandon_commit"; commitId: string }
 	| { kind: "reword_commit"; commitId: string; message: string }
 	| { kind: "amend_commit"; commitId: string; selection: VcsChangeSelection }
 	| { kind: "split_commit"; commitId: string; message: string; selection: VcsChangeSelection }
@@ -284,6 +291,11 @@ export function disabledReasonForVcsWorkspaceOperation(
 			return capabilities.supportsMoveChangesAcrossCommits
 				? null
 				: "This provider does not support moving selected changes into a new commit.";
+		case "begin_edit_commit":
+		case "save_edit_commit":
+		case "abort_edit_commit":
+		case "checkout_commit":
+		case "abandon_commit":
 		case "reword_commit":
 		case "amend_commit":
 		case "split_commit":
@@ -307,6 +319,8 @@ export function disabledReasonForVcsWorkspaceOperation(
 			return capabilities.supportsCreateStack
 				? null
 				: "This provider does not support creating stacks from selected changes.";
+		case "track_remote_bookmark":
+		case "untrack_remote_bookmark":
 		case "apply_stack":
 		case "unapply_stack":
 		case "restore_changes":
@@ -367,6 +381,26 @@ function validateOperationFields(operation: VcsWorkspaceOperation): VcsWorkspace
 				requireNonEmpty(operation.message, "Enter a commit message."),
 				validateSelection(operation.selection),
 			);
+		case "begin_edit_commit":
+			return firstInvalid(
+				requireNonEmpty(operation.targetCommitId, "Choose a commit to edit."),
+				requireNonEmpty(operation.message, "Enter an edit commit message."),
+			);
+		case "save_edit_commit":
+			return firstInvalid(
+				requireNonEmpty(operation.editCommitId, "Choose the edit commit."),
+				requireNonEmpty(operation.targetCommitId, "Choose the target commit."),
+				operation.editCommitId === operation.targetCommitId ? invalid("Edit and target commits must be different.") : valid(),
+			);
+		case "abort_edit_commit":
+			return requireNonEmpty(operation.editCommitId, "Choose the edit commit.");
+		case "track_remote_bookmark":
+			return requireNonEmpty(operation.bookmarkName, "Choose a remote bookmark to track.");
+		case "untrack_remote_bookmark":
+			return requireNonEmpty(operation.bookmarkName, "Choose a remote bookmark to untrack.");
+		case "checkout_commit":
+		case "abandon_commit":
+			return requireNonEmpty(operation.commitId, "Choose a commit.");
 		case "reword_commit":
 			return firstInvalid(
 				requireNonEmpty(operation.commitId, "Choose a commit."),
@@ -442,6 +476,13 @@ function operationUsesHunkSelection(operation: VcsWorkspaceOperation): boolean {
 			return Boolean(operation.selection.hunks?.length);
 		case "apply_stack":
 		case "unapply_stack":
+		case "begin_edit_commit":
+		case "save_edit_commit":
+		case "abort_edit_commit":
+		case "track_remote_bookmark":
+		case "untrack_remote_bookmark":
+		case "checkout_commit":
+		case "abandon_commit":
 		case "reword_commit":
 		case "squash_commits":
 		case "move_commit":

@@ -309,6 +309,9 @@ export const runtimeVcsJjChangeSchema = z.object({
 	parentChangeIds: z.array(z.string()),
 	bookmarks: z.array(z.string()),
 	remoteBookmarks: z.array(z.string()),
+	trackedRemoteBookmarks: z.array(z.string()).optional(),
+	untrackedRemoteBookmarks: z.array(z.string()).optional(),
+	immutableReason: z.string().nullable().optional(),
 	isCurrent: z.boolean(),
 });
 export type RuntimeVcsJjChange = z.infer<typeof runtimeVcsJjChangeSchema>;
@@ -323,6 +326,9 @@ export const runtimeVcsJjStackChangeSchema = z.object({
 	authorAvatarUrl: z.string().nullable(),
 	bookmarks: z.array(z.string()),
 	remoteBookmarks: z.array(z.string()),
+	trackedRemoteBookmarks: z.array(z.string()).optional(),
+	untrackedRemoteBookmarks: z.array(z.string()).optional(),
+	immutableReason: z.string().nullable().optional(),
 	isCurrent: z.boolean(),
 	isHead: z.boolean(),
 });
@@ -587,6 +593,40 @@ export const runtimeVcsWorkspaceCreateCommitOperationSchema = z.object({
 	message: z.string(),
 	selection: runtimeVcsChangeSelectionSchema,
 });
+export const runtimeVcsWorkspaceBeginEditCommitOperationSchema = z.object({
+	kind: z.literal("begin_edit_commit"),
+	targetCommitId: z.string(),
+	message: z.string(),
+});
+export const runtimeVcsWorkspaceSaveEditCommitOperationSchema = z.object({
+	kind: z.literal("save_edit_commit"),
+	editCommitId: z.string(),
+	targetCommitId: z.string(),
+	returnToCommitId: z.string().optional(),
+});
+export const runtimeVcsWorkspaceAbortEditCommitOperationSchema = z.object({
+	kind: z.literal("abort_edit_commit"),
+	editCommitId: z.string(),
+	returnToCommitId: z.string().optional(),
+});
+export const runtimeVcsWorkspaceTrackRemoteBookmarkOperationSchema = z.object({
+	kind: z.literal("track_remote_bookmark"),
+	bookmarkName: z.string(),
+	remoteName: z.string().optional(),
+});
+export const runtimeVcsWorkspaceUntrackRemoteBookmarkOperationSchema = z.object({
+	kind: z.literal("untrack_remote_bookmark"),
+	bookmarkName: z.string(),
+	remoteName: z.string().optional(),
+});
+export const runtimeVcsWorkspaceCheckoutCommitOperationSchema = z.object({
+	kind: z.literal("checkout_commit"),
+	commitId: z.string(),
+});
+export const runtimeVcsWorkspaceAbandonCommitOperationSchema = z.object({
+	kind: z.literal("abandon_commit"),
+	commitId: z.string(),
+});
 export const runtimeVcsWorkspaceRewordCommitOperationSchema = z.object({
 	kind: z.literal("reword_commit"),
 	commitId: z.string(),
@@ -643,6 +683,13 @@ export const runtimeVcsWorkspaceOperationSchema = z.discriminatedUnion("kind", [
 	runtimeVcsWorkspaceUnapplyStackOperationSchema,
 	runtimeVcsWorkspaceCreateStackOperationSchema,
 	runtimeVcsWorkspaceCreateCommitOperationSchema,
+	runtimeVcsWorkspaceBeginEditCommitOperationSchema,
+	runtimeVcsWorkspaceSaveEditCommitOperationSchema,
+	runtimeVcsWorkspaceAbortEditCommitOperationSchema,
+	runtimeVcsWorkspaceTrackRemoteBookmarkOperationSchema,
+	runtimeVcsWorkspaceUntrackRemoteBookmarkOperationSchema,
+	runtimeVcsWorkspaceCheckoutCommitOperationSchema,
+	runtimeVcsWorkspaceAbandonCommitOperationSchema,
 	runtimeVcsWorkspaceRewordCommitOperationSchema,
 	runtimeVcsWorkspaceAmendCommitOperationSchema,
 	runtimeVcsWorkspaceSplitCommitOperationSchema,
@@ -741,6 +788,7 @@ export const runtimeVcsJjOperationEntrySchema = z.object({
 	timestamp: z.string().nullable(),
 	files: z.array(runtimeVcsJjOperationFileSchema),
 	restoreEligible: z.boolean(),
+	parentOperationIds: z.array(z.string()),
 });
 export type RuntimeVcsJjOperationEntry = z.infer<typeof runtimeVcsJjOperationEntrySchema>;
 
@@ -793,6 +841,21 @@ export const runtimeVcsJjOperationDiffResponseSchema = z.object({
 	diagnostics: z.array(runtimeVcsDiagnosticSchema),
 });
 export type RuntimeVcsJjOperationDiffResponse = z.infer<typeof runtimeVcsJjOperationDiffResponseSchema>;
+
+export const runtimeVcsJjOperationActionResponseSchema = z.object({
+	ok: z.boolean(),
+	title: z.string(),
+	summary: z.string(),
+	operationId: z.string().nullable(),
+	changed: z.boolean(),
+	diagnostics: z.array(runtimeVcsDiagnosticSchema),
+});
+export type RuntimeVcsJjOperationActionResponse = z.infer<typeof runtimeVcsJjOperationActionResponseSchema>;
+
+export const runtimeVcsJjOperationRevertRequestSchema = z.object({
+	operationId: z.string(),
+});
+export type RuntimeVcsJjOperationRevertRequest = z.infer<typeof runtimeVcsJjOperationRevertRequestSchema>;
 
 export const runtimeVcsOperationRiskLevelSchema = z.enum(["low", "medium", "high"]);
 export type RuntimeVcsOperationRiskLevel = z.infer<typeof runtimeVcsOperationRiskLevelSchema>;
@@ -2333,11 +2396,15 @@ export const runtimeGitCommitSchema = z.object({
 	hash: z.string(),
 	shortHash: z.string(),
 	changeId: z.string().optional(),
+	changeIdUniquePrefix: z.string().optional(),
 	authorName: z.string(),
 	authorEmail: z.string(),
+	authorAvatarUrl: z.string().nullable().optional(),
 	date: z.string(),
 	message: z.string(),
 	parentHashes: z.array(z.string()),
+	bookmarks: z.array(z.string()).optional(),
+	labels: z.array(z.string()).optional(),
 	relation: z.enum(["selected", "upstream", "shared"]).optional(),
 });
 export type RuntimeGitCommit = z.infer<typeof runtimeGitCommitSchema>;

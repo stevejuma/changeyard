@@ -2,10 +2,21 @@ import { Camera, Clock3, History, RotateCcw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { Avatar } from "@/components/ui/avatar";
+import { notifyError, showAppToast } from "@/components/app-toaster";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { CopyValueButton } from "@/components/ui/copy-value-button";
+import {
+	AlertDialog,
+	AlertDialogBody,
+	AlertDialogCancel,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@/components/ui/dialog";
 import { FileStatusGlyph, StatusChip, type StatusChipTone } from "@/components/ui/status-chip";
+import { Tooltip } from "@/components/ui/tooltip";
 import {
 	findFileByPath,
 	getFirstFilePath,
@@ -28,7 +39,12 @@ import type {
 	VcsJjOperationsResponse,
 } from "@/runtime/types";
 import { useRtkPaginatedJjOperationDiff, useRtkPaginatedJjOperations } from "@/runtime/history-api";
-import { toRuntimeQueryState, useGetRepositoryCommitDiffQuery } from "@/runtime/vcs-api";
+import {
+	toRuntimeQueryState,
+	useCreateJjOperationSnapshotMutation,
+	useGetRepositoryCommitDiffQuery,
+	useRevertJjOperationMutation,
+} from "@/runtime/vcs-api";
 import {
 	readVcsBooleanPreference,
 	readVcsFileViewMode,
@@ -310,6 +326,16 @@ function formatTime(timestamp: string | null): string {
 	return new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(date);
 }
 
+function errorMessage(error: unknown, fallback: string): string {
+	if (error instanceof Error) {
+		return error.message;
+	}
+	if (typeof error === "object" && error && "message" in error && typeof error.message === "string") {
+		return error.message;
+	}
+	return fallback;
+}
+
 function toFileChanges(diffState: QueryState<RuntimeGitCommitDiffResponse>): VcsFileChange[] {
 	if (diffState.status !== "ready" || !diffState.data.ok) {
 		return [];
@@ -339,6 +365,8 @@ export function HistoryView({
 		workspaceId,
 		pageSize: 50,
 	});
+	const [createOperationSnapshot, createOperationSnapshotState] = useCreateJjOperationSnapshotMutation();
+	const [revertOperation, revertOperationState] = useRevertJjOperationMutation();
 	const [collapsedColumns, setCollapsedColumns] = useState<Record<HistoryColumnId, boolean>>({
 		operations: readVcsBooleanPreference(HISTORY_COLUMN_COLLAPSED_KEYS.operations, false),
 		commits: readVcsBooleanPreference(HISTORY_COLUMN_COLLAPSED_KEYS.commits, false),
@@ -355,6 +383,7 @@ export function HistoryView({
 	const [hasUserClearedOperation, setHasUserClearedOperation] = useState(false);
 	const [hasUserClearedFile, setHasUserClearedFile] = useState(false);
 	const [isFileSectionCollapsed, setFileSectionCollapsed] = useState(false);
+	const [pendingRevertOperation, setPendingRevertOperation] = useState<VcsJjOperationEntry | null>(null);
 
 	const operationDiffQuery = useRtkPaginatedJjOperationDiff({
 		operationId: selectedOperationId,
@@ -526,61 +555,125 @@ export function HistoryView({
 		}
 	}
 
+	async function createSnapshot(): Promise<void> {
+		if (!workspaceId) {
+			return;
+		}
+		try {
+			const result = await createOperationSnapshot({ workspaceId }).unwrap();
+			if (!result.ok) {
+				notifyError(result.summary || result.title, { key: `jj-snapshot:error:${result.summary || result.title}` });
+				return;
+			}
+			showAppToast(
+				{
+					intent: result.changed ? "success" : "none",
+					message: result.summary || result.title,
+				},
+				result.changed ? `jj-snapshot:${result.operationId ?? "created"}` : "jj-snapshot:unchanged",
+			);
+			operationsQuery.refresh();
+		} catch (error) {
+			notifyError(errorMessage(error, "Failed to create JJ operation snapshot."), { key: "jj-snapshot:error" });
+		}
+	}
+
+	async function confirmRevertOperation(): Promise<void> {
+		if (!workspaceId || !pendingRevertOperation) {
+			return;
+		}
+		try {
+			const result = await revertOperation({ workspaceId, operationId: pendingRevertOperation.id }).unwrap();
+			if (!result.ok) {
+				notifyError(result.summary || result.title, { key: `jj-operation-revert:error:${pendingRevertOperation.id}` });
+				return;
+			}
+			setPendingRevertOperation(null);
+			setSelectedOperationId(null);
+			setSelectedCommitHash(null);
+			setSelectedFilePath(null);
+			setHasUserClearedOperation(true);
+			setHasUserClearedFile(true);
+			setFileSectionCollapsed(false);
+			writeQueryParam("operation", null);
+			writeQueryParam("commit", null);
+			writeQueryParam("file", null);
+			operationsQuery.refresh();
+		} catch (error) {
+			notifyError(errorMessage(error, "Failed to revert JJ operation."), { key: `jj-operation-revert:error:${pendingRevertOperation.id}` });
+		}
+	}
+
 	return (
-		<VcsShell
-			projectState={projectState}
-			currentPath={currentPath}
-			title="History"
-			subtitle="JJ operation log, snapshots, commits, and file changes"
-			kicker={<StatusChip label="Read only" tone="blue" />}
-		>
-			{!workspaceId ? (
-				<NoProjectSelected action={<SelectProjectButton onClick={projectState.onAddProject} />}>
-					Select a project to show JJ operation history for that workspace.
-				</NoProjectSelected>
-			) : (
-				<QueryGate
-					state={operationsQuery.state}
-					loading="Loading operation history."
-					loadingFallback={<HistoryLoadingLayout columnWidths={columnWidths} />}
-					errorTitle="Operation history failed"
-				>
-					{(operations) => (
-						<HistoryReady
-							operations={operations}
-							isLoadingMoreOperations={operationsQuery.isLoadingMore}
-							hasMoreOperations={operationsQuery.hasMore}
-							selectedOperationId={selectedOperationId}
-							operationState={operationDiffQuery.state}
-							isLoadingMoreOperationCommits={operationDiffQuery.isLoadingMore}
-							hasMoreOperationCommits={operationDiffQuery.hasMore}
-							selectedCommitHash={selectedCommitHash}
-							selectedFilePath={selectedFilePath}
-							selectedFile={selectedFile}
-							commitDiffState={commitDiffQuery.state}
-							collapsedColumns={collapsedColumns}
-							columnWidths={columnWidths}
-							fileViewMode={fileViewMode}
-							isFileSectionCollapsed={isFileSectionCollapsed}
-							onColumnCollapsedChange={changeColumnCollapsed}
-							onColumnWidthChange={setColumnWidth}
-							onFileViewModeChange={changeFileViewMode}
-							onFileSectionCollapsedChange={changeFileSectionCollapsed}
-							onLoadMoreOperations={operationsQuery.loadMore}
-							onLoadMoreOperationCommits={operationDiffQuery.loadMore}
-							onSelectOperation={selectOperation}
-							onSelectCommit={selectCommit}
-							onSelectFile={selectFile}
-							onCloseDiff={() => {
-								setSelectedFilePath(null);
-								setHasUserClearedFile(true);
-								writeQueryParam("file", null);
-							}}
-						/>
-					)}
-				</QueryGate>
-			)}
-		</VcsShell>
+		<>
+			<VcsShell
+				projectState={projectState}
+				currentPath={currentPath}
+				title="History"
+				subtitle="JJ operation log, snapshots, commits, and file changes"
+				kicker={<StatusChip label="Read only" tone="blue" />}
+			>
+				{!workspaceId ? (
+					<NoProjectSelected action={<SelectProjectButton onClick={projectState.onAddProject} />}>
+						Select a project to show JJ operation history for that workspace.
+					</NoProjectSelected>
+				) : (
+					<QueryGate
+						state={operationsQuery.state}
+						loading="Loading operation history."
+						loadingFallback={<HistoryLoadingLayout columnWidths={columnWidths} />}
+						errorTitle="Operation history failed"
+					>
+						{(operations) => (
+							<HistoryReady
+								operations={operations}
+								isLoadingMoreOperations={operationsQuery.isLoadingMore}
+								hasMoreOperations={operationsQuery.hasMore}
+								selectedOperationId={selectedOperationId}
+								operationState={operationDiffQuery.state}
+								isLoadingMoreOperationCommits={operationDiffQuery.isLoadingMore}
+								hasMoreOperationCommits={operationDiffQuery.hasMore}
+								selectedCommitHash={selectedCommitHash}
+								selectedFilePath={selectedFilePath}
+								selectedFile={selectedFile}
+								commitDiffState={commitDiffQuery.state}
+								collapsedColumns={collapsedColumns}
+								columnWidths={columnWidths}
+								fileViewMode={fileViewMode}
+								isFileSectionCollapsed={isFileSectionCollapsed}
+								isCreatingSnapshot={createOperationSnapshotState.isLoading}
+								onColumnCollapsedChange={changeColumnCollapsed}
+								onColumnWidthChange={setColumnWidth}
+								onFileViewModeChange={changeFileViewMode}
+								onFileSectionCollapsedChange={changeFileSectionCollapsed}
+								onLoadMoreOperations={operationsQuery.loadMore}
+								onLoadMoreOperationCommits={operationDiffQuery.loadMore}
+								onCreateSnapshot={() => void createSnapshot()}
+								onSelectOperation={selectOperation}
+								onSelectCommit={selectCommit}
+								onSelectFile={selectFile}
+								onRequestRevertOperation={setPendingRevertOperation}
+								onCloseDiff={() => {
+									setSelectedFilePath(null);
+									setHasUserClearedFile(true);
+									writeQueryParam("file", null);
+								}}
+							/>
+						)}
+					</QueryGate>
+				)}
+			</VcsShell>
+			<RevertOperationDialog
+				operation={pendingRevertOperation}
+				isReverting={revertOperationState.isLoading}
+				onOpenChange={(open) => {
+					if (!open && !revertOperationState.isLoading) {
+						setPendingRevertOperation(null);
+					}
+				}}
+				onConfirm={() => void confirmRevertOperation()}
+			/>
+		</>
 	);
 }
 
@@ -668,15 +761,18 @@ function HistoryReady({
 	columnWidths,
 	fileViewMode,
 	isFileSectionCollapsed,
+	isCreatingSnapshot,
 	onColumnCollapsedChange,
 	onColumnWidthChange,
 	onFileViewModeChange,
 	onFileSectionCollapsedChange,
 	onLoadMoreOperations,
 	onLoadMoreOperationCommits,
+	onCreateSnapshot,
 	onSelectOperation,
 	onSelectCommit,
 	onSelectFile,
+	onRequestRevertOperation,
 	onCloseDiff,
 }: {
 	operations: VcsJjOperationsResponse;
@@ -694,15 +790,18 @@ function HistoryReady({
 	columnWidths: Record<HistoryColumnId | "diff", number>;
 	fileViewMode: VcsFileViewMode;
 	isFileSectionCollapsed: boolean;
+	isCreatingSnapshot: boolean;
 	onColumnCollapsedChange: (column: HistoryColumnId, collapsed: boolean) => void;
 	onColumnWidthChange: (column: HistoryColumnId | "diff", width: number) => void;
 	onFileViewModeChange: (mode: VcsFileViewMode) => void;
 	onFileSectionCollapsedChange: (collapsed: boolean) => void;
 	onLoadMoreOperations: () => void;
 	onLoadMoreOperationCommits: () => void;
+	onCreateSnapshot: () => void;
 	onSelectOperation: (operation: VcsJjOperationEntry) => void;
 	onSelectCommit: (commit: VcsJjOperationCommit) => void;
 	onSelectFile: (path: string) => void;
+	onRequestRevertOperation: (operation: VcsJjOperationEntry) => void;
 	onCloseDiff: () => void;
 }): React.ReactElement {
 	const selectedOperation = operations.operations.find((operation) => operation.id === selectedOperationId) ?? null;
@@ -735,8 +834,14 @@ function HistoryReady({
 							onWidthChange={(width) => onColumnWidthChange("operations", width)}
 							onScrollNearEnd={hasMoreOperations ? onLoadMoreOperations : undefined}
 							headerActions={
-								<Button variant="default" size="sm" icon={<Camera size={14} />} disabled title="Snapshot support is not wired yet">
-									Create snapshot
+								<Button
+									variant="default"
+									size="sm"
+									icon={<Camera size={14} />}
+									disabled={isCreatingSnapshot}
+									onClick={onCreateSnapshot}
+								>
+									{isCreatingSnapshot ? "Creating..." : "Create snapshot"}
 								</Button>
 							}
 						>
@@ -747,6 +852,7 @@ function HistoryReady({
 								selectedOperationId={selectedOperationId}
 								onLoadMore={onLoadMoreOperations}
 								onSelectOperation={onSelectOperation}
+								onRequestRevertOperation={onRequestRevertOperation}
 							/>
 						</VcsColumn>
 					)}
@@ -814,6 +920,7 @@ function OperationsColumnContent({
 	selectedOperationId,
 	onLoadMore,
 	onSelectOperation,
+	onRequestRevertOperation,
 }: {
 	operations: VcsJjOperationEntry[];
 	isLoadingMore: boolean;
@@ -821,6 +928,7 @@ function OperationsColumnContent({
 	selectedOperationId: string | null;
 	onLoadMore: () => void;
 	onSelectOperation: (operation: VcsJjOperationEntry) => void;
+	onRequestRevertOperation: (operation: VcsJjOperationEntry) => void;
 }): React.ReactElement {
 	const groupedOperations = useMemo(() => {
 		const groups = new Map<string, VcsJjOperationEntry[]>();
@@ -852,6 +960,7 @@ function OperationsColumnContent({
 							operation={operation}
 							selected={operation.id === selectedOperationId}
 							onSelect={() => onSelectOperation(operation)}
+							onRequestRevert={() => onRequestRevertOperation(operation)}
 						/>
 					))}
 				</section>
@@ -876,21 +985,53 @@ function OperationRow({
 	operation,
 	selected,
 	onSelect,
+	onRequestRevert,
 }: {
 	operation: VcsJjOperationEntry;
 	selected: boolean;
 	onSelect: () => void;
+	onRequestRevert: () => void;
 }): React.ReactElement {
+	const canRevert = operation.restoreEligible && operation.parentOperationIds.length > 0;
+
 	return (
 		<section
 			className={cn(
-				"relative grid cursor-pointer grid-cols-[72px_24px_minmax(0,1fr)] gap-2 border-b border-border px-3 py-3 text-left transition-colors last:border-b-0 hover:bg-surface-2",
+				"group relative grid cursor-pointer grid-cols-[72px_24px_minmax(0,1fr)] gap-2 border-b border-border px-3 py-3 text-left transition-colors last:border-b-0 hover:bg-surface-2",
 				selected && "bg-surface-2",
 				selected && SELECTED_OPERATION_MARKER_CLASS,
 			)}
 			onClick={onSelect}
 		>
-			<div className="pt-0.5 text-right text-xs text-text-tertiary">{formatTime(operation.timestamp)}</div>
+			<div className="relative flex min-h-7 justify-end pt-0.5">
+				<span
+					className={cn(
+						"text-xs text-text-tertiary transition-opacity",
+						canRevert && "group-hover:opacity-0 group-focus-within:opacity-0",
+					)}
+				>
+					{formatTime(operation.timestamp)}
+				</span>
+				{canRevert ? (
+					<Tooltip
+						side="right"
+						content="Restores Changeyard and your files to the state before this operation. Revert actions can also be undone."
+						contentClassName="max-w-[360px] whitespace-normal text-left leading-relaxed"
+					>
+						<Button
+							variant="default"
+							size="sm"
+							className="pointer-events-none absolute right-0 top-[-4px] z-10 opacity-0 shadow-sm transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
+							onClick={(event) => {
+								event.stopPropagation();
+								onRequestRevert();
+							}}
+						>
+							Revert
+						</Button>
+					</Tooltip>
+				) : null}
+			</div>
 			<div className="relative flex justify-center">
 				<span className="absolute bottom-[-13px] top-[-13px] w-px bg-border-bright" />
 				<span className="relative mt-1 grid h-4 w-4 place-items-center rounded-full border border-border-bright bg-surface-1 text-text-tertiary">
@@ -925,6 +1066,47 @@ function OperationRow({
 				</div>
 			</div>
 		</section>
+	);
+}
+
+function RevertOperationDialog({
+	operation,
+	isReverting,
+	onOpenChange,
+	onConfirm,
+}: {
+	operation: VcsJjOperationEntry | null;
+	isReverting: boolean;
+	onOpenChange: (open: boolean) => void;
+	onConfirm: () => void;
+}): React.ReactElement {
+	return (
+		<AlertDialog open={Boolean(operation)} onOpenChange={onOpenChange}>
+			<AlertDialogHeader>
+				<AlertDialogTitle>Revert operation</AlertDialogTitle>
+				<AlertDialogDescription className="mt-1">
+					Restore to the state before this JJ operation.
+				</AlertDialogDescription>
+			</AlertDialogHeader>
+			<AlertDialogBody>
+				<p>
+					This will restore Changeyard and your files to the state before{" "}
+					<span className="font-medium text-text-primary">{operation?.description ?? "the selected operation"}</span>{" "}
+					<span className="font-mono text-text-tertiary">{operation?.shortId ?? operation?.id.slice(0, 12)}</span>.
+				</p>
+				<p>Revert actions can also be undone from the JJ operation log.</p>
+			</AlertDialogBody>
+			<AlertDialogFooter>
+				<AlertDialogCancel asChild>
+					<Button variant="default" disabled={isReverting}>
+						Cancel
+					</Button>
+				</AlertDialogCancel>
+				<Button variant="danger" disabled={isReverting} onClick={onConfirm}>
+					{isReverting ? "Reverting..." : "Revert"}
+				</Button>
+			</AlertDialogFooter>
+		</AlertDialog>
 	);
 }
 

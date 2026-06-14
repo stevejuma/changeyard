@@ -97,6 +97,68 @@ function normalizeDescription(description: string): { title: string; body: strin
 	return { title, body: body.join("\n").trim() };
 }
 
+const UNTRACKED_REMOTE_IMMUTABLE_REASON = "Remote bookmark is not tracked. Start tracking before rewriting this commit.";
+
+type JjWorkspaceBookmark = VcsJjStateResult["bookmarks"][number];
+type JjWorkspaceChange = VcsJjStateResult["changes"][number] | VcsJjStateResult["stacks"][number]["changes"][number];
+type RemoteTrackingInfo = { trackedRemoteBookmarks: string[]; untrackedRemoteBookmarks: string[]; immutableReason: string | null };
+
+function parseRemoteBookmark(remoteBookmark: string): { bookmarkName: string; remoteName: string } | null {
+	const normalized = remoteBookmark.trim();
+	const separatorIndex = normalized.lastIndexOf("@");
+	if (separatorIndex <= 0 || separatorIndex === normalized.length - 1) {
+		return null;
+	}
+	return {
+		bookmarkName: normalized.slice(0, separatorIndex),
+		remoteName: normalized.slice(separatorIndex + 1),
+	};
+}
+
+function classifyRemoteBookmarksForChange(
+	change: JjWorkspaceChange,
+	bookmarks: readonly JjWorkspaceBookmark[],
+): RemoteTrackingInfo {
+	const trackedRemoteBookmarks: string[] = [];
+	const untrackedRemoteBookmarks: string[] = [];
+	for (const remoteBookmark of change.remoteBookmarks) {
+		const parsed = parseRemoteBookmark(remoteBookmark);
+		if (!parsed) {
+			untrackedRemoteBookmarks.push(remoteBookmark);
+			continue;
+		}
+		if (parsed.remoteName === "git") {
+			continue;
+		}
+		const hasMatchingTrackedBookmark = bookmarks.some(
+			(bookmark) =>
+				bookmark.name === parsed.bookmarkName &&
+				bookmark.tracked &&
+				(bookmark.changeId === change.changeId || bookmark.commitId === change.commitId),
+		);
+		if (hasMatchingTrackedBookmark) {
+			trackedRemoteBookmarks.push(remoteBookmark);
+		} else {
+			untrackedRemoteBookmarks.push(remoteBookmark);
+		}
+	}
+	return {
+		trackedRemoteBookmarks,
+		untrackedRemoteBookmarks,
+		immutableReason: untrackedRemoteBookmarks.length > 0 ? UNTRACKED_REMOTE_IMMUTABLE_REASON : null,
+	};
+}
+
+function combineRemoteTrackingInfo(...items: RemoteTrackingInfo[]): RemoteTrackingInfo {
+	const trackedRemoteBookmarks = [...new Set(items.flatMap((item) => item.trackedRemoteBookmarks))];
+	const untrackedRemoteBookmarks = [...new Set(items.flatMap((item) => item.untrackedRemoteBookmarks))];
+	return {
+		trackedRemoteBookmarks,
+		untrackedRemoteBookmarks,
+		immutableReason: untrackedRemoteBookmarks.length > 0 ? UNTRACKED_REMOTE_IMMUTABLE_REASON : null,
+	};
+}
+
 function toWorkspaceFile(path: string, status: NeutralFileStatus) {
 	return {
 		path,
@@ -168,44 +230,59 @@ export async function loadJjWorkspaceState(
 	]);
 	const appliedStackIds = options.appliedStackIds ?? [];
 	const changesById = new Map(state.changes.map((change) => [change.changeId, change]));
-	const stacks = state.stacks.map((stack) => ({
-		stackId: stack.id,
-		name: stack.id,
-		targetRef: stack.tip,
-		baseRef: stack.base,
-		headCommitId: stack.heads[0]?.changeId ?? stack.changes.at(-1)?.changeId ?? null,
-		isApplied: appliedStackIds.includes(stack.id),
-		isCurrent: stack.isCheckedOut,
-		commits: stack.changes.map((change) => {
-			const description = normalizeDescription(change.title);
-			return {
-				commitId: change.changeId,
-				displayId: change.commitId,
-				title: description.title,
-				description: description.body,
-				authorName: change.authorName,
-				authorEmail: change.authorEmail,
-				authorAvatarUrl: change.authorAvatarUrl,
-				timestamp: null,
-				parentCommitIds: changesById.get(change.changeId)?.parentChangeIds ?? [],
-				stackIds: [stack.id],
-				isHead: change.isHead,
-				isCurrent: change.isCurrent,
-				metadata: {
-					changeId: change.changeId,
-					commitHash: change.commitId,
-					bookmarks: change.bookmarks,
-					remoteBookmarks: change.remoteBookmarks,
-				},
-			};
-		}),
-		metadata: {
-			tip: stack.tip,
-			base: stack.base,
-			headChangeIds: stack.heads.map((head) => head.changeId),
-			headCommitHashes: stack.heads.map((head) => head.commitId),
-		},
-	}));
+	const stacks = state.stacks.map((stack) => {
+		const headChangeIds = new Set(stack.heads.map((head) => head.changeId));
+		const stackRemoteTracking = combineRemoteTrackingInfo(
+			...stack.changes
+				.filter((change) => change.isHead || headChangeIds.has(change.changeId))
+				.map((change) => classifyRemoteBookmarksForChange(change, state.bookmarks)),
+		);
+		return {
+			stackId: stack.id,
+			name: stack.id,
+			targetRef: stack.tip,
+			baseRef: stack.base,
+			headCommitId: stack.heads[0]?.changeId ?? stack.changes.at(-1)?.changeId ?? null,
+			isApplied: appliedStackIds.includes(stack.id),
+			isCurrent: stack.isCheckedOut,
+			commits: stack.changes.map((change) => {
+				const description = normalizeDescription(change.title);
+				const remoteTracking = combineRemoteTrackingInfo(
+					classifyRemoteBookmarksForChange(change, state.bookmarks),
+					stackRemoteTracking,
+				);
+				return {
+					commitId: change.changeId,
+					displayId: change.commitId,
+					title: description.title,
+					description: description.body,
+					authorName: change.authorName,
+					authorEmail: change.authorEmail,
+					authorAvatarUrl: change.authorAvatarUrl,
+					timestamp: null,
+					parentCommitIds: changesById.get(change.changeId)?.parentChangeIds ?? [],
+					stackIds: [stack.id],
+					isHead: change.isHead,
+					isCurrent: change.isCurrent,
+					metadata: {
+						changeId: change.changeId,
+						commitHash: change.commitId,
+						bookmarks: change.bookmarks,
+						remoteBookmarks: change.remoteBookmarks,
+						trackedRemoteBookmarks: remoteTracking.trackedRemoteBookmarks,
+						untrackedRemoteBookmarks: remoteTracking.untrackedRemoteBookmarks,
+						immutableReason: remoteTracking.immutableReason,
+					},
+				};
+			}),
+			metadata: {
+				tip: stack.tip,
+				base: stack.base,
+				headChangeIds: stack.heads.map((head) => head.changeId),
+				headCommitHashes: stack.heads.map((head) => head.commitId),
+			},
+		};
+	});
 	const stackIdsByCommitId = new Map<string, string[]>();
 	for (const stack of stacks) {
 		for (const commit of stack.commits) {
@@ -271,6 +348,22 @@ export async function previewJjWorkspaceOperation(
 	input: NeutralOperationRequest,
 	runner: VcsCommandRunner,
 ) {
+	if (
+		input.operation.kind === "begin_edit_commit" ||
+		input.operation.kind === "save_edit_commit" ||
+		input.operation.kind === "abort_edit_commit"
+	) {
+		return previewJjCommitEditModeOperation(input.operation);
+	}
+	if (input.operation.kind === "checkout_commit") {
+		return previewJjCheckoutCommitOperation(input.operation);
+	}
+	if (input.operation.kind === "track_remote_bookmark") {
+		return previewJjTrackRemoteBookmarkOperation(input.operation);
+	}
+	if (input.operation.kind === "untrack_remote_bookmark") {
+		return previewJjUntrackRemoteBookmarkOperation(input.operation);
+	}
 	if (input.operation.kind === "apply_stack" || input.operation.kind === "unapply_stack") {
 		return await workspaceMembershipPreview(cwd, runner, input.operation);
 	}
@@ -371,6 +464,24 @@ export async function applyJjWorkspaceOperation(
 	input: NeutralOperationRequest,
 	runner: VcsCommandRunner,
 ) {
+	if (input.operation.kind === "begin_edit_commit") {
+		return await applyJjBeginEditCommitOperation(cwd, runner, input.operation);
+	}
+	if (input.operation.kind === "save_edit_commit") {
+		return await applyJjSaveEditCommitOperation(cwd, runner, input.operation);
+	}
+	if (input.operation.kind === "abort_edit_commit") {
+		return await applyJjAbortEditCommitOperation(cwd, runner, input.operation);
+	}
+	if (input.operation.kind === "checkout_commit") {
+		return await applyJjCheckoutCommitOperation(cwd, runner, input.operation);
+	}
+	if (input.operation.kind === "track_remote_bookmark") {
+		return await applyJjTrackRemoteBookmarkOperation(cwd, runner, input.operation);
+	}
+	if (input.operation.kind === "untrack_remote_bookmark") {
+		return await applyJjUntrackRemoteBookmarkOperation(cwd, runner, input.operation);
+	}
 	if (input.operation.kind === "apply_stack" || input.operation.kind === "unapply_stack") {
 		return await workspaceMembershipApply(cwd, runner, input.operation);
 	}
@@ -508,6 +619,11 @@ async function translateOperation(
 	}
 
 	switch (operation.kind) {
+		case "abandon_commit":
+			return {
+				operation: { kind: "abandon_change", changeId: operation.commitId },
+				reason: "",
+			};
 		case "reword_commit":
 			return {
 				operation: { kind: "edit_message", changeId: operation.commitId, message: operation.message },
@@ -637,6 +753,12 @@ async function translateOperation(
 		case "unapply_stack":
 		case "create_stack":
 		case "create_commit":
+		case "begin_edit_commit":
+		case "save_edit_commit":
+		case "abort_edit_commit":
+		case "track_remote_bookmark":
+		case "untrack_remote_bookmark":
+		case "checkout_commit":
 			return {
 				operation: null,
 				reason: `JJ ${operation.kind.replaceAll("_", " ")} is not implemented in the neutral workspace engine yet.`,
@@ -1697,6 +1819,334 @@ function unsupportedPreview(operation: NeutralOperation, reason: string) {
 	};
 }
 
+function previewJjCommitEditModeOperation(
+	operation: Extract<NeutralOperation, { kind: "begin_edit_commit" | "save_edit_commit" | "abort_edit_commit" }>,
+) {
+	switch (operation.kind) {
+		case "begin_edit_commit":
+			return {
+				valid: true,
+				operation,
+				title: "Begin edit mode",
+				summary: `Create a temporary edit commit above ${operation.targetCommitId}.`,
+				risk: "medium" as const,
+				disabledReason: null,
+				warnings: [
+					{
+						code: "jj_edit_mode",
+						message: "Do not create additional commits while edit mode is active. Use Save or Abort to exit.",
+					},
+				],
+				conflicts: [],
+				affectedStackIds: [],
+				affectedCommitIds: [operation.targetCommitId],
+				affectedPaths: [],
+				diagnostics: [],
+			};
+		case "save_edit_commit":
+			return {
+				valid: true,
+				operation,
+				title: "Save edit mode",
+				summary: operation.returnToCommitId
+					? `Squash ${operation.editCommitId} into ${operation.targetCommitId} and return to ${operation.returnToCommitId}.`
+					: `Squash ${operation.editCommitId} into ${operation.targetCommitId} and exit edit mode.`,
+				risk: "high" as const,
+				disabledReason: null,
+				warnings: [],
+				conflicts: [],
+				affectedStackIds: [],
+				affectedCommitIds: [
+					operation.editCommitId,
+					operation.targetCommitId,
+					...(operation.returnToCommitId ? [operation.returnToCommitId] : []),
+				],
+				affectedPaths: [],
+				diagnostics: [],
+			};
+		case "abort_edit_commit":
+			return {
+				valid: true,
+				operation,
+				title: "Abort edit mode",
+				summary: operation.returnToCommitId
+					? `Abandon temporary edit commit ${operation.editCommitId} and return to ${operation.returnToCommitId}.`
+					: `Abandon temporary edit commit ${operation.editCommitId}.`,
+				risk: "high" as const,
+				disabledReason: null,
+				warnings: [],
+				conflicts: [],
+				affectedStackIds: [],
+				affectedCommitIds: [operation.editCommitId, ...(operation.returnToCommitId ? [operation.returnToCommitId] : [])],
+				affectedPaths: [],
+				diagnostics: [],
+			};
+	}
+}
+
+function jjTrackRemoteBookmarkArgs(operation: Extract<NeutralOperation, { kind: "track_remote_bookmark" }>): string[] {
+	const remoteName = operation.remoteName?.trim();
+	return ["bookmark", "track", ...(remoteName ? ["--remote", remoteName] : []), operation.bookmarkName];
+}
+
+function jjUntrackRemoteBookmarkArgs(operation: Extract<NeutralOperation, { kind: "untrack_remote_bookmark" }>): string[] {
+	const remoteName = operation.remoteName?.trim();
+	return ["bookmark", "untrack", ...(remoteName ? ["--remote", remoteName] : []), operation.bookmarkName];
+}
+
+function previewJjTrackRemoteBookmarkOperation(operation: Extract<NeutralOperation, { kind: "track_remote_bookmark" }>) {
+	const remoteName = operation.remoteName?.trim();
+	return {
+		valid: true,
+		operation,
+		title: `Track remote bookmark ${operation.bookmarkName}`,
+		summary: remoteName
+			? `Start tracking ${operation.bookmarkName}@${remoteName} so its commits can be rewritten locally.`
+			: `Start tracking remote bookmark ${operation.bookmarkName} so its commits can be rewritten locally.`,
+		risk: "medium" as const,
+		disabledReason: null,
+		warnings: [],
+		conflicts: [],
+		affectedStackIds: [operation.bookmarkName],
+		affectedCommitIds: [],
+		affectedPaths: [],
+		diagnostics: [],
+	};
+}
+
+function previewJjUntrackRemoteBookmarkOperation(operation: Extract<NeutralOperation, { kind: "untrack_remote_bookmark" }>) {
+	const remoteName = operation.remoteName?.trim();
+	return {
+		valid: true,
+		operation,
+		title: `Untrack remote bookmark ${operation.bookmarkName}`,
+		summary: remoteName
+			? `Stop tracking ${operation.bookmarkName}@${remoteName}. Its remote commits will become immutable until tracking is restored.`
+			: `Stop tracking remote bookmark ${operation.bookmarkName}. Its remote commits will become immutable until tracking is restored.`,
+		risk: "medium" as const,
+		disabledReason: null,
+		warnings: [
+			{
+				code: "jj_remote_bookmark_untrack",
+				message: "Untracking a remote bookmark makes remote-only commits read-only until the bookmark is tracked again.",
+			},
+		],
+		conflicts: [],
+		affectedStackIds: [operation.bookmarkName],
+		affectedCommitIds: [],
+		affectedPaths: [],
+		diagnostics: [],
+	};
+}
+
+async function applyJjBeginEditCommitOperation(
+	cwd: string,
+	runner: VcsCommandRunner,
+	operation: Extract<NeutralOperation, { kind: "begin_edit_commit" }>,
+) {
+	const result = await runner({
+		command: "jj",
+		args: ["new", "--insert-after", operation.targetCommitId, "-m", operation.message],
+		cwd,
+	});
+	if (!result.ok) {
+		return failedApply(operation, result.stderr.trim() || result.stdout.trim() || "Could not begin JJ edit mode.");
+	}
+	const editCommitId =
+		parseCreatedJjChangeId(result.stdout) ??
+		parseCreatedJjChangeId(result.stderr) ??
+		(await resolveCurrentJjChangeId(cwd, runner)) ??
+		"@";
+	return successfulApply(
+		operation,
+		"Editing commit",
+		`Created temporary edit commit ${editCommitId} above ${operation.targetCommitId}.`,
+		[editCommitId, operation.targetCommitId],
+	);
+}
+
+async function applyJjTrackRemoteBookmarkOperation(
+	cwd: string,
+	runner: VcsCommandRunner,
+	operation: Extract<NeutralOperation, { kind: "track_remote_bookmark" }>,
+) {
+	const result = await runner({
+		command: "jj",
+		args: jjTrackRemoteBookmarkArgs(operation),
+		cwd,
+	});
+	if (!result.ok) {
+		return failedApply(operation, result.stderr.trim() || result.stdout.trim() || "Could not track JJ remote bookmark.");
+	}
+	const remoteName = operation.remoteName?.trim();
+	return {
+		ok: true,
+		operation,
+		title: "Tracking remote bookmark",
+		summary: remoteName
+			? `Started tracking ${operation.bookmarkName}@${remoteName}.`
+			: `Started tracking remote bookmark ${operation.bookmarkName}.`,
+		affectedStackIds: [operation.bookmarkName],
+		affectedCommitIds: [],
+		affectedPaths: [],
+		recovery: null,
+		diagnostics: [],
+	};
+}
+
+async function applyJjUntrackRemoteBookmarkOperation(
+	cwd: string,
+	runner: VcsCommandRunner,
+	operation: Extract<NeutralOperation, { kind: "untrack_remote_bookmark" }>,
+) {
+	const result = await runner({
+		command: "jj",
+		args: jjUntrackRemoteBookmarkArgs(operation),
+		cwd,
+	});
+	if (!result.ok) {
+		return failedApply(operation, result.stderr.trim() || result.stdout.trim() || "Could not untrack JJ remote bookmark.");
+	}
+	const remoteName = operation.remoteName?.trim();
+	return {
+		ok: true,
+		operation,
+		title: "Untracked remote bookmark",
+		summary: remoteName
+			? `Stopped tracking ${operation.bookmarkName}@${remoteName}.`
+			: `Stopped tracking remote bookmark ${operation.bookmarkName}.`,
+		affectedStackIds: [operation.bookmarkName],
+		affectedCommitIds: [],
+		affectedPaths: [],
+		recovery: null,
+		diagnostics: [],
+	};
+}
+
+async function resolveCurrentJjChangeId(cwd: string, runner: VcsCommandRunner): Promise<string | null> {
+	const result = await runner({
+		command: "jj",
+		args: ["log", "--ignore-working-copy", "--no-graph", "-r", "@", "-T", "change_id.short()"],
+		cwd,
+	});
+	if (!result.ok) {
+		return null;
+	}
+	return result.stdout.trim() || null;
+}
+
+async function applyJjSaveEditCommitOperation(
+	cwd: string,
+	runner: VcsCommandRunner,
+	operation: Extract<NeutralOperation, { kind: "save_edit_commit" }>,
+) {
+	const result = await runner({
+		command: "jj",
+		args: ["squash", "--from", operation.editCommitId, "--into", operation.targetCommitId, "--use-destination-message"],
+		cwd,
+	});
+	if (!result.ok) {
+		return failedApply(operation, result.stderr.trim() || result.stdout.trim() || "Could not save JJ edit mode changes.");
+	}
+	const returnResult = await returnToJjCommitAfterEdit(cwd, runner, operation);
+	if (returnResult) {
+		return returnResult;
+	}
+	return successfulApply(
+		operation,
+		"Saved commit edits",
+		operation.returnToCommitId
+			? `Squashed ${operation.editCommitId} into ${operation.targetCommitId} and returned to ${operation.returnToCommitId}.`
+			: `Squashed ${operation.editCommitId} into ${operation.targetCommitId}.`,
+		[operation.editCommitId, operation.targetCommitId, ...(operation.returnToCommitId ? [operation.returnToCommitId] : [])],
+	);
+}
+
+async function applyJjAbortEditCommitOperation(
+	cwd: string,
+	runner: VcsCommandRunner,
+	operation: Extract<NeutralOperation, { kind: "abort_edit_commit" }>,
+) {
+	const result = await runner({
+		command: "jj",
+		args: ["abandon", operation.editCommitId],
+		cwd,
+	});
+	if (!result.ok) {
+		return failedApply(operation, result.stderr.trim() || result.stdout.trim() || "Could not abort JJ edit mode.");
+	}
+	const returnResult = await returnToJjCommitAfterEdit(cwd, runner, operation);
+	if (returnResult) {
+		return returnResult;
+	}
+	return successfulApply(
+		operation,
+		"Aborted commit edits",
+		operation.returnToCommitId
+			? `Abandoned temporary edit commit ${operation.editCommitId} and returned to ${operation.returnToCommitId}.`
+			: `Abandoned temporary edit commit ${operation.editCommitId}.`,
+		[operation.editCommitId, ...(operation.returnToCommitId ? [operation.returnToCommitId] : [])],
+	);
+}
+
+async function returnToJjCommitAfterEdit(
+	cwd: string,
+	runner: VcsCommandRunner,
+	operation: Extract<NeutralOperation, { kind: "save_edit_commit" | "abort_edit_commit" }>,
+) {
+	const returnToCommitId = operation.returnToCommitId?.trim();
+	if (!returnToCommitId) {
+		return null;
+	}
+	const result = await runner({
+		command: "jj",
+		args: ["edit", returnToCommitId],
+		cwd,
+	});
+	if (result.ok) {
+		return null;
+	}
+	const reason = result.stderr.trim() || result.stdout.trim() || `Run jj edit ${returnToCommitId} to return to the workspace commit.`;
+	return failedApplyWithRecovery(operation, reason, [
+		`The edit operation completed, but Changeyard could not return to ${returnToCommitId}.`,
+		`Run \`jj edit ${returnToCommitId}\` to return to the workspace commit.`,
+		"Run `jj op log` or `jj op undo` if the repository state needs recovery.",
+	]);
+}
+
+function previewJjCheckoutCommitOperation(operation: Extract<NeutralOperation, { kind: "checkout_commit" }>) {
+	return {
+		valid: true,
+		operation,
+		title: "Checkout commit",
+		summary: `Move the JJ working-copy commit to ${operation.commitId}.`,
+		risk: "low" as const,
+		disabledReason: null,
+		warnings: [],
+		conflicts: [],
+		affectedStackIds: [],
+		affectedCommitIds: [operation.commitId],
+		affectedPaths: [],
+		diagnostics: [],
+	};
+}
+
+async function applyJjCheckoutCommitOperation(
+	cwd: string,
+	runner: VcsCommandRunner,
+	operation: Extract<NeutralOperation, { kind: "checkout_commit" }>,
+) {
+	const result = await runner({
+		command: "jj",
+		args: ["edit", operation.commitId],
+		cwd,
+	});
+	if (!result.ok) {
+		return failedApply(operation, result.stderr.trim() || result.stdout.trim() || `Could not checkout ${operation.commitId}.`);
+	}
+	return successfulApply(operation, "Checked out commit", `Moved the JJ working copy to ${operation.commitId}.`, [operation.commitId]);
+}
+
 async function workspaceMembershipPreview(
 	cwd: string,
 	runner: VcsCommandRunner,
@@ -1889,6 +2339,22 @@ function failedApply(operation: NeutralOperation, reason: string) {
 	};
 }
 
+function failedApplyWithRecovery(operation: NeutralOperation, reason: string, instructions: string[]) {
+	return {
+		ok: false,
+		operation,
+		title: "Operation failed",
+		summary: reason,
+		affectedStackIds: stackIdsFromOperation(operation),
+		affectedCommitIds: commitIdsFromOperation(operation),
+		affectedPaths: pathsFromOperation(operation),
+		recovery: {
+			instructions,
+		},
+		diagnostics: [createDiagnostic("error", "jj_workspace_operation_failed", reason)],
+	};
+}
+
 function successfulApply(operation: NeutralOperation, title: string, summary: string, affectedCommitIds: string[]) {
 	return {
 		ok: true,
@@ -1915,6 +2381,13 @@ function stackIdsFromOperation(operation: NeutralOperation): string[] {
 		case "uncommit_changes":
 			return operation.targetStackId ? [operation.targetStackId] : [];
 		case "create_stack":
+		case "begin_edit_commit":
+		case "save_edit_commit":
+		case "abort_edit_commit":
+		case "track_remote_bookmark":
+		case "untrack_remote_bookmark":
+		case "checkout_commit":
+		case "abandon_commit":
 		case "reword_commit":
 		case "amend_commit":
 		case "split_commit":
@@ -1930,6 +2403,18 @@ function stackIdsFromOperation(operation: NeutralOperation): string[] {
 
 function commitIdsFromOperation(operation: NeutralOperation): string[] {
 	switch (operation.kind) {
+		case "begin_edit_commit":
+			return [operation.targetCommitId];
+		case "save_edit_commit":
+			return [operation.editCommitId, operation.targetCommitId, ...(operation.returnToCommitId ? [operation.returnToCommitId] : [])];
+		case "abort_edit_commit":
+			return [operation.editCommitId, ...(operation.returnToCommitId ? [operation.returnToCommitId] : [])];
+		case "track_remote_bookmark":
+		case "untrack_remote_bookmark":
+			return [];
+		case "checkout_commit":
+		case "abandon_commit":
+			return [operation.commitId];
 		case "reword_commit":
 		case "amend_commit":
 		case "split_commit":

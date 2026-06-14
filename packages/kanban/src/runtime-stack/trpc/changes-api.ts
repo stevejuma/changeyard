@@ -40,6 +40,8 @@ import type {
 	RuntimeVcsJjInventoryResponse,
 	RuntimeVcsJjOperationDiffRequest,
 	RuntimeVcsJjOperationDiffResponse,
+	RuntimeVcsJjOperationActionResponse,
+	RuntimeVcsJjOperationRevertRequest,
 	RuntimeVcsJjOperationsRequest,
 	RuntimeVcsJjOperationsResponse,
 	RuntimeVcsPreviewOperationRequest,
@@ -169,6 +171,13 @@ export interface RuntimeChangeyardApiAdapter {
 		repoRoot: string,
 		input: RuntimeVcsJjOperationDiffRequest,
 	) => Promise<RuntimeVcsJjOperationDiffResponse> | RuntimeVcsJjOperationDiffResponse;
+	createJjOperationSnapshot?: (
+		repoRoot: string,
+	) => Promise<RuntimeVcsJjOperationActionResponse> | RuntimeVcsJjOperationActionResponse;
+	revertJjOperation?: (
+		repoRoot: string,
+		input: RuntimeVcsJjOperationRevertRequest,
+	) => Promise<RuntimeVcsJjOperationActionResponse> | RuntimeVcsJjOperationActionResponse;
 	getVcsWorkspaceState?: (
 		repoRoot: string,
 		input?: RuntimeVcsWorkspaceStateRequest,

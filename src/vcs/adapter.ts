@@ -10,7 +10,7 @@ import {
 import { applyJjOperation } from "./jj/apply.js";
 import { loadJjDiff } from "./jj/diff.js";
 import { loadJjInventory, loadJjInventoryFromDetect } from "./jj/inventory.js";
-import { loadJjOperationDiff, loadJjOperations } from "./jj/operations.js";
+import { createJjOperationSnapshot, loadJjOperationDiff, loadJjOperations, revertJjOperation } from "./jj/operations.js";
 import { previewJjOperation } from "./jj/preview.js";
 import { previewJjStackSubmit, submitJjStack } from "./jj/stack-submit.js";
 import { loadJjState, loadJjStateFromDetect } from "./jj/state.js";
@@ -414,6 +414,14 @@ export async function getJjOperationDiff(
 		cursor: input.cursor,
 		pageSize: input.pageSize,
 	});
+}
+
+export async function createJjSnapshot(repoRoot: string) {
+	return await createJjOperationSnapshot(repoRoot, runVcsCommand);
+}
+
+export async function revertJjOperationById(repoRoot: string, input: { operationId: string }) {
+	return await revertJjOperation(repoRoot, runVcsCommand, input.operationId);
 }
 
 export async function previewVcsOperation(repoRoot: string, input: VcsPreviewOperationInput) {

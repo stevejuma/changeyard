@@ -39,7 +39,9 @@ Do not recreate controls that already exist:
 - Use `CopyValueButton` from `src/components/ui/copy-value-button.tsx` for copyable change IDs, commit IDs, hashes, and refs.
 - Use `StatusChip` and `FileStatusGlyph` from `src/components/ui/status-chip.tsx` for labels and file state.
 - Use `VcsColumnShell`, `VcsFileDiffColumn`, and `VcsInlineFileSection` from `src/components/vcs-file-columns.tsx` for collapsible/resizable columns, file lists, and diffs.
-- Use Radix primitives through the existing `src/components/ui/*` wrappers when adding dialogs, tooltips, selects, avatars, or other standard controls.
+- Use Radix-backed primitives for standard interactive controls. Prefer existing `src/components/ui/*` wrappers first, and import Radix primitives directly when a local wrapper does not exist yet.
+- Do not hand-roll popup or layered controls with fixed/absolute positioning, manual outside-click overlays, custom `role="menu"` markup, or local z-index stacking unless there is a documented reason. Dropdown menus, context menus, popovers, dialogs, tooltips, selects, and portal-based overlays should use Radix so positioning, focus management, keyboard behavior, collision handling, and stacking are handled consistently.
+- If adding a missing primitive, create a small shared wrapper in `src/components/ui/*` or follow the existing Radix usage pattern in the package. Avoid one-off popup implementations inside feature components.
 - Use skeleton placeholders for data-loading UI. Prefer `kb-skeleton` rows, cards, or panels that match the final layout instead of progress bars or "Loading..." text.
 
 ## Page Patterns

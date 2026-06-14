@@ -9,6 +9,7 @@ import {
 	findStackForBranchSelection,
 	groupStackChangesByHead,
 	normalizeAppliedStackIds,
+	selectActiveAppliedStackIds,
 	selectAppliedWorkspaceStacks,
 	selectStackChangeGroupsForBranchDetail,
 	selectStackChangeGroupsForSelection,
@@ -290,6 +291,12 @@ test("selectAppliedWorkspaceStacks preserves applied order and ignores missing s
 		"feature/second",
 		"feature/first",
 	]);
+});
+
+test("selectActiveAppliedStackIds prefers edit mode snapshot over configured and provider stacks", () => {
+	assert.deepEqual(selectActiveAppliedStackIds(["configured"], ["provider"], ["editing"]), ["editing"]);
+	assert.deepEqual(selectActiveAppliedStackIds(["configured"], ["provider"], []), ["configured"]);
+	assert.deepEqual(selectActiveAppliedStackIds([], ["provider"], null), ["provider"]);
 });
 
 test("groupStackChangesByHead slices root-to-tip changes into newest-to-oldest head groups", () => {

@@ -1,9 +1,11 @@
-import { AlertTriangle, FileText, Folder, FolderTree, GitBranch, List, MoreHorizontal, PanelLeft, Pencil, Play, Sparkles, Upload, X } from "lucide-react";
-import { Fragment, useEffect, useMemo, useState, type DragEvent as ReactDragEvent } from "react";
+import * as RadixDropdownMenu from "@radix-ui/react-dropdown-menu";
+import { AlertTriangle, Check, FileText, Folder, FolderTree, GitBranch, Info, List, LockKeyhole, MoreHorizontal, PanelLeft, Pencil, PencilLine, Play, RotateCcw, Sparkles, Upload, X } from "lucide-react";
+import { Fragment, useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent } from "react";
 
 import {
 	applyWorkspaceStackId,
 	groupStackChangesByHead,
+	selectActiveAppliedStackIds,
 	selectAppliedWorkspaceStacks,
 	unapplyWorkspaceStackId,
 	type BranchesStack,
@@ -116,6 +118,34 @@ function readDragPayload(event: ReactDragEvent<HTMLElement>): VcsWorkspaceDragPa
 }
 
 type WorkspaceDropTargetState = "idle" | "valid" | "invalid";
+
+type CommitEditModeState = {
+	target: BranchesStackChange;
+	editCommitId: string;
+	returnToCommitId: string;
+	appliedStackIdsSnapshot: string[];
+	files: VcsFileChange[];
+	isSaving: boolean;
+	error: string | null;
+};
+
+type ImmutableRemoteBookmarkInfo = {
+	bookmarkName: string;
+	remoteName?: string;
+	remoteBookmark: string;
+	reason: string;
+};
+
+type ImmutableCommitPromptState = ImmutableRemoteBookmarkInfo & {
+	change: BranchesStackChange;
+	actionLabel: string;
+};
+
+type StackRemoteBookmarkActionInfo = {
+	bookmarkName: string;
+	remoteName?: string;
+	remoteBookmark: string;
+};
 
 function workspaceDropTargetKey(target: VcsWorkspaceDropTarget): string {
 	switch (target.kind) {
@@ -267,6 +297,73 @@ function metadataString(value: unknown): string | null {
 	return typeof value === "string" && value.trim() ? value : null;
 }
 
+function metadataStringArray(value: unknown): string[] {
+	return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0) : [];
+}
+
+function parseRemoteBookmarkName(remoteBookmark: string): { bookmarkName: string; remoteName: string } | null {
+	const normalized = remoteBookmark.trim();
+	const separatorIndex = normalized.lastIndexOf("@");
+	if (separatorIndex <= 0 || separatorIndex === normalized.length - 1) {
+		return null;
+	}
+	return {
+		bookmarkName: normalized.slice(0, separatorIndex),
+		remoteName: normalized.slice(separatorIndex + 1),
+	};
+}
+
+function getImmutableRemoteBookmarkInfo(change: BranchesStackChange): ImmutableRemoteBookmarkInfo | null {
+	const reason = change.immutableReason?.trim() || null;
+	const remoteBookmark = change.untrackedRemoteBookmarks?.find((bookmark) => bookmark.trim().length > 0) ?? null;
+	if (!reason || !remoteBookmark) {
+		return null;
+	}
+	const parsed = parseRemoteBookmarkName(remoteBookmark);
+	return {
+		bookmarkName: parsed?.bookmarkName ?? remoteBookmark,
+		remoteName: parsed?.remoteName,
+		remoteBookmark,
+		reason,
+	};
+}
+
+function findStackRemoteBookmarkInfo(
+	changes: readonly BranchesStackChange[],
+	bookmarkName: string,
+	metadataKey: "trackedRemoteBookmarks" | "untrackedRemoteBookmarks",
+): StackRemoteBookmarkActionInfo | null {
+	const normalizedBookmarkName = bookmarkName.trim();
+	if (!normalizedBookmarkName) {
+		return null;
+	}
+	for (const change of changes) {
+		for (const remoteBookmark of change[metadataKey] ?? []) {
+			const parsed = parseRemoteBookmarkName(remoteBookmark);
+			const candidateBookmarkName = parsed?.bookmarkName ?? remoteBookmark;
+			if (candidateBookmarkName !== normalizedBookmarkName) {
+				continue;
+			}
+			return {
+				bookmarkName: normalizedBookmarkName,
+				remoteName: parsed?.remoteName,
+				remoteBookmark,
+			};
+		}
+	}
+	return null;
+}
+
+function getStackRemoteBookmarkActions(group: StackChangeGroup): {
+	tracked: StackRemoteBookmarkActionInfo | null;
+	untracked: StackRemoteBookmarkActionInfo | null;
+} {
+	return {
+		tracked: findStackRemoteBookmarkInfo(group.changes, group.head.bookmarkName, "trackedRemoteBookmarks"),
+		untracked: findStackRemoteBookmarkInfo(group.changes, group.head.bookmarkName, "untrackedRemoteBookmarks"),
+	};
+}
+
 function toUiFileChange(file: VcsWorkspaceState["workingCopy"]["files"][number]): VcsFileChange {
 	return {
 		path: file.path,
@@ -283,7 +380,7 @@ function toWorkspaceBoardStacks(data: VcsWorkspaceState): BranchesStack[] {
 			const commitHash = metadataString(commit.metadata?.commitHash) ?? commit.displayId ?? commit.commitId;
 			const bookmarks = data.provider === "git" ? [stack.name] : [];
 			const metadataBookmarks = Array.isArray(commit.metadata?.bookmarks) ? commit.metadata.bookmarks : bookmarks;
-			const remoteBookmarks = Array.isArray(commit.metadata?.remoteBookmarks) ? commit.metadata.remoteBookmarks : [];
+			const remoteBookmarks = metadataStringArray(commit.metadata?.remoteBookmarks);
 			return {
 				id: commit.commitId,
 				changeId: commit.commitId,
@@ -294,6 +391,9 @@ function toWorkspaceBoardStacks(data: VcsWorkspaceState): BranchesStack[] {
 				authorAvatarUrl: commit.authorAvatarUrl,
 				bookmarks: metadataBookmarks,
 				remoteBookmarks,
+				trackedRemoteBookmarks: metadataStringArray(commit.metadata?.trackedRemoteBookmarks),
+				untrackedRemoteBookmarks: metadataStringArray(commit.metadata?.untrackedRemoteBookmarks),
+				immutableReason: metadataString(commit.metadata?.immutableReason),
 				isCurrent: commit.isCurrent,
 				isHead: commit.isHead,
 			};
@@ -497,6 +597,8 @@ function WorkspaceReady({
 	const [stackColumnWidths, setStackColumnWidths] = useState<Record<string, number>>({});
 	const [pendingOperation, setPendingOperation] = useState<VcsWorkspaceOperation | null>(null);
 	const [commitEdit, setCommitEdit] = useState<{ commitId: string; title: string } | null>(null);
+	const [commitEditMode, setCommitEditMode] = useState<CommitEditModeState | null>(null);
+	const [immutableCommitPrompt, setImmutableCommitPrompt] = useState<ImmutableCommitPromptState | null>(null);
 	const [stackCommitComposer, setStackCommitComposer] = useState<StackCommitComposerState | null>(null);
 	const [operationApplyError, setOperationApplyError] = useState<string | null>(null);
 	const [isApplyingPreviewedOperation, setApplyingPreviewedOperation] = useState(false);
@@ -519,7 +621,24 @@ function WorkspaceReady({
 		),
 	);
 	const stacks = useMemo(() => toWorkspaceBoardStacks(data), [data]);
-	const appliedStackIds = projectConfig.vcsAppliedStacks?.length ? projectConfig.vcsAppliedStacks : data.appliedStackIds;
+	const changesByChangeId = useMemo(() => {
+		const changes = new Map<string, BranchesStackChange>();
+		for (const stack of stacks) {
+			for (const change of stack.changes) {
+				changes.set(change.changeId, change);
+			}
+		}
+		return changes;
+	}, [stacks]);
+	const appliedStackIds = useMemo(
+		() =>
+			selectActiveAppliedStackIds(
+				projectConfig.vcsAppliedStacks,
+				data.appliedStackIds,
+				commitEditMode?.appliedStackIdsSnapshot,
+			),
+		[commitEditMode?.appliedStackIdsSnapshot, data.appliedStackIds, projectConfig.vcsAppliedStacks],
+	);
 	const appliedStacks = useMemo(
 		() => selectAppliedWorkspaceStacks(stacks, appliedStackIds),
 		[stacks, appliedStackIds],
@@ -653,12 +772,114 @@ function WorkspaceReady({
 	}
 
 	function openWorkspaceOperationPreview(operation: VcsWorkspaceOperation): void {
+		const immutableChange = immutableChangeForOperation(operation);
+		if (immutableChange) {
+			const info = getImmutableRemoteBookmarkInfo(immutableChange);
+			if (info) {
+				setImmutableCommitPrompt({
+					...info,
+					change: immutableChange,
+					actionLabel: labelForWorkspaceOperation(operation),
+				});
+				return;
+			}
+		}
 		setPendingOperation(operation);
 		setOperationApplyError(null);
 		void previewVcsOperation({ workspaceId, input: { operation } });
 	}
 
+	function immutableChangeForOperation(operation: VcsWorkspaceOperation): BranchesStackChange | null {
+		const candidateIds: string[] = [];
+		switch (operation.kind) {
+			case "begin_edit_commit":
+				candidateIds.push(operation.targetCommitId);
+				break;
+			case "reword_commit":
+			case "amend_commit":
+			case "split_commit":
+			case "move_commit":
+			case "abandon_commit":
+				candidateIds.push(operation.commitId);
+				break;
+			case "squash_commits":
+				candidateIds.push(operation.sourceCommitId, operation.targetCommitId);
+				break;
+			case "move_changes":
+				if (operation.selection.commitId) {
+					candidateIds.push(operation.selection.commitId);
+				}
+				candidateIds.push(operation.targetCommitId);
+				break;
+			case "uncommit_changes":
+			case "restore_changes":
+			case "discard_changes":
+				if (operation.selection.source === "commit" && operation.selection.commitId) {
+					candidateIds.push(operation.selection.commitId);
+				}
+				break;
+			case "create_commit":
+				if (operation.selection.source === "commit" && operation.selection.commitId) {
+					candidateIds.push(operation.selection.commitId);
+				}
+				break;
+			case "apply_stack":
+			case "unapply_stack":
+			case "save_edit_commit":
+			case "abort_edit_commit":
+			case "track_remote_bookmark":
+			case "checkout_commit":
+			case "undo":
+			case "redo":
+				break;
+		}
+		for (const candidateId of candidateIds) {
+			const change = changesByChangeId.get(candidateId);
+			if (change && getImmutableRemoteBookmarkInfo(change)) {
+				return change;
+			}
+		}
+		return null;
+	}
+
+	function labelForWorkspaceOperation(operation: VcsWorkspaceOperation): string {
+		switch (operation.kind) {
+			case "begin_edit_commit":
+				return "edit this commit";
+			case "reword_commit":
+				return "reword this commit";
+			case "uncommit_changes":
+				return "uncommit changes from this commit";
+			case "squash_commits":
+				return "squash commits";
+			case "move_commit":
+				return "move this commit";
+			case "abandon_commit":
+				return "abandon this commit";
+			default:
+				return "rewrite this commit";
+		}
+	}
+
+	function previewTrackRemoteBookmark(prompt: ImmutableCommitPromptState): void {
+		setImmutableCommitPrompt(null);
+		openWorkspaceOperationPreview({
+			kind: "track_remote_bookmark",
+			bookmarkName: prompt.bookmarkName,
+			remoteName: prompt.remoteName,
+		});
+	}
+
 	function openCommitEdit(change: BranchesStackChange): void {
+		const immutableInfo = getImmutableRemoteBookmarkInfo(change);
+		if (immutableInfo) {
+			setImmutableCommitPrompt({
+				...immutableInfo,
+				change,
+				actionLabel: "reword this commit",
+			});
+			return;
+		}
 		setCommitEdit({ commitId: change.changeId, title: change.title });
 	}
 
@@ -672,6 +893,162 @@ function WorkspaceReady({
 			commitId: commitEdit.commitId,
 			message,
 		});
+	}
+
+	function previewUncommitCommit(change: BranchesStackChange): void {
+		const immutableInfo = getImmutableRemoteBookmarkInfo(change);
+		if (immutableInfo) {
+			setImmutableCommitPrompt({
+				...immutableInfo,
+				change,
+				actionLabel: "uncommit changes from this commit",
+			});
+			return;
+		}
+		if (selectedCommitHash !== change.commitId || files.length === 0) {
+			selectStackChange(change);
+			setFileSectionCollapsed(false);
+			return;
+		}
+		openWorkspaceOperationPreview({
+			kind: "uncommit_changes",
+			selection: {
+				source: "commit",
+				commitId: change.changeId,
+				paths: files.map((file) => file.path),
+			},
+		});
+	}
+
+	async function beginCommitEditMode(change: BranchesStackChange): Promise<void> {
+		const immutableInfo = getImmutableRemoteBookmarkInfo(change);
+		if (immutableInfo) {
+			setImmutableCommitPrompt({
+				...immutableInfo,
+				change,
+				actionLabel: "edit this commit",
+			});
+			return;
+		}
+		const targetFiles = selectedCommitHash === change.commitId ? files : [];
+		const returnToCommitId = data.headId ?? change.changeId;
+		const appliedStackIdsSnapshot = appliedStackIds;
+		selectStackChange(change);
+		setFileSectionCollapsed(false);
+		setCommitEditMode({
+			target: change,
+			editCommitId: "",
+			returnToCommitId,
+			appliedStackIdsSnapshot,
+			files: targetFiles,
+			isSaving: true,
+			error: null,
+		});
+		try {
+			const result = await applyVcsOperation({
+				workspaceId,
+				input: {
+					operation: {
+						kind: "begin_edit_commit",
+						targetCommitId: change.changeId,
+						message: `Edit ${change.title}`,
+					},
+				},
+			}).unwrap();
+			if (!result.ok) {
+				throw new Error(result.summary || "Could not enter edit mode.");
+			}
+			const editCommitId = result.affectedCommitIds.find((commitId) => commitId !== change.changeId) ?? result.affectedCommitIds[0] ?? "@";
+			setCommitEditMode({
+				target: change,
+				editCommitId,
+				returnToCommitId,
+				appliedStackIdsSnapshot,
+				files: targetFiles,
+				isSaving: false,
+				error: null,
+			});
+		} catch (error) {
+			setCommitEditMode((current) =>
+				current
+					? {
+							...current,
+							isSaving: false,
+							error: error instanceof Error ? error.message : "Could not enter edit mode.",
+						}
+					: current,
+			);
+		}
+	}
+
+	async function saveCommitEditMode(): Promise<void> {
+		if (!commitEditMode || !commitEditMode.editCommitId) {
+			return;
+		}
+		setCommitEditMode((current) => (current ? { ...current, isSaving: true, error: null } : current));
+		try {
+			const result = await applyVcsOperation({
+				workspaceId,
+				input: {
+					operation: {
+						kind: "save_edit_commit",
+						editCommitId: commitEditMode.editCommitId,
+						targetCommitId: commitEditMode.target.changeId,
+						returnToCommitId: commitEditMode.returnToCommitId,
+					},
+				},
+			}).unwrap();
+			if (!result.ok) {
+				throw new Error(result.summary || "Could not save commit edits.");
+			}
+			setCommitEditMode(null);
+			selectStackChange(commitEditMode.target);
+		} catch (error) {
+			setCommitEditMode((current) =>
+				current
+					? {
+							...current,
+							isSaving: false,
+							error: error instanceof Error ? error.message : "Could not save commit edits.",
+						}
+					: current,
+			);
+		}
+	}
+
+	async function abortCommitEditMode(): Promise<void> {
+		if (!commitEditMode || !commitEditMode.editCommitId) {
+			setCommitEditMode(null);
+			return;
+		}
+		setCommitEditMode((current) => (current ? { ...current, isSaving: true, error: null } : current));
+		try {
+			const result = await applyVcsOperation({
+				workspaceId,
+				input: {
+					operation: {
+						kind: "abort_edit_commit",
+						editCommitId: commitEditMode.editCommitId,
+						returnToCommitId: commitEditMode.returnToCommitId,
+					},
+				},
+			}).unwrap();
+			if (!result.ok) {
+				throw new Error(result.summary || "Could not abort commit edits.");
+			}
+			setCommitEditMode(null);
+			selectStackChange(commitEditMode.target);
+		} catch (error) {
+			setCommitEditMode((current) =>
+				current
+					? {
+							...current,
+							isSaving: false,
+							error: error instanceof Error ? error.message : "Could not abort commit edits.",
+						}
+					: current,
+			);
+		}
 	}
 
 	function openStackCommitComposer(stackId: string, selection: VcsChangeSelection | null = null, error: string | null = null): void {
@@ -778,7 +1155,7 @@ function WorkspaceReady({
 	}
 
 	function canEditWorkspaceCommit(change: BranchesStackChange): boolean {
-		return data.capabilities.supportsCommitRewrite && (data.provider !== "git" || change.isCurrent);
+		return data.capabilities.supportsCommitRewrite && !getImmutableRemoteBookmarkInfo(change) && (data.provider !== "git" || change.isCurrent);
 	}
 
 	function focusCommittedFile(commitId: string, path: string): void {
@@ -1206,6 +1583,8 @@ function WorkspaceReady({
 									onFileSectionCollapsedChange={changeFileSectionCollapsed}
 									onSelectStackChange={selectStackChange}
 									onEditCommit={openCommitEdit}
+									onUncommitCommit={previewUncommitCommit}
+									onBeginEditCommit={(change) => void beginCommitEditMode(change)}
 									onSelectFile={selectFile}
 									composer={stackCommitComposer?.stackId === stack.id ? stackCommitComposer : null}
 									stagedFiles={stackCommitComposer?.stackId === stack.id ? stagedComposerFiles : []}
@@ -1240,6 +1619,7 @@ function WorkspaceReady({
 									onDragOverCommit={(event, change, targetKey) => handleDragOver(event, { kind: "commit", commitId: change.changeId }, targetKey)}
 									onDragLeaveCommit={(event, change, targetKey) => handleDragLeave(event, { kind: "commit", commitId: change.changeId }, targetKey)}
 									onDropCommit={(event, change) => handleDrop(event, { kind: "commit", commitId: change.changeId })}
+									onPreviewOperation={openWorkspaceOperationPreview}
 									stackDropTargetState={getDropTargetState({ kind: "stack", stackId: stack.id })}
 									stackHeaderDropTargetState={getDropTargetState({ kind: "stack_header", stackId: stack.id })}
 									getStackHeaderDropTargetState={(targetKey) => getDropTargetState({ kind: "stack_header", stackId: stack.id }, targetKey)}
@@ -1279,6 +1659,33 @@ function WorkspaceReady({
 			onChangeTitle={(title) => setCommitEdit((current) => (current ? { ...current, title } : current))}
 			onPreview={previewCommitEdit}
 			onClose={() => setCommitEdit(null)}
+		/>
+		<ImmutableCommitDialog
+			prompt={immutableCommitPrompt}
+			onTrack={previewTrackRemoteBookmark}
+			onClose={() => setImmutableCommitPrompt(null)}
+		/>
+		<CommitEditModeOverlay
+			editMode={commitEditMode}
+			files={
+				commitEditMode
+					? commitEditMode.files.length > 0
+						? commitEditMode.files
+						: commitEditMode.target.commitId === selectedCommitHash
+							? files
+							: []
+					: []
+			}
+			isFilesLoading={commitEditMode !== null && commitEditMode.target.commitId === selectedCommitHash && commitDiffQuery.state.status === "loading"}
+			selectedPath={selectedFilePath}
+			fileViewMode={fileViewMode}
+			onFileViewModeChange={changeFileViewMode}
+			onSelectPath={(path) => {
+				setSelectedFilePath(path);
+				writeQueryParam("file", path);
+			}}
+			onAbort={() => void abortCommitEditMode()}
+			onSave={() => void saveCommitEditMode()}
 		/>
 		</>
 	);
@@ -1648,6 +2055,8 @@ function WorkspaceStackLane({
 	onFileSectionCollapsedChange,
 	onSelectStackChange,
 	onEditCommit,
+	onUncommitCommit,
+	onBeginEditCommit,
 	onSelectFile,
 	composer,
 	stagedFiles,
@@ -1669,6 +2078,7 @@ function WorkspaceStackLane({
 	onDragOverCommit,
 	onDragLeaveCommit,
 	onDropCommit,
+	onPreviewOperation,
 	stackDropTargetState,
 	stackHeaderDropTargetState,
 	getStackHeaderDropTargetState,
@@ -1693,6 +2103,8 @@ function WorkspaceStackLane({
 	onFileSectionCollapsedChange: (collapsed: boolean) => void;
 	onSelectStackChange: (change: BranchesStackChange) => void;
 	onEditCommit: (change: BranchesStackChange) => void;
+	onUncommitCommit: (change: BranchesStackChange) => void;
+	onBeginEditCommit: (change: BranchesStackChange) => void;
 	onSelectFile: (path: string) => void;
 	composer: StackCommitComposerState | null;
 	stagedFiles: VcsFileChange[];
@@ -1714,6 +2126,7 @@ function WorkspaceStackLane({
 	onDragOverCommit: (event: ReactDragEvent<HTMLElement>, change: BranchesStackChange, targetKey: string) => void;
 	onDragLeaveCommit: (event: ReactDragEvent<HTMLElement>, change: BranchesStackChange, targetKey: string) => void;
 	onDropCommit: (event: ReactDragEvent<HTMLElement>, change: BranchesStackChange) => void;
+	onPreviewOperation: (operation: VcsWorkspaceOperation) => void;
 	stackDropTargetState: WorkspaceDropTargetState;
 	stackHeaderDropTargetState: WorkspaceDropTargetState;
 	getStackHeaderDropTargetState: (targetKey: string) => WorkspaceDropTargetState;
@@ -1796,6 +2209,8 @@ function WorkspaceStackLane({
 							onFileSectionCollapsedChange={onFileSectionCollapsedChange}
 							onSelectStackChange={onSelectStackChange}
 							onEditCommit={onEditCommit}
+							onUncommitCommit={onUncommitCommit}
+							onBeginEditCommit={onBeginEditCommit}
 							onSelectFile={onSelectFile}
 							onFileDragStart={onFileDragStart}
 							onCommitDragStart={onCommitDragStart}
@@ -1805,6 +2220,7 @@ function WorkspaceStackLane({
 							onDragOverCommit={onDragOverCommit}
 							onDragLeaveCommit={onDragLeaveCommit}
 							onDropCommit={onDropCommit}
+							onPreviewOperation={onPreviewOperation}
 							getStackHeaderDropTargetState={getStackHeaderDropTargetState}
 							getCommitDropTargetState={getCommitDropTargetState}
 						/>
@@ -1994,6 +2410,8 @@ function WorkspaceStackCard({
 	onFileSectionCollapsedChange,
 	onSelectStackChange,
 	onEditCommit,
+	onUncommitCommit,
+	onBeginEditCommit,
 	onSelectFile,
 	onFileDragStart,
 	onCommitDragStart,
@@ -2003,6 +2421,7 @@ function WorkspaceStackCard({
 	onDragOverCommit,
 	onDragLeaveCommit,
 	onDropCommit,
+	onPreviewOperation,
 	getStackHeaderDropTargetState,
 	getCommitDropTargetState,
 }: {
@@ -2022,6 +2441,8 @@ function WorkspaceStackCard({
 	onFileSectionCollapsedChange: (collapsed: boolean) => void;
 	onSelectStackChange: (change: BranchesStackChange) => void;
 	onEditCommit: (change: BranchesStackChange) => void;
+	onUncommitCommit: (change: BranchesStackChange) => void;
+	onBeginEditCommit: (change: BranchesStackChange) => void;
 	onSelectFile: (path: string) => void;
 	onFileDragStart: (event: ReactDragEvent<HTMLButtonElement>, file: VcsFileChange, change: BranchesStackChange) => void;
 	onCommitDragStart: (event: ReactDragEvent<HTMLDivElement>, change: BranchesStackChange) => void;
@@ -2031,11 +2452,13 @@ function WorkspaceStackCard({
 	onDragOverCommit: (event: ReactDragEvent<HTMLElement>, change: BranchesStackChange, targetKey: string) => void;
 	onDragLeaveCommit: (event: ReactDragEvent<HTMLElement>, change: BranchesStackChange, targetKey: string) => void;
 	onDropCommit: (event: ReactDragEvent<HTMLElement>, change: BranchesStackChange) => void;
+	onPreviewOperation: (operation: VcsWorkspaceOperation) => void;
 	getStackHeaderDropTargetState: (targetKey: string) => WorkspaceDropTargetState;
 	getCommitDropTargetState: (change: BranchesStackChange, targetKey: string) => WorkspaceDropTargetState;
 }): React.ReactElement {
 	const stackHeaderDropTargetKey = workspaceStackHeaderDropTargetInstanceKey(stackId, group.head.bookmarkName, groupIndex);
 	const stackHeaderDropTargetState = getStackHeaderDropTargetState(stackHeaderDropTargetKey);
+	const remoteBookmarkActions = getStackRemoteBookmarkActions(group);
 	return (
 		<section className="overflow-hidden rounded-lg border border-border bg-surface-0 shadow-sm">
 			<header
@@ -2065,7 +2488,10 @@ function WorkspaceStackCard({
 					Push
 				</Button>
 				<Button variant="ghost" size="sm" icon={<Sparkles size={13} />} aria-label="Stack actions" title="Stack actions" />
-				<Button variant="ghost" size="sm" icon={<MoreHorizontal size={14} />} aria-label="More stack actions" title="More stack actions" className="ml-auto" />
+				<StackActionMenu
+					remoteBookmarkActions={remoteBookmarkActions}
+					onPreviewOperation={onPreviewOperation}
+				/>
 			</div>
 			<div>
 				{group.changes.length === 0 ? (
@@ -2073,12 +2499,13 @@ function WorkspaceStackCard({
 				) : (
 					group.changes.map((change) => {
 						const dropTargetKey = workspaceCommitDropTargetInstanceKey(group.head.bookmarkName, groupIndex, change);
+						const selected = selectedCommitHash === change.commitId;
 						return (
 							<WorkspaceStackChangeRow
 								key={`${group.head.bookmarkName}-${groupIndex}-${change.changeId}`}
 								change={change}
 								dropTargetKey={dropTargetKey}
-								selected={selectedCommitHash === change.commitId}
+								selected={selected}
 								selectedFilePath={selectedFilePath}
 								selectedFiles={selectedFiles}
 								hasConflict={conflictCommitIds.has(change.changeId)}
@@ -2087,10 +2514,13 @@ function WorkspaceStackCard({
 								fileViewMode={fileViewMode}
 								isFileSectionCollapsed={isFileSectionCollapsed}
 								canEditCommit={canEditCommit}
+								canUncommitCommit={selected && selectedFiles.length > 0}
 								onFileViewModeChange={onFileViewModeChange}
 								onFileSectionCollapsedChange={onFileSectionCollapsedChange}
 								onSelectStackChange={onSelectStackChange}
 								onEditCommit={onEditCommit}
+								onUncommitCommit={onUncommitCommit}
+								onBeginEditCommit={onBeginEditCommit}
 								onSelectFile={onSelectFile}
 								onFileDragStart={onFileDragStart}
 								onCommitDragStart={onCommitDragStart}
@@ -2107,6 +2537,85 @@ function WorkspaceStackCard({
 	);
 }
 
+function StackActionMenu({
+	remoteBookmarkActions,
+	onPreviewOperation,
+}: {
+	remoteBookmarkActions: {
+		tracked: StackRemoteBookmarkActionInfo | null;
+		untracked: StackRemoteBookmarkActionInfo | null;
+	};
+	onPreviewOperation: (operation: VcsWorkspaceOperation) => void;
+}): React.ReactElement {
+	const trackInfo = remoteBookmarkActions.untracked;
+	const untrackInfo = remoteBookmarkActions.tracked;
+	return (
+		<RadixDropdownMenu.Root>
+			<RadixDropdownMenu.Trigger asChild>
+				<Button
+					variant="ghost"
+					size="sm"
+					icon={<MoreHorizontal size={14} />}
+					aria-label="More stack actions"
+					title="More stack actions"
+					className="ml-auto"
+				/>
+			</RadixDropdownMenu.Trigger>
+			<RadixDropdownMenu.Portal>
+				<RadixDropdownMenu.Content
+					align="end"
+					sideOffset={6}
+					className="z-[80] min-w-56 overflow-hidden rounded-md border border-border bg-surface-1 p-1 text-sm text-text-primary shadow-xl"
+				>
+					<RadixDropdownMenu.Item
+						disabled={!trackInfo}
+						className="flex cursor-pointer select-none items-center gap-2 rounded px-2 py-1.5 outline-none data-[disabled]:pointer-events-none data-[disabled]:cursor-not-allowed data-[disabled]:opacity-45 data-[highlighted]:bg-surface-3"
+						onSelect={() => {
+							if (!trackInfo) {
+								return;
+							}
+							onPreviewOperation({
+								kind: "track_remote_bookmark",
+								bookmarkName: trackInfo.bookmarkName,
+								remoteName: trackInfo.remoteName,
+							});
+						}}
+					>
+						<LockKeyhole size={14} className="text-status-orange" />
+						<span className="min-w-0 flex-1">Track remote bookmark</span>
+					</RadixDropdownMenu.Item>
+					<RadixDropdownMenu.Item
+						disabled={!untrackInfo}
+						className="flex cursor-pointer select-none items-center gap-2 rounded px-2 py-1.5 outline-none data-[disabled]:pointer-events-none data-[disabled]:cursor-not-allowed data-[disabled]:opacity-45 data-[highlighted]:bg-surface-3"
+						onSelect={() => {
+							if (!untrackInfo) {
+								return;
+							}
+							onPreviewOperation({
+								kind: "untrack_remote_bookmark",
+								bookmarkName: untrackInfo.bookmarkName,
+								remoteName: untrackInfo.remoteName,
+							});
+						}}
+					>
+						<LockKeyhole size={14} className="text-text-tertiary" />
+						<span className="min-w-0 flex-1">Untrack remote bookmark</span>
+					</RadixDropdownMenu.Item>
+					{trackInfo || untrackInfo ? (
+						<div className="border-t border-divider px-2 py-1.5 text-xs text-text-tertiary">
+							{(trackInfo ?? untrackInfo)?.remoteBookmark}
+						</div>
+					) : (
+						<div className="border-t border-divider px-2 py-1.5 text-xs text-text-tertiary">
+							No remote bookmark is available for this stack.
+						</div>
+					)}
+				</RadixDropdownMenu.Content>
+			</RadixDropdownMenu.Portal>
+		</RadixDropdownMenu.Root>
+	);
+}
+
 function WorkspaceStackChangeRow({
 	change,
 	dropTargetKey,
@@ -2119,10 +2628,13 @@ function WorkspaceStackChangeRow({
 	fileViewMode,
 	isFileSectionCollapsed,
 	canEditCommit,
+	canUncommitCommit,
 	onFileViewModeChange,
 	onFileSectionCollapsedChange,
 	onSelectStackChange,
 	onEditCommit,
+	onUncommitCommit,
+	onBeginEditCommit,
 	onSelectFile,
 	onFileDragStart,
 	onCommitDragStart,
@@ -2142,10 +2654,13 @@ function WorkspaceStackChangeRow({
 	fileViewMode: VcsFileViewMode;
 	isFileSectionCollapsed: boolean;
 	canEditCommit: (change: BranchesStackChange) => boolean;
+	canUncommitCommit: boolean;
 	onFileViewModeChange: (mode: VcsFileViewMode) => void;
 	onFileSectionCollapsedChange: (collapsed: boolean) => void;
 	onSelectStackChange: (change: BranchesStackChange) => void;
 	onEditCommit: (change: BranchesStackChange) => void;
+	onUncommitCommit: (change: BranchesStackChange) => void;
+	onBeginEditCommit: (change: BranchesStackChange) => void;
 	onSelectFile: (path: string) => void;
 	onFileDragStart: (event: ReactDragEvent<HTMLButtonElement>, file: VcsFileChange, change: BranchesStackChange) => void;
 	onCommitDragStart: (event: ReactDragEvent<HTMLDivElement>, change: BranchesStackChange) => void;
@@ -2161,6 +2676,7 @@ function WorkspaceStackChangeRow({
 				? diffState.data.error ?? "The selected change diff could not be read."
 				: null;
 	const authorName = change.authorName?.trim() || null;
+	const immutableInfo = getImmutableRemoteBookmarkInfo(change);
 
 	return (
 		<div
@@ -2190,6 +2706,14 @@ function WorkspaceStackChangeRow({
 					<div className="relative flex w-6 shrink-0 justify-center self-stretch">
 						<span className="absolute bottom-[-13px] top-[-13px] w-px bg-accent" />
 						<span className={cn("relative mt-1 h-2.5 w-2.5 rotate-45 rounded-[2px] bg-accent", hasConflict && "bg-status-red")} />
+						{immutableInfo ? (
+							<span
+								className="absolute bottom-1 left-1/2 z-10 -translate-x-1/2 rounded-full border border-status-orange/35 bg-surface-1 p-0.5 text-status-orange"
+								title={immutableInfo.reason}
+							>
+								<LockKeyhole size={10} />
+							</span>
+						) : null}
 					</div>
 					<Avatar
 						src={change.authorAvatarUrl}
@@ -2209,14 +2733,14 @@ function WorkspaceStackChangeRow({
 					{hasConflict ? <StatusChip label="conflict" tone="red" icon={<AlertTriangle size={11} />} /> : null}
 					{change.isHead ? <StatusChip label="head" tone="green" /> : null}
 				</button>
-				<Button
-					variant="ghost"
-					size="sm"
-					icon={<Pencil size={14} />}
-					aria-label={`Edit commit ${change.title}`}
-					title="Edit commit message"
-					disabled={!canEditCommit(change)}
-					onClick={() => onEditCommit(change)}
+				<CommitActionMenu
+					change={change}
+					canRewrite={canEditCommit(change)}
+					canUncommit={canUncommitCommit}
+					immutableInfo={immutableInfo}
+					onUncommit={onUncommitCommit}
+					onReword={onEditCommit}
+					onEdit={onBeginEditCommit}
 				/>
 			</div>
 			{selected ? (
@@ -2235,6 +2759,217 @@ function WorkspaceStackChangeRow({
 					conflictPaths={conflictPaths}
 				/>
 			) : null}
+		</div>
+	);
+}
+
+function CommitActionMenu({
+	change,
+	canRewrite,
+	canUncommit,
+	immutableInfo,
+	onUncommit,
+	onReword,
+	onEdit,
+}: {
+	change: BranchesStackChange;
+	canRewrite: boolean;
+	canUncommit: boolean;
+	immutableInfo: ImmutableRemoteBookmarkInfo | null;
+	onUncommit: (change: BranchesStackChange) => void;
+	onReword: (change: BranchesStackChange) => void;
+	onEdit: (change: BranchesStackChange) => void;
+}): React.ReactElement {
+	const canChooseRewriteAction = canRewrite || Boolean(immutableInfo);
+	const disabledReason = canRewrite ? undefined : immutableInfo?.reason ?? "This commit cannot be rewritten from this workspace.";
+	const triggerRef = useRef<HTMLButtonElement | null>(null);
+	const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
+	function closeMenu(): void {
+		setMenuPosition(null);
+	}
+	function toggleMenu(event: React.MouseEvent<HTMLButtonElement>): void {
+		event.stopPropagation();
+		const rect = event.currentTarget.getBoundingClientRect();
+		setMenuPosition((current) =>
+			current
+				? null
+				: {
+						top: rect.bottom + 4,
+						left: Math.max(8, rect.right - 220),
+					},
+		);
+	}
+	return (
+		<>
+			<Button
+				ref={triggerRef}
+				variant="ghost"
+				size="sm"
+				icon={<MoreHorizontal size={14} />}
+				aria-label={`Commit actions ${change.title}`}
+				title="Commit actions"
+				onClick={toggleMenu}
+			/>
+			{menuPosition ? (
+				<>
+					<button type="button" aria-label="Close commit actions" className="fixed inset-0 z-40 cursor-default bg-transparent" onClick={closeMenu} />
+					<div
+						role="menu"
+						className="fixed z-50 min-w-[220px] rounded-md border border-border-bright bg-surface-1 p-1 shadow-xl"
+						style={{ top: menuPosition.top, left: menuPosition.left }}
+					>
+						<CommitActionMenuItem
+							icon={<RotateCcw size={16} />}
+							label="Uncommit"
+							disabled={!canChooseRewriteAction || (!canUncommit && !immutableInfo)}
+							title={!canUncommit && !immutableInfo ? "Select this commit and load its changed files before uncommitting." : disabledReason}
+							onSelect={() => {
+								closeMenu();
+								onUncommit(change);
+							}}
+						/>
+						<CommitActionMenuItem
+							icon={<PencilLine size={16} />}
+							label="Reword commit"
+							disabled={!canChooseRewriteAction}
+							title={disabledReason}
+							onSelect={() => {
+								closeMenu();
+								onReword(change);
+							}}
+						/>
+						<CommitActionMenuItem
+							icon={<GitBranch size={16} />}
+							label="Edit commit"
+							disabled={!canChooseRewriteAction}
+							title={disabledReason}
+							onSelect={() => {
+								closeMenu();
+								onEdit(change);
+							}}
+						/>
+					</div>
+				</>
+			) : null}
+		</>
+	);
+}
+
+function CommitActionMenuItem({
+	icon,
+	label,
+	disabled,
+	title,
+	onSelect,
+}: {
+	icon: React.ReactNode;
+	label: string;
+	disabled?: boolean;
+	title?: string;
+	onSelect: () => void;
+}): React.ReactElement {
+	return (
+		<button
+			type="button"
+			role="menuitem"
+			disabled={disabled}
+			title={title}
+			className="flex w-full cursor-pointer items-center gap-3 rounded-sm px-2 py-2 text-left text-[13px] text-text-primary outline-none hover:bg-surface-3 disabled:cursor-not-allowed disabled:opacity-45"
+			onClick={onSelect}
+		>
+			<span className="shrink-0 text-text-tertiary">{icon}</span>
+			<span>{label}</span>
+		</button>
+	);
+}
+
+function CommitEditModeOverlay({
+	editMode,
+	files,
+	isFilesLoading,
+	selectedPath,
+	fileViewMode,
+	onFileViewModeChange,
+	onSelectPath,
+	onAbort,
+	onSave,
+}: {
+	editMode: CommitEditModeState | null;
+	files: VcsFileChange[];
+	isFilesLoading: boolean;
+	selectedPath: string | null;
+	fileViewMode: VcsFileViewMode;
+	onFileViewModeChange: (mode: VcsFileViewMode) => void;
+	onSelectPath: (path: string) => void;
+	onAbort: () => void;
+	onSave: () => void;
+}): React.ReactElement | null {
+	if (!editMode) {
+		return null;
+	}
+	const target = editMode.target;
+	const authorName = target.authorName?.trim() || null;
+	const shortCommitId = target.commitId.slice(0, 8);
+	return (
+		<div className="fixed inset-0 z-50 flex flex-col bg-surface-0 text-text-primary">
+			<div className="mx-auto flex w-full max-w-5xl flex-1 flex-col px-10 py-10">
+				<header className="mb-8 flex flex-wrap items-center gap-3">
+					<h2 className="text-2xl font-semibold tracking-normal text-text-primary">
+						You are editing commit
+					</h2>
+					<CopyValueButton label="Change" displayValue={target.changeId} copyValue={target.changeId} className="h-8 px-2 text-sm" />
+					<CopyValueButton label="SHA" displayValue={shortCommitId} copyValue={target.commitId} className="h-8 px-2 text-sm" />
+					<Info size={22} className="text-text-tertiary" />
+				</header>
+
+				<section className="mb-3 rounded-lg border border-border-bright bg-surface-1 p-5 shadow-sm">
+					<div className="border-l-4 border-border-bright pl-4">
+						<div className="text-lg font-semibold text-text-primary">{target.title}</div>
+						<div className="mt-3 flex items-center gap-2 text-sm text-text-secondary">
+							<Avatar
+								src={target.authorAvatarUrl}
+								name={authorName}
+								email={target.authorEmail}
+								initials={authorInitials(authorName)}
+								className="h-5 w-5"
+							/>
+							<span>{shortCommitId}</span>
+							<span>•</span>
+							<span>{authorName ?? target.authorEmail ?? "Unknown author"}</span>
+						</div>
+					</div>
+				</section>
+
+				<VcsInlineFileSection
+					title="Changed files"
+					files={files}
+					selectedPath={selectedPath}
+					isLoading={isFilesLoading}
+					viewMode={fileViewMode}
+					onViewModeChange={onFileViewModeChange}
+					onSelectPath={onSelectPath}
+					className="mx-0 mb-0 border-border-bright bg-surface-1 shadow-sm"
+				/>
+
+				<div className="mt-8 flex w-full items-start gap-2 rounded-lg border border-border bg-surface-1 px-5 py-4 text-sm text-text-secondary">
+					<AlertTriangle size={16} className="mt-0.5 shrink-0 text-text-tertiary" />
+					<div>
+						<div>Please don&apos;t make any commits while in edit mode.</div>
+						<div>To exit edit mode, use the provided actions.</div>
+						{editMode.editCommitId ? <div className="mt-2 font-mono text-xs text-text-tertiary">Edit change: {editMode.editCommitId}</div> : null}
+						{editMode.error ? <div className="mt-3 text-sm text-status-red">{editMode.error}</div> : null}
+					</div>
+				</div>
+
+				<footer className="mt-auto flex justify-end gap-3 pt-8">
+					<Button variant="default" disabled={editMode.isSaving} onClick={onAbort}>
+						Abort
+					</Button>
+					<Button variant="primary" icon={<Check size={16} />} disabled={editMode.isSaving || !editMode.editCommitId} onClick={onSave}>
+						Save changes and exit
+					</Button>
+				</footer>
+			</div>
 		</div>
 	);
 }
@@ -2284,6 +3019,52 @@ function CommitMessageEditDialog({
 					onClick={() => onPreview(trimmedMessage)}
 				>
 					Preview changes
+				</Button>
+			</DialogFooter>
+		</Dialog>
+	);
+}
+
+function ImmutableCommitDialog({
+	prompt,
+	onTrack,
+	onClose,
+}: {
+	prompt: ImmutableCommitPromptState | null;
+	onTrack: (prompt: ImmutableCommitPromptState) => void;
+	onClose: () => void;
+}): React.ReactElement {
+	return (
+		<Dialog
+			open={prompt !== null}
+			onOpenChange={(open) => {
+				if (!open) {
+					onClose();
+				}
+			}}
+			contentClassName="max-w-lg"
+		>
+			<DialogHeader title="Commit Is Immutable" icon={<LockKeyhole size={16} />} />
+			<DialogBody>
+				<div className="grid gap-4 text-sm text-text-secondary">
+					<p>
+						{prompt ? `Cannot ${prompt.actionLabel} because this commit is only reachable through an untracked remote bookmark.` : null}
+					</p>
+					{prompt ? (
+						<div className="rounded-md border border-border bg-surface-0 px-3 py-2">
+							<div className="text-xs font-semibold uppercase tracking-wide text-text-tertiary">Remote bookmark</div>
+							<div className="mt-1 font-mono text-sm text-text-primary">{prompt.remoteBookmark}</div>
+						</div>
+					) : null}
+					<p>Start tracking the remote bookmark to create a local tracked bookmark, then retry the action.</p>
+				</div>
+			</DialogBody>
+			<DialogFooter>
+				<Button variant="default" onClick={onClose}>
+					Cancel
+				</Button>
+				<Button variant="primary" icon={<Check size={16} />} disabled={!prompt} onClick={() => prompt && onTrack(prompt)}>
+					Start tracking
 				</Button>
 			</DialogFooter>
 		</Dialog>

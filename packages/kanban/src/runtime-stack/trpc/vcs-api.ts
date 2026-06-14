@@ -10,6 +10,8 @@ import type {
 	RuntimeVcsJjInventoryResponse,
 	RuntimeVcsJjOperationDiffRequest,
 	RuntimeVcsJjOperationDiffResponse,
+	RuntimeVcsJjOperationActionResponse,
+	RuntimeVcsJjOperationRevertRequest,
 	RuntimeVcsJjOperationsRequest,
 	RuntimeVcsJjOperationsResponse,
 	RuntimeVcsJjStateResponse,
@@ -274,6 +276,26 @@ function createUnavailableJjOperationDiffResponse(
 	};
 }
 
+function createUnavailableJjOperationActionResponse(
+	reason: string,
+	operationId: string | null = null,
+): RuntimeVcsJjOperationActionResponse {
+	return {
+		ok: false,
+		title: "Operation unavailable",
+		summary: reason,
+		operationId,
+		changed: false,
+		diagnostics: [
+			{
+				level: "warning",
+				code: "workspace_missing",
+				message: reason,
+			},
+		],
+	};
+}
+
 function createUnavailablePreviewResponse(
 	reason: string,
 	input: RuntimeVcsPreviewOperationRequest,
@@ -466,6 +488,34 @@ export function createVcsApi(deps: CreateVcsApiDependencies): RuntimeTrpcContext
 				);
 			}
 			return await deps.changeyardApi.getJjOperationDiff(workspacePath, input);
+		},
+		createJjOperationSnapshot: async (workspaceScope: RuntimeTrpcWorkspaceScope | null) => {
+			const workspacePath = workspaceScope?.workspacePath ?? deps.getActiveWorkspacePath() ?? deps.fallbackWorkspacePath;
+			if (!workspacePath) {
+				return createUnavailableJjOperationActionResponse("No active workspace is available for JJ operation snapshots.");
+			}
+			if (!deps.changeyardApi?.createJjOperationSnapshot) {
+				return createUnavailableJjOperationActionResponse(
+					"Changeyard JJ operation snapshots are not available in this runtime.",
+				);
+			}
+			return await deps.changeyardApi.createJjOperationSnapshot(workspacePath);
+		},
+		revertJjOperation: async (
+			workspaceScope: RuntimeTrpcWorkspaceScope | null,
+			input: RuntimeVcsJjOperationRevertRequest,
+		) => {
+			const workspacePath = workspaceScope?.workspacePath ?? deps.getActiveWorkspacePath() ?? deps.fallbackWorkspacePath;
+			if (!workspacePath) {
+				return createUnavailableJjOperationActionResponse("No active workspace is available for JJ operation revert.", input.operationId);
+			}
+			if (!deps.changeyardApi?.revertJjOperation) {
+				return createUnavailableJjOperationActionResponse(
+					"Changeyard JJ operation revert is not available in this runtime.",
+					input.operationId,
+				);
+			}
+			return await deps.changeyardApi.revertJjOperation(workspacePath, input);
 		},
 		workspaceState: async (
 			workspaceScope: RuntimeTrpcWorkspaceScope | null,

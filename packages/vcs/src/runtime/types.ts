@@ -79,6 +79,9 @@ export type VcsJjStateResponse = VcsDetectResponse & {
 		parentChangeIds: string[];
 		bookmarks: string[];
 		remoteBookmarks: string[];
+		trackedRemoteBookmarks?: string[];
+		untrackedRemoteBookmarks?: string[];
+		immutableReason?: string | null;
 		isCurrent: boolean;
 	}>;
 	stacks: Array<{
@@ -105,6 +108,9 @@ export type VcsJjStateResponse = VcsDetectResponse & {
 			authorAvatarUrl: string | null;
 			bookmarks: string[];
 			remoteBookmarks: string[];
+			trackedRemoteBookmarks?: string[];
+			untrackedRemoteBookmarks?: string[];
+			immutableReason?: string | null;
 			isCurrent: boolean;
 			isHead: boolean;
 		}>;
@@ -197,6 +203,7 @@ export type VcsJjOperationEntry = {
 	timestamp: string | null;
 	files: VcsJjOperationFile[];
 	restoreEligible: boolean;
+	parentOperationIds: string[];
 };
 
 export type VcsJjOperationsResponse = {
@@ -234,6 +241,15 @@ export type VcsJjOperationDiffResponse = {
 	nextCursor?: string | null;
 	totalCommitCount: number;
 	hasMoreCommits: boolean;
+	diagnostics: VcsDiagnostic[];
+};
+
+export type VcsJjOperationActionResponse = {
+	ok: boolean;
+	title: string;
+	summary: string;
+	operationId: string | null;
+	changed: boolean;
 	diagnostics: VcsDiagnostic[];
 };
 
@@ -407,11 +423,15 @@ export type RuntimeGitCommit = {
 	hash: string;
 	shortHash: string;
 	changeId?: string;
+	changeIdUniquePrefix?: string;
 	authorName: string;
 	authorEmail: string;
+	authorAvatarUrl?: string | null;
 	date: string;
 	message: string;
 	parentHashes: string[];
+	bookmarks?: string[];
+	labels?: string[];
 	relation?: "selected" | "upstream" | "shared";
 };
 

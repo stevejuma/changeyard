@@ -243,19 +243,6 @@ export default function App(): React.ReactElement {
 		}
 	}
 
-	const projectState = {
-		projectsState: visibleProjectsState,
-		currentProject,
-		currentProjectId: workspaceId,
-		removingProjectId,
-		isProjectNavCollapsed,
-		onProjectNavCollapsedChange: setProjectNavCollapsed,
-		onSelectProject: selectProject,
-		onAddProject: () => void addProject(),
-		onRemoveProject: removeProject,
-		onClearOtherProjects: clearOtherProjects,
-		onOpenSettings: () => setSettingsOpen(true),
-	};
 	const hasWorkspace = Boolean(workspaceId);
 	const detectResult = useGetVcsDetectQuery({ workspaceId: workspaceId ?? "" }, { skip: !hasWorkspace });
 	const workspaceDiffResult = useGetVcsDiffQuery({ workspaceId: workspaceId ?? "" }, { skip: !hasWorkspace });
@@ -269,8 +256,26 @@ export default function App(): React.ReactElement {
 	const workspaceStateQuery = {
 		state: toRuntimeQueryState<VcsWorkspaceState>(workspaceStateResult, "Failed to load workspace state."),
 	};
+	const projectState = {
+		projectsState: visibleProjectsState,
+		currentProject,
+		currentProjectId: workspaceId,
+		removingProjectId,
+		isProjectNavCollapsed,
+		onProjectNavCollapsedChange: setProjectNavCollapsed,
+		onSelectProject: selectProject,
+		onAddProject: () => void addProject(),
+		onRemoveProject: removeProject,
+		onClearOtherProjects: clearOtherProjects,
+		onOpenSettings: () => setSettingsOpen(true),
+		repositoryStatus: {
+			workspacePath: currentProject?.path ?? null,
+			workspaceState: workspaceStateQuery.state,
+			diffState: workspaceDiffQuery.state,
+		},
+	};
 
-	let routedView: React.ReactElement;
+		let routedView: React.ReactElement;
 	switch (route.kind) {
 		case "jj-board":
 			routedView = (

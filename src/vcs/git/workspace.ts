@@ -1430,6 +1430,13 @@ function stackIdsFromOperation(operation: NeutralOperation): string[] {
 		case "move_changes":
 		case "restore_changes":
 		case "discard_changes":
+		case "begin_edit_commit":
+		case "save_edit_commit":
+		case "abort_edit_commit":
+		case "track_remote_bookmark":
+		case "untrack_remote_bookmark":
+		case "checkout_commit":
+		case "abandon_commit":
 		case "undo":
 		case "redo":
 			return [];
@@ -1459,9 +1466,19 @@ function commitIdsFromOperation(operation: NeutralOperation): string[] {
 		case "create_commit":
 		case "restore_changes":
 		case "discard_changes":
+		case "begin_edit_commit":
+		case "track_remote_bookmark":
+		case "untrack_remote_bookmark":
 		case "undo":
 		case "redo":
 			return [];
+		case "checkout_commit":
+		case "abandon_commit":
+			return [operation.commitId];
+		case "save_edit_commit":
+			return [operation.editCommitId, operation.targetCommitId, ...(operation.returnToCommitId ? [operation.returnToCommitId] : [])];
+		case "abort_edit_commit":
+			return [operation.editCommitId, ...(operation.returnToCommitId ? [operation.returnToCommitId] : [])];
 	}
 }
 

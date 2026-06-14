@@ -52,7 +52,9 @@ export function useRtkPaginatedJjOperations({
 		},
 		refresh: () => {
 			setCursor(null);
-			void result.refetch();
+			if (enabled && workspaceId) {
+				void result.refetch();
+			}
 		},
 	};
 }
@@ -118,7 +120,9 @@ export function useRtkPaginatedJjOperationDiff({
 			if (operationId) {
 				setCursorByOperation((current) => ({ ...current, [operationId]: null }));
 			}
-			void result.refetch();
+			if (enabled && workspaceId && operationId) {
+				void result.refetch();
+			}
 		},
 	};
 }

@@ -26,6 +26,7 @@ import type {
 	VcsJjBranchesDataResponse,
 	VcsJjDiffResponse,
 	VcsJjInventoryResponse,
+	VcsJjOperationActionResponse,
 	VcsJjOperationDiffResponse,
 	VcsJjOperationsResponse,
 	VcsJjStateResponse,
@@ -109,6 +110,10 @@ type JjOperationDiffQueryArg = WorkspaceQueryArg & {
 	operationId: string;
 	cursor?: string | null;
 	pageSize: number;
+};
+
+type JjOperationRevertArg = WorkspaceQueryArg & {
+	operationId: string;
 };
 
 type RepositoryLogQueryArg = WorkspaceQueryArg & {
@@ -726,6 +731,38 @@ export const vcsApi = createApi({
 			onCacheEntryAdded: ({ workspaceId }, { dispatch, cacheDataLoaded, cacheEntryRemoved }) =>
 				subscribeToWorkspaceEvents(workspaceId, dispatch, cacheDataLoaded, cacheEntryRemoved),
 		}),
+		createJjOperationSnapshot: builder.mutation<VcsJjOperationActionResponse, WorkspaceQueryArg>({
+			queryFn: async ({ workspaceId }) => {
+				try {
+					return {
+						data: await postTrpcMutation<VcsJjOperationActionResponse>(
+							"vcs.createJjOperationSnapshot",
+							{},
+							workspaceId,
+						),
+					};
+				} catch (error) {
+					return { error };
+				}
+			},
+			invalidatesTags: VCS_WORKSPACE_OPERATION_INVALIDATION_TAGS,
+		}),
+		revertJjOperation: builder.mutation<VcsJjOperationActionResponse, JjOperationRevertArg>({
+			queryFn: async ({ workspaceId, operationId }) => {
+				try {
+					return {
+						data: await postTrpcMutation<VcsJjOperationActionResponse>(
+							"vcs.revertJjOperation",
+							{ operationId },
+							workspaceId,
+						),
+					};
+				} catch (error) {
+					return { error };
+				}
+			},
+			invalidatesTags: VCS_WORKSPACE_OPERATION_INVALIDATION_TAGS,
+		}),
 	}),
 });
 
@@ -755,4 +792,6 @@ export const {
 	useGetRepositoryLogQuery,
 	useGetJjOperationsQuery,
 	useGetJjOperationDiffQuery,
+	useCreateJjOperationSnapshotMutation,
+	useRevertJjOperationMutation,
 } = vcsApi;

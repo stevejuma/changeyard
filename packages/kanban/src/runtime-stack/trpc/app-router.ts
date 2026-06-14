@@ -95,6 +95,8 @@ import type {
 	RuntimeVcsJjInventoryResponse,
 	RuntimeVcsJjOperationDiffRequest,
 	RuntimeVcsJjOperationDiffResponse,
+	RuntimeVcsJjOperationActionResponse,
+	RuntimeVcsJjOperationRevertRequest,
 	RuntimeVcsJjOperationsRequest,
 	RuntimeVcsJjOperationsResponse,
 	RuntimeVcsJjStateResponse,
@@ -238,6 +240,8 @@ import {
 	runtimeVcsJjInventoryResponseSchema,
 	runtimeVcsJjOperationDiffRequestSchema,
 	runtimeVcsJjOperationDiffResponseSchema,
+	runtimeVcsJjOperationActionResponseSchema,
+	runtimeVcsJjOperationRevertRequestSchema,
 	runtimeVcsJjOperationsRequestSchema,
 	runtimeVcsJjOperationsResponseSchema,
 	runtimeVcsJjStateResponseSchema,
@@ -457,6 +461,13 @@ export interface RuntimeTrpcContext {
 			scope: RuntimeTrpcWorkspaceScope | null,
 			input: RuntimeVcsJjOperationDiffRequest,
 		) => Promise<RuntimeVcsJjOperationDiffResponse>;
+		createJjOperationSnapshot: (
+			scope: RuntimeTrpcWorkspaceScope | null,
+		) => Promise<RuntimeVcsJjOperationActionResponse>;
+		revertJjOperation: (
+			scope: RuntimeTrpcWorkspaceScope | null,
+			input: RuntimeVcsJjOperationRevertRequest,
+		) => Promise<RuntimeVcsJjOperationActionResponse>;
 		workspaceState: (
 			scope: RuntimeTrpcWorkspaceScope | null,
 			input?: RuntimeVcsWorkspaceStateRequest,
@@ -786,6 +797,17 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeVcsJjOperationDiffResponseSchema)
 			.query(async ({ ctx, input }) => {
 				return await ctx.vcsApi.jjOperationDiff(ctx.workspaceScope, input);
+			}),
+		createJjOperationSnapshot: t.procedure
+			.output(runtimeVcsJjOperationActionResponseSchema)
+			.mutation(async ({ ctx }) => {
+				return await ctx.vcsApi.createJjOperationSnapshot(ctx.workspaceScope);
+			}),
+		revertJjOperation: t.procedure
+			.input(runtimeVcsJjOperationRevertRequestSchema)
+			.output(runtimeVcsJjOperationActionResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.vcsApi.revertJjOperation(ctx.workspaceScope, input);
 			}),
 		workspaceState: t.procedure
 			.input(runtimeVcsWorkspaceStateRequestSchema.optional())

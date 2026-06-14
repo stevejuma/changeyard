@@ -163,6 +163,51 @@ test("loadJjWorkspaceState maps JJ stacks and working copy into neutral state", 
 	assert.ok(calls.includes("jj diff --ignore-working-copy --summary -r @"));
 });
 
+test("loadJjWorkspaceState marks untracked remote JJ commits as immutable", async () => {
+	const baseRunner = createStateRunner();
+	const state = await loadJjWorkspaceState(
+		"/repo",
+		async (input) => {
+			const joined = `${input.command} ${input.args.join(" ")}`;
+			if (joined.includes('bookmark list --ignore-working-copy --at-op=@ --revisions all() ~ ::')) {
+				return ok("feature/api\tapi222\t22222222\t1\t0");
+			}
+			if (joined.includes('jj log --ignore-working-copy --at-op=@ --revisions (::"feature/api")')) {
+				return ok([
+					"root111\t11111111\tMain\tAlice\talice@example.com\t\t\t\t0",
+					"api222\t22222222\tAPI change\tBob\tbob@example.com\troot111\tfeature/api\tfeature/api@git|feature/api@origin\t1",
+				].join("\n"));
+			}
+			return await baseRunner(input);
+		},
+		{
+			targetBranch: "origin/main",
+			appliedStackIds: ["feature/api"],
+		},
+	);
+
+	const commit = state.stacks[0]?.commits.find((candidate) => candidate.commitId === "api222");
+	assert.deepEqual(commit?.metadata?.untrackedRemoteBookmarks, ["feature/api@origin"]);
+	assert.deepEqual(commit?.metadata?.trackedRemoteBookmarks, []);
+	assert.match(String(commit?.metadata?.immutableReason), /Remote bookmark is not tracked/);
+
+	const childCommit = state.stacks[0]?.commits.find((candidate) => candidate.commitId === "root111");
+	assert.deepEqual(childCommit?.metadata?.untrackedRemoteBookmarks, ["feature/api@origin"]);
+	assert.match(String(childCommit?.metadata?.immutableReason), /Remote bookmark is not tracked/);
+});
+
+test("loadJjWorkspaceState does not mark tracked remote JJ commits as immutable", async () => {
+	const state = await loadJjWorkspaceState("/repo", createStateRunner(), {
+		targetBranch: "origin/main",
+		appliedStackIds: ["feature/api"],
+	});
+
+	const commit = state.stacks[0]?.commits.find((candidate) => candidate.commitId === "api222");
+	assert.deepEqual(commit?.metadata?.trackedRemoteBookmarks, ["feature/api@origin"]);
+	assert.deepEqual(commit?.metadata?.untrackedRemoteBookmarks, []);
+	assert.equal(commit?.metadata?.immutableReason, null);
+});
+
 test("loadJjWorkspaceState surfaces JJ conflicts as neutral workspace conflicts", async () => {
 	const calls: string[] = [];
 	const state = await loadJjWorkspaceState("/repo", createConflictStateRunner(calls), {
@@ -785,6 +830,298 @@ test("applyJjWorkspaceOperation creates a selected working-copy file commit at t
 	assert.deepEqual(result.affectedCommitIds, ["api222"]);
 	assert.deepEqual(result.affectedPaths, ["src/api.ts"]);
 	assert.equal(calls.at(-1), "jj split -r @ --insert-after api222 -m New API -- src/api.ts");
+});
+
+test("previewJjWorkspaceOperation previews commit edit mode", async () => {
+	const preview = await previewJjWorkspaceOperation(
+		"/repo",
+		{ operation: { kind: "begin_edit_commit", targetCommitId: "api222", message: "Edit API change" } },
+		createStateRunner(),
+	);
+
+	assert.equal(preview.valid, true);
+	assert.equal(preview.operation.kind, "begin_edit_commit");
+	assert.deepEqual(preview.affectedCommitIds, ["api222"]);
+	assert.match(preview.summary, /Create a temporary edit commit above api222/i);
+	assert.match(preview.warnings[0]?.message ?? "", /Do not create additional commits/i);
+});
+
+test("previewJjWorkspaceOperation previews tracking a remote bookmark", async () => {
+	const preview = await previewJjWorkspaceOperation(
+		"/repo",
+		{ operation: { kind: "track_remote_bookmark", bookmarkName: "feature/api", remoteName: "origin" } },
+		createStateRunner(),
+	);
+
+	assert.equal(preview.valid, true);
+	assert.equal(preview.operation.kind, "track_remote_bookmark");
+	assert.equal(preview.risk, "medium");
+	assert.deepEqual(preview.affectedStackIds, ["feature/api"]);
+	assert.match(preview.summary, /feature\/api@origin/);
+});
+
+test("previewJjWorkspaceOperation previews untracking a remote bookmark", async () => {
+	const preview = await previewJjWorkspaceOperation(
+		"/repo",
+		{ operation: { kind: "untrack_remote_bookmark", bookmarkName: "feature/api", remoteName: "origin" } },
+		createStateRunner(),
+	);
+
+	assert.equal(preview.valid, true);
+	assert.equal(preview.operation.kind, "untrack_remote_bookmark");
+	assert.equal(preview.risk, "medium");
+	assert.deepEqual(preview.affectedStackIds, ["feature/api"]);
+	assert.match(preview.summary, /Stop tracking feature\/api@origin/);
+	assert.equal(preview.warnings[0]?.code, "jj_remote_bookmark_untrack");
+});
+
+test("applyJjWorkspaceOperation tracks a remote bookmark", async () => {
+	const calls: string[] = [];
+	const baseRunner = createStateRunner(calls);
+	const result = await applyJjWorkspaceOperation(
+		"/repo",
+		{ operation: { kind: "track_remote_bookmark", bookmarkName: "feature/api", remoteName: "origin" } },
+		async (input) => {
+			const joined = `${input.command} ${input.args.join(" ")}`;
+			calls.push(joined);
+			if (joined === "jj bookmark track --remote origin feature/api") {
+				return ok("Started tracking 1 remote bookmarks.");
+			}
+			calls.pop();
+			return await baseRunner(input);
+		},
+	);
+
+	assert.equal(result.ok, true);
+	assert.equal(result.operation.kind, "track_remote_bookmark");
+	assert.deepEqual(result.affectedStackIds, ["feature/api"]);
+	assert.equal(calls.at(-1), "jj bookmark track --remote origin feature/api");
+});
+
+test("applyJjWorkspaceOperation untracks a remote bookmark", async () => {
+	const calls: string[] = [];
+	const baseRunner = createStateRunner(calls);
+	const result = await applyJjWorkspaceOperation(
+		"/repo",
+		{ operation: { kind: "untrack_remote_bookmark", bookmarkName: "feature/api", remoteName: "origin" } },
+		async (input) => {
+			const joined = `${input.command} ${input.args.join(" ")}`;
+			calls.push(joined);
+			if (joined === "jj bookmark untrack --remote origin feature/api") {
+				return ok("Stopped tracking 1 remote bookmarks.");
+			}
+			calls.pop();
+			return await baseRunner(input);
+		},
+	);
+
+	assert.equal(result.ok, true);
+	assert.equal(result.operation.kind, "untrack_remote_bookmark");
+	assert.deepEqual(result.affectedStackIds, ["feature/api"]);
+	assert.equal(calls.at(-1), "jj bookmark untrack --remote origin feature/api");
+});
+
+test("applyJjWorkspaceOperation begins commit edit mode with a temporary commit", async () => {
+	const calls: string[] = [];
+	const baseRunner = createStateRunner(calls);
+	const result = await applyJjWorkspaceOperation(
+		"/repo",
+		{ operation: { kind: "begin_edit_commit", targetCommitId: "api222", message: "Edit API change" } },
+		async (input) => {
+			const joined = `${input.command} ${input.args.join(" ")}`;
+			calls.push(joined);
+			if (joined === "jj new --insert-after api222 -m Edit API change") {
+				return ok("Working copy now at the new edit commit");
+			}
+			if (joined === "jj log --ignore-working-copy --no-graph -r @ -T change_id.short()") {
+				return ok("edit333");
+			}
+			calls.pop();
+			return await baseRunner(input);
+		},
+	);
+
+	assert.equal(result.ok, true);
+	assert.equal(result.operation.kind, "begin_edit_commit");
+	assert.deepEqual(result.affectedCommitIds, ["edit333", "api222"]);
+	assert.equal(calls.at(-1), "jj log --ignore-working-copy --no-graph -r @ -T change_id.short()");
+});
+
+test("applyJjWorkspaceOperation saves commit edit mode by squashing into the target", async () => {
+	const calls: string[] = [];
+	const baseRunner = createStateRunner(calls);
+	const result = await applyJjWorkspaceOperation(
+		"/repo",
+		{ operation: { kind: "save_edit_commit", editCommitId: "edit333", targetCommitId: "api222" } },
+		async (input) => {
+			const joined = `${input.command} ${input.args.join(" ")}`;
+			calls.push(joined);
+			if (joined === "jj squash --from edit333 --into api222 --use-destination-message") {
+				return ok("Squashed edit333 into api222");
+			}
+			calls.pop();
+			return await baseRunner(input);
+		},
+	);
+
+	assert.equal(result.ok, true);
+	assert.equal(result.operation.kind, "save_edit_commit");
+	assert.deepEqual(result.affectedCommitIds, ["edit333", "api222"]);
+	assert.equal(calls.at(-1), "jj squash --from edit333 --into api222 --use-destination-message");
+});
+
+test("applyJjWorkspaceOperation returns to the original workspace commit after saving edit mode", async () => {
+	const calls: string[] = [];
+	const baseRunner = createStateRunner(calls);
+	const result = await applyJjWorkspaceOperation(
+		"/repo",
+		{
+			operation: {
+				kind: "save_edit_commit",
+				editCommitId: "edit333",
+				targetCommitId: "api222",
+				returnToCommitId: "workspace444",
+			},
+		},
+		async (input) => {
+			const joined = `${input.command} ${input.args.join(" ")}`;
+			calls.push(joined);
+			if (joined === "jj squash --from edit333 --into api222 --use-destination-message") {
+				return ok("Squashed edit333 into api222");
+			}
+			if (joined === "jj edit workspace444") {
+				return ok("Working copy now edits workspace444");
+			}
+			calls.pop();
+			return await baseRunner(input);
+		},
+	);
+
+	assert.equal(result.ok, true);
+	assert.equal(result.operation.kind, "save_edit_commit");
+	assert.deepEqual(result.affectedCommitIds, ["edit333", "api222", "workspace444"]);
+	assert.deepEqual(calls.slice(-2), [
+		"jj squash --from edit333 --into api222 --use-destination-message",
+		"jj edit workspace444",
+	]);
+});
+
+test("applyJjWorkspaceOperation reports recovery guidance when returning after save fails", async () => {
+	const calls: string[] = [];
+	const baseRunner = createStateRunner(calls);
+	const result = await applyJjWorkspaceOperation(
+		"/repo",
+		{
+			operation: {
+				kind: "save_edit_commit",
+				editCommitId: "edit333",
+				targetCommitId: "api222",
+				returnToCommitId: "workspace444",
+			},
+		},
+		async (input) => {
+			const joined = `${input.command} ${input.args.join(" ")}`;
+			calls.push(joined);
+			if (joined === "jj squash --from edit333 --into api222 --use-destination-message") {
+				return ok("Squashed edit333 into api222");
+			}
+			if (joined === "jj edit workspace444") {
+				return fail("workspace444 is not available");
+			}
+			calls.pop();
+			return await baseRunner(input);
+		},
+	);
+
+	assert.equal(result.ok, false);
+	assert.match(result.summary, /workspace444 is not available/);
+	assert.match(result.recovery?.instructions.join("\n") ?? "", /jj edit workspace444/);
+});
+
+test("applyJjWorkspaceOperation aborts commit edit mode by abandoning the temporary commit", async () => {
+	const calls: string[] = [];
+	const baseRunner = createStateRunner(calls);
+	const result = await applyJjWorkspaceOperation(
+		"/repo",
+		{ operation: { kind: "abort_edit_commit", editCommitId: "edit333" } },
+		async (input) => {
+			const joined = `${input.command} ${input.args.join(" ")}`;
+			calls.push(joined);
+			if (joined === "jj abandon edit333") {
+				return ok("Abandoned edit333");
+			}
+			calls.pop();
+			return await baseRunner(input);
+		},
+	);
+
+	assert.equal(result.ok, true);
+	assert.equal(result.operation.kind, "abort_edit_commit");
+	assert.deepEqual(result.affectedCommitIds, ["edit333"]);
+	assert.equal(calls.at(-1), "jj abandon edit333");
+});
+
+test("applyJjWorkspaceOperation returns to the original workspace commit after aborting edit mode", async () => {
+	const calls: string[] = [];
+	const baseRunner = createStateRunner(calls);
+	const result = await applyJjWorkspaceOperation(
+		"/repo",
+		{ operation: { kind: "abort_edit_commit", editCommitId: "edit333", returnToCommitId: "workspace444" } },
+		async (input) => {
+			const joined = `${input.command} ${input.args.join(" ")}`;
+			calls.push(joined);
+			if (joined === "jj abandon edit333") {
+				return ok("Abandoned edit333");
+			}
+			if (joined === "jj edit workspace444") {
+				return ok("Working copy now edits workspace444");
+			}
+			calls.pop();
+			return await baseRunner(input);
+		},
+	);
+
+	assert.equal(result.ok, true);
+	assert.equal(result.operation.kind, "abort_edit_commit");
+	assert.deepEqual(result.affectedCommitIds, ["edit333", "workspace444"]);
+	assert.deepEqual(calls.slice(-2), ["jj abandon edit333", "jj edit workspace444"]);
+});
+
+test("previewJjWorkspaceOperation previews checkout commit as JJ edit", async () => {
+	const preview = await previewJjWorkspaceOperation(
+		"/repo",
+		{ operation: { kind: "checkout_commit", commitId: "api222" } },
+		createStateRunner(),
+	);
+
+	assert.equal(preview.valid, true);
+	assert.equal(preview.operation.kind, "checkout_commit");
+	assert.equal(preview.risk, "low");
+	assert.match(preview.summary, /api222/);
+	assert.deepEqual(preview.affectedCommitIds, ["api222"]);
+});
+
+test("applyJjWorkspaceOperation checks out a commit with JJ edit", async () => {
+	const calls: string[] = [];
+	const baseRunner = createStateRunner(calls);
+	const result = await applyJjWorkspaceOperation(
+		"/repo",
+		{ operation: { kind: "checkout_commit", commitId: "api222" } },
+		async (input) => {
+			const joined = `${input.command} ${input.args.join(" ")}`;
+			calls.push(joined);
+			if (joined === "jj edit api222") {
+				return ok("Working copy now at api222");
+			}
+			calls.pop();
+			return await baseRunner(input);
+		},
+	);
+
+	assert.equal(result.ok, true);
+	assert.equal(result.operation.kind, "checkout_commit");
+	assert.deepEqual(result.affectedCommitIds, ["api222"]);
+	assert.equal(calls.at(-1), "jj edit api222");
 });
 
 test("applyJjWorkspaceOperation amends working-copy files through JJ squash", async () => {

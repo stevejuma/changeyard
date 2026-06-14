@@ -129,6 +129,22 @@ export function selectAppliedWorkspaceStacks(
 		.filter((stack): stack is BranchesStack => Boolean(stack));
 }
 
+export function selectActiveAppliedStackIds(
+	configuredStackIds: readonly string[] | null | undefined,
+	providerStackIds: readonly string[] | null | undefined,
+	editModeStackIds: readonly string[] | null | undefined,
+): string[] {
+	const editMode = normalizeAppliedStackIds(editModeStackIds);
+	if (editMode.length > 0) {
+		return editMode;
+	}
+	const configured = normalizeAppliedStackIds(configuredStackIds);
+	if (configured.length > 0) {
+		return configured;
+	}
+	return normalizeAppliedStackIds(providerStackIds);
+}
+
 export function createBranchSelectionFallbackStack(selection: StackSelection): BranchesStack | null {
 	const item = selection.item ?? null;
 	if (!item || !["current", "bookmark", "branch", "workspace"].includes(item.type) || !item.commitId) {

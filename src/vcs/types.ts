@@ -64,6 +64,9 @@ export interface VcsJjChange {
 	parentChangeIds: string[];
 	bookmarks: string[];
 	remoteBookmarks: string[];
+	trackedRemoteBookmarks?: string[];
+	untrackedRemoteBookmarks?: string[];
+	immutableReason?: string | null;
 	isCurrent: boolean;
 }
 
@@ -77,6 +80,9 @@ export interface VcsJjStackChange {
 	authorAvatarUrl: string | null;
 	bookmarks: string[];
 	remoteBookmarks: string[];
+	trackedRemoteBookmarks?: string[];
+	untrackedRemoteBookmarks?: string[];
+	immutableReason?: string | null;
 	isCurrent: boolean;
 	isHead: boolean;
 }
@@ -174,6 +180,7 @@ export interface VcsJjOperationEntry {
 	timestamp: string | null;
 	files: VcsJjOperationFile[];
 	restoreEligible: boolean;
+	parentOperationIds: string[];
 }
 
 export interface VcsJjOperationsResult {
@@ -181,6 +188,15 @@ export interface VcsJjOperationsResult {
 	requestedLimit: number;
 	nextCursor?: string | null;
 	hasMore: boolean;
+	diagnostics: VcsDiagnostic[];
+}
+
+export interface VcsJjOperationActionResult {
+	ok: boolean;
+	title: string;
+	summary: string;
+	operationId: string | null;
+	changed: boolean;
 	diagnostics: VcsDiagnostic[];
 }
 

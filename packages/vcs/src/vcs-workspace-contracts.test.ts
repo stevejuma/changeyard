@@ -92,6 +92,180 @@ test("validateVcsWorkspaceOperation gates commit rewrite operations by capabilit
 	});
 });
 
+test("validateVcsWorkspaceOperation accepts commit edit mode operations", () => {
+	assert.deepEqual(
+		validateVcsWorkspaceOperation(
+			{
+				kind: "begin_edit_commit",
+				targetCommitId: "commit-1",
+				message: "Edit allow due date range queries",
+			},
+			fullCapabilities,
+		),
+		{ valid: true, reason: null },
+	);
+	assert.deepEqual(
+		validateVcsWorkspaceOperation(
+			{
+				kind: "save_edit_commit",
+				editCommitId: "edit-1",
+				targetCommitId: "commit-1",
+				returnToCommitId: "workspace-1",
+			},
+			fullCapabilities,
+		),
+		{ valid: true, reason: null },
+	);
+	assert.deepEqual(
+		validateVcsWorkspaceOperation(
+			{
+				kind: "abort_edit_commit",
+				editCommitId: "edit-1",
+				returnToCommitId: "workspace-1",
+			},
+			fullCapabilities,
+		),
+		{ valid: true, reason: null },
+	);
+});
+
+test("validateVcsWorkspaceOperation accepts remote bookmark tracking", () => {
+	assert.deepEqual(
+		validateVcsWorkspaceOperation(
+			{
+				kind: "track_remote_bookmark",
+				bookmarkName: "feature/api",
+				remoteName: "origin",
+			},
+			fullCapabilities,
+		),
+		{ valid: true, reason: null },
+	);
+	assert.deepEqual(
+		validateVcsWorkspaceOperation(
+			{
+				kind: "untrack_remote_bookmark",
+				bookmarkName: "feature/api",
+				remoteName: "origin",
+			},
+			fullCapabilities,
+		),
+		{ valid: true, reason: null },
+	);
+});
+
+test("validateVcsWorkspaceOperation accepts active graph commit actions", () => {
+	assert.deepEqual(
+		validateVcsWorkspaceOperation(
+			{
+				kind: "checkout_commit",
+				commitId: "commit-1",
+			},
+			fullCapabilities,
+		),
+		{ valid: true, reason: null },
+	);
+	assert.deepEqual(
+		validateVcsWorkspaceOperation(
+			{
+				kind: "abandon_commit",
+				commitId: "commit-1",
+			},
+			fullCapabilities,
+		),
+		{ valid: true, reason: null },
+	);
+});
+
+test("validateVcsWorkspaceOperation rejects incomplete active graph commit actions", () => {
+	assert.deepEqual(
+		validateVcsWorkspaceOperation(
+			{
+				kind: "checkout_commit",
+				commitId: "",
+			},
+			fullCapabilities,
+		),
+		{ valid: false, reason: "Choose a commit." },
+	);
+	assert.deepEqual(
+		validateVcsWorkspaceOperation(
+			{
+				kind: "abandon_commit",
+				commitId: "",
+			},
+			fullCapabilities,
+		),
+		{ valid: false, reason: "Choose a commit." },
+	);
+});
+
+test("validateVcsWorkspaceOperation rejects incomplete commit edit mode operations", () => {
+	assert.deepEqual(
+		validateVcsWorkspaceOperation(
+			{
+				kind: "begin_edit_commit",
+				targetCommitId: "",
+				message: "Edit commit",
+			},
+			fullCapabilities,
+		),
+		{ valid: false, reason: "Choose a commit to edit." },
+	);
+	assert.deepEqual(
+		validateVcsWorkspaceOperation(
+			{
+				kind: "begin_edit_commit",
+				targetCommitId: "commit-1",
+				message: "",
+			},
+			fullCapabilities,
+		),
+		{ valid: false, reason: "Enter an edit commit message." },
+	);
+	assert.deepEqual(
+		validateVcsWorkspaceOperation(
+			{
+				kind: "save_edit_commit",
+				editCommitId: "",
+				targetCommitId: "commit-1",
+			},
+			fullCapabilities,
+		),
+		{ valid: false, reason: "Choose the edit commit." },
+	);
+	assert.deepEqual(
+		validateVcsWorkspaceOperation(
+			{
+				kind: "abort_edit_commit",
+				editCommitId: "",
+			},
+			fullCapabilities,
+		),
+		{ valid: false, reason: "Choose the edit commit." },
+	);
+	assert.deepEqual(
+		validateVcsWorkspaceOperation(
+			{
+				kind: "track_remote_bookmark",
+				bookmarkName: "",
+			},
+			fullCapabilities,
+		),
+		{ valid: false, reason: "Choose a remote bookmark to track." },
+	);
+	assert.deepEqual(
+		validateVcsWorkspaceOperation(
+			{
+				kind: "untrack_remote_bookmark",
+				bookmarkName: "",
+			},
+			fullCapabilities,
+		),
+		{ valid: false, reason: "Choose a remote bookmark to untrack." },
+	);
+});
+
 test("validateVcsWorkspaceOperation gates stack creation by capability", () => {
 	const operation: VcsWorkspaceOperation = {
 		kind: "create_stack",

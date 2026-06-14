@@ -6,6 +6,7 @@ import { isInternalJjBookmark } from "./bookmark-utils.js";
 import type {
 	VcsDiagnostic,
 	VcsJjOperationCommit,
+	VcsJjOperationActionResult,
 	VcsJjOperationDiffResult,
 	VcsJjOperationEntry,
 	VcsJjOperationFile,
@@ -182,8 +183,9 @@ function toPublicOperation(operation: ParsedOperation): VcsJjOperationEntry {
 		user: operation.user,
 		userAvatarUrl: operation.userAvatarUrl,
 		timestamp: operation.timestamp,
-		files: operation.files,
-		restoreEligible: operation.restoreEligible,
+			files: operation.files,
+			restoreEligible: operation.restoreEligible,
+			parentOperationIds: operation.parentOperationIds,
 	};
 }
 
@@ -509,6 +511,152 @@ async function readOperationCommitsByCursor(
 				})
 			: null,
 		diagnostic: options.cursor && !validCursor ? createDiagnostic("warning", "jj_cursor_invalid", "The operation commit cursor was invalid and was restarted.") : null,
+	};
+}
+
+export async function createJjOperationSnapshot(
+	cwd: string,
+	runner: VcsCommandRunner,
+): Promise<VcsJjOperationActionResult> {
+	const detect = await detectVcsState(cwd, runner);
+	if (detect.repository.kind !== "jj") {
+		return {
+			ok: false,
+			title: "Snapshot unavailable",
+			summary: "JJ operation snapshots are only available inside a JJ repository.",
+			operationId: null,
+			changed: false,
+			diagnostics: [
+				...detect.diagnostics,
+				createDiagnostic("warning", "jj_repo_required", "JJ operation snapshots are only available inside a JJ repository."),
+			],
+		};
+	}
+	const repoCwd = detect.repository.root ?? cwd;
+	const previousOperationId = await resolveCurrentOperationId(repoCwd, runner);
+	const result = await runner({
+		command: "jj",
+		args: ["status", "--color", "never", "--no-pager"],
+		cwd: repoCwd,
+	});
+	if (!result.ok) {
+		return {
+			ok: false,
+			title: "Snapshot failed",
+			summary: result.stderr.trim() || result.stdout.trim() || "Failed to create a JJ operation snapshot.",
+			operationId: null,
+			changed: false,
+			diagnostics: [
+				...detect.diagnostics,
+				createDiagnostic("error", "jj_snapshot_failed", result.stderr || result.stdout || "Failed to create a JJ operation snapshot."),
+			],
+		};
+	}
+	const operationId = await resolveCurrentOperationId(repoCwd, runner);
+	const changed = Boolean(previousOperationId && operationId && previousOperationId !== operationId);
+	return {
+		ok: true,
+		title: changed ? "Snapshot created" : "No snapshot changes",
+		summary: changed
+			? "Created a JJ operation snapshot for the current working copy state."
+			: "No repository state changes were available to snapshot.",
+		operationId,
+		changed,
+		diagnostics: detect.diagnostics,
+	};
+}
+
+async function resolveOperationParentIds(cwd: string, operationId: string, runner: VcsCommandRunner): Promise<string[]> {
+	const result = await runner({
+		command: "jj",
+		args: [
+			"op",
+			"log",
+			"--ignore-working-copy",
+			`--at-op=${operationId}`,
+			"--no-graph",
+			"-n",
+			"1",
+			"-T",
+			'parents.map(|op| op.id()).join("|") ++ "\\n"',
+		],
+		cwd,
+	});
+	return result.ok ? parseList(result.stdout.trim()) : [];
+}
+
+export async function revertJjOperation(
+	cwd: string,
+	runner: VcsCommandRunner,
+	operationId: string,
+): Promise<VcsJjOperationActionResult> {
+	const normalizedOperationId = operationId.trim();
+	if (!normalizedOperationId) {
+		return {
+			ok: false,
+			title: "Revert unavailable",
+			summary: "Choose an operation to revert.",
+			operationId: null,
+			changed: false,
+			diagnostics: [createDiagnostic("error", "operation_required", "Choose an operation to revert.")],
+		};
+	}
+	const detect = await detectVcsState(cwd, runner);
+	if (detect.repository.kind !== "jj") {
+		return {
+			ok: false,
+			title: "Revert unavailable",
+			summary: "JJ operation revert is only available inside a JJ repository.",
+			operationId: normalizedOperationId,
+			changed: false,
+			diagnostics: [
+				...detect.diagnostics,
+				createDiagnostic("warning", "jj_repo_required", "JJ operation revert is only available inside a JJ repository."),
+			],
+		};
+	}
+	const repoCwd = detect.repository.root ?? cwd;
+	const parentOperationIds = await resolveOperationParentIds(repoCwd, normalizedOperationId, runner);
+	const parentOperationId = parentOperationIds[0] ?? null;
+	if (!parentOperationId) {
+		return {
+			ok: false,
+			title: "Revert unavailable",
+			summary: "This operation cannot be reverted because it has no parent operation.",
+			operationId: normalizedOperationId,
+			changed: false,
+			diagnostics: [
+				...detect.diagnostics,
+				createDiagnostic("warning", "jj_operation_without_parent", "This operation cannot be reverted because it has no parent operation."),
+			],
+		};
+	}
+	const result = await runner({
+		command: "jj",
+		args: ["op", "restore", parentOperationId, "--color", "never", "--no-pager"],
+		cwd: repoCwd,
+	});
+	if (!result.ok) {
+		return {
+			ok: false,
+			title: "Revert failed",
+			summary: result.stderr.trim() || result.stdout.trim() || "Failed to revert the JJ operation.",
+			operationId: normalizedOperationId,
+			changed: false,
+			diagnostics: [
+				...detect.diagnostics,
+				createDiagnostic("error", "jj_operation_revert_failed", result.stderr || result.stdout || "Failed to revert the JJ operation."),
+			],
+		};
+	}
+	const currentOperationId = await resolveCurrentOperationId(repoCwd, runner);
+	return {
+		ok: true,
+		title: "Operation reverted",
+		summary: `Restored the repository to the state before operation ${normalizedOperationId.slice(0, 12)}.`,
+		operationId: currentOperationId ?? normalizedOperationId,
+		changed: true,
+		diagnostics: detect.diagnostics,
 	};
 }
 

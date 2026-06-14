@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { createHash } from "node:crypto";
 
 import type {
 	RuntimeChangeyardBoardFileSummary,
@@ -19,12 +20,19 @@ const LOG_RECORD_SEPARATOR = "\x1e";
 const LOG_FORMAT = ["%H", "%h", "%an", "%ae", "%aI", "%s", "%P"].join(LOG_FIELD_SEPARATOR);
 const JJ_LOG_TEMPLATE = [
 	"change_id.short()",
+	"change_id.shortest()",
 	"commit_id",
 	"author.name()",
 	"author.email()",
 	'author.timestamp().format("%Y-%m-%dT%H:%M:%SZ")',
 	"description.first_line()",
 	'parents.map(|c| c.commit_id()).join(" ")',
+	'local_bookmarks.map(|b| b.name()).join("|")',
+	'remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|")',
+	'if(conflict, "conflict", "")',
+	'if(divergent, "divergent", "")',
+	'if(empty, "empty", "")',
+	'if(hidden, "hidden", "")',
 ].join(` ++ "${LOG_FIELD_SEPARATOR}" ++ `) + ` ++ "${LOG_RECORD_SEPARATOR}"`;
 
 type JjLogCursor = {
@@ -51,9 +59,80 @@ function parseCommitRecord(record: string): RuntimeGitCommit | null {
 		shortHash,
 		authorName,
 		authorEmail: authorEmail ?? "",
+		authorAvatarUrl: null,
 		date: dateIso,
 		message: subject,
 		parentHashes: (parentHashes ?? "").split(" ").filter(Boolean),
+		bookmarks: [],
+		labels: [],
+	};
+}
+
+function gravatarUrlForEmail(email: string | null | undefined): string | null {
+	const normalized = email?.trim().toLowerCase();
+	if (!normalized) {
+		return null;
+	}
+	const hash = createHash("md5").update(normalized).digest("hex");
+	return `https://www.gravatar.com/avatar/${hash}?s=80&d=identicon`;
+}
+
+function parsePipeList(value: string | undefined): string[] {
+	return value?.split("|").map((entry) => entry.trim()).filter(Boolean) ?? [];
+}
+
+function isInternalJjBookmarkName(name: string): boolean {
+	return name.startsWith("changeyard/") || name.startsWith("cy/");
+}
+
+function parseUserFacingBookmarks(...values: Array<string | undefined>): string[] {
+	const bookmarks = values.flatMap((value) => parsePipeList(value));
+	return [...new Set(bookmarks.filter((bookmark) => !isInternalJjBookmarkName(bookmark)))];
+}
+
+function parseLabels(...values: Array<string | undefined>): string[] {
+	return [...new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))];
+}
+
+function parseJjLogCommitRecord(record: string): RuntimeGitCommit | null {
+	const fields = record.trim().split(LOG_FIELD_SEPARATOR);
+	if (fields.length < 8) {
+		return null;
+	}
+	const [
+		changeId,
+		changeIdUniquePrefix,
+		hash,
+		authorName,
+		authorEmail,
+		dateIso,
+		subject,
+		parentHashes,
+		localBookmarks,
+		remoteBookmarks,
+		conflictLabel,
+		divergentLabel,
+		emptyLabel,
+		hiddenLabel,
+	] = fields;
+	if (!changeId || !hash || !authorName || !dateIso) {
+		return null;
+	}
+	const normalizedAuthorEmail = authorEmail?.trim() ?? "";
+	return {
+		hash,
+		shortHash: hash.slice(0, 8),
+		changeId,
+		changeIdUniquePrefix: changeIdUniquePrefix?.trim() || undefined,
+		authorName,
+		authorEmail: normalizedAuthorEmail,
+		authorAvatarUrl: gravatarUrlForEmail(normalizedAuthorEmail),
+		date: dateIso,
+		message: subject?.trim() || "(no description)",
+		parentHashes: (parentHashes ?? "").split(" ").filter(Boolean),
+		bookmarks: parseUserFacingBookmarks(localBookmarks, remoteBookmarks),
+		labels: parseLabels(conflictLabel, divergentLabel, emptyLabel, hiddenLabel),
+		relation: "shared",
 	};
 }
 
@@ -758,29 +837,10 @@ async function getJjLog(options: {
 
 	const commits: RuntimeGitCommit[] = [];
 	for (const record of logResult.stdout.split(LOG_RECORD_SEPARATOR)) {
-		const trimmedRecord = record.trim();
-		if (!trimmedRecord) {
-			continue;
+		const commit = parseJjLogCommitRecord(record);
+		if (commit) {
+			commits.push(commit);
 		}
-		const fields = trimmedRecord.split(LOG_FIELD_SEPARATOR);
-		if (fields.length < 7) {
-			continue;
-		}
-		const [changeId, hash, authorName, authorEmail, dateIso, subject, parentHashes] = fields;
-		if (!changeId || !hash || !authorName || !dateIso) {
-			continue;
-		}
-		commits.push({
-			hash,
-			shortHash: hash.slice(0, 8),
-			changeId,
-			authorName,
-			authorEmail: authorEmail ?? "",
-			date: dateIso,
-			message: subject?.trim() || "(no description)",
-			parentHashes: (parentHashes ?? "").split(" ").filter(Boolean),
-			relation: "shared",
-		});
 	}
 
 	const totalCount = countResult.ok ? Number.parseInt(countResult.stdout, 10) || commits.length : commits.length;
@@ -842,29 +902,10 @@ async function getJjLogByCursor({
 
 	const fetchedCommits: RuntimeGitCommit[] = [];
 	for (const record of logResult.stdout.split(LOG_RECORD_SEPARATOR)) {
-		const trimmedRecord = record.trim();
-		if (!trimmedRecord) {
-			continue;
+		const commit = parseJjLogCommitRecord(record);
+		if (commit) {
+			fetchedCommits.push(commit);
 		}
-		const fields = trimmedRecord.split(LOG_FIELD_SEPARATOR);
-		if (fields.length < 7) {
-			continue;
-		}
-		const [changeId, hash, authorName, authorEmail, dateIso, subject, parentHashes] = fields;
-		if (!changeId || !hash || !authorName || !dateIso) {
-			continue;
-		}
-		fetchedCommits.push({
-			hash,
-			shortHash: hash.slice(0, 8),
-			changeId,
-			authorName,
-			authorEmail: authorEmail ?? "",
-			date: dateIso,
-			message: subject?.trim() || "(no description)",
-			parentHashes: (parentHashes ?? "").split(" ").filter(Boolean),
-			relation: "shared",
-		});
 	}
 	const commits = fetchedCommits.slice(0, normalizedPageSize);
 	const hasMore = fetchedCommits.length > normalizedPageSize;
@@ -913,29 +954,10 @@ async function getJjLogRange(options: {
 
 	const commits: RuntimeGitCommit[] = [];
 	for (const record of logResult.stdout.split(LOG_RECORD_SEPARATOR)) {
-		const trimmedRecord = record.trim();
-		if (!trimmedRecord) {
-			continue;
+		const commit = parseJjLogCommitRecord(record);
+		if (commit) {
+			commits.push(commit);
 		}
-		const fields = trimmedRecord.split(LOG_FIELD_SEPARATOR);
-		if (fields.length < 7) {
-			continue;
-		}
-		const [changeId, hash, authorName, authorEmail, dateIso, subject, parentHashes] = fields;
-		if (!changeId || !hash || !authorName || !dateIso) {
-			continue;
-		}
-		commits.push({
-			hash,
-			shortHash: hash.slice(0, 8),
-			changeId,
-			authorName,
-			authorEmail: authorEmail ?? "",
-			date: dateIso,
-			message: subject?.trim() || "(no description)",
-			parentHashes: (parentHashes ?? "").split(" ").filter(Boolean),
-			relation: "shared",
-		});
 	}
 
 	const totalCount = countResult.ok ? Number.parseInt(countResult.stdout, 10) || commits.length : commits.length;

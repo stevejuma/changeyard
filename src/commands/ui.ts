@@ -21,7 +21,7 @@ import { listGlobalTemplateProfiles } from "../config/templateProfiles.js";
 import { runInit } from "./init.js";
 import { runUpdate } from "./update.js";
 import { doctorReport } from "./doctor.js";
-import { applyVcsOperation, applyVcsWorkspaceOperation, detectVcs, getJjBranchesData, getJjDiff, getJjInventory, getJjOperationDiff, getJjOperations, getJjState, getVcsBranchesData, getVcsDiff, getVcsWorkspaceStacks, getVcsWorkspaceState, previewVcsOperation, previewVcsWorkspaceOperation, submitVcsStack, submitVcsStackPreview } from "../vcs/adapter.js";
+import { applyVcsOperation, applyVcsWorkspaceOperation, createJjSnapshot, detectVcs, getJjBranchesData, getJjDiff, getJjInventory, getJjOperationDiff, getJjOperations, getJjState, getVcsBranchesData, getVcsDiff, getVcsWorkspaceStacks, getVcsWorkspaceState, previewVcsOperation, previewVcsWorkspaceOperation, revertJjOperationById, submitVcsStack, submitVcsStackPreview } from "../vcs/adapter.js";
 import type { VcsApplyOperationInput, VcsPreviewOperationInput, VcsSubmitStackPreviewInput } from "../vcs/types.js";
 import { installCliShutdownHandlers } from "./gracefulShutdown.js";
 import { DEFAULT_PLANNING_SECTION_ORDER, STRICT_PLANNING_SECTION_ORDER, type PlanningSectionId } from "../planning/types.js";
@@ -390,6 +390,12 @@ export function createChangeyardUiApi() {
       input: { operationId: string; commitSkip?: number | null; commitLimit?: number | null; cursor?: string | null; pageSize?: number | null },
     ) {
       return getJjOperationDiff(repoRoot, input);
+    },
+    createJjOperationSnapshot(repoRoot: string) {
+      return createJjSnapshot(repoRoot);
+    },
+    revertJjOperation(repoRoot: string, input: { operationId: string }) {
+      return revertJjOperationById(repoRoot, input);
     },
     getVcsWorkspaceState(repoRoot: string, input?: { targetRef?: string | null; appliedStackIds?: string[] }) {
       return getVcsWorkspaceState(repoRoot, input);
