@@ -435,7 +435,7 @@ function previewSquashChangeOperation(
 	changes: readonly VcsJjChange[],
 	currentChangeId: string | null,
 ): VcsPreviewOperationResult {
-	assertSafeChangeId(operation.sourceChangeId);
+	assertSafeRevisionId(operation.sourceChangeId);
 	assertSafeRevisionId(operation.targetChangeId);
 	const hasPathSelection = operation.paths !== undefined;
 	const normalizedPaths = hasPathSelection
@@ -457,7 +457,23 @@ function previewSquashChangeOperation(
 	}
 
 	const changesById = new Map(changes.map((change) => [change.changeId, change]));
-	const source = changesById.get(operation.sourceChangeId);
+	const source =
+		operation.sourceChangeId === "@"
+			? currentChangeId
+				? (changesById.get(currentChangeId) ?? {
+						changeId: currentChangeId,
+						commitId: currentChangeId,
+						description: "current working-copy change",
+						authorName: null,
+						authorEmail: null,
+						authorAvatarUrl: null,
+						parentChangeIds: [],
+						bookmarks: [],
+						remoteBookmarks: [],
+						isCurrent: true,
+					})
+				: null
+			: changesById.get(operation.sourceChangeId);
 	const target =
 		operation.targetChangeId === "@"
 			? currentChangeId
@@ -551,7 +567,7 @@ function previewSquashChangeOperation(
 				args: ["squash", "--from", operation.sourceChangeId, "--into", operation.targetChangeId, ...normalizedPaths],
 			},
 		],
-		affectedChangeIds: [operation.sourceChangeId, target.changeId],
+		affectedChangeIds: [source.changeId, target.changeId],
 		affectedBookmarks: [...new Set([...source.bookmarks, ...target.bookmarks])],
 		diagnostics,
 	};

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+	createVcsWorkspaceCreateCommitOperationFromDrop,
 	createVcsWorkspaceOperationFromDrop,
 	createValidatedVcsWorkspaceOperationFromDrop,
 	describeVcsWorkspaceDropTarget,
@@ -46,6 +47,30 @@ test("createVcsWorkspaceOperationFromDrop maps commit drops to move_commit", () 
 	);
 });
 
+test("createVcsWorkspaceOperationFromDrop maps commit-to-commit drops to squash_commits", () => {
+	assert.deepEqual(
+		createVcsWorkspaceOperationFromDrop(
+			{ kind: "commit", commitId: "abc123", stackId: "feature/api" },
+			{ kind: "commit", commitId: "def456" },
+		),
+		{
+			valid: true,
+			operation: {
+				kind: "squash_commits",
+				sourceCommitId: "abc123",
+				targetCommitId: "def456",
+			},
+		},
+	);
+	assert.deepEqual(
+		createVcsWorkspaceOperationFromDrop(
+			{ kind: "commit", commitId: "abc123", stackId: "feature/api" },
+			{ kind: "commit", commitId: "abc123" },
+		),
+		{ valid: false, reason: "Choose a different target commit." },
+	);
+});
+
 test("createVcsWorkspaceOperationFromDrop maps working-copy files to amend_commit", () => {
 	assert.deepEqual(
 		createVcsWorkspaceOperationFromDrop(
@@ -60,6 +85,33 @@ test("createVcsWorkspaceOperationFromDrop maps working-copy files to amend_commi
 				selection: { source: "working_copy", paths: ["src/api.ts"] },
 			},
 		},
+	);
+});
+
+test("createVcsWorkspaceCreateCommitOperationFromDrop maps working-copy selections to create_commit", () => {
+	assert.deepEqual(
+		createVcsWorkspaceCreateCommitOperationFromDrop(
+			{ kind: "file", source: "working_copy", path: "README.md" },
+			"feature/api",
+			"Add README",
+		),
+		{
+			valid: true,
+			operation: {
+				kind: "create_commit",
+				stackId: "feature/api",
+				message: "Add README",
+				selection: { source: "working_copy", paths: ["README.md"] },
+			},
+		},
+	);
+	assert.deepEqual(
+		createVcsWorkspaceCreateCommitOperationFromDrop(
+			{ kind: "file", source: "commit", commitId: "abc123", path: "README.md" },
+			"feature/api",
+			"Add README",
+		),
+		{ valid: false, reason: "Only working-copy changes can start a new commit." },
 	);
 });
 

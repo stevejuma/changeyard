@@ -138,10 +138,22 @@ test("validateVcsWorkspaceOperation gates hunk selections by capability", () => 
 			},
 			{ ...unsupportedWorkspaceCapabilities, supportsHunkRestoreDiscard: true, supportsCommitRewrite: true },
 		),
-		{
-			valid: false,
-			reason: "This provider does not support hunk-level workspace operations.",
-		},
+		{ valid: true, reason: null },
+	);
+	assert.deepEqual(
+		validateVcsWorkspaceOperation(
+			{
+				kind: "create_commit",
+				stackId: "feature/workspace",
+				message: "Add workspace contract",
+				selection: {
+					source: "working_copy",
+					hunks: [{ path: "src/workspace.ts", hunkId: "hunk-1" }],
+				},
+			},
+			{ ...unsupportedWorkspaceCapabilities, supportsWorkingCopyCommit: true },
+		),
+		{ valid: true, reason: null },
 	);
 	assert.deepEqual(
 		validateVcsWorkspaceOperation(
@@ -201,10 +213,7 @@ test("validateVcsWorkspaceOperation gates hunk selections by capability", () => 
 			},
 			{ ...unsupportedWorkspaceCapabilities, supportsCommittedHunkSelection: true, supportsCommitRewrite: true },
 		),
-		{
-			valid: false,
-			reason: "This provider does not support hunk-level workspace operations.",
-		},
+		{ valid: true, reason: null },
 	);
 });
 

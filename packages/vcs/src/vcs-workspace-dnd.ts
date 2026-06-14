@@ -18,6 +18,7 @@ export type VcsWorkspaceDragPayload =
 export type VcsWorkspaceDropTarget =
 	| { kind: "workspace" }
 	| { kind: "stack"; stackId: string }
+	| { kind: "stack_header"; stackId: string }
 	| { kind: "commit"; commitId: string }
 	| { kind: "working_copy" };
 
@@ -73,6 +74,22 @@ export function createVcsWorkspaceOperationFromDrop(
 			},
 		};
 	}
+	if (payload.kind === "commit" && target.kind === "commit") {
+		if (payload.commitId === target.commitId) {
+			return { valid: false, reason: "Choose a different target commit." };
+		}
+		return {
+			valid: true,
+			operation: {
+				kind: "squash_commits",
+				sourceCommitId: payload.commitId,
+				targetCommitId: target.commitId,
+			},
+		};
+	}
+	if (target.kind === "stack_header" && isChangePayload(payload)) {
+		return createVcsWorkspaceCreateCommitOperationFromDrop(payload, target.stackId, "New commit");
+	}
 	if (target.kind === "commit" && isChangePayload(payload)) {
 		const selection = selectionFromChangePayload(payload);
 		if (!selection) {
@@ -94,6 +111,32 @@ export function createVcsWorkspaceOperationFromDrop(
 		return { valid: true, operation: { kind: "uncommit_changes", selection } };
 	}
 	return { valid: false, reason: "This drop target does not accept the dragged item." };
+}
+
+export function createVcsWorkspaceCreateCommitOperationFromDrop(
+	payload: VcsWorkspaceDragPayload,
+	stackId: string,
+	message: string,
+): VcsWorkspaceDropOperation {
+	if (!isChangePayload(payload)) {
+		return { valid: false, reason: "Choose working-copy changes to start a commit." };
+	}
+	const selection = selectionFromChangePayload(payload);
+	if (!selection) {
+		return { valid: false, reason: "Choose a valid file or hunk selection." };
+	}
+	if (selection.source !== "working_copy") {
+		return { valid: false, reason: "Only working-copy changes can start a new commit." };
+	}
+	return {
+		valid: true,
+		operation: {
+			kind: "create_commit",
+			stackId,
+			message,
+			selection,
+		},
+	};
 }
 
 export function createValidatedVcsWorkspaceOperationFromDrop(

@@ -1,4 +1,4 @@
-import { FileText, Folder, FolderTree, GitBranch, List, MoreHorizontal, PanelLeft, Pencil, Play, Sparkles, Upload, X } from "lucide-react";
+import { FilePlus, FileText, Folder, FolderTree, GitBranch, List, MoreHorizontal, PanelLeft, Pencil, Play, Sparkles, Upload, X } from "lucide-react";
 import { Fragment, useEffect, useMemo, useState, type DragEvent as ReactDragEvent } from "react";
 
 import {
@@ -58,6 +58,7 @@ import {
 } from "@/utils/vcs-ui-preferences";
 import { readVcsQueryParam, useVcsRouter } from "@/utils/vcs-router";
 import {
+	createVcsWorkspaceCreateCommitOperationFromDrop,
 	createValidatedVcsWorkspaceOperationFromDrop,
 	describeVcsWorkspaceDropTarget,
 	parseVcsWorkspaceDragPayload,
@@ -69,6 +70,7 @@ import {
 import {
 	areVcsWorkspaceOperationsEqual,
 	isLowRiskVcsWorkspaceOperation,
+	type VcsChangeSelection,
 	type VcsDiffResult,
 	type VcsOperationPreview,
 	type VcsWorkspaceOperation,
@@ -120,9 +122,19 @@ function workspaceDropTargetKey(target: VcsWorkspaceDropTarget): string {
 			return target.kind;
 		case "stack":
 			return `stack:${target.stackId}`;
+		case "stack_header":
+			return `stack-header:${target.stackId}`;
 		case "commit":
 			return `commit:${target.commitId}`;
 	}
+}
+
+function workspaceCommitDropTargetInstanceKey(headBookmarkName: string, groupIndex: number, change: BranchesStackChange): string {
+	return `commit:${headBookmarkName}:${groupIndex}:${change.changeId}`;
+}
+
+function workspaceStackHeaderDropTargetInstanceKey(stackId: string, headBookmarkName: string, groupIndex: number): string {
+	return `stack-header-card:${stackId}:${headBookmarkName}:${groupIndex}`;
 }
 
 function workspaceDropTargetClassName(state: WorkspaceDropTargetState): string | null {
@@ -134,6 +146,28 @@ function workspaceDropTargetClassName(state: WorkspaceDropTargetState): string |
 	}
 	return null;
 }
+
+function workspaceDropTargetOverlayClassName(state: WorkspaceDropTargetState): string | null {
+	if (state === "valid") {
+		return "relative after:pointer-events-none after:absolute after:inset-1 after:rounded-md after:border-2 after:border-dashed after:border-accent/80 after:bg-accent/10 after:content-['']";
+	}
+	if (state === "invalid") {
+		return "relative cursor-not-allowed after:pointer-events-none after:absolute after:inset-1 after:rounded-md after:border-2 after:border-dashed after:border-status-red/80 after:bg-status-red/10 after:content-['']";
+	}
+	return null;
+}
+
+function workspaceCommitDropTargetClassName(state: WorkspaceDropTargetState): string | null {
+	return workspaceDropTargetOverlayClassName(state);
+}
+
+type StackCommitComposerState = {
+	stackId: string;
+	selection: VcsChangeSelection | null;
+	title: string;
+	body: string;
+	error: string | null;
+};
 
 function firstSelectionPath(selection: { paths?: string[]; hunks?: Array<{ path: string }> }): string | null {
 	return selection.paths?.find((path) => path.trim()) ?? selection.hunks?.find((hunk) => hunk.path.trim())?.path ?? null;
@@ -451,6 +485,7 @@ function WorkspaceReady({
 	const [selectedCommitHash, setSelectedCommitHash] = useState<string | null>(() => readQueryParam("commit"));
 	const [selectedFilePath, setSelectedFilePath] = useState<string | null>(() => readQueryParam("file"));
 	const [selectedUnstagedFilePath, setSelectedUnstagedFilePath] = useState<string | null>(() => readWorkingCopyFileQueryParam());
+	const [selectedComposerDiffStackId, setSelectedComposerDiffStackId] = useState<string | null>(null);
 	const [hasUserClearedFile, setHasUserClearedFile] = useState(false);
 	const [isFileSectionCollapsed, setFileSectionCollapsed] = useState(false);
 	const [isUnstagedCollapsed, setUnstagedCollapsed] = useState(() =>
@@ -460,6 +495,7 @@ function WorkspaceReady({
 	const [stackColumnWidths, setStackColumnWidths] = useState<Record<string, number>>({});
 	const [pendingOperation, setPendingOperation] = useState<VcsWorkspaceOperation | null>(null);
 	const [commitEdit, setCommitEdit] = useState<{ commitId: string; title: string } | null>(null);
+	const [stackCommitComposer, setStackCommitComposer] = useState<StackCommitComposerState | null>(null);
 	const [operationApplyError, setOperationApplyError] = useState<string | null>(null);
 	const [isApplyingPreviewedOperation, setApplyingPreviewedOperation] = useState(false);
 	const [activeDragPayload, setActiveDragPayload] = useState<VcsWorkspaceDragPayload | null>(null);
@@ -516,6 +552,10 @@ function WorkspaceReady({
 	const selectedFile = findFileByPath(files, selectedFilePath);
 	const unstagedDiffFiles = useMemo(() => toWorkingCopyDiffFiles(diffState), [diffState]);
 	const workingCopyFiles = useMemo(() => data.workingCopy.files.map(toUiFileChange), [data.workingCopy.files]);
+	const stagedComposerFiles = useMemo(
+		() => filesForSelection(unstagedDiffFiles.length > 0 ? unstagedDiffFiles : workingCopyFiles, stackCommitComposer?.selection ?? null),
+		[stackCommitComposer?.selection, unstagedDiffFiles, workingCopyFiles],
+	);
 	const selectedUnstagedFallbackFile = workingCopyFiles.find((change) => change.path === selectedUnstagedFilePath);
 	const selectedUnstagedFile =
 		findFileByPath(unstagedDiffFiles, selectedUnstagedFilePath) ??
@@ -602,13 +642,56 @@ function WorkspaceReady({
 		});
 	}
 
+	function openStackCommitComposer(stackId: string, selection: VcsChangeSelection | null = null, error: string | null = null): void {
+		setStackCommitComposer({
+			stackId,
+			selection,
+			title: "",
+			body: "",
+			error,
+		});
+	}
+
+	function updateStackCommitComposer(patch: Partial<Pick<StackCommitComposerState, "title" | "body" | "error">>): void {
+		setStackCommitComposer((current) => (current ? { ...current, ...patch } : current));
+	}
+
+	function closeStackCommitComposer(): void {
+		setStackCommitComposer(null);
+		setSelectedComposerDiffStackId(null);
+	}
+
+	function previewStackCommitComposer(): void {
+		if (!stackCommitComposer) {
+			return;
+		}
+		const title = stackCommitComposer.title.trim();
+		if (!title) {
+			updateStackCommitComposer({ error: "Commit title is required." });
+			return;
+		}
+		if (!stackCommitComposer.selection) {
+			updateStackCommitComposer({ error: "Drop working-copy changes onto this stack before creating a commit." });
+			return;
+		}
+		const body = stackCommitComposer.body.trim();
+		const message = body ? `${title}\n\n${body}` : title;
+		openWorkspaceOperationPreview({
+			kind: "create_commit",
+			stackId: stackCommitComposer.stackId,
+			message,
+			selection: stackCommitComposer.selection,
+		});
+		closeStackCommitComposer();
+	}
+
 	function closeWorkspaceOperationPreview(): void {
 		setPendingOperation(null);
 		setOperationApplyError(null);
 	}
 
-	function getDropTargetState(target: VcsWorkspaceDropTarget): WorkspaceDropTargetState {
-		const key = workspaceDropTargetKey(target);
+	function getDropTargetState(target: VcsWorkspaceDropTarget, targetKey = workspaceDropTargetKey(target)): WorkspaceDropTargetState {
+		const key = targetKey;
 		return activeDropTarget?.key === key ? activeDropTarget.state : "idle";
 	}
 
@@ -752,7 +835,11 @@ function WorkspaceReady({
 		}
 	}
 
-	function handleDragOver(event: ReactDragEvent<HTMLElement>, target: VcsWorkspaceDropTarget): void {
+	function handleDragOver(
+		event: ReactDragEvent<HTMLElement>,
+		target: VcsWorkspaceDropTarget,
+		targetKey = workspaceDropTargetKey(target),
+	): void {
 		if (!Array.from(event.dataTransfer.types).includes(VCS_WORKSPACE_DRAG_MIME)) {
 			return;
 		}
@@ -763,16 +850,20 @@ function WorkspaceReady({
 			return;
 		}
 		const feedback = describeVcsWorkspaceDropTarget(activeDragPayload, target, data.capabilities);
-		setActiveDropTarget({ key: workspaceDropTargetKey(target), state: feedback.state });
+		setActiveDropTarget({ key: targetKey, state: feedback.state });
 		event.dataTransfer.dropEffect = feedback.state === "valid" ? "move" : "none";
 	}
 
-	function handleDragLeave(event: ReactDragEvent<HTMLElement>, target: VcsWorkspaceDropTarget): void {
+	function handleDragLeave(
+		event: ReactDragEvent<HTMLElement>,
+		target: VcsWorkspaceDropTarget,
+		targetKey = workspaceDropTargetKey(target),
+	): void {
 		const nextTarget = event.relatedTarget;
 		if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) {
 			return;
 		}
-		const key = workspaceDropTargetKey(target);
+		const key = targetKey;
 		setActiveDropTarget((current) => (current?.key === key ? null : current));
 	}
 
@@ -784,6 +875,19 @@ function WorkspaceReady({
 		event.preventDefault();
 		event.stopPropagation();
 		clearDragState();
+		if (target.kind === "stack_header") {
+			const operation = createVcsWorkspaceCreateCommitOperationFromDrop(payload, target.stackId, "");
+			if (!operation.valid) {
+				openStackCommitComposer(target.stackId, null, operation.reason);
+				return;
+			}
+			if (operation.operation.kind !== "create_commit") {
+				openStackCommitComposer(target.stackId, null, "Only working-copy changes can start a new commit.");
+				return;
+			}
+			openStackCommitComposer(target.stackId, operation.operation.selection);
+			return;
+		}
 		const operation = createValidatedVcsWorkspaceOperationFromDrop(payload, target, data.capabilities);
 		if (!operation.valid) {
 			setOperationApplyError(operation.reason);
@@ -805,6 +909,7 @@ function WorkspaceReady({
 		setSelectedCommitHash(change.commitId);
 		setSelectedFilePath(null);
 		setSelectedUnstagedFilePath(null);
+		setSelectedComposerDiffStackId(null);
 		setHasUserClearedFile(false);
 		setFileSectionCollapsed(false);
 		writeQueryParam("commit", change.commitId);
@@ -821,6 +926,7 @@ function WorkspaceReady({
 		}
 		setSelectedFilePath(path);
 		setSelectedUnstagedFilePath(null);
+		setSelectedComposerDiffStackId(null);
 		setHasUserClearedFile(false);
 		writeQueryParam("file", path);
 		writeWorkingCopyFileQueryParam(null);
@@ -829,10 +935,29 @@ function WorkspaceReady({
 	function selectUnstagedFile(path: string): void {
 		if (selectedUnstagedFilePath === path) {
 			setSelectedUnstagedFilePath(null);
+			setSelectedComposerDiffStackId(null);
 			writeWorkingCopyFileQueryParam(null);
 			return;
 		}
 		setSelectedUnstagedFilePath(path);
+		setSelectedComposerDiffStackId(null);
+		setSelectedCommitHash(null);
+		setSelectedFilePath(null);
+		setHasUserClearedFile(true);
+		writeQueryParam("commit", null);
+		writeWorkingCopyFileQueryParam(path);
+		writeQueryParam("file", null);
+	}
+
+	function selectComposerStagedFile(stackId: string, path: string): void {
+		if (selectedUnstagedFilePath === path && selectedComposerDiffStackId === stackId) {
+			setSelectedUnstagedFilePath(null);
+			setSelectedComposerDiffStackId(null);
+			writeWorkingCopyFileQueryParam(null);
+			return;
+		}
+		setSelectedUnstagedFilePath(path);
+		setSelectedComposerDiffStackId(stackId);
 		setSelectedCommitHash(null);
 		setSelectedFilePath(null);
 		setHasUserClearedFile(true);
@@ -897,6 +1022,7 @@ function WorkspaceReady({
 
 	function closeUnstagedDiff(): void {
 		setSelectedUnstagedFilePath(null);
+		setSelectedComposerDiffStackId(null);
 		writeWorkingCopyFileQueryParam(null);
 	}
 
@@ -985,7 +1111,7 @@ function WorkspaceReady({
 						dropTargetState={getDropTargetState({ kind: "working_copy" })}
 					/>
 				)}
-				{unstagedDiffColumn}
+				{selectedComposerDiffStackId ? null : unstagedDiffColumn}
 				{appliedStacks.length === 0 ? (
 					<EmptyWorkspaceLanes
 						onDragOver={(event) => handleDragOver(event, { kind: "workspace" })}
@@ -1022,6 +1148,15 @@ function WorkspaceReady({
 									onSelectStackChange={selectStackChange}
 									onEditCommit={openCommitEdit}
 									onSelectFile={selectFile}
+									composer={stackCommitComposer?.stackId === stack.id ? stackCommitComposer : null}
+									stagedFiles={stackCommitComposer?.stackId === stack.id ? stagedComposerFiles : []}
+									selectedStagedFilePath={stackCommitComposer?.stackId === stack.id ? selectedUnstagedFilePath : null}
+									onStartCommit={() => openStackCommitComposer(stack.id)}
+									onComposerTitleChange={(title) => updateStackCommitComposer({ title, error: null })}
+									onComposerBodyChange={(body) => updateStackCommitComposer({ body, error: null })}
+									onComposerCancel={closeStackCommitComposer}
+									onComposerPreview={previewStackCommitComposer}
+									onSelectComposerStagedFile={(path) => selectComposerStagedFile(stack.id, path)}
 									onFileDragStart={(event, file, change) => {
 										startWorkspaceDrag(event, {
 											kind: "file",
@@ -1040,14 +1175,19 @@ function WorkspaceReady({
 									onDragOverStack={(event) => handleDragOver(event, { kind: "stack", stackId: stack.id })}
 									onDragLeaveStack={(event) => handleDragLeave(event, { kind: "stack", stackId: stack.id })}
 									onDropStack={(event) => handleDrop(event, { kind: "stack", stackId: stack.id })}
-									onDragOverCommit={(event, change) => handleDragOver(event, { kind: "commit", commitId: change.changeId })}
-									onDragLeaveCommit={(event, change) => handleDragLeave(event, { kind: "commit", commitId: change.changeId })}
+									onDragOverStackHeader={(event, targetKey) => handleDragOver(event, { kind: "stack_header", stackId: stack.id }, targetKey)}
+									onDragLeaveStackHeader={(event, targetKey) => handleDragLeave(event, { kind: "stack_header", stackId: stack.id }, targetKey)}
+									onDropStackHeader={(event) => handleDrop(event, { kind: "stack_header", stackId: stack.id })}
+									onDragOverCommit={(event, change, targetKey) => handleDragOver(event, { kind: "commit", commitId: change.changeId }, targetKey)}
+									onDragLeaveCommit={(event, change, targetKey) => handleDragLeave(event, { kind: "commit", commitId: change.changeId }, targetKey)}
 									onDropCommit={(event, change) => handleDrop(event, { kind: "commit", commitId: change.changeId })}
 									stackDropTargetState={getDropTargetState({ kind: "stack", stackId: stack.id })}
-									getCommitDropTargetState={(change) => getDropTargetState({ kind: "commit", commitId: change.changeId })}
+									stackHeaderDropTargetState={getDropTargetState({ kind: "stack_header", stackId: stack.id })}
+									getStackHeaderDropTargetState={(targetKey) => getDropTargetState({ kind: "stack_header", stackId: stack.id }, targetKey)}
+									getCommitDropTargetState={(change, targetKey) => getDropTargetState({ kind: "commit", commitId: change.changeId }, targetKey)}
 								/>
 							)}
-							{selectedStackId === stack.id ? diffColumn : null}
+							{selectedComposerDiffStackId === stack.id ? unstagedDiffColumn : selectedStackId === stack.id ? diffColumn : null}
 						</Fragment>
 					))
 				)}
@@ -1410,15 +1550,29 @@ function WorkspaceStackLane({
 	onSelectStackChange,
 	onEditCommit,
 	onSelectFile,
+	composer,
+	stagedFiles,
+	selectedStagedFilePath,
+	onStartCommit,
+	onComposerTitleChange,
+	onComposerBodyChange,
+	onComposerCancel,
+	onComposerPreview,
+	onSelectComposerStagedFile,
 	onFileDragStart,
 	onCommitDragStart,
 	onDragOverStack,
 	onDragLeaveStack,
 	onDropStack,
+	onDragOverStackHeader,
+	onDragLeaveStackHeader,
+	onDropStackHeader,
 	onDragOverCommit,
 	onDragLeaveCommit,
 	onDropCommit,
 	stackDropTargetState,
+	stackHeaderDropTargetState,
+	getStackHeaderDropTargetState,
 	getCommitDropTargetState,
 }: {
 	stack: BranchesStack;
@@ -1439,16 +1593,30 @@ function WorkspaceStackLane({
 	onSelectStackChange: (change: BranchesStackChange) => void;
 	onEditCommit: (change: BranchesStackChange) => void;
 	onSelectFile: (path: string) => void;
+	composer: StackCommitComposerState | null;
+	stagedFiles: VcsFileChange[];
+	selectedStagedFilePath: string | null;
+	onStartCommit: () => void;
+	onComposerTitleChange: (title: string) => void;
+	onComposerBodyChange: (body: string) => void;
+	onComposerCancel: () => void;
+	onComposerPreview: () => void;
+	onSelectComposerStagedFile: (path: string) => void;
 	onFileDragStart: (event: ReactDragEvent<HTMLButtonElement>, file: VcsFileChange, change: BranchesStackChange) => void;
 	onCommitDragStart: (event: ReactDragEvent<HTMLDivElement>, change: BranchesStackChange) => void;
 	onDragOverStack: (event: ReactDragEvent<HTMLElement>) => void;
 	onDragLeaveStack: (event: ReactDragEvent<HTMLElement>) => void;
 	onDropStack: (event: ReactDragEvent<HTMLElement>) => void;
-	onDragOverCommit: (event: ReactDragEvent<HTMLElement>, change: BranchesStackChange) => void;
-	onDragLeaveCommit: (event: ReactDragEvent<HTMLElement>, change: BranchesStackChange) => void;
+	onDragOverStackHeader: (event: ReactDragEvent<HTMLElement>, targetKey?: string) => void;
+	onDragLeaveStackHeader: (event: ReactDragEvent<HTMLElement>, targetKey?: string) => void;
+	onDropStackHeader: (event: ReactDragEvent<HTMLElement>) => void;
+	onDragOverCommit: (event: ReactDragEvent<HTMLElement>, change: BranchesStackChange, targetKey: string) => void;
+	onDragLeaveCommit: (event: ReactDragEvent<HTMLElement>, change: BranchesStackChange, targetKey: string) => void;
 	onDropCommit: (event: ReactDragEvent<HTMLElement>, change: BranchesStackChange) => void;
 	stackDropTargetState: WorkspaceDropTargetState;
-	getCommitDropTargetState: (change: BranchesStackChange) => WorkspaceDropTargetState;
+	stackHeaderDropTargetState: WorkspaceDropTargetState;
+	getStackHeaderDropTargetState: (targetKey: string) => WorkspaceDropTargetState;
+	getCommitDropTargetState: (change: BranchesStackChange, targetKey: string) => WorkspaceDropTargetState;
 }): React.ReactElement {
 	const groups = groupStackChangesByHead(stack);
 	return (
@@ -1490,14 +1658,30 @@ function WorkspaceStackLane({
 				onDragLeave={onDragLeaveStack}
 				onDrop={onDropStack}
 			>
-				<div className="mb-3 rounded-lg border border-dashed border-border bg-surface-0/80 px-3 py-3 text-center text-sm text-text-tertiary">
-					Drop files to stage or commit directly
-				</div>
+				<StackStartCommitPanel
+					composer={composer}
+					stagedFiles={stagedFiles}
+					selectedStagedFilePath={selectedStagedFilePath}
+					fileViewMode={fileViewMode}
+					dropTargetState={stackHeaderDropTargetState}
+					onDragOver={onDragOverStackHeader}
+					onDragLeave={onDragLeaveStackHeader}
+					onDrop={onDropStackHeader}
+					onStartCommit={onStartCommit}
+					onTitleChange={onComposerTitleChange}
+					onBodyChange={onComposerBodyChange}
+					onCancel={onComposerCancel}
+					onPreview={onComposerPreview}
+					onFileViewModeChange={onFileViewModeChange}
+					onSelectStagedFile={onSelectComposerStagedFile}
+				/>
 				<div className="grid gap-3">
-					{groups.map((group) => (
+					{groups.map((group, groupIndex) => (
 						<WorkspaceStackCard
-							key={group.head.bookmarkName}
+							key={`${group.head.bookmarkName}-${groupIndex}`}
+							stackId={stack.id}
 							group={group}
+							groupIndex={groupIndex}
 							selectedCommitHash={selectedCommitHash}
 							selectedFilePath={selectedFilePath}
 							selectedFiles={selectedFiles}
@@ -1512,9 +1696,13 @@ function WorkspaceStackLane({
 							onSelectFile={onSelectFile}
 							onFileDragStart={onFileDragStart}
 							onCommitDragStart={onCommitDragStart}
+							onDragOverStackHeader={onDragOverStackHeader}
+							onDragLeaveStackHeader={onDragLeaveStackHeader}
+							onDropStackHeader={onDropStackHeader}
 							onDragOverCommit={onDragOverCommit}
 							onDragLeaveCommit={onDragLeaveCommit}
 							onDropCommit={onDropCommit}
+							getStackHeaderDropTargetState={getStackHeaderDropTargetState}
 							getCommitDropTargetState={getCommitDropTargetState}
 						/>
 					))}
@@ -1524,8 +1712,165 @@ function WorkspaceStackLane({
 	);
 }
 
+function StackStartCommitPanel({
+	composer,
+	stagedFiles,
+	selectedStagedFilePath,
+	fileViewMode,
+	dropTargetState,
+	onDragOver,
+	onDragLeave,
+	onDrop,
+	onStartCommit,
+	onTitleChange,
+	onBodyChange,
+	onCancel,
+	onPreview,
+	onFileViewModeChange,
+	onSelectStagedFile,
+}: {
+	composer: StackCommitComposerState | null;
+	stagedFiles: VcsFileChange[];
+	selectedStagedFilePath: string | null;
+	fileViewMode: VcsFileViewMode;
+	dropTargetState: WorkspaceDropTargetState;
+	onDragOver: (event: ReactDragEvent<HTMLElement>) => void;
+	onDragLeave: (event: ReactDragEvent<HTMLElement>) => void;
+	onDrop: (event: ReactDragEvent<HTMLElement>) => void;
+	onStartCommit: () => void;
+	onTitleChange: (title: string) => void;
+	onBodyChange: (body: string) => void;
+	onCancel: () => void;
+	onPreview: () => void;
+	onFileViewModeChange: (mode: VcsFileViewMode) => void;
+	onSelectStagedFile: (path: string) => void;
+}): React.ReactElement {
+	const hasSelection = Boolean(composer?.selection);
+	const title = composer?.title ?? "";
+	const body = composer?.body ?? "";
+	return (
+		<div className="mb-3 rounded-lg border border-border bg-surface-0/90 p-3 shadow-sm">
+			<div
+				data-testid="vcs-workspace-stack-header-drop-target"
+				data-drop-target-state={dropTargetState}
+				className={cn(
+					"rounded-md border-2 border-dashed border-border bg-surface-1/70 px-3 py-5 text-center text-sm font-medium text-text-secondary transition-colors",
+					dropTargetState === "valid" && "border-accent/80 bg-accent/10 text-accent",
+					dropTargetState === "invalid" && "border-status-red/80 bg-status-red/10 text-status-red",
+				)}
+				onDragOver={onDragOver}
+				onDragLeave={onDragLeave}
+				onDrop={onDrop}
+			>
+				Drop files to stage or commit directly
+			</div>
+			{composer ? (
+				<div className="mt-3 grid gap-3">
+					{stagedFiles.length > 0 ? (
+						<VcsInlineFileSection
+							title="Staged"
+							files={stagedFiles}
+							selectedPath={selectedStagedFilePath}
+							viewMode={fileViewMode}
+							onViewModeChange={onFileViewModeChange}
+							onSelectPath={onSelectStagedFile}
+						/>
+					) : null}
+				<div className="rounded-md border border-border bg-surface-0">
+					<input
+						className="h-11 w-full rounded-t-md border-0 border-b border-border bg-transparent px-3 text-sm font-medium text-text-primary outline-none placeholder:text-text-tertiary focus:border-accent"
+						placeholder="Commit title (required)"
+						value={title}
+						onChange={(event) => onTitleChange(event.target.value)}
+						onKeyDown={(event) => {
+							if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+								onPreview();
+							}
+						}}
+					/>
+					<textarea
+						className="min-h-24 w-full resize-y border-0 bg-transparent px-3 py-3 font-mono text-[13px] text-text-primary outline-none placeholder:text-text-tertiary focus:border-accent"
+						placeholder="Commit message"
+						value={body}
+						onChange={(event) => onBodyChange(event.target.value)}
+						onKeyDown={(event) => {
+							if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+								onPreview();
+							}
+						}}
+					/>
+					<div className="mx-3 border-t border-divider py-3">
+						<div className="mb-3 flex min-w-0 items-center gap-2 text-xs text-text-secondary">
+							<FilePlus size={14} className="shrink-0 text-accent" />
+							<span className="min-w-0 truncate">{hasSelection ? selectionSummary(composer.selection) : "Drop working-copy changes to attach them"}</span>
+						</div>
+						{composer.error ? <div className="mb-3 text-xs text-status-red">{composer.error}</div> : null}
+						<div className="grid grid-cols-[minmax(0,0.42fr)_minmax(0,1fr)] gap-2">
+							<Button variant="default" onClick={onCancel}>
+								Cancel
+							</Button>
+							<Button variant="primary" icon={<Play size={14} />} disabled={!title.trim() || !hasSelection} onClick={onPreview}>
+								Create commit
+							</Button>
+						</div>
+					</div>
+				</div>
+				</div>
+			) : (
+				<Button variant="default" className="mt-3 w-full justify-center" onClick={onStartCommit}>
+					Start a commit...
+				</Button>
+			)}
+		</div>
+	);
+}
+
+function selectionSummary(selection: VcsChangeSelection | null): string {
+	if (!selection) {
+		return "No changes attached";
+	}
+	const paths = selection.paths ?? [];
+	const hunks = selection.hunks ?? [];
+	if (paths.length === 1) {
+		return paths[0] ?? "1 file attached";
+	}
+	if (paths.length > 1) {
+		return `${paths.length} files attached`;
+	}
+	if (hunks.length === 1) {
+		return `${hunks[0]?.path ?? "1 file"} hunk attached`;
+	}
+	if (hunks.length > 1) {
+		return `${hunks.length} hunks attached`;
+	}
+	return "No changes attached";
+}
+
+function filesForSelection(files: VcsFileChange[], selection: VcsChangeSelection | null): VcsFileChange[] {
+	if (!selection) {
+		return [];
+	}
+	const selectedPaths = new Set(selection.hunks?.map((hunk) => hunk.path) ?? []);
+	for (const path of selection.paths ?? []) {
+		selectedPaths.add(path);
+	}
+	if (selectedPaths.size === 0) {
+		return [];
+	}
+	return files.filter((file) => {
+		for (const path of selectedPaths) {
+			if (file.path === path || file.path.startsWith(`${path}/`)) {
+				return true;
+			}
+		}
+		return false;
+	});
+}
+
 function WorkspaceStackCard({
+	stackId,
 	group,
+	groupIndex,
 	selectedCommitHash,
 	selectedFilePath,
 	selectedFiles,
@@ -1540,12 +1885,18 @@ function WorkspaceStackCard({
 	onSelectFile,
 	onFileDragStart,
 	onCommitDragStart,
+	onDragOverStackHeader,
+	onDragLeaveStackHeader,
+	onDropStackHeader,
 	onDragOverCommit,
 	onDragLeaveCommit,
 	onDropCommit,
+	getStackHeaderDropTargetState,
 	getCommitDropTargetState,
 }: {
+	stackId: string;
 	group: StackChangeGroup;
+	groupIndex: number;
 	selectedCommitHash: string | null;
 	selectedFilePath: string | null;
 	selectedFiles: VcsFileChange[];
@@ -1560,14 +1911,31 @@ function WorkspaceStackCard({
 	onSelectFile: (path: string) => void;
 	onFileDragStart: (event: ReactDragEvent<HTMLButtonElement>, file: VcsFileChange, change: BranchesStackChange) => void;
 	onCommitDragStart: (event: ReactDragEvent<HTMLDivElement>, change: BranchesStackChange) => void;
-	onDragOverCommit: (event: ReactDragEvent<HTMLElement>, change: BranchesStackChange) => void;
-	onDragLeaveCommit: (event: ReactDragEvent<HTMLElement>, change: BranchesStackChange) => void;
+	onDragOverStackHeader: (event: ReactDragEvent<HTMLElement>, targetKey: string) => void;
+	onDragLeaveStackHeader: (event: ReactDragEvent<HTMLElement>, targetKey: string) => void;
+	onDropStackHeader: (event: ReactDragEvent<HTMLElement>) => void;
+	onDragOverCommit: (event: ReactDragEvent<HTMLElement>, change: BranchesStackChange, targetKey: string) => void;
+	onDragLeaveCommit: (event: ReactDragEvent<HTMLElement>, change: BranchesStackChange, targetKey: string) => void;
 	onDropCommit: (event: ReactDragEvent<HTMLElement>, change: BranchesStackChange) => void;
-	getCommitDropTargetState: (change: BranchesStackChange) => WorkspaceDropTargetState;
+	getStackHeaderDropTargetState: (targetKey: string) => WorkspaceDropTargetState;
+	getCommitDropTargetState: (change: BranchesStackChange, targetKey: string) => WorkspaceDropTargetState;
 }): React.ReactElement {
+	const stackHeaderDropTargetKey = workspaceStackHeaderDropTargetInstanceKey(stackId, group.head.bookmarkName, groupIndex);
+	const stackHeaderDropTargetState = getStackHeaderDropTargetState(stackHeaderDropTargetKey);
 	return (
 		<section className="overflow-hidden rounded-lg border border-border bg-surface-0 shadow-sm">
-			<header className="border-b border-divider px-3 py-3">
+			<header
+				data-testid="vcs-workspace-stack-card-header-drop-target"
+				data-drop-target-key={stackHeaderDropTargetKey}
+				data-drop-target-state={stackHeaderDropTargetState}
+				className={cn(
+					"border-b border-divider px-3 py-3 transition-colors",
+					workspaceDropTargetOverlayClassName(stackHeaderDropTargetState),
+				)}
+				onDragOver={(event) => onDragOverStackHeader(event, stackHeaderDropTargetKey)}
+				onDragLeave={(event) => onDragLeaveStackHeader(event, stackHeaderDropTargetKey)}
+				onDrop={onDropStackHeader}
+			>
 				<div className="flex min-w-0 items-center gap-2">
 					<div className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-accent text-accent-fg">
 						<GitBranch size={14} />
@@ -1589,30 +1957,34 @@ function WorkspaceStackCard({
 				{group.changes.length === 0 ? (
 					<div className="px-3 py-4 text-sm text-text-secondary">No visible changes were returned for this stack head.</div>
 				) : (
-					group.changes.map((change) => (
-						<WorkspaceStackChangeRow
-							key={`${group.head.bookmarkName}-${change.changeId}`}
-							change={change}
-							selected={selectedCommitHash === change.commitId}
-							selectedFilePath={selectedFilePath}
-							selectedFiles={selectedFiles}
-							diffState={diffState}
-							fileViewMode={fileViewMode}
-							isFileSectionCollapsed={isFileSectionCollapsed}
-							canEditCommit={canEditCommit}
-							onFileViewModeChange={onFileViewModeChange}
-							onFileSectionCollapsedChange={onFileSectionCollapsedChange}
-							onSelectStackChange={onSelectStackChange}
-							onEditCommit={onEditCommit}
-							onSelectFile={onSelectFile}
-							onFileDragStart={onFileDragStart}
-							onCommitDragStart={onCommitDragStart}
-							onDragOverCommit={onDragOverCommit}
-							onDragLeaveCommit={onDragLeaveCommit}
-							onDropCommit={onDropCommit}
-							dropTargetState={getCommitDropTargetState(change)}
-						/>
-					))
+					group.changes.map((change) => {
+						const dropTargetKey = workspaceCommitDropTargetInstanceKey(group.head.bookmarkName, groupIndex, change);
+						return (
+							<WorkspaceStackChangeRow
+								key={`${group.head.bookmarkName}-${groupIndex}-${change.changeId}`}
+								change={change}
+								dropTargetKey={dropTargetKey}
+								selected={selectedCommitHash === change.commitId}
+								selectedFilePath={selectedFilePath}
+								selectedFiles={selectedFiles}
+								diffState={diffState}
+								fileViewMode={fileViewMode}
+								isFileSectionCollapsed={isFileSectionCollapsed}
+								canEditCommit={canEditCommit}
+								onFileViewModeChange={onFileViewModeChange}
+								onFileSectionCollapsedChange={onFileSectionCollapsedChange}
+								onSelectStackChange={onSelectStackChange}
+								onEditCommit={onEditCommit}
+								onSelectFile={onSelectFile}
+								onFileDragStart={onFileDragStart}
+								onCommitDragStart={onCommitDragStart}
+								onDragOverCommit={onDragOverCommit}
+								onDragLeaveCommit={onDragLeaveCommit}
+								onDropCommit={onDropCommit}
+								dropTargetState={getCommitDropTargetState(change, dropTargetKey)}
+							/>
+						);
+					})
 				)}
 			</div>
 		</section>
@@ -1621,6 +1993,7 @@ function WorkspaceStackCard({
 
 function WorkspaceStackChangeRow({
 	change,
+	dropTargetKey,
 	selected,
 	selectedFilePath,
 	selectedFiles,
@@ -1641,6 +2014,7 @@ function WorkspaceStackChangeRow({
 	dropTargetState,
 }: {
 	change: BranchesStack["changes"][number];
+	dropTargetKey: string;
 	selected: boolean;
 	selectedFilePath: string | null;
 	selectedFiles: VcsFileChange[];
@@ -1655,8 +2029,8 @@ function WorkspaceStackChangeRow({
 	onSelectFile: (path: string) => void;
 	onFileDragStart: (event: ReactDragEvent<HTMLButtonElement>, file: VcsFileChange, change: BranchesStackChange) => void;
 	onCommitDragStart: (event: ReactDragEvent<HTMLDivElement>, change: BranchesStackChange) => void;
-	onDragOverCommit: (event: ReactDragEvent<HTMLElement>, change: BranchesStackChange) => void;
-	onDragLeaveCommit: (event: ReactDragEvent<HTMLElement>, change: BranchesStackChange) => void;
+	onDragOverCommit: (event: ReactDragEvent<HTMLElement>, change: BranchesStackChange, targetKey: string) => void;
+	onDragLeaveCommit: (event: ReactDragEvent<HTMLElement>, change: BranchesStackChange, targetKey: string) => void;
 	onDropCommit: (event: ReactDragEvent<HTMLElement>, change: BranchesStackChange) => void;
 	dropTargetState: WorkspaceDropTargetState;
 }): React.ReactElement {
@@ -1673,20 +2047,20 @@ function WorkspaceStackChangeRow({
 			draggable
 			data-testid="vcs-workspace-commit-card"
 			data-commit-id={change.commitId}
+			data-drop-target-key={dropTargetKey}
 			data-drop-target-state={dropTargetState}
 			className={cn(
 				"overflow-hidden border-b border-divider bg-surface-0 transition-shadow last:border-b-0",
 				change.isCurrent && "border-l-4 border-l-accent",
 				selected && "bg-surface-2",
 				selected && SELECTED_CHANGE_MARKER_CLASS,
-				workspaceDropTargetClassName(dropTargetState),
 			)}
 			onDragStart={(event) => onCommitDragStart(event, change)}
-			onDragOver={(event) => onDragOverCommit(event, change)}
-			onDragLeave={(event) => onDragLeaveCommit(event, change)}
+			onDragOver={(event) => onDragOverCommit(event, change, dropTargetKey)}
+			onDragLeave={(event) => onDragLeaveCommit(event, change, dropTargetKey)}
 			onDrop={(event) => onDropCommit(event, change)}
 		>
-			<div className="flex min-w-0 items-center gap-1 px-3 py-3 transition-colors hover:bg-surface-2">
+			<div className={cn("flex min-w-0 items-center gap-1 px-3 py-3 transition-colors hover:bg-surface-2", workspaceCommitDropTargetClassName(dropTargetState))}>
 				<button
 					type="button"
 					className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left"

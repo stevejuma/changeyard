@@ -318,6 +318,14 @@ function capabilitySupportsHunkSelectionForOperation(
 		return true;
 	}
 	return (
+		capabilities.supportsWorkingCopyCommit &&
+		operation.kind === "create_commit" &&
+		operation.selection.source === "working_copy"
+	) || (
+		capabilities.supportsCommitRewrite &&
+		operation.kind === "amend_commit" &&
+		operation.selection.source === "working_copy"
+	) || (
 		capabilities.supportsHunkRestoreDiscard &&
 		(operation.kind === "restore_changes" || operation.kind === "discard_changes") &&
 		operation.selection.source === "working_copy"

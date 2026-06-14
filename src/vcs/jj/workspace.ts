@@ -24,6 +24,9 @@ type JjWorkingCopyHunkRestoreDiscardOperation = JjRestoreDiscardOperation & {
 type JjCommittedHunkDiscardOperation = JjRestoreDiscardOperation & {
 	selection: NeutralSelection & { source: "commit"; hunks: JjHunkSelection[] };
 };
+type JjWorkingCopyHunkCommitOperation = Extract<NeutralOperation, { kind: "amend_commit" | "create_commit" }> & {
+	selection: NeutralSelection & { source: "working_copy"; hunks: JjHunkSelection[] };
+};
 
 type JjPatchFile = {
 	path: string;
@@ -56,7 +59,7 @@ function workspaceCapabilities() {
 		supportsUndoRedo: true,
 		supportsSyntheticWorkspaceMerge: false,
 		supportsCreateStack: false,
-		supportsWorkingCopyCommit: false,
+		supportsWorkingCopyCommit: true,
 	};
 }
 
@@ -233,6 +236,12 @@ export async function previewJjWorkspaceOperation(
 	if (input.operation.kind === "apply_stack" || input.operation.kind === "unapply_stack") {
 		return await workspaceMembershipPreview(cwd, runner, input.operation);
 	}
+	if (isJjSupportedWorkingCopyHunkCommitOperation(input.operation)) {
+		return await previewJjWorkingCopyHunkCommitOperation(cwd, runner, input.operation);
+	}
+	if (input.operation.kind === "create_commit") {
+		return await previewJjCreateCommitOperation(cwd, runner, input.operation);
+	}
 	if (isJjCommittedHunkDiscardOperation(input.operation)) {
 		const validation = await validateJjCommittedHunkDiscardOperation(cwd, runner, input.operation);
 		if (validation) {
@@ -326,6 +335,12 @@ export async function applyJjWorkspaceOperation(
 ) {
 	if (input.operation.kind === "apply_stack" || input.operation.kind === "unapply_stack") {
 		return await workspaceMembershipApply(cwd, runner, input.operation);
+	}
+	if (isJjSupportedWorkingCopyHunkCommitOperation(input.operation)) {
+		return await applyJjWorkingCopyHunkCommitOperation(cwd, runner, input.operation);
+	}
+	if (input.operation.kind === "create_commit") {
+		return await applyJjCreateCommitOperation(cwd, runner, input.operation);
 	}
 	if (isJjCommittedHunkDiscardOperation(input.operation)) {
 		const validation = await validateJjCommittedHunkDiscardOperation(cwd, runner, input.operation);
@@ -437,7 +452,13 @@ async function translateOperation(
 	runner: VcsCommandRunner,
 	operation: NeutralOperation,
 ): Promise<{ operation: VcsPreviewOperationInput | null; reason: string }> {
-	if (operation.kind !== "undo" && operation.kind !== "redo" && "selection" in operation && operation.selection?.hunks?.length) {
+	if (
+		operation.kind !== "undo" &&
+		operation.kind !== "redo" &&
+		!isJjSupportedWorkingCopyHunkCommitOperation(operation) &&
+		"selection" in operation &&
+		operation.selection?.hunks?.length
+	) {
 		return {
 			operation: null,
 			reason: "JJ hunk-level workspace operations are not implemented yet.",
@@ -459,7 +480,7 @@ async function translateOperation(
 				};
 			}
 			return {
-				operation: { kind: "absorb_file", targetChangeId: operation.commitId, paths },
+				operation: { kind: "squash_change", sourceChangeId: "@", targetChangeId: operation.commitId, paths },
 				reason: "",
 			};
 		}
@@ -599,6 +620,16 @@ function isJjHunkRestoreDiscardOperation(
 ): operation is JjWorkingCopyHunkRestoreDiscardOperation {
 	return (
 		(operation.kind === "restore_changes" || operation.kind === "discard_changes") &&
+		operation.selection.source === "working_copy" &&
+		Boolean(operation.selection.hunks?.length)
+	);
+}
+
+function isJjSupportedWorkingCopyHunkCommitOperation(
+	operation: NeutralOperation,
+): operation is JjWorkingCopyHunkCommitOperation {
+	return (
+		(operation.kind === "amend_commit" || operation.kind === "create_commit") &&
 		operation.selection.source === "working_copy" &&
 		Boolean(operation.selection.hunks?.length)
 	);
@@ -789,6 +820,174 @@ async function validateJjWorkingCopyHunkOperation(
 	}
 	const patch = await buildSelectedJjWorkingCopyHunkPatch(cwd, runner, hunks);
 	return patch.ok ? null : patch.reason;
+}
+
+function validateJjWorkingCopySelection(selection: NeutralSelection): string | null {
+	if (selection.source !== "working_copy") {
+		return "Choose working-copy changes.";
+	}
+	const paths = selection.paths ?? [];
+	const hunks = selection.hunks ?? [];
+	if (paths.length === 0 && hunks.length === 0) {
+		return "Choose one or more working-copy files or hunks.";
+	}
+	const overlappingPath = paths.find((path) => hunks.some((hunk) => hunk.path === path));
+	if (overlappingPath) {
+		return `Choose either the whole file or individual hunks for ${overlappingPath}, not both.`;
+	}
+	return null;
+}
+
+function normalizeOperationMessage(message: string): string | null {
+	const trimmed = message.trim();
+	return trimmed.length > 0 ? trimmed : null;
+}
+
+async function resolveCreateCommitStackHeadChangeId(
+	cwd: string,
+	runner: VcsCommandRunner,
+	operation: Extract<NeutralOperation, { kind: "create_commit" }>,
+): Promise<{ ok: true; headChangeId: string } | { ok: false; reason: string }> {
+	const state = await loadJjWorkspaceState(cwd, runner);
+	const stack = state.stacks.find((candidate) => candidate.stackId === operation.stackId);
+	const headChangeId = stack?.headCommitId ?? stack?.commits.at(-1)?.commitId ?? null;
+	if (!headChangeId) {
+		return { ok: false, reason: `Could not resolve stack ${operation.stackId} to a JJ change.` };
+	}
+	return { ok: true, headChangeId };
+}
+
+async function previewJjCreateCommitOperation(
+	cwd: string,
+	runner: VcsCommandRunner,
+	operation: Extract<NeutralOperation, { kind: "create_commit" }>,
+) {
+	const message = normalizeOperationMessage(operation.message);
+	if (!message) {
+		return unsupportedPreview(operation, "Enter a commit title before previewing.");
+	}
+	const validation = validateJjWorkingCopySelection(operation.selection);
+	if (validation) {
+		return unsupportedPreview(operation, validation);
+	}
+	const target = await resolveCreateCommitStackHeadChangeId(cwd, runner, operation);
+	if (!target.ok) {
+		return unsupportedPreview(operation, target.reason);
+	}
+	return {
+		valid: true,
+		operation,
+		title: "Create commit",
+		summary: `Create new commit at top of ${operation.stackId}.`,
+		risk: operation.selection.hunks?.length ? "high" as const : "medium" as const,
+		disabledReason: null,
+		warnings: [],
+		conflicts: [],
+		affectedStackIds: [operation.stackId],
+		affectedCommitIds: [target.headChangeId],
+		affectedPaths: pathsFromOperation(operation),
+		diagnostics: [],
+	};
+}
+
+async function previewJjWorkingCopyHunkCommitOperation(
+	cwd: string,
+	runner: VcsCommandRunner,
+	operation: JjWorkingCopyHunkCommitOperation,
+) {
+	const validation = validateJjWorkingCopySelection(operation.selection);
+	if (validation) {
+		return unsupportedPreview(operation, validation);
+	}
+	if (operation.kind === "create_commit" && !normalizeOperationMessage(operation.message)) {
+		return unsupportedPreview(operation, "Enter a commit title before previewing.");
+	}
+	const patch = await buildSelectedJjWorkingCopyHunkPatch(cwd, runner, operation.selection.hunks ?? []);
+	if (!patch.ok) {
+		return unsupportedPreview(operation, patch.reason);
+	}
+	const createCommitTarget = operation.kind === "create_commit" ? await resolveCreateCommitStackHeadChangeId(cwd, runner, operation) : null;
+	if (createCommitTarget && !createCommitTarget.ok) {
+		return unsupportedPreview(operation, createCommitTarget.reason);
+	}
+	const affectedCommitIds = operation.kind === "amend_commit" ? [operation.commitId] : [createCommitTarget?.headChangeId ?? ""].filter(Boolean);
+	return {
+		valid: true,
+		operation,
+		title: operation.kind === "amend_commit" ? "Amend commit" : "Create commit",
+		summary:
+			operation.kind === "amend_commit"
+				? `Move selected working-copy changes into ${operation.commitId}.`
+				: `Create new commit at top of ${operation.stackId}.`,
+		risk: "high" as const,
+		disabledReason: null,
+		warnings: [],
+		conflicts: [],
+		affectedStackIds: operation.kind === "create_commit" ? [operation.stackId] : [],
+		affectedCommitIds,
+		affectedPaths: pathsFromOperation(operation),
+		diagnostics: [],
+	};
+}
+
+async function applyJjCreateCommitOperation(
+	cwd: string,
+	runner: VcsCommandRunner,
+	operation: Extract<NeutralOperation, { kind: "create_commit" }>,
+) {
+	const preview = await previewJjCreateCommitOperation(cwd, runner, operation);
+	if (!preview.valid) {
+		return unsupportedApply(operation, preview.summary);
+	}
+	const target = await resolveCreateCommitStackHeadChangeId(cwd, runner, operation);
+	if (!target.ok) {
+		return unsupportedApply(operation, target.reason);
+	}
+	const message = normalizeOperationMessage(operation.message);
+	if (!message) {
+		return unsupportedApply(operation, "Enter a commit title before previewing.");
+	}
+	const paths = operation.selection.paths ?? [];
+	if (isJjSupportedWorkingCopyHunkCommitOperation(operation)) {
+		return await applyJjWorkingCopyHunkCommitOperation(cwd, runner, operation);
+	}
+	const applyResult = await runner({
+		command: "jj",
+		args: ["split", "-r", "@", "--insert-after", target.headChangeId, "-m", message, "--", ...paths],
+		cwd,
+	});
+	if (!applyResult.ok) {
+		return failedApply(operation, applyResult.stderr.trim() || applyResult.stdout.trim() || "Could not create JJ commit.");
+	}
+	return successfulApply(operation, "Created commit", `Created new commit at top of ${operation.stackId}.`, [target.headChangeId]);
+}
+
+async function applyJjWorkingCopyHunkCommitOperation(
+	cwd: string,
+	runner: VcsCommandRunner,
+	operation: JjWorkingCopyHunkCommitOperation,
+) {
+	const preview = await previewJjWorkingCopyHunkCommitOperation(cwd, runner, operation);
+	if (!preview.valid) {
+		return unsupportedApply(operation, preview.summary);
+	}
+	const target =
+		operation.kind === "create_commit"
+			? await resolveCreateCommitStackHeadChangeId(cwd, runner, operation)
+			: { ok: true as const, headChangeId: operation.commitId };
+	if (!target.ok) {
+		return unsupportedApply(operation, target.reason);
+	}
+	const applyResult = await applyJjWorkingCopyHunkCommitOperationWithEditor(cwd, runner, operation, target.headChangeId);
+	if (!applyResult.ok) {
+		return failedApply(operation, applyResult.stderr.trim() || applyResult.stdout.trim() || "Could not rewrite selected JJ working-copy hunks.");
+	}
+	const title = operation.kind === "amend_commit" ? "Amended commit" : "Created commit";
+	const summary =
+		operation.kind === "amend_commit"
+			? `Moved selected working-copy changes into ${operation.commitId}.`
+			: `Created new commit at top of ${operation.stackId}.`;
+	return successfulApply(operation, title, summary, [target.headChangeId]);
 }
 
 async function buildSelectedJjCommittedHunkPatch(
@@ -997,6 +1196,67 @@ async function applyJjCommittedHunkOperationWithEditor(
 				...patch.paths,
 			],
 			cwd: repoCwd,
+		});
+	} finally {
+		await rm(tempDir, { recursive: true, force: true });
+	}
+}
+
+async function applyJjWorkingCopyHunkCommitOperationWithEditor(
+	cwd: string,
+	runner: VcsCommandRunner,
+	operation: JjWorkingCopyHunkCommitOperation,
+	targetChangeId: string,
+) {
+	const patch = await buildSelectedJjWorkingCopyHunkPatch(cwd, runner, operation.selection.hunks ?? []);
+	if (!patch.ok) {
+		return { ok: false, stdout: "", stderr: patch.reason, exitCode: 1 };
+	}
+	const message = operation.kind === "create_commit" ? normalizeOperationMessage(operation.message) : null;
+	if (operation.kind === "create_commit" && !message) {
+		return { ok: false, stdout: "", stderr: "Enter a commit title before previewing.", exitCode: 1 };
+	}
+	const paths = [...new Set((operation.selection.hunks ?? []).map((hunk) => hunk.path))];
+	const tempDir = await mkdtemp(join(tmpdir(), "changeyard-jj-working-hunks-"));
+	const patchPath = join(tempDir, "selected.patch");
+	const editorPath = join(tempDir, "select-hunks-editor.sh");
+	await writeFile(patchPath, patch.patch, "utf8");
+	await writeFile(editorPath, createJjSelectedPatchEditorScript(patchPath), "utf8");
+	await chmod(editorPath, 0o700);
+	try {
+		if (operation.kind === "create_commit") {
+			return await runner({
+				command: "jj",
+				args: [
+					"split",
+					"-r",
+					"@",
+					"--insert-after",
+					targetChangeId,
+					"-m",
+					message ?? "",
+					"--interactive",
+					"--tool",
+					editorPath,
+					...paths,
+				],
+				cwd: patch.repoCwd,
+			});
+		}
+		return await runner({
+			command: "jj",
+			args: [
+				"squash",
+				"--from",
+				"@",
+				"--into",
+				targetChangeId,
+				"--interactive",
+				"--tool",
+				editorPath,
+				...paths,
+			],
+			cwd: patch.repoCwd,
 		});
 	} finally {
 		await rm(tempDir, { recursive: true, force: true });
@@ -1407,6 +1667,20 @@ function failedApply(operation: NeutralOperation, reason: string) {
 			],
 		},
 		diagnostics: [createDiagnostic("error", "jj_workspace_operation_failed", reason)],
+	};
+}
+
+function successfulApply(operation: NeutralOperation, title: string, summary: string, affectedCommitIds: string[]) {
+	return {
+		ok: true,
+		operation,
+		title,
+		summary,
+		affectedStackIds: stackIdsFromOperation(operation),
+		affectedCommitIds,
+		affectedPaths: pathsFromOperation(operation),
+		recovery: null,
+		diagnostics: [],
 	};
 }
 

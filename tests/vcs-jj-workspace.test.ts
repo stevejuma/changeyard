@@ -704,47 +704,110 @@ test("applyJjWorkspaceOperation splits selected committed hunks through JJ split
 	assert.match(calls.at(-1) ?? "", /^jj split -r api222 -m Extract API hunk --tool .+ src\/api\.ts$/);
 });
 
-test("previewJjWorkspaceOperation disables unsupported operations without running commands", async () => {
+test("previewJjWorkspaceOperation previews selected working-copy files as a new stack commit", async () => {
 	const calls: string[] = [];
 	const preview = await previewJjWorkspaceOperation(
 		"/repo",
 		{ operation: { kind: "create_commit", stackId: "feature/api", message: "New API", selection: { source: "working_copy", paths: ["src/api.ts"] } } },
+		createStateRunner(calls),
+	);
+
+	assert.equal(preview.valid, true);
+	assert.equal(preview.operation.kind, "create_commit");
+	assert.equal(preview.disabledReason, null);
+	assert.deepEqual(preview.affectedStackIds, ["feature/api"]);
+	assert.deepEqual(preview.affectedCommitIds, ["api222"]);
+	assert.deepEqual(preview.affectedPaths, ["src/api.ts"]);
+	assert.match(preview.summary, /Create new commit at top of feature\/api/i);
+});
+
+test("applyJjWorkspaceOperation creates a selected working-copy file commit at the top of the stack", async () => {
+	const calls: string[] = [];
+	const baseRunner = createStateRunner(calls);
+	const result = await applyJjWorkspaceOperation(
+		"/repo",
+		{ operation: { kind: "create_commit", stackId: "feature/api", message: "New API", selection: { source: "working_copy", paths: ["src/api.ts"] } } },
 		async (input) => {
-			calls.push(`${input.command} ${input.args.join(" ")}`);
-			return fail();
+			const joined = `${input.command} ${input.args.join(" ")}`;
+			calls.push(joined);
+			if (joined === "jj split -r @ --insert-after api222 -m New API -- src/api.ts") {
+				return ok("Created selected commit after api222");
+			}
+			calls.pop();
+			return await baseRunner(input);
 		},
 	);
 
-	assert.equal(preview.valid, false);
-	assert.equal(preview.operation.kind, "create_commit");
-	assert.match(preview.disabledReason ?? "", /not implemented/i);
-	assert.deepEqual(calls, []);
+	assert.equal(result.ok, true);
+	assert.equal(result.operation.kind, "create_commit");
+	assert.deepEqual(result.affectedStackIds, ["feature/api"]);
+	assert.deepEqual(result.affectedCommitIds, ["api222"]);
+	assert.deepEqual(result.affectedPaths, ["src/api.ts"]);
+	assert.equal(calls.at(-1), "jj split -r @ --insert-after api222 -m New API -- src/api.ts");
 });
 
-test("previewJjWorkspaceOperation blocks unsupported hunk amend while preserving selected paths", async () => {
+test("applyJjWorkspaceOperation amends working-copy files through JJ squash", async () => {
 	const calls: string[] = [];
-	const preview = await previewJjWorkspaceOperation(
+	const baseRunner = createStateRunner(calls);
+	const result = await applyJjWorkspaceOperation(
 		"/repo",
 		{
 			operation: {
 				kind: "amend_commit",
-				commitId: "api222",
+				commitId: "root111",
+				selection: { source: "working_copy", paths: ["src/api.ts"] },
+			},
+		},
+		async (input) => {
+			const joined = `${input.command} ${input.args.join(" ")}`;
+			calls.push(joined);
+			if (joined === "jj squash --from @ --into root111 src/api.ts") {
+				return ok("Squashed working-copy file into root111");
+			}
+			calls.pop();
+			return await baseRunner(input);
+		},
+	);
+
+	assert.equal(result.ok, true);
+	assert.equal(result.operation.kind, "amend_commit");
+	assert.deepEqual(result.affectedCommitIds, ["api222", "root111"]);
+	assert.deepEqual(result.affectedPaths, ["src/api.ts"]);
+	assert.equal(calls.at(-1), "jj squash --from @ --into root111 src/api.ts");
+});
+
+test("applyJjWorkspaceOperation amends working-copy hunks through JJ squash editor", async () => {
+	const calls: string[] = [];
+	const baseRunner = createStateRunner(calls);
+	const result = await applyJjWorkspaceOperation(
+		"/repo",
+		{
+			operation: {
+				kind: "amend_commit",
+				commitId: "root111",
 				selection: {
 					source: "working_copy",
-					hunks: [{ path: "src/api.ts", hunkId: "src/api.ts:1:1:1:1" }],
+					hunks: [{ path: "src/api.ts", hunkId: "1:2:1:2", oldStart: 1, oldLines: 2, newStart: 1, newLines: 2 }],
 				},
 			},
 		},
 		async (input) => {
-			calls.push(`${input.command} ${input.args.join(" ")}`);
-			return fail();
+			const joined = `${input.command} ${input.args.join(" ")}`;
+			calls.push(joined);
+			if (/^jj squash --from @ --into root111 --interactive --tool .+ src\/api\.ts$/.test(joined)) {
+				return ok("Squashed selected working-copy hunks into root111");
+			}
+			calls.pop();
+			return await baseRunner(input);
 		},
 	);
 
-	assert.equal(preview.valid, false);
-	assert.match(preview.disabledReason ?? "", /hunk-level workspace operations/i);
-	assert.deepEqual(preview.affectedPaths, ["src/api.ts"]);
-	assert.deepEqual(calls, []);
+	assert.equal(result.ok, true);
+	assert.equal(result.operation.kind, "amend_commit");
+	assert.deepEqual(result.affectedCommitIds, ["root111"]);
+	assert.deepEqual(result.affectedPaths, ["src/api.ts"]);
+	assert.ok(calls.includes("jj diff --ignore-working-copy --git --color=never -- src/api.ts"));
+	assert.match(calls.at(-1) ?? "", /^jj squash --from @ --into root111 --interactive --tool .+ src\/api\.ts$/);
 });
 
 test("previewJjWorkspaceOperation previews JJ workspace stack application through parent rebase", async () => {
@@ -818,20 +881,26 @@ test("applyJjWorkspaceOperation unapplies JJ workspace stacks by removing the st
 	assert.equal(calls.at(-1), "jj rebase -r @ -o root111");
 });
 
-test("applyJjWorkspaceOperation returns recovery instructions for unsupported operations", async () => {
+test("applyJjWorkspaceOperation returns recovery instructions when create commit fails", async () => {
 	const calls: string[] = [];
+	const baseRunner = createStateRunner(calls);
 	const result = await applyJjWorkspaceOperation(
 		"/repo",
 		{ operation: { kind: "create_commit", stackId: "feature/api", message: "New API", selection: { source: "working_copy", paths: ["src/api.ts"] } } },
 		async (input) => {
-			calls.push(`${input.command} ${input.args.join(" ")}`);
-			return fail();
+			const joined = `${input.command} ${input.args.join(" ")}`;
+			calls.push(joined);
+			if (joined === "jj split -r @ --insert-after api222 -m New API -- src/api.ts") {
+				return fail("split failed");
+			}
+			calls.pop();
+			return await baseRunner(input);
 		},
 	);
 
 	assert.equal(result.ok, false);
 	assert.equal(result.operation.kind, "create_commit");
-	assert.match(result.summary, /not implemented/i);
-	assert.match(result.recovery?.instructions.join("\n") ?? "", /No repository changes/);
-	assert.deepEqual(calls, []);
+	assert.match(result.summary, /split failed/i);
+	assert.match(result.recovery?.instructions.join("\n") ?? "", /jj op log/);
+	assert.equal(calls.at(-1), "jj split -r @ --insert-after api222 -m New API -- src/api.ts");
 });
