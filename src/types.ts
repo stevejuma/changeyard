@@ -94,6 +94,11 @@ export type ChangeyardConfig = {
     fallback: "plain-copy" | "jj" | "git-worktree" | string;
     targetBranch?: string;
     appliedStacks?: string[];
+    remoteBookmarks?: {
+      mode?: "local" | "tracked" | "all";
+      prefixes?: string[];
+      remotes?: string[];
+    };
   };
   workspace: {
     pathPattern: string;

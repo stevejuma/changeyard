@@ -1033,6 +1033,16 @@ export default function App(): ReactElement {
 	const detailSession = selectedCard
 		? (sessions[selectedCard.card.id] ?? createIdleTaskSession(selectedCard.card.id))
 		: null;
+	const handleResumeExternalSession = useCallback(
+		(taskId: string, sessionId: string) => {
+			const task = board.columns.flatMap((column) => column.cards).find((card) => card.id === taskId);
+			if (!task) {
+				return;
+			}
+			void startTaskSession(task, { resumeSessionId: sessionId });
+		},
+		[board.columns, startTaskSession],
+	);
 	const detailTerminalSummary = detailTerminalTaskId ? (sessions[detailTerminalTaskId] ?? null) : null;
 	const detailTerminalSubtitle = useMemo(() => {
 		if (!selectedCard) {
@@ -1423,6 +1433,7 @@ export default function App(): ReactElement {
 									onTaskDragEnd={handleDetailTaskDragEnd}
 									onCreateTask={handleOpenCreateTask}
 									onStartTask={handleStartTaskFromBoard}
+									onResumeExternalSession={handleResumeExternalSession}
 									onStartAllTasks={handleStartAllBacklogTasksFromBoard}
 									onClearTrash={handleOpenClearTrash}
 									editingTaskId={editingTaskId}

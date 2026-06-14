@@ -1,6 +1,6 @@
 import "@xterm/xterm/css/xterm.css";
 
-import { Command, Maximize2, MessageSquare, Minimize2, X } from "lucide-react";
+import { Command, Maximize2, MessageSquare, Minimize2, Play, X } from "lucide-react";
 import type { MutableRefObject, ReactElement } from "react";
 import { useMemo } from "react";
 
@@ -48,6 +48,7 @@ export interface AgentTerminalPanelProps {
 	onConnectionReady?: (taskId: string) => void;
 	agentCommand?: string | null;
 	onSendAgentCommand?: () => void;
+	onResumeExternalSession?: (sessionId: string) => void;
 	isExpanded?: boolean;
 	onToggleExpand?: () => void;
 }
@@ -339,6 +340,13 @@ function AgentTerminalPanelLayout({
 }
 
 export function AgentTerminalPanel(props: AgentTerminalPanelProps): ReactElement {
+	if (props.summary?.externalSession && props.summary.pid === null) {
+		return <ExternalAgentSessionPanel {...props} />;
+	}
+	return <OwnedAgentTerminalPanel {...props} />;
+}
+
+function OwnedAgentTerminalPanel(props: AgentTerminalPanelProps): ReactElement {
 	// enabled gates whether this panel should keep a live persistent terminal connection.
 	// We disable it for non-active task contexts so backlog and trash views do not keep extra websocket sockets open.
 	const sessionControls = usePersistentTerminalSession({
@@ -355,4 +363,70 @@ export function AgentTerminalPanel(props: AgentTerminalPanelProps): ReactElement
 	});
 
 	return <AgentTerminalPanelLayout {...props} sessionControls={sessionControls} />;
+}
+
+function ExternalAgentSessionPanel({
+	summary,
+	onResumeExternalSession,
+	panelBackgroundColor = "var(--color-surface-1)",
+}: AgentTerminalPanelProps): ReactElement {
+	const externalSession = summary?.externalSession ?? null;
+	const sessionId = externalSession?.sessionId ?? null;
+	const latestActivity =
+		summary?.latestHookActivity?.activityText ??
+		summary?.latestHookActivity?.finalMessage ??
+		summary?.latestHookActivity?.toolName ??
+		null;
+	const resumeCommand = externalSession?.resumeCommand?.join(" ") ?? null;
+
+	return (
+		<div
+			style={{
+				display: "flex",
+				flex: "1 1 0",
+				flexDirection: "column",
+				minWidth: 0,
+				minHeight: 0,
+				background: panelBackgroundColor,
+				padding: 12,
+				gap: 10,
+			}}
+		>
+			<div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+				<div style={{ minWidth: 0 }}>
+					<div className="text-sm font-semibold text-text-primary">External Codex Session</div>
+					<div className="truncate text-xs text-text-tertiary">
+						{sessionId ? `Session ${sessionId}` : "Waiting for Codex session id"}
+					</div>
+				</div>
+				<Button
+					variant="primary"
+					size="sm"
+					disabled={!sessionId || !onResumeExternalSession}
+					onClick={() => {
+						if (sessionId) onResumeExternalSession?.(sessionId);
+					}}
+				>
+					<Play size={14} />
+					Resume in UI
+				</Button>
+			</div>
+			<div className="rounded border border-divider bg-surface-0 p-3 text-xs text-text-secondary">
+				<div className="mb-1 font-medium text-text-primary">Latest activity</div>
+				<div className="break-words">{latestActivity ?? describeState(summary)}</div>
+			</div>
+			{resumeCommand ? (
+				<div className="rounded border border-divider bg-surface-0 p-3 text-xs text-text-secondary">
+					<div className="mb-1 font-medium text-text-primary">Resume command</div>
+					<div className="break-all font-mono">{resumeCommand}</div>
+				</div>
+			) : null}
+			{externalSession?.transcriptPath ? (
+				<div className="rounded border border-divider bg-surface-0 p-3 text-xs text-text-secondary">
+					<div className="mb-1 font-medium text-text-primary">Transcript</div>
+					<div className="break-all font-mono">{externalSession.transcriptPath}</div>
+				</div>
+			) : null}
+		</div>
+	);
 }

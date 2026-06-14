@@ -51,7 +51,7 @@ test("loadJjInventory groups local and remote bookmarks under the local branch i
 					return { ok: false, stdout: "", stderr: `${joined} not mocked`, exitCode: 1 };
 			}
 		},
-		{ targetBranch: "origin/main" },
+		{ targetBranch: "origin/main", remoteBookmarks: { mode: "all" } },
 	);
 
 	assert.deepEqual(
@@ -96,4 +96,103 @@ test("loadJjInventory groups local and remote bookmarks under the local branch i
 	assert.equal(result.workspaceTarget?.changeId, "mainchange");
 	assert.equal(result.workspaceTarget?.title, "Main target");
 	assert.equal(calls.some((call) => call.startsWith("git for-each-ref")), false);
+});
+
+test("loadJjInventory defaults to local bookmark discovery", async () => {
+	const calls: string[] = [];
+	const result = await loadJjInventory(
+		"/repo",
+		async ({ command, args }) => {
+			const joined = `${command} ${args.join(" ")}`;
+			calls.push(joined);
+			switch (joined) {
+				case "jj --version":
+					return ok("jj 0.39.0");
+				case "jj workspace root":
+					return ok("/repo");
+				case "git rev-parse --show-toplevel":
+					return ok("/repo");
+				case "jj bookmark list --ignore-working-copy --at-op=@ -r @":
+					return ok("feature/one: abcdefgh 12345678");
+				case "jj log --ignore-working-copy --at-op=@ -r @ --no-graph -T change_id.short()":
+					return ok("abcdefgh");
+				case "git remote":
+					return ok("origin\n");
+				case "git remote get-url origin":
+					return ok("https://github.com/acme/repo.git");
+				case "git symbolic-ref --quiet --short refs/remotes/origin/HEAD":
+					return ok("origin/main");
+				case "gh auth status --hostname github.com":
+					return ok("Logged in");
+				case 'jj log --ignore-working-copy --at-op=@ -r @ --no-graph -T change_id.short() ++ "\\t" ++ commit_id.short() ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ author.timestamp().format("%Y-%m-%dT%H:%M:%SZ") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\n"':
+					return ok("abcdefgh\t12345678\tFeature one\tSteve Juma\tsteve@example.com\t2026-04-04T12:00:00Z\tfeature/one\n");
+				case 'jj bookmark list --ignore-working-copy --at-op=@ --template name ++ "\\t" ++ if(self.remote(), self.remote(), "") ++ "\\t" ++ self.normal_target().change_id().short() ++ "\\t" ++ self.normal_target().commit_id().short() ++ "\\t" ++ self.normal_target().description().first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ self.normal_target().author().name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ self.normal_target().author().email() ++ "\\t" ++ self.normal_target().author().timestamp().format("%Y-%m-%dT%H:%M:%SZ") ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
+					return ok(
+						"feature/one\t\tabcdefgh\t12345678\tFeature one\tSteve Juma\tsteve@example.com\t2026-04-04T12:00:00Z\t1\t0\n",
+					);
+				case 'jj log --ignore-working-copy --at-op=@ -r main@origin --no-graph -T change_id.short() ++ "\\t" ++ commit_id.short() ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ author.timestamp().format("%Y-%m-%dT%H:%M:%SZ") ++ "\\n"':
+					return ok("mainchange\t00000000\tMain target\tMain User\tmain@example.com\t2026-04-01T12:00:00Z\n");
+				default:
+					return { ok: false, stdout: "", stderr: `${joined} not mocked`, exitCode: 1 };
+			}
+		},
+		{ targetBranch: "origin/main" },
+	);
+
+	assert.deepEqual(result.items.map((item) => item.name), ["feature/one"]);
+	assert.equal(calls.some((call) => call.includes("--all-remotes")), false);
+});
+
+test("loadJjInventory can scope remote bookmark discovery by remote and prefix", async () => {
+	const calls: string[] = [];
+	await loadJjInventory(
+		"/repo",
+		async ({ command, args }) => {
+			const joined = `${command} ${args.join(" ")}`;
+			calls.push(joined);
+			switch (joined) {
+				case "jj --version":
+					return ok("jj 0.39.0");
+				case "jj workspace root":
+					return ok("/repo");
+				case "git rev-parse --show-toplevel":
+					return ok("/repo");
+				case "jj bookmark list --ignore-working-copy --at-op=@ -r @":
+					return ok("feature/one: abcdefgh 12345678");
+				case "jj log --ignore-working-copy --at-op=@ -r @ --no-graph -T change_id.short()":
+					return ok("abcdefgh");
+				case "git remote":
+					return ok("origin\nupstream\n");
+				case "git remote get-url origin":
+					return ok("https://github.com/acme/repo.git");
+				case "git symbolic-ref --quiet --short refs/remotes/origin/HEAD":
+					return ok("origin/main");
+				case "gh auth status --hostname github.com":
+					return ok("Logged in");
+				case 'jj log --ignore-working-copy --at-op=@ -r @ --no-graph -T change_id.short() ++ "\\t" ++ commit_id.short() ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ author.timestamp().format("%Y-%m-%dT%H:%M:%SZ") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\n"':
+					return ok("abcdefgh\t12345678\tFeature one\tSteve Juma\tsteve@example.com\t2026-04-04T12:00:00Z\tfeature/one\n");
+				case 'jj bookmark list --all-remotes --remote origin --ignore-working-copy --at-op=@ --template name ++ "\\t" ++ if(self.remote(), self.remote(), "") ++ "\\t" ++ self.normal_target().change_id().short() ++ "\\t" ++ self.normal_target().commit_id().short() ++ "\\t" ++ self.normal_target().description().first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ self.normal_target().author().name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ self.normal_target().author().email() ++ "\\t" ++ self.normal_target().author().timestamp().format("%Y-%m-%dT%H:%M:%SZ") ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n" steve/* team/app/*':
+					return ok(
+						"steve/feature\torigin\tremote111\t11111111\tRemote feature\tRemote User\tremote@example.com\t2026-04-03T12:00:00Z\t0\t0\n",
+					);
+				case 'jj log --ignore-working-copy --at-op=@ -r main@origin --no-graph -T change_id.short() ++ "\\t" ++ commit_id.short() ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ author.timestamp().format("%Y-%m-%dT%H:%M:%SZ") ++ "\\n"':
+					return ok("mainchange\t00000000\tMain target\tMain User\tmain@example.com\t2026-04-01T12:00:00Z\n");
+				default:
+					return { ok: false, stdout: "", stderr: `${joined} not mocked`, exitCode: 1 };
+			}
+		},
+		{
+			targetBranch: "origin/main",
+			remoteBookmarks: {
+				prefixes: ["steve/", "team/app/"],
+				remotes: ["origin"],
+			},
+		},
+	);
+
+	assert.ok(
+		calls.includes(
+			'jj bookmark list --all-remotes --remote origin --ignore-working-copy --at-op=@ --template name ++ "\\t" ++ if(self.remote(), self.remote(), "") ++ "\\t" ++ self.normal_target().change_id().short() ++ "\\t" ++ self.normal_target().commit_id().short() ++ "\\t" ++ self.normal_target().description().first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ self.normal_target().author().name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ self.normal_target().author().email() ++ "\\t" ++ self.normal_target().author().timestamp().format("%Y-%m-%dT%H:%M:%SZ") ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n" steve/* team/app/*',
+		),
+	);
 });

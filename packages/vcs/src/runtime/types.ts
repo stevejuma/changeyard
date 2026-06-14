@@ -309,6 +309,13 @@ export type RuntimeTaskSessionSummary = {
 	exitCode: number | null;
 	lastHookAt?: number | null;
 	warningMessage?: string | null;
+	externalSession?: {
+		provider: string;
+		sessionId: string | null;
+		transcriptPath: string | null;
+		resumeCommand: string[];
+		source: string | null;
+	} | null;
 };
 
 export type RuntimeShellSessionStartRequest = {

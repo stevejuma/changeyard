@@ -435,6 +435,7 @@ export function CardDetailView({
 	onTaskDragEnd,
 	onCreateTask,
 	onStartTask,
+	onResumeExternalSession,
 	onStartAllTasks,
 	onClearTrash,
 	editingTaskId,
@@ -493,6 +494,7 @@ export function CardDetailView({
 	onTaskDragEnd: (result: DropResult) => void;
 	onCreateTask?: () => void;
 	onStartTask?: (taskId: string) => void;
+	onResumeExternalSession?: (taskId: string, sessionId: string) => void;
 	onStartAllTasks?: () => void;
 	onClearTrash?: () => void;
 	editingTaskId?: string | null;
@@ -789,6 +791,11 @@ export function CardDetailView({
 			terminalEnabled={isTaskTerminalEnabled}
 			summary={sessionSummary}
 			onSummary={onSessionSummary}
+			onResumeExternalSession={
+				onResumeExternalSession
+					? (sessionId) => onResumeExternalSession(selection.card.id, sessionId)
+					: undefined
+			}
 			onCommit={onAgentCommitTask ? () => onAgentCommitTask(selection.card.id) : undefined}
 			onOpenPr={onAgentOpenPrTask ? () => onAgentOpenPrTask(selection.card.id) : undefined}
 			isCommitLoading={agentCommitTaskLoadingById?.[selection.card.id] ?? false}

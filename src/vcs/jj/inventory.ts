@@ -237,6 +237,14 @@ type BookmarkInventoryGroup = {
 	synced: boolean;
 };
 
+export type JjRemoteBookmarkDiscoveryMode = "local" | "tracked" | "all";
+
+export interface JjRemoteBookmarkDiscoveryOptions {
+	mode?: JjRemoteBookmarkDiscoveryMode;
+	prefixes?: readonly string[];
+	remotes?: readonly string[];
+}
+
 function sortInventoryItems(left: VcsJjInventoryItem, right: VcsJjInventoryItem): number {
 	const byGroup = GROUP_ORDER[left.group] - GROUP_ORDER[right.group];
 	return byGroup || left.name.localeCompare(right.name);
@@ -268,18 +276,58 @@ function isTodayTimestamp(timestamp: string | null | undefined): boolean {
 	);
 }
 
-async function readBookmarkInventory(cwd: string, currentCommitId: string | null, runner: VcsCommandRunner): Promise<VcsJjInventoryItem[]> {
+function normalizeFilterValues(values: readonly string[] | undefined): string[] {
+	return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))];
+}
+
+function prefixToBookmarkPattern(prefix: string): string {
+	return prefix.endsWith("*") ? prefix : `${prefix}*`;
+}
+
+function resolveRemoteBookmarkDiscoveryMode(options: JjRemoteBookmarkDiscoveryOptions | undefined): JjRemoteBookmarkDiscoveryMode {
+	if (options?.mode) {
+		return options.mode;
+	}
+	return options?.prefixes?.some((prefix) => prefix.trim()) || options?.remotes?.some((remote) => remote.trim())
+		? "all"
+		: "local";
+}
+
+function buildBookmarkInventoryArgs(options: JjRemoteBookmarkDiscoveryOptions | undefined): string[] {
+	const mode = resolveRemoteBookmarkDiscoveryMode(options);
+	const prefixes = normalizeFilterValues(options?.prefixes).map(prefixToBookmarkPattern);
+	const remotes = normalizeFilterValues(options?.remotes);
+	const args = ["bookmark", "list"];
+	if (mode === "all") {
+		args.push("--all-remotes");
+	}
+	if (mode === "tracked") {
+		args.push("--tracked");
+	}
+	if (mode !== "local") {
+		for (const remote of remotes) {
+			args.push("--remote", remote);
+		}
+	}
+	args.push(
+		"--ignore-working-copy",
+		"--at-op=@",
+		"--template",
+		'name ++ "\\t" ++ if(self.remote(), self.remote(), "") ++ "\\t" ++ self.normal_target().change_id().short() ++ "\\t" ++ self.normal_target().commit_id().short() ++ "\\t" ++ self.normal_target().description().first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ self.normal_target().author().name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ self.normal_target().author().email() ++ "\\t" ++ self.normal_target().author().timestamp().format("%Y-%m-%dT%H:%M:%SZ") ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"',
+	);
+	args.push(...prefixes);
+	return args;
+}
+
+async function readBookmarkInventory(
+	cwd: string,
+	currentCommitId: string | null,
+	runner: VcsCommandRunner,
+	options: JjRemoteBookmarkDiscoveryOptions | undefined,
+): Promise<VcsJjInventoryItem[]> {
 	const result = await runner({
 		command: "jj",
-		args: [
-			"bookmark",
-			"list",
-			"--all-remotes",
-			"--ignore-working-copy",
-			"--at-op=@",
-			"--template",
-			'name ++ "\\t" ++ if(self.remote(), self.remote(), "") ++ "\\t" ++ self.normal_target().change_id().short() ++ "\\t" ++ self.normal_target().commit_id().short() ++ "\\t" ++ self.normal_target().description().first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ self.normal_target().author().name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ self.normal_target().author().email() ++ "\\t" ++ self.normal_target().author().timestamp().format("%Y-%m-%dT%H:%M:%SZ") ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"',
-		],
+		args: buildBookmarkInventoryArgs(options),
 		cwd,
 	});
 	if (!result.ok) {
@@ -362,6 +410,7 @@ async function readBookmarkInventory(cwd: string, currentCommitId: string | null
 
 export interface LoadJjInventoryOptions {
 	targetBranch?: string | null;
+	remoteBookmarks?: JjRemoteBookmarkDiscoveryOptions;
 }
 
 export async function loadJjInventory(
@@ -394,7 +443,7 @@ export async function loadJjInventoryFromDetect(
 	const repoCwd = detect.repository.root ?? cwd;
 	const currentTarget = await readCurrentTarget(repoCwd, runner);
 	const currentCommitId = currentTarget?.commitId ?? null;
-	const bookmarkItems = await readBookmarkInventory(repoCwd, currentCommitId, runner);
+	const bookmarkItems = await readBookmarkInventory(repoCwd, currentCommitId, runner, options.remoteBookmarks);
 	const targetRevision = await readWorkspaceTargetRevision({
 		cwd: repoCwd,
 		configuredTarget: options.targetBranch ?? null,

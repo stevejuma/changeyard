@@ -88,10 +88,30 @@ Submission is unavailable when:
 
 | View | What it shows | Backing data |
 | --- | --- | --- |
-| Branches | Local stack rows, dependent stack rows, current target fallback, remote/provider inventory, selected commit list, commit diff panel. | JJ detection, bookmark inventory, stack graph, repository commit diff. |
+| Branches | Local stack rows, dependent stack rows, current target fallback, optionally scoped remote/provider inventory, selected commit list, commit diff panel. | JJ detection, bookmark inventory, stack graph, repository commit diff. |
 | Workspace | Working copy files, applied stack lanes, commit cards, changed-file lists, selected file diff, operation preview dialog. | Neutral workspace state, neutral diff, repository commit diff, project config `vcsAppliedStacks`. |
 | History | JJ operation log and operation diff/commit graph. | JJ operation history and operation diff readers. |
 | Settings | Project config, target branch, VCS engine/fallback, applied stack ids, provider state. | Project config and VCS inventory APIs. |
+
+## Remote Bookmark Discovery
+
+The VCS app does not fetch remote refs during normal reads. Inventory only sees refs already present locally.
+
+To avoid company-scale remote branch scans, JJ inventory defaults to local bookmark discovery and does not pass `--all-remotes`. Remote-only inventory rows are opt-in through `vcs.remoteBookmarks`:
+
+```jsonc
+{
+  "vcs": {
+    "remoteBookmarks": {
+      "mode": "all",
+      "remotes": ["origin"],
+      "prefixes": ["steve/", "team/app/"]
+    }
+  }
+}
+```
+
+Stacks are still derived from local bookmarks only. Remote bookmark rows are inventory/discovery metadata, not actionable stack heads by themselves.
 
 ## Unsupported Or Intentionally Disabled
 
