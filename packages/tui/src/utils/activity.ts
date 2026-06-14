@@ -1,4 +1,5 @@
 import type { ChangeListItem, DoctorResponse } from "../runtime-client";
+import type { ActivityEvent } from "./activity-events";
 
 export type ActivityItem = {
   id: string;
@@ -10,8 +11,14 @@ export type ActivityItem = {
 export function buildActivityItems(input: {
   changes: readonly ChangeListItem[];
   doctor: DoctorResponse | null;
+  events?: readonly ActivityEvent[];
 }): ActivityItem[] {
-  const items: ActivityItem[] = [];
+  const items: ActivityItem[] = (input.events ?? []).map((event) => ({
+    id: event.id,
+    title: event.title,
+    description: `${formatActivityTime(event.createdAt)} ${event.description}`,
+    severity: event.status === "failure" ? "error" : event.status === "success" ? "success" : "info",
+  }));
   for (const change of input.changes) {
     const planning = change.planning
       ? `planning ${change.planning.phase}; next ${change.planning.nextAction ?? "none"}`
@@ -48,4 +55,10 @@ export function buildActivityItems(input: {
     });
   }
   return items;
+}
+
+function formatActivityTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleTimeString();
 }
