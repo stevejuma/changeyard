@@ -103,7 +103,8 @@ export async function readAsset(rootDir: string, requestPathname: string): Promi
 			throw error;
 		}
 		resolvedPath = resolve(rootDir, "index.html");
-		const content = await readFile(resolvedPath);
+		const rawContent = await readFile(resolvedPath);
+		const content = await addAssetCacheBusters(rootDir, rawContent);
 		return {
 			content,
 			contentType: MIME_TYPES[".html"],

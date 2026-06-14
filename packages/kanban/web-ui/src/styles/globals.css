@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@source "../../../../vcs/src";
 
 @theme {
 	/* Surface hierarchy */

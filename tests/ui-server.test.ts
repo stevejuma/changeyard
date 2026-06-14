@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -53,6 +53,58 @@ function replacePlanningSection(repoRoot: string, changeId: string, sectionId: P
   const parsed = parseFrontmatter(readFileSync(filePath, "utf8"));
   const nextBody = replaceMarkedSection(parsed.body, sectionId, content);
   writeFileSync(filePath, writeFrontmatter(parsed.frontmatter, nextBody));
+}
+
+function extractAssetPaths(html: string, extension: "js" | "css"): string[] {
+  return Array.from(html.matchAll(new RegExp(`(?:src|href)="([^"]*/assets/[^"]+\\.${extension}(?:\\?[^"]+)?)"`, "g")))
+    .map((match) => match[1])
+    .filter((path): path is string => Boolean(path));
+}
+
+async function assertUnifiedShell(origin: string, pathName: string): Promise<string> {
+  const response = await fetch(`${origin}${pathName}`);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  const html = await response.text();
+  assert.match(html, /<title>Changeyard<\/title>/i);
+  assert.match(html, /<div id="root"><\/div>/);
+
+  const scriptPaths = extractAssetPaths(html, "js");
+  const stylePaths = extractAssetPaths(html, "css");
+  assert.ok(scriptPaths.length > 0);
+  assert.ok(stylePaths.length > 0);
+  assert.ok(scriptPaths.every((assetPath) => assetPath.includes("?v=")));
+  assert.ok(stylePaths.every((assetPath) => assetPath.includes("?v=")));
+
+  return html;
+}
+
+async function fetchShellCss(origin: string, html: string): Promise<string> {
+  const stylePaths = extractAssetPaths(html, "css");
+  const cssParts = await Promise.all(
+    stylePaths.map(async (assetPath) => {
+      const response = await fetch(`${origin}${assetPath}`);
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("cache-control"), "public, max-age=31536000, immutable");
+      return await response.text();
+    }),
+  );
+  return cssParts.join("\n");
+}
+
+function readPackagedVcsCss(): string {
+  const assetsDir = path.join(process.cwd(), "packages/kanban/dist/web-ui/assets");
+  const fileName = readdirSync(assetsDir).find((entry) => /^vcs-app-.*\.css$/.test(entry));
+  assert.ok(fileName);
+  return readFileSync(path.join(assetsDir, fileName), "utf8");
+}
+
+function assertVcsLayoutUtilities(css: string): void {
+  assert.match(css, /\.h-screen\s*\{/);
+  assert.match(css, /\.lg\\:flex\s*\{/);
+  assert.match(css, /\.lg\\:hidden\s*\{/);
+  assert.match(css, /\.before\\:bg-accent/);
+  assert.match(css, /\.grid-cols-\\\[72px_24px_minmax/);
 }
 
 async function trpcQuery<T>(origin: string, procedurePath: string, input?: unknown, workspaceId?: string): Promise<T> {
@@ -147,7 +199,7 @@ test("ui server serves health, manifest, and the current shell entrypoint", asyn
       const shellHtml = await shellResponse.text();
       assert.match(shellHtml, /<!doctype html>/i);
       assert.match(shellHtml, /<div id="root"><\/div>/);
-      const assetPath = /src="([^"]*\/assets\/[^"]+\.js(?:\?[^"]+)?)"/.exec(shellHtml)?.[1];
+      const assetPath = extractAssetPaths(shellHtml, "js")[0];
       assert.ok(assetPath);
       const assetResponse = await fetch(`${origin}${assetPath}`);
       assert.equal(assetResponse.status, 200);
@@ -181,11 +233,7 @@ test("ui server serves the VCS shell from the dashboard runtime by default", asy
     const origin = new URL(server.url).origin;
 
     try {
-      const response = await fetch(`${origin}/vcs`);
-      assert.equal(response.status, 200);
-      const html = await response.text();
-      assert.match(html, /<title>Changeyard<\/title>/i);
-      assert.match(html, /<div id="root"><\/div>/);
+      await assertUnifiedShell(origin, "/vcs");
     } finally {
       await server.close();
     }
@@ -210,11 +258,37 @@ test("ui server serves VCS routes from the unified dashboard shell", async () =>
     const origin = new URL(server.url).origin;
 
     try {
-      const response = await fetch(`${origin}/vcs/jj`);
-      assert.equal(response.status, 200);
-      const html = await response.text();
-      assert.match(html, /<title>Changeyard<\/title>/i);
-      assert.match(html, /<div id="root"><\/div>/);
+      for (const route of ["/", "/vcs", "/vcs/jj", "/vcs/jj/branches", "/vcs/jj/history"]) {
+        await assertUnifiedShell(origin, route);
+      }
+    } finally {
+      await server.close();
+    }
+  } finally {
+    restoreEnvFlag("CHANGEYARD_VCS", originalFlag);
+    cleanup(repo);
+  }
+});
+
+test("unified dashboard shell emits VCS layout utilities", async () => {
+  const repo = tempRepo();
+  const originalFlag = process.env.CHANGEYARD_VCS;
+  try {
+    process.env.CHANGEYARD_VCS = "1";
+    runInit(repo);
+    const server = await startChangeyardKanban({
+      repoRoot: repo,
+      open: false,
+      port: "auto",
+      changeyardApi: createChangeyardUiApi(),
+    });
+    const origin = new URL(server.url).origin;
+
+    try {
+      const html = await assertUnifiedShell(origin, "/vcs/jj/history");
+      const css = await fetchShellCss(origin, html);
+      assertVcsLayoutUtilities(css);
+      assertVcsLayoutUtilities(readPackagedVcsCss());
     } finally {
       await server.close();
     }
