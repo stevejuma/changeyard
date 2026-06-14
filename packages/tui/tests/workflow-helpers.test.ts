@@ -4,6 +4,11 @@ import { buildActivityItems } from "../src/utils/activity";
 import { normalizeActivityEvents, prependActivityEvent } from "../src/utils/activity-events";
 import { buildDiagnosticsRows } from "../src/utils/diagnostics";
 import {
+  buildDiagnosticBundle,
+  diagnosticBundleFileExtension,
+  diagnosticBundleFormatFromArg,
+} from "../src/utils/diagnostic-bundle";
+import {
   getHistoryNavigationAction,
   normalizePromptHistory,
   prependPromptHistoryEntry,
@@ -208,5 +213,39 @@ assertEqual(
   "runtime events from another workspace are ignored",
 );
 assertEqual(runtimeEventLabel({ type: "vcs_project_event", kind: "vcs/head" }), "vcs_project_event vcs/head", "runtime event label includes kind");
+
+const bundleInput = {
+  generatedAt: "2026-01-01T00:00:00.000Z",
+  runtimeUrl: "http://127.0.0.1:6174",
+  workspaceId: "workspace-1",
+  runtimeHealthy: true,
+  eventRefreshMode: "events" as const,
+  lastRefreshAt: "2026-01-01T00:00:00.000Z",
+  lastRefreshError: null,
+  status: "Ready",
+  error: null,
+  selected: null,
+  detail: null,
+  changes: [],
+  doctor: { ok: ["config"], warnings: [], notes: [] },
+  projectConfig: {
+    initialized: true,
+    providerType: "noop" as const,
+    vcsEngine: "jj" as const,
+    vcsFallback: "jj" as const,
+    projectDefaultBase: "main",
+  },
+  runtimeConfig: {
+    selectedAgentId: "codex",
+    agents: [],
+  },
+  selectedAgent: null,
+  activityEvents: [],
+};
+assertEqual(diagnosticBundleFormatFromArg("json"), "json", "json export arg");
+assertEqual(diagnosticBundleFormatFromArg(undefined), "markdown", "default export format");
+assertEqual(diagnosticBundleFileExtension("markdown"), "md", "markdown extension");
+assert(buildDiagnosticBundle(bundleInput, "markdown").includes("# Changeyard TUI Diagnostic Bundle"), "markdown bundle heading");
+assert(JSON.parse(buildDiagnosticBundle(bundleInput, "json")).runtime.workspaceId === "workspace-1", "json bundle runtime data");
 
 process.stdout.write("ok - workflow helper tests\n");
