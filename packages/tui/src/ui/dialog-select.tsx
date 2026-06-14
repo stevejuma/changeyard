@@ -3,8 +3,8 @@ import { useTheme, selectedForeground } from "../context/theme";
 import { batch, createEffect, createMemo, For, Show, type JSX, on } from "solid-js";
 import { createStore } from "solid-js/store";
 import { useKeyboard, useTerminalDimensions } from "@opentui/solid";
-import * as fuzzysort from "fuzzysort";
 import { useDialog, type DialogContext } from "./dialog";
+import { filterCommandItems } from "../utils/command-search";
 
 export interface DialogSelectOption<T = string> {
   title: string;
@@ -12,6 +12,7 @@ export interface DialogSelectOption<T = string> {
   description?: string;
   footer?: JSX.Element | string;
   category?: string;
+  keywords?: readonly string[];
   disabled?: boolean;
   bg?: RGBA;
   onSelect?: (ctx: DialogContext) => void;
@@ -64,15 +65,10 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
 
   const filtered = createMemo(() => {
     if (props.skipFilter) return props.options.filter((x) => x.disabled !== true);
-    const needle = store.filter.toLowerCase();
+    const needle = store.filter;
     const options = props.options.filter((x) => x.disabled !== true);
     if (!needle) return options;
-    return fuzzysort
-      .go(needle, options, {
-        keys: ["title", "category"],
-        scoreFn: (r) => r[0].score * 2 + (r[1]?.score ?? 0),
-      })
-      .map((x) => x.obj);
+    return filterCommandItems(options, needle);
   });
 
   createEffect(() => {

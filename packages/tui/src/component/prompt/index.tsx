@@ -9,6 +9,14 @@ import { parseSlashCommand } from "../../context/app-state";
 import { useChangeyardActions } from "../../commands/changeyard";
 import { useComposerSettings } from "../../context/composer-settings";
 import { usePromptGlobalShortcuts } from "./global-shortcuts";
+import { useKV } from "../../context/kv";
+import {
+  getHistoryNavigationAction,
+  normalizePromptHistory,
+  prependPromptHistoryEntry,
+  resolvePromptHistoryEntry,
+  type HistoryDirection,
+} from "../../utils/prompt-history";
 
 export type PromptRef = {
   focused: boolean;
@@ -36,8 +44,58 @@ export function Prompt(props: PromptProps) {
   const actions = useChangeyardActions();
   const composerSettings = useComposerSettings();
   const handleGlobalShortcut = usePromptGlobalShortcuts();
+  const kv = useKV();
 
   const [value, setValue] = createSignal("");
+  const [history, setHistory] = createSignal<string[]>(normalizePromptHistory(kv.get("prompt_history")));
+  const [historyIndex, setHistoryIndex] = createSignal(-1);
+  const [savedInput, setSavedInput] = createSignal("");
+  let applyingHistory = false;
+
+  createEffect(() => {
+    if (!kv.ready) return;
+    setHistory(normalizePromptHistory(kv.get("prompt_history")));
+  });
+
+  function recordHistoryEntry(entry: string) {
+    const next = prependPromptHistoryEntry(history(), entry);
+    setHistory(next);
+    setHistoryIndex(-1);
+    kv.set("prompt_history", next);
+  }
+
+  function navigateHistory(direction: HistoryDirection): boolean {
+    if (!input || input.isDestroyed) return false;
+    const action = getHistoryNavigationAction({
+      direction,
+      cursorOffset: input.cursorOffset,
+      textLength: input.plainText.length,
+      visualRow: input.visualCursor.visualRow,
+      height: input.height,
+      virtualLineCount: input.virtualLineCount,
+    });
+    if (action === "ignore") return false;
+    if (action === "move-to-boundary") {
+      input.cursorOffset = direction === "up" ? 0 : input.plainText.length;
+      return true;
+    }
+    const nextIndex = resolvePromptHistoryEntry({
+      history: history(),
+      index: historyIndex(),
+      direction,
+    });
+    if (nextIndex === historyIndex()) return false;
+    if (historyIndex() === -1 && direction === "up") {
+      setSavedInput(value());
+    }
+    setHistoryIndex(nextIndex);
+    const next = nextIndex === -1 ? savedInput() : history()[nextIndex] ?? "";
+    applyingHistory = true;
+    ref.set(next);
+    applyingHistory = false;
+    input.cursorOffset = direction === "up" ? 0 : next.length;
+    return true;
+  }
 
   const ref: PromptRef = {
     get focused() {
@@ -80,6 +138,7 @@ export function Prompt(props: PromptProps) {
       if (parsed) {
         const executed = actions.executeSlash(text);
         if (executed) {
+          recordHistoryEntry(text);
           ref.clear();
           props.onSubmit?.();
         }
@@ -89,6 +148,7 @@ export function Prompt(props: PromptProps) {
 
     const preset = composerSettings.preset();
     void actions.createChangeFromPreset(preset.id, text).then(() => {
+      recordHistoryEntry(text);
       ref.clear();
       props.onSubmit?.();
     });
@@ -127,6 +187,7 @@ export function Prompt(props: PromptProps) {
               onContentChange={() => {
                 const next = input.plainText;
                 setValue(next);
+                if (!applyingHistory) setHistoryIndex(-1);
                 autocomplete?.onInput(next);
               }}
               onKeyDown={(e) => {
@@ -140,6 +201,12 @@ export function Prompt(props: PromptProps) {
                 if (handleGlobalShortcut(e, Boolean(autocomplete?.visible))) return;
                 if (autocomplete?.onKeyDown(e)) return;
                 if (!autocomplete?.visible) {
+                  if (e.name === "up" || e.name === "down") {
+                    if (navigateHistory(e.name)) {
+                      e.preventDefault();
+                      return;
+                    }
+                  }
                   if (keybind.match("profile_cycle", e)) {
                     e.preventDefault();
                     composerSettings.cyclePreset(1);
