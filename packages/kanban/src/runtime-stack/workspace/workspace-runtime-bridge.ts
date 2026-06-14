@@ -130,7 +130,7 @@ export async function createTaskWorkspaceViaBridge(options: {
 				error: addResult.error ?? addResult.output,
 			};
 		}
-		const headCommit = await getJjStdout(["log", "-r", "@", "--no-graph", "-T", "commit_id"], options.workspacePath).catch(
+		const headCommit = await getJjStdout(["log", "--ignore-working-copy", "--at-op=@", "-r", "@", "--no-graph", "-T", "commit_id"], options.workspacePath).catch(
 			() => null,
 		);
 		return {

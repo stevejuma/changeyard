@@ -40,6 +40,7 @@ Do not recreate controls that already exist:
 - Use `StatusChip` and `FileStatusGlyph` from `src/components/ui/status-chip.tsx` for labels and file state.
 - Use `VcsColumnShell`, `VcsFileDiffColumn`, and `VcsInlineFileSection` from `src/components/vcs-file-columns.tsx` for collapsible/resizable columns, file lists, and diffs.
 - Use Radix primitives through the existing `src/components/ui/*` wrappers when adding dialogs, tooltips, selects, avatars, or other standard controls.
+- Use skeleton placeholders for data-loading UI. Prefer `kb-skeleton` rows, cards, or panels that match the final layout instead of progress bars or "Loading..." text.
 
 ## Page Patterns
 

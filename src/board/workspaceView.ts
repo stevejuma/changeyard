@@ -85,7 +85,7 @@ function commandsForEngine(id: string, metadata: WorkspaceMetadata): string[] {
     return [
       `cd ${metadata.path}`,
       "jj status",
-      "jj diff --summary",
+      "jj diff --ignore-working-copy --summary",
       `cy verify ${id}`,
     ];
   }
@@ -117,7 +117,7 @@ export function readWorkspaceTerminalView(repoRoot: string, id: string, metadata
       path: metadata.path,
       commands: commandsForEngine(id, metadata),
       statusOutput: runCommand("jj", ["status"], metadata.path),
-      diffOutput: runCommand("jj", ["diff", "--summary"], metadata.path),
+      diffOutput: runCommand("jj", ["diff", "--ignore-working-copy", "--summary"], metadata.path),
       checkLog,
     };
   }

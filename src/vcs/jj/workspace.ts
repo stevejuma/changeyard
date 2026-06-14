@@ -814,7 +814,7 @@ async function buildSelectedJjCommittedHunkPatch(
 	const paths = [...new Set(hunks.map((hunk) => hunk.path))];
 	const diffResult = await runner({
 		command: "jj",
-		args: ["diff", "--git", "--color=never", "-r", sourceCommitId, "--", ...paths],
+		args: ["diff", "--ignore-working-copy", "--git", "--color=never", "-r", sourceCommitId, "--", ...paths],
 		cwd: repoCwd,
 	});
 	if (!diffResult.ok) {
@@ -859,7 +859,7 @@ async function readSingleJjParentChange(
 ): Promise<{ ok: true; parentChangeId: string } | { ok: false; reason: string }> {
 	const result = await runner({
 		command: "jj",
-		args: ["log", "--no-graph", "-r", `${sourceCommitId}-`, "-T", "change_id.short()"],
+		args: ["log", "--ignore-working-copy", "--no-graph", "-r", `${sourceCommitId}-`, "-T", "change_id.short()"],
 		cwd,
 	});
 	if (!result.ok) {
@@ -1033,7 +1033,7 @@ async function buildSelectedJjWorkingCopyHunkPatch(
 	const paths = [...new Set(hunks.map((hunk) => hunk.path))];
 	const diffResult = await runner({
 		command: "jj",
-		args: ["diff", "--git", "--color=never", "--", ...paths],
+		args: ["diff", "--ignore-working-copy", "--git", "--color=never", "--", ...paths],
 		cwd: repoCwd,
 	});
 	if (!diffResult.ok) {
@@ -1357,7 +1357,7 @@ async function readCurrentJjParentChanges(
 ): Promise<{ ok: true; parentChangeIds: string[] } | { ok: false; reason: string }> {
 	const result = await runner({
 		command: "jj",
-		args: ["log", "--no-graph", "-r", "@-", "-T", 'change_id.short() ++ "\\n"'],
+		args: ["log", "--ignore-working-copy", "--no-graph", "-r", "@-", "-T", 'change_id.short() ++ "\\n"'],
 		cwd,
 	});
 	if (!result.ok) {

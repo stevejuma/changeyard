@@ -69,7 +69,7 @@ export default function App(): React.ReactElement {
 		setSelectedProjectId(urlWorkspaceId);
 	}, [urlWorkspaceId]);
 
-	const projectsResult = useGetProjectsQuery({ preferredWorkspaceId: selectedProjectId });
+	const projectsResult = useGetProjectsQuery();
 	const [pickProjectDirectory] = usePickProjectDirectoryMutation();
 	const [addProjectMutation] = useAddProjectMutation();
 	const [removeProjectMutation] = useRemoveProjectMutation();

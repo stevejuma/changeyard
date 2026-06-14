@@ -448,7 +448,7 @@ async function ensureJjTaskWorkspace(options: {
 	baseRef: string;
 	worktreePath: string;
 }): Promise<RuntimeWorktreeEnsureResponse> {
-	const existingHead = await getJjStdout(["log", "-r", "@", "--no-graph", "-T", "commit_id"], options.worktreePath).catch(
+	const existingHead = await getJjStdout(["log", "--ignore-working-copy", "--at-op=@", "-r", "@", "--no-graph", "-T", "commit_id"], options.worktreePath).catch(
 		() => null,
 	);
 	if (existingHead) {
@@ -462,7 +462,7 @@ async function ensureJjTaskWorkspace(options: {
 
 	return await withTaskWorktreeSetupLock(options.repoPath, "jj", async () => {
 		const lockedExistingHead = await getJjStdout(
-			["log", "-r", "@", "--no-graph", "-T", "commit_id"],
+			["log", "--ignore-working-copy", "--at-op=@", "-r", "@", "--no-graph", "-T", "commit_id"],
 			options.worktreePath,
 		).catch(() => null);
 		if (lockedExistingHead) {
@@ -486,7 +486,7 @@ async function ensureJjTaskWorkspace(options: {
 		}
 
 		const requestedBaseCommit = await getJjStdout(
-			["log", "-r", requestedBaseRef, "--no-graph", "-T", "commit_id"],
+			["log", "--ignore-working-copy", "--at-op=@", "-r", requestedBaseRef, "--no-graph", "-T", "commit_id"],
 			options.repoPath,
 		).catch(() => null);
 		if (!requestedBaseCommit) {

@@ -788,7 +788,7 @@ test("previewJjOperation returns an absorb file command preview", async () => {
 					stderr: "",
 					exitCode: 0,
 				};
-			case "jj diff --summary -r @":
+			case "jj diff --ignore-working-copy --summary -r @":
 				return { ok: true, stdout: "M src/app.ts", stderr: "", exitCode: 0 };
 			default:
 				return { ok: false, stdout: "", stderr: `${joined} not mocked`, exitCode: 1 };
@@ -849,7 +849,7 @@ test("previewJjOperation rejects absorb file previews for missing working-copy p
 						stderr: "",
 						exitCode: 0,
 					};
-				case "jj diff --summary -r @":
+				case "jj diff --ignore-working-copy --summary -r @":
 					return { ok: true, stdout: "M src/app.ts", stderr: "", exitCode: 0 };
 				default:
 					return { ok: false, stdout: "", stderr: `${joined} not mocked`, exitCode: 1 };
@@ -901,7 +901,7 @@ test("previewJjOperation returns a restore file command preview", async () => {
 					stderr: "",
 					exitCode: 0,
 				};
-			case "jj diff --summary -r @":
+			case "jj diff --ignore-working-copy --summary -r @":
 				return { ok: true, stdout: "M src/app.ts", stderr: "", exitCode: 0 };
 			default:
 				return { ok: false, stdout: "", stderr: `${joined} not mocked`, exitCode: 1 };
@@ -962,7 +962,7 @@ test("previewJjOperation rejects restore file previews for missing working-copy 
 						stderr: "",
 						exitCode: 0,
 					};
-				case "jj diff --summary -r @":
+				case "jj diff --ignore-working-copy --summary -r @":
 					return { ok: true, stdout: "M src/app.ts", stderr: "", exitCode: 0 };
 				default:
 					return { ok: false, stdout: "", stderr: `${joined} not mocked`, exitCode: 1 };

@@ -158,9 +158,10 @@ export function VcsProjectNavigationPanel({
 			</header>
 			<div className="min-h-0 flex-1 overflow-y-auto p-2">
 				{projectsState.status === "loading" ? (
-					<div className="flex items-center gap-2 px-2 py-3 text-sm text-text-secondary">
-						<Spinner size={16} />
-						Loading projects...
+					<div className="space-y-1" aria-label="Loading projects" role="status">
+						{Array.from({ length: 5 }, (_, index) => (
+							<ProjectRowSkeleton key={`project-row-skeleton-${index}`} />
+						))}
 					</div>
 				) : null}
 				{projectsState.status === "error" ? (
@@ -353,5 +354,20 @@ export function VcsProjectNavigationPanel({
 				</AlertDialogFooter>
 			</AlertDialog>
 		</aside>
+	);
+}
+
+function ProjectRowSkeleton(): React.ReactElement {
+	return (
+		<div className="mb-1 rounded-md border border-transparent px-2 py-2">
+			<div className="flex min-w-0 items-start gap-2">
+				<div className="kb-skeleton mt-0.5 h-[15px] w-[15px] shrink-0 rounded" />
+				<div className="min-w-0 flex-1">
+					<div className="kb-skeleton h-4 w-3/5" />
+					<div className="mt-1.5 kb-skeleton h-3 w-11/12" />
+					<div className="mt-2 kb-skeleton h-3 w-24" />
+				</div>
+			</div>
+		</div>
 	);
 }

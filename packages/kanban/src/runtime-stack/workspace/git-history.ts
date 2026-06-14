@@ -1009,7 +1009,7 @@ async function getJjCommitDiff(options: {
 		return { ok: false, commitHash: options.commitHash, files: [], error: "No jj repository detected." };
 	}
 
-	const diffResult = await runJj(repoRoot, ["diff", "-r", options.commitHash, "--git"], { trimStdout: false });
+	const diffResult = await runJj(repoRoot, ["diff", "--ignore-working-copy", "-r", options.commitHash, "--git"], { trimStdout: false });
 	if (!diffResult.ok) {
 		return {
 			ok: false,
@@ -1042,7 +1042,7 @@ async function getJjCommitDiffSummary(options: {
 		return { ok: false, commitHash: options.commitHash, files: [], error: "No jj repository detected." };
 	}
 
-	const diffResult = await runJj(repoRoot, ["diff", "-r", options.commitHash, "--git"], { trimStdout: false });
+	const diffResult = await runJj(repoRoot, ["diff", "--ignore-working-copy", "-r", options.commitHash, "--git"], { trimStdout: false });
 	if (!diffResult.ok) {
 		return {
 			ok: false,

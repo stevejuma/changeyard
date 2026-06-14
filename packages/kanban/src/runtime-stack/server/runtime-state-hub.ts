@@ -51,6 +51,7 @@ export interface RuntimeStateHub {
 		head: Buffer,
 		context: {
 			requestedWorkspaceId: string | null;
+			streamMode?: "runtime" | "vcs";
 		},
 	) => void;
 	disposeWorkspace: (workspaceId: string, options?: DisposeRuntimeStateWorkspaceOptions) => void;
@@ -72,6 +73,7 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 	const runtimeStateClientsByWorkspaceId = new Map<string, Set<WebSocket>>();
 	const runtimeStateClients = new Set<WebSocket>();
 	const runtimeStateWorkspaceIdByClient = new Map<WebSocket, string>();
+	const runtimeStateMetadataClients = new Set<WebSocket>();
 	let clineSessionContextVersion = 0;
 	const runtimeStateWebSocketServer = new WebSocketServer({ noServer: true });
 	const workspaceMetadataMonitor = createWorkspaceMetadataMonitor({
@@ -265,7 +267,10 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 	const cleanupRuntimeStateClient = (client: WebSocket) => {
 		const workspaceId = runtimeStateWorkspaceIdByClient.get(client);
 		if (workspaceId) {
-			workspaceMetadataMonitor.disconnectWorkspace(workspaceId);
+			if (runtimeStateMetadataClients.has(client)) {
+				workspaceMetadataMonitor.disconnectWorkspace(workspaceId);
+				runtimeStateMetadataClients.delete(client);
+			}
 			const clients = runtimeStateClientsByWorkspaceId.get(workspaceId);
 			if (clients) {
 				clients.delete(client);
@@ -394,6 +399,13 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 				typeof (context as { requestedWorkspaceId?: unknown }).requestedWorkspaceId === "string"
 					? (context as { requestedWorkspaceId: string }).requestedWorkspaceId || null
 					: null;
+			const streamMode =
+				typeof context === "object" &&
+				context !== null &&
+				"streamMode" in context &&
+				(context as { streamMode?: unknown }).streamMode === "vcs"
+					? "vcs"
+					: "runtime";
 			const workspace: ResolvedWorkspaceStreamTarget = await deps.workspaceRegistry.resolveWorkspaceForStream(
 				requestedWorkspaceId,
 				{
@@ -445,6 +457,27 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 			let didConnectWorkspaceMonitor = false;
 
 			try {
+				if (streamMode === "vcs") {
+					if (workspace.workspaceId && workspace.workspacePath) {
+						monitorWorkspaceId = workspace.workspaceId;
+						const workspaceClients =
+							runtimeStateClientsByWorkspaceId.get(monitorWorkspaceId) ?? new Set<WebSocket>();
+						workspaceClients.add(client);
+						runtimeStateClientsByWorkspaceId.set(monitorWorkspaceId, workspaceClients);
+						runtimeStateWorkspaceIdByClient.set(client, monitorWorkspaceId);
+						startVcsWatcher(monitorWorkspaceId, workspace.workspacePath);
+					}
+					if (workspace.removedRequestedWorkspacePath) {
+						sendRuntimeStateMessage(client, {
+							type: "error",
+							message: `Project no longer exists on disk and was removed: ${workspace.removedRequestedWorkspacePath}`,
+						} satisfies RuntimeStateStreamErrorMessage);
+					}
+					if (workspace.didPruneProjects) {
+						void broadcastRuntimeProjectsUpdated(workspace.workspaceId);
+					}
+					return;
+				}
 				let projectsPayload: {
 					currentProjectId: string | null;
 					projects: RuntimeStateStreamProjectsMessage["projects"];
@@ -462,6 +495,7 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 						workspacePath: workspace.workspacePath,
 						board: workspaceState.board,
 					});
+					runtimeStateMetadataClients.add(client);
 					didConnectWorkspaceMonitor = true;
 				} else {
 					projectsPayload = await deps.workspaceRegistry.buildProjectsPayload(null);
@@ -471,6 +505,7 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 				if (client.readyState !== WebSocket.OPEN) {
 					if (monitorWorkspaceId) {
 						workspaceMetadataMonitor.disconnectWorkspace(monitorWorkspaceId);
+						runtimeStateMetadataClients.delete(client);
 					}
 					cleanupRuntimeStateClient(client);
 					return;
@@ -486,6 +521,7 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 				if (client.readyState !== WebSocket.OPEN) {
 					if (monitorWorkspaceId) {
 						workspaceMetadataMonitor.disconnectWorkspace(monitorWorkspaceId);
+						runtimeStateMetadataClients.delete(client);
 					}
 					cleanupRuntimeStateClient(client);
 					return;
@@ -522,6 +558,7 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 			} catch (error) {
 				if (didConnectWorkspaceMonitor && monitorWorkspaceId) {
 					workspaceMetadataMonitor.disconnectWorkspace(monitorWorkspaceId);
+					runtimeStateMetadataClients.delete(client);
 				}
 				const message = error instanceof Error ? error.message : String(error);
 				sendRuntimeStateMessage(client, {

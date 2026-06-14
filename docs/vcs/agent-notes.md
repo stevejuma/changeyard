@@ -63,3 +63,4 @@ npm --workspace @changeyard/vcs run e2e
 - Applying a stack is not only UI state. The JJ provider rebases `@` parents, so it must be previewed.
 - Committed hunk discard is destructive and should stay high-risk in previews.
 - Git and JJ may share neutral operations but do not share provider semantics.
+- Loading states should use skeleton placeholders that approximate the final layout. Avoid progress bars or visible "Loading..." rows for ordinary VCS data loads.

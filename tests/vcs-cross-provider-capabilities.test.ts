@@ -51,7 +51,7 @@ function createJjRunner(calls: string[] = []): VcsCommandRunner {
 					"root111\t11111111\tMain\tAlice\talice@example.com\t\tmain\tmain@origin\t0",
 					"api222\t22222222\tAPI change\tBob\tbob@example.com\troot111\tfeature/api\tfeature/api@origin\t1",
 				].join("\n"));
-			case "jj diff --summary -r @":
+			case "jj diff --ignore-working-copy --summary -r @":
 				return ok("M src/api.ts");
 			default:
 				return fail(joined);
