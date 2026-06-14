@@ -32,7 +32,10 @@ export function buildMentionOptions(files: WorkspaceFileSearchMatch[]): Autocomp
 }
 
 export function formatMention(path: string): string {
-  return /\s/.test(path) ? `@"${path.replace(/"/g, '\\"')}"` : `@${path}`;
+  const normalized = path.startsWith("/") || path.startsWith("~/") || path.startsWith("./") || path.startsWith("../")
+    ? path
+    : `./${path}`;
+  return /\s/.test(normalized) ? `@"${normalized.replace(/"/g, '\\"')}"` : `@${normalized}`;
 }
 
 export function insertMention(input: string, mention: string): string {

@@ -190,6 +190,9 @@ export function createMockRuntimeClient(overrides: Partial<RuntimeClient> = {}):
         planningDefaultProfile: "none",
         planningDefaultStrictness: "normal",
         planningAllowQuickChanges: true,
+        planningQuickChangeCheckProfile: "minimal",
+        checkProfiles: ["minimal", "standard", "full"],
+        templateProfiles: ["quick", "feature", "bug"],
       }) satisfies ProjectConfigResponse,
     initProject: async () => ({ message: "Initialized Changeyard in .changeyard" }),
     updateProject: async () => ({ message: "Updated Changeyard scaffold in .changeyard" }),
@@ -202,6 +205,7 @@ export function createMockRuntimeClient(overrides: Partial<RuntimeClient> = {}):
       planningDefaultProfile?: "none" | "openspec-lite";
       planningDefaultStrictness?: "normal" | "strict";
       planningAllowQuickChanges?: boolean;
+      planningQuickChangeCheckProfile?: string;
     }) =>
       ({
         initialized: true,
@@ -213,6 +217,9 @@ export function createMockRuntimeClient(overrides: Partial<RuntimeClient> = {}):
         planningDefaultProfile: input.planningDefaultProfile ?? "none",
         planningDefaultStrictness: input.planningDefaultStrictness ?? "normal",
         planningAllowQuickChanges: input.planningAllowQuickChanges ?? true,
+        planningQuickChangeCheckProfile: input.planningQuickChangeCheckProfile ?? "minimal",
+        checkProfiles: ["minimal", "standard", "full"],
+        templateProfiles: ["quick", "feature", "bug"],
       }) satisfies ProjectConfigResponse,
     doctorProject: async () =>
       ({
@@ -226,12 +233,16 @@ export function createMockRuntimeClient(overrides: Partial<RuntimeClient> = {}):
       unsubscribe: () => {},
     }),
     getRepositoryStatus: async () => ({
+      vcsType: "jj",
+      workspaceName: "changeyard-test",
+      refLabel: "jj @",
+      diffStats: { files: 1, additions: 2, deletions: 1 },
+      dirty: true,
       type: "jj",
       displayRef: "jj @",
       changeId: "mockchange",
       commitId: "mockcommit",
       diffSummary: "1 files +2 -1",
-      dirty: true,
     }),
     searchFiles: async () => [
       { path: "src/cli.ts", name: "cli.ts", changed: true },

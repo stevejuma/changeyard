@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { appendFileSync } from "node:fs";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -81,7 +82,15 @@ function logJjTiming(args: string[], startedAt: number): void {
 	if (process.env.NODE_ENV === "production") {
 		return;
 	}
-	console.debug(`[vcs timing] jj ${args.join(" ")} ${Date.now() - startedAt}ms`);
+	const logPath = process.env.CHANGEYARD_VCS_TIMING_LOG;
+	if (!logPath) {
+		return;
+	}
+	try {
+		appendFileSync(logPath, `[vcs timing] jj ${args.join(" ")} ${Date.now() - startedAt}ms\n`, "utf8");
+	} catch {
+		// Timing diagnostics must never interfere with user-facing TUI rendering.
+	}
 }
 
 export async function getJjStdout(args: string[], cwd: string): Promise<string> {

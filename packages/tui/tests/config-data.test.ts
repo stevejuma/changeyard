@@ -17,13 +17,13 @@ const commands: SlashCommand[] = [
 assert.equal(getAutocompleteMode("/con"), "/", "slash mode");
 assert.equal(getAutocompleteMode("inspect @src"), "@", "mention mode");
 assert.equal(extractMentionQuery("inspect @src"), "src", "mention query");
-assert.equal(formatMention("src/cli.ts"), "@src/cli.ts", "simple mention");
-assert.equal(formatMention("src/with space.ts"), '@"src/with space.ts"', "quoted mention");
-assert.equal(insertMention("inspect @src", "@src/cli.ts"), "inspect @src/cli.ts ", "insert mention");
+assert.equal(formatMention("src/cli.ts"), "@./src/cli.ts", "simple mention");
+assert.equal(formatMention("src/with space.ts"), '@"./src/with space.ts"', "quoted mention");
+assert.equal(insertMention("inspect @src", "@./src/cli.ts"), "inspect @./src/cli.ts ", "insert mention");
 assert.equal(buildSlashOptions(commands, "/con")[0]?.display, "/config", "slash filtering");
 assert.equal(
   buildMentionOptions([{ path: "src/cli.ts", name: "cli.ts", changed: true }])[0]?.value,
-  "@src/cli.ts",
+  "@./src/cli.ts",
   "mention options",
 );
 

@@ -167,6 +167,8 @@ export type RuntimeProjectConfigResponse = {
 	planningDefaultStrictness?: "normal" | "strict";
 	planningAllowQuickChanges?: boolean;
 	planningQuickChangeCheckProfile?: string;
+	checkProfiles?: string[];
+	templateProfiles?: string[];
 };
 
 export type RuntimeProjectConfigUpdateRequest = {

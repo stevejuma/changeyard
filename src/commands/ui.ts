@@ -17,6 +17,7 @@ import { parseMarkedSections } from "../planning/sections.js";
 import type { ValidationGate } from "../planning/validation.js";
 import { findRepoRoot, loadConfig } from "../config/loadConfig.js";
 import { isChangeyardInitialized, updateLocalConfig } from "../config/localConfig.js";
+import { listGlobalTemplateProfiles } from "../config/templateProfiles.js";
 import { runInit } from "./init.js";
 import { runUpdate } from "./update.js";
 import { doctorReport } from "./doctor.js";
@@ -68,6 +69,8 @@ export function createChangeyardUiApi() {
       planningDefaultStrictness: config.planning?.defaultStrictness,
       planningAllowQuickChanges: config.planning?.allowQuickChanges,
       planningQuickChangeCheckProfile: config.planning?.quickChangeCheckProfile,
+      checkProfiles: Object.keys(config.checks),
+      templateProfiles: listGlobalTemplateProfiles(),
     };
   }
 
@@ -157,7 +160,7 @@ export function createChangeyardUiApi() {
       return board.columns.flatMap((column) => column.cards).map((card) => toChangeSummary(card));
     },
     createChange(repoRoot: string, input: {
-      template: "feature" | "bug" | "refactor" | "agent-task" | "quick";
+      template: string;
       title: string;
       priority?: string;
       labels?: string[];

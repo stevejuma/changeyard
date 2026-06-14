@@ -1279,7 +1279,7 @@ export const runtimeChangeyardWorkspaceDeleteRequestSchema = z.object({
 export type RuntimeChangeyardWorkspaceDeleteRequest = z.infer<typeof runtimeChangeyardWorkspaceDeleteRequestSchema>;
 
 export const runtimeChangeyardChangeCreateRequestSchema = z.object({
-	template: z.enum(["feature", "bug", "refactor", "agent-task", "quick"]),
+	template: z.string().min(1),
 	title: z.string().min(1),
 	priority: z.string().optional(),
 	labels: z.array(z.string()).optional(),
@@ -1387,6 +1387,8 @@ export const runtimeChangeyardProjectConfigSchema = z.object({
 	planningDefaultStrictness: z.enum(["normal", "strict"]).optional(),
 	planningAllowQuickChanges: z.boolean().optional(),
 	planningQuickChangeCheckProfile: z.string().optional(),
+	checkProfiles: z.array(z.string()).optional(),
+	templateProfiles: z.array(z.string()).optional(),
 });
 export type RuntimeChangeyardProjectConfig = z.infer<typeof runtimeChangeyardProjectConfigSchema>;
 

@@ -1,7 +1,9 @@
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
+import { DialogProvider } from "@opentui-ui/dialog/react";
 import { RuntimeClient, RuntimeClientError } from "./runtime-client";
 import { App } from "./react/app";
+import { installTuiStdioCapture } from "./stdio-capture";
 
 type Args = {
   connect: string;
@@ -50,19 +52,29 @@ async function main() {
     enableMouseMovement: true,
     targetFps: 30,
   });
+  const restoreStdio = installTuiStdioCapture();
   const root = createRoot(renderer);
   renderer.on("destroy", () => {
     root.unmount();
+    restoreStdio();
   });
-  root.render(
-    <App
-      client={new RuntimeClient(args.connect)}
-      project={args.project}
-      debug={args.debug}
-      smokeTest={args.smokeTest}
-      smokeCreateAll={args.smokeCreateAll}
-    />,
-  );
+  try {
+    root.render(
+      <DialogProvider size="medium">
+        <App
+          client={new RuntimeClient(args.connect)}
+          project={args.project}
+          debug={args.debug}
+          smokeTest={args.smokeTest}
+          smokeCreateAll={args.smokeCreateAll}
+        />
+      </DialogProvider>,
+    );
+  } catch (error) {
+    restoreStdio();
+    renderer.destroy();
+    throw error;
+  }
 }
 
 main().catch((error) => {

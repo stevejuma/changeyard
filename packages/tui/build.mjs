@@ -7,6 +7,8 @@ const result = await build({
   format: "esm",
   external: [
     "@opentui/core",
+    "@opentui/react",
+    "@opentui-ui/dialog",
     "@opentui/core-darwin-x64",
     "@opentui/core-darwin-arm64",
     "@opentui/core-linux-x64",
@@ -15,6 +17,10 @@ const result = await build({
     "@opentui/core-linux-arm64-musl",
     "@opentui/core-win32-x64",
     "@opentui/core-win32-arm64",
+    "react",
+    "react/jsx-runtime",
+    "react/jsx-dev-runtime",
+    "react-devtools-core",
   ],
 });
 

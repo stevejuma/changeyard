@@ -10,7 +10,9 @@ import type {
   WorkspaceFileSearchMatch,
 } from "../runtime-client";
 
-export type ViewMode = "home" | "workspace" | "config";
+export type ViewMode = "home" | "chat";
+export type UiMode = "plan" | "act";
+export type StatusControl = "plan" | "act" | "profile";
 
 export type SlashCommand = {
   name: string;
@@ -28,6 +30,12 @@ export type AutocompleteOption = {
   command?: SlashCommand;
 };
 
+export type ChatEntry =
+  | { kind: "user"; text: string }
+  | { kind: "assistant"; text: string }
+  | { kind: "status"; text: string }
+  | { kind: "error"; text: string };
+
 export type TuiState = {
   changes: ChangeListItem[];
   selected: ChangeListItem | null;
@@ -40,6 +48,7 @@ export type TuiState = {
   status: string;
   error: string | null;
   view: ViewMode;
+  chatEntries: ChatEntry[];
   sessionSummary: TaskSessionSummary | null;
   sessionMessages: TaskChatMessage[];
 };

@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { appendFileSync } from "node:fs";
 const MAX_BUFFER_BYTES = 10 * 1024 * 1024;
 const ALLOWED_COMMANDS = new Set(["git", "gh", "jj"]);
 
@@ -113,5 +114,17 @@ function logVcsTiming(input: RunVcsCommandInput, startedAt: number): void {
 	if (process.env.NODE_ENV === "production" || input.command !== "jj") {
 		return;
 	}
-	console.debug(`[vcs timing] jj ${input.args.join(" ")} ${Date.now() - startedAt}ms`);
+	writeVcsTiming(`[vcs timing] jj ${input.args.join(" ")} ${Date.now() - startedAt}ms`);
+}
+
+function writeVcsTiming(message: string): void {
+	const logPath = process.env.CHANGEYARD_VCS_TIMING_LOG;
+	if (!logPath) {
+		return;
+	}
+	try {
+		appendFileSync(logPath, `${message}\n`, "utf8");
+	} catch {
+		// Timing diagnostics must never interfere with user-facing TUI rendering.
+	}
 }

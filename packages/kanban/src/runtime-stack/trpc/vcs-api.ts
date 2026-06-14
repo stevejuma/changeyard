@@ -1,3 +1,4 @@
+import { appendFileSync } from "node:fs";
 import type {
 	RuntimeVcsApplyOperationRequest,
 	RuntimeVcsApplyOperationResponse,
@@ -418,9 +419,7 @@ export function createVcsApi(deps: CreateVcsApiDependencies): RuntimeTrpcContext
 				}
 				return await deps.changeyardApi.getJjBranchesData(workspacePath);
 			} finally {
-				if (process.env.NODE_ENV !== "production") {
-					console.debug(`[vcs timing] vcs.jjBranchesData ${Date.now() - startedAt}ms`);
-				}
+				writeVcsTiming(`[vcs timing] vcs.jjBranchesData ${Date.now() - startedAt}ms`);
 			}
 		},
 		branchesData: async (workspaceScope: RuntimeTrpcWorkspaceScope | null) => {
@@ -436,9 +435,7 @@ export function createVcsApi(deps: CreateVcsApiDependencies): RuntimeTrpcContext
 				}
 				return await readBranchesData(workspacePath);
 			} finally {
-				if (process.env.NODE_ENV !== "production") {
-					console.debug(`[vcs timing] vcs.branchesData ${Date.now() - startedAt}ms`);
-				}
+				writeVcsTiming(`[vcs timing] vcs.branchesData ${Date.now() - startedAt}ms`);
 			}
 		},
 		jjOperations: async (
@@ -590,4 +587,19 @@ export function createVcsApi(deps: CreateVcsApiDependencies): RuntimeTrpcContext
 			return await deps.changeyardApi.submitVcsStack(workspacePath, input);
 		},
 	};
+}
+
+function writeVcsTiming(message: string): void {
+	if (process.env.NODE_ENV === "production") {
+		return;
+	}
+	const logPath = process.env.CHANGEYARD_VCS_TIMING_LOG;
+	if (!logPath) {
+		return;
+	}
+	try {
+		appendFileSync(logPath, `${message}\n`, "utf8");
+	} catch {
+		// Timing diagnostics must never interfere with user-facing TUI rendering.
+	}
 }

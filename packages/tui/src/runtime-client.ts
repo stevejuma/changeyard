@@ -129,12 +129,20 @@ export type RuntimeConfigResponse = {
 };
 
 export type RepositoryStatusResponse = {
-  type: "jj" | "git" | "none" | "unknown";
-  displayRef: string;
+  vcsType: "jj" | "git" | "none" | "unknown";
+  workspaceName: string;
+  refLabel: string | null;
+  diffStats: {
+    files: number;
+    additions: number;
+    deletions: number;
+  } | null;
   changeId?: string | null;
   commitId?: string | null;
-  diffSummary: string;
   dirty: boolean;
+  type: "jj" | "git" | "none" | "unknown";
+  displayRef: string;
+  diffSummary: string;
 };
 
 export type WorkspaceFileSearchMatch = {
@@ -205,6 +213,21 @@ export type ProjectConfigResponse = {
   planningDefaultStrictness?: "normal" | "strict";
   planningAllowQuickChanges?: boolean;
   planningQuickChangeCheckProfile?: string;
+  checkProfiles?: string[];
+  templateProfiles?: string[];
+};
+
+export type ProjectConfigUpdateInput = {
+  providerType?: ProjectConfigResponse["providerType"];
+  vcsEngine?: ProjectConfigResponse["vcsEngine"];
+  vcsFallback?: ProjectConfigResponse["vcsFallback"];
+  vcsTargetBranch?: string | null;
+  vcsAppliedStacks?: string[];
+  projectDefaultBase?: string;
+  planningDefaultProfile?: ProjectConfigResponse["planningDefaultProfile"];
+  planningDefaultStrictness?: ProjectConfigResponse["planningDefaultStrictness"];
+  planningAllowQuickChanges?: boolean;
+  planningQuickChangeCheckProfile?: string;
 };
 
 export type DoctorResponse = {
@@ -231,9 +254,43 @@ export class RuntimeClientError extends Error {
   }
 }
 
+function summarizeDiffStats(files: Array<{ additions?: number; deletions?: number; path?: string }>): RepositoryStatusResponse["diffStats"] {
+  if (files.length === 0) return null;
+  return {
+    files: files.length,
+    additions: files.reduce((sum, file) => sum + (file.additions ?? 0), 0),
+    deletions: files.reduce((sum, file) => sum + (file.deletions ?? 0), 0),
+  };
+}
+
+function formatDiffSummary(diffStats: RepositoryStatusResponse["diffStats"], cleanText = "clean"): string {
+  if (!diffStats) return cleanText;
+  return `${diffStats.files} file${diffStats.files === 1 ? "" : "s"} +${diffStats.additions} -${diffStats.deletions}`;
+}
+
+function normalizeRepositoryStatus(
+  vcsType: RepositoryStatusResponse["vcsType"],
+  workspaceName: string,
+  refLabel: string | null,
+  diffStats: RepositoryStatusResponse["diffStats"],
+  cleanText = "clean",
+): RepositoryStatusResponse {
+  return {
+    vcsType,
+    workspaceName,
+    refLabel,
+    diffStats,
+    dirty: diffStats !== null,
+    type: vcsType,
+    displayRef: refLabel ?? vcsType,
+    diffSummary: formatDiffSummary(diffStats, cleanText),
+  };
+}
+
 export class RuntimeClient {
   private readonly origin: string;
   private workspaceId: string | null = null;
+  private selectedProject: ProjectsResponse["projects"][number] | null = null;
 
   constructor(runtimeUrl: string) {
     this.origin = new URL(runtimeUrl).origin;
@@ -260,6 +317,7 @@ export class RuntimeClient {
       throw new RuntimeClientError("Runtime has no active Changeyard project.");
     }
     this.workspaceId = projects.currentProjectId;
+    this.selectedProject = projects.projects.find((project) => project.id === projects.currentProjectId) ?? null;
     return projects.currentProjectId;
   }
 
@@ -274,7 +332,7 @@ export class RuntimeClient {
   }
 
   async createChange(input: {
-    template: "feature" | "bug" | "refactor" | "agent-task" | "quick";
+    template: string;
     title: string;
     planning?: "none" | "openspec-lite";
     strict?: boolean;
@@ -381,18 +439,7 @@ export class RuntimeClient {
     return await this.mutation<{ message: string }>("changes.update", {});
   }
 
-  async updateProjectConfig(input: {
-    providerType?: ProjectConfigResponse["providerType"];
-    vcsEngine?: ProjectConfigResponse["vcsEngine"];
-    vcsFallback?: ProjectConfigResponse["vcsFallback"];
-    vcsTargetBranch?: string | null;
-    vcsAppliedStacks?: string[];
-    projectDefaultBase?: string;
-    planningDefaultProfile?: ProjectConfigResponse["planningDefaultProfile"];
-    planningDefaultStrictness?: ProjectConfigResponse["planningDefaultStrictness"];
-    planningAllowQuickChanges?: boolean;
-    planningQuickChangeCheckProfile?: string;
-  }): Promise<ProjectConfigResponse> {
+  async updateProjectConfig(input: ProjectConfigUpdateInput): Promise<ProjectConfigResponse> {
     await this.ensureWorkspace();
     return await this.mutation<ProjectConfigResponse>("changes.updateProjectConfig", input);
   }
@@ -404,6 +451,7 @@ export class RuntimeClient {
 
   async getRepositoryStatus(): Promise<RepositoryStatusResponse> {
     await this.ensureWorkspace();
+    const workspaceName = this.selectedProject?.name ?? "workspace";
     try {
       const detect = await this.query<{ engine?: string; type?: string; provider?: string; defaultBase?: string | null }>("vcs.detect");
       const engine = detect.engine ?? detect.type ?? detect.provider ?? "unknown";
@@ -416,33 +464,39 @@ export class RuntimeClient {
           this.query<{ files?: Array<{ additions?: number; deletions?: number; path?: string }> }>("vcs.diff", {}).catch(() => null),
         ]);
         const current = state?.current ?? state?.workingCopy ?? null;
-        const files = diff?.files ?? [];
-        const additions = files.reduce((sum, file) => sum + (file.additions ?? 0), 0);
-        const deletions = files.reduce((sum, file) => sum + (file.deletions ?? 0), 0);
+        const diffStats = summarizeDiffStats(diff?.files ?? []);
+        const refLabel = current?.description || current?.changeId || "jj @";
         return {
+          vcsType: "jj",
+          workspaceName,
+          refLabel,
+          diffStats,
           type: "jj",
-          displayRef: current?.description || current?.changeId || "jj @",
+          displayRef: refLabel,
           changeId: current?.changeId ?? null,
           commitId: current?.commitId ?? null,
-          diffSummary: files.length > 0 ? `${files.length} files +${additions} -${deletions}` : "clean",
-          dirty: files.length > 0,
+          diffSummary: formatDiffSummary(diffStats),
+          dirty: diffStats !== null,
         };
       }
       if (engine === "git" || engine === "git-worktree") {
         const diff = await this.query<{ files?: Array<{ additions?: number; deletions?: number; path?: string }> }>("vcs.diff", {}).catch(() => null);
-        const files = diff?.files ?? [];
-        const additions = files.reduce((sum, file) => sum + (file.additions ?? 0), 0);
-        const deletions = files.reduce((sum, file) => sum + (file.deletions ?? 0), 0);
+        const diffStats = summarizeDiffStats(diff?.files ?? []);
+        const refLabel = detect.defaultBase ?? "git";
         return {
+          vcsType: "git",
+          workspaceName,
+          refLabel,
+          diffStats,
           type: "git",
-          displayRef: detect.defaultBase ?? "git",
-          diffSummary: files.length > 0 ? `${files.length} files +${additions} -${deletions}` : "clean",
-          dirty: files.length > 0,
+          displayRef: refLabel,
+          diffSummary: formatDiffSummary(diffStats),
+          dirty: diffStats !== null,
         };
       }
-      return { type: "none", displayRef: "no repo", diffSummary: "clean", dirty: false };
+      return normalizeRepositoryStatus("none", workspaceName, "no repo", null);
     } catch {
-      return { type: "unknown", displayRef: "repo unknown", diffSummary: "unavailable", dirty: false };
+      return normalizeRepositoryStatus("unknown", workspaceName, "repo unknown", null, "unavailable");
     }
   }
 

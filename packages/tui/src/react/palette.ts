@@ -1,18 +1,37 @@
 export const palette = {
-  bg: "#101317",
-  panel: "#171b21",
-  panel2: "#1f252d",
-  border: "#3a424d",
-  text: "#e8edf2",
-  muted: "#8e98a6",
-  faint: "#596270",
-  accent: "#6ee7b7",
-  blue: "#7dd3fc",
-  yellow: "#fde68a",
-  red: "#fca5a5",
-  selection: "#2f6f5f",
-  selectionText: "#f7fffb",
+  act: "cyan",
+  plan: "yellow",
+  profile: "brightGreen",
+  selection: "cyan",
+  accent: "cyan",
+  border: "gray",
+  text: "white",
+  muted: "gray",
+  faint: "#777777",
+  textOnSelection: "black",
+  selectionText: "black",
+  success: "brightGreen",
+  red: "red",
+  yellow: "yellow",
+  bg: "#000000",
+  panel: "#202020",
+  panel2: "#3d4140",
+  inputActBg: "#3d4140",
+  inputPlanBg: "#43413b",
+  inputFg: "#eeeeee",
+  inputPlaceholder: "#a2a2a2",
 };
+
+export const HOME_VIEW_MAX_WIDTH = 68;
+export const DROPDOWN_MAX_HEIGHT = 9;
+
+export function getModeAccent(mode: "plan" | "act"): string {
+  return mode === "plan" ? palette.plan : palette.act;
+}
+
+export function getModeInputBackground(mode: "plan" | "act"): string {
+  return mode === "plan" ? palette.inputPlanBg : palette.inputActBg;
+}
 
 export function truncate(value: string, max: number): string {
   if (value.length <= max) return value;

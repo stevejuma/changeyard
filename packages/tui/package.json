@@ -9,10 +9,11 @@
     "test": "bun run tests/run-interaction-tests.tsx && bun run tests/config-data.test.ts && bun run tests/workflow-helpers.test.ts"
   },
   "dependencies": {
-    "@opentui/core": "^0.4.1",
-    "@opentui/react": "^0.4.1",
+    "@opentui-ui/dialog": "^0.1.2",
+    "@opentui/core": "0.1.102",
+    "@opentui/react": "0.1.102",
     "fuzzysort": "^3.1.0",
-    "react": "^19.2.7",
+    "react": "19.2.4",
     "react-devtools-core": "^7.0.1",
     "ws": "^8.21.0"
   },

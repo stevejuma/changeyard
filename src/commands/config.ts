@@ -2,6 +2,7 @@ import path from "node:path";
 import { findRepoRoot, loadConfig } from "../config/loadConfig.js";
 import { defaultConfig } from "../config/defaults.js";
 import { isChangeyardInitialized } from "../config/localConfig.js";
+import { listGlobalTemplateProfiles } from "../config/templateProfiles.js";
 import { runTui } from "./tui.js";
 
 export type ConfigOptions = {
@@ -26,6 +27,8 @@ export type ConfigJsonOutput = {
     planningDefaultStrictness?: string;
     planningAllowQuickChanges?: boolean;
     planningQuickChangeCheckProfile?: string;
+    checkProfiles: string[];
+    templateProfiles: string[];
   };
   paths: {
     base: string;
@@ -50,6 +53,8 @@ function toConfigJson(repoRoot: string): ConfigJsonOutput {
       planningDefaultStrictness: config.planning?.defaultStrictness,
       planningAllowQuickChanges: config.planning?.allowQuickChanges,
       planningQuickChangeCheckProfile: config.planning?.quickChangeCheckProfile,
+      checkProfiles: Object.keys(config.checks),
+      templateProfiles: listGlobalTemplateProfiles(),
     },
     paths: {
       base: path.join(repoRoot, storageRoot, "config.jsonc"),

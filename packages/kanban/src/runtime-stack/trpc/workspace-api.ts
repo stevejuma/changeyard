@@ -1,3 +1,4 @@
+import { appendFileSync } from "node:fs";
 import { TRPCError } from "@trpc/server";
 import type { ClineTaskSessionService } from "../cline-sdk/cline-task-session-service.js";
 import type {
@@ -482,9 +483,7 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 			try {
 				return await getWorkspaceApiRepositoryLog(workspaceScope, input);
 			} finally {
-				if (process.env.NODE_ENV !== "production") {
-					console.debug(`[vcs timing] workspace.getRepositoryLog ${Date.now() - startedAt}ms`);
-				}
+				writeVcsTiming(`[vcs timing] workspace.getRepositoryLog ${Date.now() - startedAt}ms`);
 			}
 		},
 		loadGitRefs: async (workspaceScope, input) => {
@@ -523,4 +522,19 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 			return await getWorkspaceApiRepositoryCommitDiff(workspaceScope, input);
 		},
 	};
+}
+
+function writeVcsTiming(message: string): void {
+	if (process.env.NODE_ENV === "production") {
+		return;
+	}
+	const logPath = process.env.CHANGEYARD_VCS_TIMING_LOG;
+	if (!logPath) {
+		return;
+	}
+	try {
+		appendFileSync(logPath, `${message}\n`, "utf8");
+	} catch {
+		// Timing diagnostics must never interfere with user-facing TUI rendering.
+	}
 }
