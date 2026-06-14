@@ -134,11 +134,15 @@ import {
 	runtimeChangeyardChangeGetRequestSchema,
 	runtimeChangeyardChangeUpdateStatusRequestSchema,
 	runtimeChangeyardChangeUpdateBodyRequestSchema,
+	runtimeChangeyardLandRequestSchema,
+	runtimeChangeyardNextActionSchema,
 	runtimeChangeyardPlanningPromptRequestSchema,
 	runtimeChangeyardPlanningPromptResponseSchema,
 	runtimeChangeyardReviewCompleteRequestSchema,
 	runtimeChangeyardChangeUpdatePlanningSectionRequestSchema,
 	runtimeChangeyardChangesListResponseSchema,
+	runtimeChangeyardWorkspaceDeleteRequestSchema,
+	runtimeChangeyardWorkspaceStatusSchema,
 	runtimeChangeyardDoctorResponseSchema,
 	runtimeChangeyardInitResponseSchema,
 	runtimeChangeyardUpdateResponseSchema,
@@ -1010,6 +1014,35 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeChangeyardChangeActionResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.changesApi.completeChange(ctx.workspaceScope.workspacePath, input);
+			}),
+		next: workspaceProcedure
+			.input(runtimeChangeyardChangeGetRequestSchema)
+			.output(runtimeChangeyardNextActionSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.changesApi.nextAction(ctx.workspaceScope.workspacePath, input);
+			}),
+		land: workspaceProcedure
+			.input(runtimeChangeyardLandRequestSchema)
+			.output(runtimeChangeyardChangeActionResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.changesApi.landChange(ctx.workspaceScope.workspacePath, input);
+			}),
+		workspaceStatus: workspaceProcedure
+			.input(runtimeChangeyardChangeGetRequestSchema)
+			.output(runtimeChangeyardWorkspaceStatusSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.changesApi.workspaceStatus(ctx.workspaceScope.workspacePath, input);
+			}),
+		workspaceList: workspaceProcedure
+			.output(runtimeChangeyardWorkspaceStatusSchema.array())
+			.query(async ({ ctx }) => {
+				return await ctx.changesApi.workspaceList(ctx.workspaceScope.workspacePath);
+			}),
+		workspaceDelete: workspaceProcedure
+			.input(runtimeChangeyardWorkspaceDeleteRequestSchema)
+			.output(runtimeChangeyardChangeActionResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.changesApi.workspaceDelete(ctx.workspaceScope.workspacePath, input);
 			}),
 		reviewStart: workspaceProcedure
 			.input(runtimeChangeyardChangeGetRequestSchema)

@@ -68,7 +68,8 @@ export function WorkspacePanel(props: { detail: ChangeDetail }) {
       <text fg={theme.textMuted}>engine: {props.detail.workspace?.engine ?? "none"}</text>
       <text fg={theme.textMuted}>name: {props.detail.workspace?.name ?? "none"}</text>
       <text fg={theme.textMuted}>path: {props.detail.workspace?.path ?? "not started"}</text>
-      <text fg={theme.textMuted}>Run /start, /verify, /complete from composer.</text>
+      <text fg={theme.textMuted}>next: /next</text>
+      <text fg={theme.textMuted}>cleanup: /workspace-status /workspace-delete</text>
     </box>
   );
 }
@@ -110,6 +111,7 @@ export function DiagnosticsPanel(props: { rows: DiagnosticRow[] }) {
   return (
     <box flexDirection="column">
       <text fg={theme.text}>diagnostics</text>
+      <text fg={theme.textMuted}>next action: /next</text>
       <Show when={props.rows.length > 0} fallback={<text fg={theme.textMuted}>Run /doctor to add doctor diagnostics.</text>}>
         <For each={props.rows}>
           {(row) => (

@@ -20,7 +20,9 @@ import {
 import { runCreate } from "../src/commands/create.js";
 import { runHydrate } from "../src/commands/hydrate.js";
 import { runInit } from "../src/commands/init.js";
+import { runLand } from "../src/commands/land.js";
 import { runUpdate } from "../src/commands/update.js";
+import { getNextAction, runNext } from "../src/commands/next.js";
 import { formatCommandPreview } from "../src/scaffold/command-generation/generator.js";
 import { cursorAdapter } from "../src/scaffold/command-generation/adapters/cursor.js";
 import { getCommandContents } from "../src/scaffold/templates/commands.js";
@@ -33,6 +35,7 @@ import { getStatus, runStatus } from "../src/commands/status.js";
 import { runSync } from "../src/commands/sync.js";
 import { runValidate } from "../src/commands/validate.js";
 import { runVerify } from "../src/commands/verify.js";
+import { deleteWorkspace, getWorkspaceStatus } from "../src/commands/workspace.js";
 import {
   cliBinNames,
   ensureExecutable,
@@ -749,8 +752,72 @@ test("start creates a plain-copy workspace and verify enforces the workspace dir
     const metadata = readFileSync(path.join(repo, ".changeyard", "workspaces", "CY-0001", "metadata.json"), "utf8");
     assert.match(metadata, /"engine": "plain-copy"/);
     assert.match(readFileSync(path.join(workspacePath, ".changeyard-workspace.json"), "utf8"), /metadataPath/);
-    assert.equal(runVerify("CY-0001", workspacePath), "Verified CY-0001 in .changeyard/workspaces/CY-0001/repo");
+    assert.match(runVerify("CY-0001", workspacePath), /Verified CY-0001 in \.changeyard\/workspaces\/CY-0001\/repo\nNext: implement, update Completion Notes, then cy complete CY-0001 --no-pr/);
+    const validateFromWorkspace = spawnSync(nodeBinary(), [cliBinPath(), "validate", "CY-0001"], { cwd: workspacePath, encoding: "utf8" });
+    assert.equal(validateFromWorkspace.status, 0, validateFromWorkspace.stderr || validateFromWorkspace.stdout);
     assert.throws(() => runVerify("CY-0001", repo), /not inside a Changeyard workspace/);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("next maps lifecycle state to actionable commands", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "agent-task", title: "Next action map" }, repo);
+    assert.equal(getNextAction("CY-0001", repo).nextCommand, "cy validate CY-0001");
+    assert.match(runNext("CY-0001", repo), /Next: cy validate CY-0001/);
+
+    runSync("CY-0001", repo);
+    assert.equal(getNextAction("CY-0001", repo).nextCommand, "cy start CY-0001");
+
+    runStart("CY-0001", repo);
+    const inProgress = getNextAction("CY-0001", repo);
+    assert.equal(inProgress.nextKind, "complete");
+    assert.match(inProgress.nextCommand, /cy complete CY-0001 --no-pr/);
+
+    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-next-action-map.md");
+    const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
+    writeFileSync(changePath, writeFrontmatter({ ...parsed.frontmatter, status: "ready_for_pr" }, parsed.body));
+    assert.equal(getNextAction("CY-0001", repo).nextCommand, "cy land CY-0001");
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("validate complete gate accepts fully checked acceptance criteria", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "agent-task", title: "Complete gate validation" }, repo);
+    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-complete-gate-validation.md");
+    updateSection(changePath, "Acceptance Criteria", "- [x] Completion gate can validate checked tasks");
+    assert.throws(
+      () => runValidate("CY-0001", repo),
+      /run cy validate <id> --gate complete or cy complete <id>/,
+    );
+    assert.match(runValidate("CY-0001", repo, { gate: "complete" }), /Valid change/);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("workspace status and delete protect dirty unlanded work", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "agent-task", title: "Delete dirty workspace" }, repo);
+    runStart("CY-0001", repo);
+    const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
+    writeFileSync(path.join(workspacePath, "dirty.txt"), "dirty\n");
+
+    const status = getWorkspaceStatus("CY-0001", repo);
+    assert.equal(status.dirty, true);
+    assert.equal(status.nextCommand, "cd .changeyard/workspaces/CY-0001/repo && cy verify CY-0001");
+    assert.throws(() => deleteWorkspace("CY-0001", {}, repo), /dirty unlanded work/);
+    assert.match(deleteWorkspace("CY-0001", { force: true }, repo), /Deleted workspace CY-0001/);
+    assert.equal(existsSync(path.join(repo, ".changeyard", "workspaces", "CY-0001")), false);
   } finally {
     cleanup(repo);
   }
@@ -1665,6 +1732,44 @@ test("jj workspace engine can verify a real jj workspace when jj is installed", 
     const metadata = { changeId: "CY-0001", engine: "jj", name: "cy-CY-0001-real", path: workspacePath, repoRoot: repo, changePath: path.join(repo, "change.md"), createdAt: "now" };
     const created = engine.create({ repoRoot: repo, workspacePath, metadata, neverCopy: [] });
     assert.deepEqual(engine.verify({ cwd: workspacePath, metadata: created }), { valid: true, errors: [] });
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("land squashes a completed jj workspace into the default bookmark", () => {
+  if (!hasCommand("git") || !hasCommand("jj")) return;
+  const repo = tempRepo();
+  try {
+    runCommand("git", ["init", "-b", "main"], repo);
+    runCommand("jj", ["git", "init", "--colocate"], repo);
+    runCommand("jj", ["config", "set", "--repo", "user.name", "Changeyard Test"], repo);
+    runCommand("jj", ["config", "set", "--repo", "user.email", "changeyard@example.test"], repo);
+    runCommand("jj", ["config", "set", "--repo", "signing.behavior", "drop"], repo);
+    writeFileSync(path.join(repo, "README.md"), "# repo\n");
+    runCommand("jj", ["commit", "-m", "initial"], repo);
+    runCommand("jj", ["bookmark", "set", "main", "-r", "@-"], repo);
+
+    runInit(repo);
+    writeFileSync(path.join(repo, ".changeyard", "config.local.jsonc"), `{"vcs":{"engine":"jj","fallback":"plain-copy"},"checks":{"standard":["node -v"]}}\n`);
+    runCommand("jj", ["commit", "-m", "init changeyard"], repo);
+    runCommand("jj", ["bookmark", "set", "main", "-r", "@-"], repo);
+
+    runCreate({ template: "agent-task", title: "Land jj workspace" }, repo);
+    runStart("CY-0001", repo);
+    const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
+    writeFileSync(path.join(workspacePath, "landed.txt"), "landed\n");
+    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-land-jj-workspace.md");
+    updateSection(changePath, "Acceptance Criteria", "- [x] JJ workspace work is landed locally");
+    updateSection(changePath, "Completion Notes", "Implemented the workspace file. Checks ran: node -v.");
+
+    assert.match(runComplete("CY-0001", { noPr: true }, workspacePath), /Next: cy land CY-0001/);
+    assert.match(runLand("CY-0001", {}, repo), /Landed CY-0001 into main/);
+
+    assert.equal(readFileSync(path.join(repo, "landed.txt"), "utf8"), "landed\n");
+    assert.equal(existsSync(path.join(repo, ".changeyard", "workspaces", "CY-0001")), false);
+    const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
+    assert.equal(parsed.frontmatter.status, "merged");
   } finally {
     cleanup(repo);
   }

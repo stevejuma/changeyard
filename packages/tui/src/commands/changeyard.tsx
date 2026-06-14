@@ -103,7 +103,7 @@ export function useChangeyardActions() {
     }
   }
 
-  async function runAction(action: "validate" | "sync" | "start" | "verify" | "complete" | "review") {
+  async function runAction(action: "validate" | "sync" | "start" | "verify" | "complete" | "land" | "review") {
     const selected = state.selected;
     if (!selected) {
       toast.show({ variant: "warning", message: "Select a change first." });
@@ -122,6 +122,9 @@ export function useChangeyardActions() {
       if (action === "complete") {
         await DialogAlert.show(dialog, "Complete change", `Complete ${selected.id} without opening a PR?`);
       }
+      if (action === "land") {
+        await DialogAlert.show(dialog, "Land change", `Land ${selected.id} into the default workflow?`);
+      }
       if (action === "validate") {
         state.setDetail(await client.validate(selected.id));
         state.setStatus(`Validated ${selected.id}`);
@@ -137,6 +140,10 @@ export function useChangeyardActions() {
         state.setStatus(result.message);
       } else if (action === "complete") {
         const result = await client.complete(selected.id);
+        state.setDetail(result.change);
+        state.setStatus(result.message);
+      } else if (action === "land") {
+        const result = await client.land(selected.id);
         state.setDetail(result.change);
         state.setStatus(result.message);
       } else {
@@ -160,6 +167,106 @@ export function useChangeyardActions() {
         kind: "lifecycle",
         status: "failure",
         title: `${action} failed`,
+        description: caught instanceof Error ? caught.message : String(caught),
+        changeId: selected.id,
+      });
+      toast.error(caught);
+    }
+  }
+
+  async function showNextAction() {
+    const selected = state.selected;
+    if (!selected) {
+      toast.show({ variant: "warning", message: "Select a change first." });
+      return;
+    }
+    try {
+      const result = await client.nextAction(selected.id);
+      const lines = [
+        `status: ${result.status}`,
+        `next: ${result.nextCommand}`,
+        `expected cwd: ${result.expectedCwd}`,
+        ...(result.planningNextAction ? [`planning: ${result.planningNextAction}`] : []),
+        ...(result.workspace ? [
+          `workspace: ${result.workspace.path ?? "missing"}`,
+          `workspace dirty: ${String(result.workspace.dirty)}`,
+          `workspace conflicts: ${String(result.workspace.conflicts)}`,
+        ] : []),
+        ...result.blockers.map((blocker) => `blocker: ${blocker}`),
+      ];
+      state.setStatus(result.nextCommand);
+      recordActivity({
+        kind: "lifecycle",
+        status: result.blockers.length > 0 ? "info" : "success",
+        title: `Next ${selected.id}`,
+        description: result.nextCommand,
+        changeId: selected.id,
+      });
+      dialog.replace(() => <DialogMessage title="Next action" lines={lines} />);
+    } catch (caught) {
+      state.setError(caught instanceof Error ? caught.message : String(caught));
+      recordActivity({
+        kind: "lifecycle",
+        status: "failure",
+        title: "Next failed",
+        description: caught instanceof Error ? caught.message : String(caught),
+        changeId: selected.id,
+      });
+      toast.error(caught);
+    }
+  }
+
+  async function showWorkspaceStatus() {
+    const selected = state.selected;
+    if (!selected) {
+      toast.show({ variant: "warning", message: "Select a change first." });
+      return;
+    }
+    try {
+      const result = await client.workspaceStatus(selected.id);
+      const lines = [
+        `status: ${result.status}`,
+        `workspace: ${result.path ?? "missing"}`,
+        `engine: ${result.engine ?? "unknown"}`,
+        `dirty: ${String(result.dirty)}`,
+        `conflicts: ${String(result.conflicts)}`,
+        `landed: ${String(result.landed)}`,
+        ...(result.nextCommand ? [`next: ${result.nextCommand}`] : []),
+        ...result.errors.map((error) => `error: ${error}`),
+      ];
+      state.setStatus(result.nextCommand ?? `Workspace status loaded for ${selected.id}`);
+      dialog.replace(() => <DialogMessage title="Workspace status" lines={lines} />);
+    } catch (caught) {
+      state.setError(caught instanceof Error ? caught.message : String(caught));
+      toast.error(caught);
+    }
+  }
+
+  async function deleteSelectedWorkspace() {
+    const selected = state.selected;
+    if (!selected) {
+      toast.show({ variant: "warning", message: "Select a change first." });
+      return;
+    }
+    try {
+      await DialogAlert.show(dialog, "Delete workspace", `Delete workspace for ${selected.id}?`);
+      const result = await client.workspaceDelete(selected.id);
+      state.setDetail(result.change);
+      state.setStatus(result.message);
+      await refresh(selected.id);
+      recordActivity({
+        kind: "lifecycle",
+        status: "success",
+        title: `Deleted workspace ${selected.id}`,
+        description: result.message,
+        changeId: selected.id,
+      });
+    } catch (caught) {
+      state.setError(caught instanceof Error ? caught.message : String(caught));
+      recordActivity({
+        kind: "lifecycle",
+        status: "failure",
+        title: "Workspace delete failed",
         description: caught instanceof Error ? caught.message : String(caught),
         changeId: selected.id,
       });
@@ -253,12 +360,16 @@ export function useChangeyardActions() {
         dialog.replace(() => <CreateDialog initialPreset={args[0]} onCreate={createChangeFromPreset} />);
       },
       prompt: () => void loadPrompt(),
+      next: () => void showNextAction(),
       validate: () => void runAction("validate"),
       sync: () => void runAction("sync"),
       start: () => void runAction("start"),
       verify: () => void runAction("verify"),
       complete: () => void runAction("complete"),
+      land: () => void runAction("land"),
       review: () => void runAction("review"),
+      "workspace-status": () => void showWorkspaceStatus(),
+      "workspace-delete": () => void deleteSelectedWorkspace(),
       detail: () => setPreviewTab("detail"),
       planning: () => setPreviewTab("planning"),
       workspace: () => setPreviewTab("workspace"),
@@ -358,6 +469,9 @@ export function useChangeyardActions() {
     runAction,
     createChangeFromPreset,
     loadPrompt,
+    showNextAction,
+    showWorkspaceStatus,
+    deleteSelectedWorkspace,
     refreshWithActivity,
     executeSlash,
     goToWorkspace,
@@ -555,6 +669,15 @@ export function RegisterChangeyardCommands() {
       onSelect: () => void actions.loadPrompt(),
     },
     {
+      title: "Next action",
+      value: "next",
+      category: "Lifecycle",
+      description: "Show the recommended next Changeyard command",
+      suggested: true,
+      slash: { name: "next" },
+      onSelect: () => void actions.showNextAction(),
+    },
+    {
       title: "Validate change",
       value: "validate",
       category: "Lifecycle",
@@ -593,6 +716,30 @@ export function RegisterChangeyardCommands() {
       description: "Complete selected change locally",
       slash: { name: "complete" },
       onSelect: () => void actions.runAction("complete"),
+    },
+    {
+      title: "Land change",
+      value: "land",
+      category: "Lifecycle",
+      description: "Move completed workspace work into the default workflow",
+      slash: { name: "land" },
+      onSelect: () => void actions.runAction("land"),
+    },
+    {
+      title: "Workspace status",
+      value: "workspace.status",
+      category: "Lifecycle",
+      description: "Inspect selected Changeyard workspace state",
+      slash: { name: "workspace-status" },
+      onSelect: () => void actions.showWorkspaceStatus(),
+    },
+    {
+      title: "Delete workspace",
+      value: "workspace.delete",
+      category: "Lifecycle",
+      description: "Delete the selected Changeyard workspace",
+      slash: { name: "workspace-delete" },
+      onSelect: () => void actions.deleteSelectedWorkspace(),
     },
     {
       title: "Start review",

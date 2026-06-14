@@ -16,8 +16,10 @@ import { runCreate } from "./commands/create.js";
 import { runHooks } from "./commands/hooks.js";
 import { runHydrate } from "./commands/hydrate.js";
 import { runInit } from "./commands/init.js";
+import { runLand } from "./commands/land.js";
 import { runUpdate } from "./commands/update.js";
 import { listChanges, runList } from "./commands/list.js";
+import { getNextAction, runNext } from "./commands/next.js";
 import { runRecover } from "./commands/recover.js";
 import { runReviewComplete, runReviewStart } from "./commands/review.js";
 import { runServer } from "./commands/server.js";
@@ -29,13 +31,16 @@ import { runConfig } from "./commands/config.js";
 import { runUi } from "./commands/ui.js";
 import { runValidate } from "./commands/validate.js";
 import { runVerify } from "./commands/verify.js";
+import { deleteWorkspace, getWorkspaceStatus, listWorkspaceStatuses, runWorkspaceList, runWorkspaceStatus } from "./commands/workspace.js";
 import { runInstallCli, runUninstallCli } from "./commands/install-cli.js";
 import { findRepoRoot } from "./config/loadConfig.js";
 import { errorCode, errorExitCode } from "./errors.js";
 import type { PlanningModel } from "./planning/types.js";
+import type { ValidationGate } from "./planning/validation.js";
 import type { CreateOptions } from "./commands/create.js";
+import { readWorkspaceMetadata } from "./workspace/marker.js";
 
-type CommandName = "init" | "update" | "create" | "quick" | "validate" | "sync" | "start" | "verify" | "hydrate" | "complete" | "review" | "doctor" | "completions" | "recover" | "list" | "status" | "plan" | "ui" | "server" | "tui" | "config" | "hooks" | "install" | "uninstall" | "help";
+type CommandName = "init" | "update" | "create" | "quick" | "validate" | "sync" | "start" | "verify" | "hydrate" | "complete" | "next" | "land" | "workspace" | "review" | "doctor" | "completions" | "recover" | "list" | "status" | "plan" | "ui" | "server" | "tui" | "config" | "hooks" | "install" | "uninstall" | "help";
 
 type ParsedArgs = {
   command: string;
@@ -129,12 +134,17 @@ Usage:
   cy create --template <name> --title <title> [--priority <priority>] [--label <label>...] [--author <name>] [--plan-file <path>] [--planning <none|openspec-lite>] [--strict] [--no-planning] [--dry-run]
   cy create --quick --title <title> [--priority <priority>] [--label <label>...] [--author <name>] [--dry-run]
   cy quick --title <title> [--priority <priority>] [--label <label>...] [--author <name>] [--dry-run]
-  cy validate CY-0001
+  cy validate CY-0001 [--gate document|sync|start|complete]
   cy sync CY-0001 [--dry-run]
   cy start CY-0001 [--dry-run]
   cy verify CY-0001
   cy hydrate CY-0001 [--dry-run]
   cy complete CY-0001 [--profile <name>] [--no-pr] [--no-code-change] [--dry-run]
+  cy next CY-0001 [--json]
+  cy land CY-0001 [--target <ref>] [--dry-run] [--keep-workspace]
+  cy workspace status CY-0001 [--json]
+  cy workspace list [--json]
+  cy workspace delete CY-0001 [--dry-run] [--force]
   cy review start CY-0001
   cy review complete CY-0001 --decision approve|request-changes|reject [--dry-run]
   cy doctor [--json] [--fix] [--dry-run] [--verbose]
@@ -194,7 +204,7 @@ function commandUsage(command: string): string {
       "cy quick --title \"Update docs wording\" --label docs",
       "cy quick --dry-run --title \"Tighten release note copy\"",
     ])}`,
-    validate: `${"validate".padEnd(12)}validate one change against templates and schema.\n\nExample:\n${commandExamples(["cy validate CY-0001"])}`,
+    validate: `${"validate".padEnd(12)}validate one change against templates and schema.\n\nExamples:\n${commandExamples(["cy validate CY-0001", "cy validate CY-0001 --gate complete"])}`,
     sync: `${"sync".padEnd(12)}sync change metadata to remote provider.\n\nExample:\n${commandExamples(["cy sync CY-0001", "cy sync CY-0001 --dry-run"])}`,
     start: `${"start".padEnd(12)}create a workspace and set status to in_progress.\n\nExample:\n${commandExamples(["cy start CY-0001"])}`,
     verify: `${"verify".padEnd(12)}verify current directory is a writable workspace.\n\nExample:\n${commandExamples(["cy verify CY-0001"])}`,
@@ -203,6 +213,9 @@ function commandUsage(command: string): string {
       "cy complete CY-0001 --no-pr",
       "cy complete CY-0001 --profile full",
     ])}`,
+    next: `${"next".padEnd(12)}show the next actionable Changeyard command for a change.\n\nExamples:\n${commandExamples(["cy next CY-0001", "cy next CY-0001 --json"])}`,
+    land: `${"land".padEnd(12)}land ready workspace work into the default local workflow.\n\nExamples:\n${commandExamples(["cy land CY-0001", "cy land CY-0001 --target main --dry-run", "cy land CY-0001 --keep-workspace"])}`,
+    workspace: `${"workspace".padEnd(12)}inspect or clean Changeyard workspaces.\n\nExamples:\n${commandExamples(["cy workspace status CY-0001", "cy workspace list --json", "cy workspace delete CY-0001 --dry-run"])}`,
     review: `${"review".padEnd(12)}manage markdown + provider review artifacts.\n\nExamples:\n${commandExamples([
       "cy review start CY-0001",
       "cy review start CY-0001 --dry-run",
@@ -272,6 +285,13 @@ async function main(): Promise<void> {
   const mutationOptions: MutationOptions = { dryRun, fix, verbose };
   const projectRoot = stringFlag(args.flags, "project");
   const repoRoot = command === "help" ? process.cwd() : findRepoRoot(projectRoot ?? process.cwd());
+  const rootForChange = (id: string): string => {
+    try {
+      return readWorkspaceMetadata(id, process.cwd()).repoRoot;
+    } catch {
+      return repoRoot;
+    }
+  };
 
   if (asBooleanFlag(args.flags, "help") || asBooleanFlag(args.flags, "h")) {
     const output = commandUsage(command);
@@ -298,13 +318,13 @@ async function main(): Promise<void> {
         break;
       }
       case "validate":
-        output = runValidate(args.positional[0] ?? "", repoRoot);
+        output = runValidate(args.positional[0] ?? "", rootForChange(args.positional[0] ?? ""), { gate: stringFlag(args.flags, "gate") as ValidationGate | undefined });
         break;
       case "sync":
-        output = runSync(args.positional[0] ?? "", repoRoot, { dryRun });
+        output = runSync(args.positional[0] ?? "", rootForChange(args.positional[0] ?? ""), { dryRun });
         break;
       case "start":
-        output = runStart(args.positional[0] ?? "", repoRoot, { dryRun });
+        output = runStart(args.positional[0] ?? "", rootForChange(args.positional[0] ?? ""), { dryRun });
         break;
       case "verify":
         output = runVerify(args.positional[0] ?? "", process.cwd());
@@ -320,6 +340,26 @@ async function main(): Promise<void> {
           dryRun,
         }, process.cwd());
         break;
+      case "next":
+        output = json ? getNextAction(args.positional[0] ?? "", rootForChange(args.positional[0] ?? "")) : runNext(args.positional[0] ?? "", rootForChange(args.positional[0] ?? ""));
+        break;
+      case "land":
+        output = runLand(args.positional[0] ?? "", {
+          target: stringFlag(args.flags, "target"),
+          dryRun,
+          keepWorkspace: asBooleanFlag(args.flags, "keep-workspace"),
+        }, rootForChange(args.positional[0] ?? ""));
+        break;
+      case "workspace": {
+        const subcommand = args.positional[0] ?? "";
+        const id = args.positional[1] ?? "";
+        const workspaceRepoRoot = id ? rootForChange(id) : repoRoot;
+        if (subcommand === "status") output = json ? getWorkspaceStatus(id, workspaceRepoRoot) : runWorkspaceStatus(id, workspaceRepoRoot);
+        else if (subcommand === "list") output = json ? listWorkspaceStatuses(repoRoot) : runWorkspaceList(repoRoot);
+        else if (subcommand === "delete") output = deleteWorkspace(id, { dryRun, force: asBooleanFlag(args.flags, "force") }, workspaceRepoRoot);
+        else throw new Error("Unknown workspace command. Expected: cy workspace status <id>, cy workspace list, or cy workspace delete <id>");
+        break;
+      }
       case "doctor": {
         const includeJson = asBooleanFlag(args.flags, "json");
         output = includeJson ? doctorReport(repoRoot, mutationOptions) : runDoctor(repoRoot, mutationOptions);
@@ -343,32 +383,32 @@ async function main(): Promise<void> {
         output = json ? listChanges(repoRoot) : runList(repoRoot, { planning: asBooleanFlag(args.flags, "planning") });
         break;
       case "status":
-        output = json ? getStatus(args.positional[0] ?? "", repoRoot) : runStatus(args.positional[0] ?? "", repoRoot);
+        output = json ? getStatus(args.positional[0] ?? "", rootForChange(args.positional[0] ?? "")) : runStatus(args.positional[0] ?? "", rootForChange(args.positional[0] ?? ""));
         break;
       case "plan": {
         const subcommand = args.positional[0] ?? "";
         const id = args.positional[1] ?? "";
-        if (subcommand === "status") output = json ? getPlanStatus(id, repoRoot) : runPlanStatus(id, repoRoot);
+        if (subcommand === "status") output = json ? getPlanStatus(id, rootForChange(id)) : runPlanStatus(id, rootForChange(id));
         else if (subcommand === "prompt") {
           const section = args.positional[2] as import("./planning/types.js").PlanningSectionId | undefined;
           if (!section) throw new Error("Missing planning section. Expected: cy plan prompt <id> <section>");
-          output = json ? getPlanPrompt(id, section, repoRoot) : runPlanPrompt(id, section, repoRoot);
+          output = json ? getPlanPrompt(id, section, rootForChange(id)) : runPlanPrompt(id, section, rootForChange(id));
         }
         else if (subcommand === "export") {
           const format = stringFlag(args.flags, "format") as import("./planning/adapters.js").PlanningAdapterFormat | undefined;
           if (!format) throw new Error("Missing adapter format. Expected: cy plan export <id> --format <openspec|speckit>");
-          output = runPlanExport(id, format, repoRoot, { dryRun });
+          output = runPlanExport(id, format, rootForChange(id), { dryRun });
         }
         else if (subcommand === "import") {
           const format = stringFlag(args.flags, "format") as import("./planning/adapters.js").PlanningAdapterFormat | undefined;
           if (!format) throw new Error("Missing adapter format. Expected: cy plan import <id> --format <openspec|speckit>");
-          output = runPlanImport(id, format, repoRoot, { dryRun });
+          output = runPlanImport(id, format, rootForChange(id), { dryRun });
         }
         else if (subcommand === "strict") {
           const strictAction = args.positional[1] ?? "";
           const strictId = args.positional[2] ?? "";
-          if (strictAction === "enable") output = runPlanStrictEnable(strictId, repoRoot, { dryRun });
-          else if (strictAction === "disable") output = runPlanStrictDisable(strictId, repoRoot, { dryRun });
+          if (strictAction === "enable") output = runPlanStrictEnable(strictId, rootForChange(strictId), { dryRun });
+          else if (strictAction === "disable") output = runPlanStrictDisable(strictId, rootForChange(strictId), { dryRun });
           else throw new Error("Unknown strict plan command. Expected: cy plan strict <enable|disable> <id>");
         }
         else throw new Error("Unknown plan command. Expected: cy plan status <id>, cy plan prompt <id> <section>, cy plan strict <enable|disable> <id>, cy plan export <id> --format <openspec|speckit>, or cy plan import <id> --format <openspec|speckit>");

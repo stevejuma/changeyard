@@ -20,5 +20,8 @@ export function runVerify(id: string, cwd = process.cwd()): string {
   const engine = createWorkspaceEngine(metadata.engine);
   const result = engine.verify({ cwd, metadata });
   if (!result.valid) throw new Error(result.errors.join("\n"));
-  return `Verified ${id} in ${path.relative(metadata.repoRoot, cwd) || "."}`;
+  return [
+    `Verified ${id} in ${path.relative(metadata.repoRoot, cwd) || "."}`,
+    `Next: implement, update Completion Notes, then cy complete ${id} --no-pr`,
+  ].join("\n");
 }

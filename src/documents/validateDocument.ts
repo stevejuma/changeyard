@@ -55,7 +55,7 @@ export function validateParsedChange(
 
   const acceptanceCriteria = sections.get("Acceptance Criteria") ?? "";
   if (template?.validation.requireUncheckedAcceptanceCriteria && options.gate !== "complete" && !hasUncheckedCheckboxTask(acceptanceCriteria)) {
-    errors.push("Acceptance Criteria must include at least one unchecked task");
+    errors.push("Acceptance Criteria must include at least one unchecked task before completion. If all tasks are checked, run cy validate <id> --gate complete or cy complete <id>.");
   }
 
   const planningValidation = validatePlanningForGate(frontmatter, body, options.gate ?? "document");

@@ -56,6 +56,43 @@ export type ChangeActionResponse = {
   change: ChangeDetail;
 };
 
+export type WorkspaceStatus = {
+  id: string;
+  status: string;
+  path: string | null;
+  engine: string | null;
+  name: string | null;
+  exists: boolean;
+  dirty: boolean;
+  conflicts: boolean;
+  landed: boolean;
+  rootMismatch: boolean;
+  errors: string[];
+  nextCommand: string | null;
+};
+
+export type NextActionResponse = {
+  id: string;
+  title: string;
+  status: string;
+  cwd: string;
+  expectedCwd: string;
+  nextKind: string;
+  nextCommand: string;
+  blockers: string[];
+  ready: {
+    validate: boolean;
+    start: boolean;
+    verify: boolean;
+    complete: boolean;
+    land: boolean;
+    review: boolean;
+    cleanup: boolean;
+  };
+  workspace: WorkspaceStatus | null;
+  planningNextAction: string | null;
+};
+
 export type PlanningPromptResponse = {
   section: PlanningSectionId;
   path: string;
@@ -190,6 +227,31 @@ export class RuntimeClient {
   async complete(id: string): Promise<ChangeActionResponse> {
     await this.ensureWorkspace();
     return await this.mutation<ChangeActionResponse>("changes.complete", { id, noPr: true });
+  }
+
+  async nextAction(id: string): Promise<NextActionResponse> {
+    await this.ensureWorkspace();
+    return await this.query<NextActionResponse>("changes.next", { id });
+  }
+
+  async land(id: string, input: { target?: string; keepWorkspace?: boolean } = {}): Promise<ChangeActionResponse> {
+    await this.ensureWorkspace();
+    return await this.mutation<ChangeActionResponse>("changes.land", { id, ...input });
+  }
+
+  async workspaceStatus(id: string): Promise<WorkspaceStatus> {
+    await this.ensureWorkspace();
+    return await this.query<WorkspaceStatus>("changes.workspaceStatus", { id });
+  }
+
+  async workspaceList(): Promise<WorkspaceStatus[]> {
+    await this.ensureWorkspace();
+    return await this.query<WorkspaceStatus[]>("changes.workspaceList");
+  }
+
+  async workspaceDelete(id: string, input: { force?: boolean } = {}): Promise<ChangeActionResponse> {
+    await this.ensureWorkspace();
+    return await this.mutation<ChangeActionResponse>("changes.workspaceDelete", { id, ...input });
   }
 
   async reviewStart(id: string): Promise<ChangeActionResponse> {

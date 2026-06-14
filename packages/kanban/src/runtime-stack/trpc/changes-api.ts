@@ -10,6 +10,8 @@ import type {
 	RuntimeChangeyardBoardSummaryResponse,
 	RuntimeChangeyardChangeDetail,
 	RuntimeChangeyardChangeActionResponse,
+	RuntimeChangeyardLandRequest,
+	RuntimeChangeyardNextAction,
 	RuntimeChangeyardCompleteRequest,
 	RuntimeChangeyardChangeCreateRequest,
 	RuntimeChangeyardChangeDependencyRequest,
@@ -26,6 +28,8 @@ import type {
 	RuntimeChangeyardUpdateResponse,
 	RuntimeChangeyardProjectConfig,
 	RuntimeChangeyardUpdateProjectConfigRequest,
+	RuntimeChangeyardWorkspaceDeleteRequest,
+	RuntimeChangeyardWorkspaceStatus,
 	RuntimeVcsDetectResponse,
 	RuntimeVcsApplyOperationRequest,
 	RuntimeVcsApplyOperationResponse,
@@ -91,6 +95,25 @@ export interface RuntimeChangeyardApiAdapter {
 	completeChange: (
 		repoRoot: string,
 		input: RuntimeChangeyardCompleteRequest,
+	) => Promise<RuntimeChangeyardChangeActionResponse> | RuntimeChangeyardChangeActionResponse;
+	nextAction: (
+		repoRoot: string,
+		input: RuntimeChangeyardChangeGetRequest,
+	) => Promise<RuntimeChangeyardNextAction> | RuntimeChangeyardNextAction;
+	landChange: (
+		repoRoot: string,
+		input: RuntimeChangeyardLandRequest,
+	) => Promise<RuntimeChangeyardChangeActionResponse> | RuntimeChangeyardChangeActionResponse;
+	workspaceStatus: (
+		repoRoot: string,
+		input: RuntimeChangeyardChangeGetRequest,
+	) => Promise<RuntimeChangeyardWorkspaceStatus> | RuntimeChangeyardWorkspaceStatus;
+	workspaceList: (
+		repoRoot: string,
+	) => Promise<RuntimeChangeyardWorkspaceStatus[]> | RuntimeChangeyardWorkspaceStatus[];
+	workspaceDelete: (
+		repoRoot: string,
+		input: RuntimeChangeyardWorkspaceDeleteRequest,
 	) => Promise<RuntimeChangeyardChangeActionResponse> | RuntimeChangeyardChangeActionResponse;
 	reviewStart: (
 		repoRoot: string,
@@ -193,6 +216,11 @@ export interface RuntimeTrpcChangesApi {
 	startChange: (workspacePath: string, input: RuntimeChangeyardChangeGetRequest) => Promise<RuntimeChangeyardChangeDetail>;
 	verifyChange: (workspacePath: string, input: RuntimeChangeyardChangeGetRequest) => Promise<RuntimeChangeyardChangeActionResponse>;
 	completeChange: (workspacePath: string, input: RuntimeChangeyardCompleteRequest) => Promise<RuntimeChangeyardChangeActionResponse>;
+	nextAction: (workspacePath: string, input: RuntimeChangeyardChangeGetRequest) => Promise<RuntimeChangeyardNextAction>;
+	landChange: (workspacePath: string, input: RuntimeChangeyardLandRequest) => Promise<RuntimeChangeyardChangeActionResponse>;
+	workspaceStatus: (workspacePath: string, input: RuntimeChangeyardChangeGetRequest) => Promise<RuntimeChangeyardWorkspaceStatus>;
+	workspaceList: (workspacePath: string) => Promise<RuntimeChangeyardWorkspaceStatus[]>;
+	workspaceDelete: (workspacePath: string, input: RuntimeChangeyardWorkspaceDeleteRequest) => Promise<RuntimeChangeyardChangeActionResponse>;
 	reviewStart: (workspacePath: string, input: RuntimeChangeyardChangeGetRequest) => Promise<RuntimeChangeyardChangeActionResponse>;
 	reviewComplete: (
 		workspacePath: string,
@@ -363,6 +391,36 @@ export function createChangesApi(deps: {
 				throw new Error("Changeyard completion is not available in this runtime.");
 			}
 			return await deps.changeyardApi.completeChange(workspacePath, input);
+		},
+		nextAction: async (workspacePath, input) => {
+			if (!deps.changeyardApi) {
+				throw new Error("Changeyard next action is not available in this runtime.");
+			}
+			return await deps.changeyardApi.nextAction(workspacePath, input);
+		},
+		landChange: async (workspacePath, input) => {
+			if (!deps.changeyardApi) {
+				throw new Error("Changeyard land is not available in this runtime.");
+			}
+			return await deps.changeyardApi.landChange(workspacePath, input);
+		},
+		workspaceStatus: async (workspacePath, input) => {
+			if (!deps.changeyardApi) {
+				throw new Error("Changeyard workspace status is not available in this runtime.");
+			}
+			return await deps.changeyardApi.workspaceStatus(workspacePath, input);
+		},
+		workspaceList: async (workspacePath) => {
+			if (!deps.changeyardApi) {
+				throw new Error("Changeyard workspace list is not available in this runtime.");
+			}
+			return await deps.changeyardApi.workspaceList(workspacePath);
+		},
+		workspaceDelete: async (workspacePath, input) => {
+			if (!deps.changeyardApi) {
+				throw new Error("Changeyard workspace delete is not available in this runtime.");
+			}
+			return await deps.changeyardApi.workspaceDelete(workspacePath, input);
 		},
 		reviewStart: async (workspacePath, input) => {
 			if (!deps.changeyardApi) {

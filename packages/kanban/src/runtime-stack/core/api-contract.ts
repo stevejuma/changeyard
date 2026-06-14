@@ -1212,6 +1212,58 @@ export const runtimeChangeyardChangeGetRequestSchema = z.object({
 });
 export type RuntimeChangeyardChangeGetRequest = z.infer<typeof runtimeChangeyardChangeGetRequestSchema>;
 
+export const runtimeChangeyardWorkspaceStatusSchema = z.object({
+	id: z.string(),
+	status: z.string(),
+	path: z.string().nullable(),
+	engine: z.string().nullable(),
+	name: z.string().nullable(),
+	exists: z.boolean(),
+	dirty: z.boolean(),
+	conflicts: z.boolean(),
+	landed: z.boolean(),
+	rootMismatch: z.boolean(),
+	errors: z.array(z.string()),
+	nextCommand: z.string().nullable(),
+});
+export type RuntimeChangeyardWorkspaceStatus = z.infer<typeof runtimeChangeyardWorkspaceStatusSchema>;
+
+export const runtimeChangeyardNextActionSchema = z.object({
+	id: z.string(),
+	title: z.string(),
+	status: z.string(),
+	cwd: z.string(),
+	expectedCwd: z.string(),
+	nextKind: z.enum(["validate", "plan", "start", "verify", "complete", "land", "review", "cleanup", "done", "blocked"]),
+	nextCommand: z.string(),
+	blockers: z.array(z.string()),
+	ready: z.object({
+		validate: z.boolean(),
+		start: z.boolean(),
+		verify: z.boolean(),
+		complete: z.boolean(),
+		land: z.boolean(),
+		review: z.boolean(),
+		cleanup: z.boolean(),
+	}),
+	workspace: runtimeChangeyardWorkspaceStatusSchema.nullable(),
+	planningNextAction: z.string().nullable(),
+});
+export type RuntimeChangeyardNextAction = z.infer<typeof runtimeChangeyardNextActionSchema>;
+
+export const runtimeChangeyardLandRequestSchema = z.object({
+	id: z.string(),
+	target: z.string().optional(),
+	keepWorkspace: z.boolean().optional(),
+});
+export type RuntimeChangeyardLandRequest = z.infer<typeof runtimeChangeyardLandRequestSchema>;
+
+export const runtimeChangeyardWorkspaceDeleteRequestSchema = z.object({
+	id: z.string(),
+	force: z.boolean().optional(),
+});
+export type RuntimeChangeyardWorkspaceDeleteRequest = z.infer<typeof runtimeChangeyardWorkspaceDeleteRequestSchema>;
+
 export const runtimeChangeyardChangeCreateRequestSchema = z.object({
 	template: z.enum(["feature", "bug", "refactor", "agent-task", "quick"]),
 	title: z.string().min(1),

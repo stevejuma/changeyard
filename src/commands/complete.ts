@@ -127,5 +127,6 @@ export function runComplete(id: string, options: CompleteOptions = {}, cwd = pro
   }
 
   writeFileSync(changePath, writeFrontmatter(nextFrontmatter, parsed.body));
-  return `Completed ${id}: ${results.length} checks passed; status ${String(nextFrontmatter.status)}`;
+  const followUp = nextFrontmatter.status === "ready_for_pr" ? `Next: cy land ${id}` : `Next: cy review start ${id}`;
+  return [`Completed ${id}: ${results.length} checks passed; status ${String(nextFrontmatter.status)}`, followUp].join("\n");
 }
