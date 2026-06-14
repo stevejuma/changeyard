@@ -1,4 +1,4 @@
-import { FilePlus, FileText, Folder, FolderTree, GitBranch, List, MoreHorizontal, PanelLeft, Pencil, Play, Sparkles, Upload, X } from "lucide-react";
+import { AlertTriangle, FileText, Folder, FolderTree, GitBranch, List, MoreHorizontal, PanelLeft, Pencil, Play, Sparkles, Upload, X } from "lucide-react";
 import { Fragment, useEffect, useMemo, useState, type DragEvent as ReactDragEvent } from "react";
 
 import {
@@ -73,6 +73,7 @@ import {
 	type VcsChangeSelection,
 	type VcsDiffResult,
 	type VcsOperationPreview,
+	type VcsWorkspaceConflict,
 	type VcsWorkspaceOperation,
 	type VcsWorkspaceState,
 } from "@/vcs-workspace-contracts";
@@ -86,6 +87,7 @@ const WORKSPACE_COLUMN_LIMITS = {
 	diff: { min: 420, max: 980, fallback: 640, key: VCS_LAYOUT_STORAGE_KEYS.branchesDiffWidth },
 } as const;
 const WORKSPACE_TRAILING_SPACER_WIDTH = WORKSPACE_COLUMN_LIMITS.diff.fallback;
+const EMPTY_CONFLICT_PATHS = new Set<string>();
 
 function stackColumnWidthKey(stackId: string): string {
 	return `changeyard.vcs.workspace.stack.${stackId}.width`;
@@ -552,9 +554,39 @@ function WorkspaceReady({
 	const selectedFile = findFileByPath(files, selectedFilePath);
 	const unstagedDiffFiles = useMemo(() => toWorkingCopyDiffFiles(diffState), [diffState]);
 	const workingCopyFiles = useMemo(() => data.workingCopy.files.map(toUiFileChange), [data.workingCopy.files]);
+	const workingCopyConflictPaths = useMemo(
+		() => new Set(data.conflicts.map((conflict) => conflict.path).filter((path): path is string => Boolean(path))),
+		[data.conflicts],
+	);
+	const conflictCommitIds = useMemo(
+		() => new Set(data.conflicts.flatMap((conflict) => conflict.commitIds)),
+		[data.conflicts],
+	);
+	const conflictPathsByCommitId = useMemo(() => {
+		const pathsByCommitId = new Map<string, Set<string>>();
+		for (const conflict of data.conflicts) {
+			if (!conflict.path) {
+				continue;
+			}
+			for (const commitId of conflict.commitIds) {
+				const paths = pathsByCommitId.get(commitId) ?? new Set<string>();
+				paths.add(conflict.path);
+				pathsByCommitId.set(commitId, paths);
+			}
+		}
+		return pathsByCommitId;
+	}, [data.conflicts]);
 	const stagedComposerFiles = useMemo(
-		() => filesForSelection(unstagedDiffFiles.length > 0 ? unstagedDiffFiles : workingCopyFiles, stackCommitComposer?.selection ?? null),
-		[stackCommitComposer?.selection, unstagedDiffFiles, workingCopyFiles],
+		() =>
+			filesForSelection(
+				stackCommitComposer?.selection?.source === "commit"
+					? files
+					: unstagedDiffFiles.length > 0
+						? unstagedDiffFiles
+						: workingCopyFiles,
+				stackCommitComposer?.selection ?? null,
+			),
+		[files, stackCommitComposer?.selection, unstagedDiffFiles, workingCopyFiles],
 	);
 	const selectedUnstagedFallbackFile = workingCopyFiles.find((change) => change.path === selectedUnstagedFilePath);
 	const selectedUnstagedFile =
@@ -950,6 +982,30 @@ function WorkspaceReady({
 	}
 
 	function selectComposerStagedFile(stackId: string, path: string): void {
+		const selection = stackCommitComposer?.stackId === stackId ? stackCommitComposer.selection : null;
+		if (selection?.source === "commit") {
+			const sourceCommitHash = commitHashForChangeId(appliedStacks, selection.commitId ?? null);
+			if (!sourceCommitHash) {
+				return;
+			}
+			if (selectedCommitHash === sourceCommitHash && selectedFilePath === path && selectedComposerDiffStackId === stackId) {
+				setSelectedCommitHash(null);
+				setSelectedFilePath(null);
+				setSelectedComposerDiffStackId(null);
+				writeQueryParam("commit", null);
+				writeQueryParam("file", null);
+				return;
+			}
+			setSelectedCommitHash(sourceCommitHash);
+			setSelectedFilePath(path);
+			setSelectedUnstagedFilePath(null);
+			setSelectedComposerDiffStackId(stackId);
+			setHasUserClearedFile(false);
+			writeQueryParam("commit", sourceCommitHash);
+			writeQueryParam("file", path);
+			writeWorkingCopyFileQueryParam(null);
+			return;
+		}
 		if (selectedUnstagedFilePath === path && selectedComposerDiffStackId === stackId) {
 			setSelectedUnstagedFilePath(null);
 			setSelectedComposerDiffStackId(null);
@@ -1081,7 +1137,6 @@ function WorkspaceReady({
 		/>
 	) : null;
 	const showTrailingSpacer = appliedStacks.length > 0 || Boolean(selectedFile) || Boolean(selectedUnstagedFilePath);
-
 	return (
 		<>
 		<div className="h-full min-h-0 overflow-x-auto overflow-y-hidden bg-surface-0 p-3" onDragEnd={clearDragState}>
@@ -1109,6 +1164,8 @@ function WorkspaceReady({
 						onDragLeave={(event) => handleDragLeave(event, { kind: "working_copy" })}
 						onDrop={(event) => handleDrop(event, { kind: "working_copy" })}
 						dropTargetState={getDropTargetState({ kind: "working_copy" })}
+						hasConflicts={data.workingCopy.hasConflicts}
+						conflictPaths={workingCopyConflictPaths}
 					/>
 				)}
 				{selectedComposerDiffStackId ? null : unstagedDiffColumn}
@@ -1139,6 +1196,8 @@ function WorkspaceReady({
 									selectedCommitHash={selectedCommitHash}
 									selectedFilePath={selectedFilePath}
 									selectedFiles={files}
+									conflictCommitIds={conflictCommitIds}
+									conflictPathsByCommitId={conflictPathsByCommitId}
 									diffState={commitDiffQuery.state}
 									fileViewMode={fileViewMode}
 									isFileSectionCollapsed={isFileSectionCollapsed}
@@ -1187,7 +1246,13 @@ function WorkspaceReady({
 									getCommitDropTargetState={(change, targetKey) => getDropTargetState({ kind: "commit", commitId: change.changeId }, targetKey)}
 								/>
 							)}
-							{selectedComposerDiffStackId === stack.id ? unstagedDiffColumn : selectedStackId === stack.id ? diffColumn : null}
+							{selectedComposerDiffStackId === stack.id
+								? stackCommitComposer?.selection?.source === "commit"
+									? diffColumn
+									: unstagedDiffColumn
+								: selectedStackId === stack.id
+									? diffColumn
+									: null}
 						</Fragment>
 					))
 				)}
@@ -1224,6 +1289,8 @@ function UnstagedColumn({
 	width,
 	fileViewMode,
 	selectedPath,
+	hasConflicts,
+	conflictPaths,
 	onCollapse,
 	onWidthChange,
 	onFileViewModeChange,
@@ -1238,6 +1305,8 @@ function UnstagedColumn({
 	width: number;
 	fileViewMode: VcsFileViewMode;
 	selectedPath: string | null;
+	hasConflicts: boolean;
+	conflictPaths: ReadonlySet<string>;
 	onCollapse: () => void;
 	onWidthChange: (width: number) => void;
 	onFileViewModeChange: (mode: VcsFileViewMode) => void;
@@ -1263,6 +1332,7 @@ function UnstagedColumn({
 			headerContent={
 				<UnstagedColumnHeader
 					count={changes.length}
+					hasConflicts={hasConflicts}
 					fileViewMode={fileViewMode}
 					onFileViewModeChange={onFileViewModeChange}
 				/>
@@ -1271,7 +1341,7 @@ function UnstagedColumn({
 			<div
 				data-testid="vcs-working-copy-drop-target"
 				data-drop-target-state={dropTargetState}
-				className={cn("h-full min-h-0 transition-shadow", workspaceDropTargetClassName(dropTargetState))}
+				className={cn("h-full min-h-0 transition-shadow", workspaceDropTargetClassName(dropTargetState), workspaceDropTargetOverlayClassName(dropTargetState))}
 				onDragOver={onDragOver}
 				onDragLeave={onDragLeave}
 				onDrop={onDrop}
@@ -1287,13 +1357,16 @@ function UnstagedColumn({
 						</div>
 					</div>
 				) : (
+					<>
 					<UnstagedFileList
 						files={files}
 						viewMode={fileViewMode}
 						selectedPath={selectedPath}
+						conflictPaths={conflictPaths}
 						onSelectPath={onSelectPath}
 						onFileDragStart={onFileDragStart}
 					/>
+					</>
 				)}
 			</div>
 		</VcsColumn>
@@ -1302,10 +1375,12 @@ function UnstagedColumn({
 
 function UnstagedColumnHeader({
 	count,
+	hasConflicts,
 	fileViewMode,
 	onFileViewModeChange,
 }: {
 	count: number;
+	hasConflicts: boolean;
 	fileViewMode: VcsFileViewMode;
 	onFileViewModeChange: (mode: VcsFileViewMode) => void;
 }): React.ReactElement {
@@ -1313,6 +1388,7 @@ function UnstagedColumnHeader({
 		<div className="flex min-w-0 items-center gap-2">
 			<PanelLeft size={15} className="shrink-0 text-text-tertiary" />
 			<span className="min-w-0 flex-1 truncate text-sm font-semibold text-text-primary">Working Copy</span>
+			{hasConflicts ? <StatusChip label="Conflicts" tone="orange" icon={<AlertTriangle size={11} />} /> : null}
 			<StatusChip label={String(count)} tone="neutral" />
 			<FileViewToggle mode={fileViewMode} onModeChange={onFileViewModeChange} />
 		</div>
@@ -1366,12 +1442,14 @@ function UnstagedFileList({
 	files,
 	viewMode,
 	selectedPath,
+	conflictPaths,
 	onSelectPath,
 	onFileDragStart,
 }: {
 	files: VcsFileChange[];
 	viewMode: VcsFileViewMode;
 	selectedPath: string | null;
+	conflictPaths: ReadonlySet<string>;
 	onSelectPath: (path: string) => void;
 	onFileDragStart: (event: ReactDragEvent<HTMLButtonElement>, file: VcsFileChange) => void;
 }): React.ReactElement {
@@ -1386,6 +1464,7 @@ function UnstagedFileList({
 							node={node}
 							depth={0}
 							selectedPath={selectedPath}
+							conflictPaths={conflictPaths}
 							onSelectPath={onSelectPath}
 							filesByPath={filesByPath}
 							onFileDragStart={onFileDragStart}
@@ -1396,6 +1475,7 @@ function UnstagedFileList({
 							key={`${file.status}:${file.path}`}
 							file={file}
 							selected={file.path === selectedPath}
+							hasConflict={conflictPaths.has(file.path)}
 							onSelectPath={onSelectPath}
 							onFileDragStart={onFileDragStart}
 						/>
@@ -1408,6 +1488,7 @@ function UnstagedFileTreeRow({
 	node,
 	depth,
 	selectedPath,
+	conflictPaths,
 	onSelectPath,
 	filesByPath,
 	onFileDragStart,
@@ -1415,6 +1496,7 @@ function UnstagedFileTreeRow({
 	node: FileTreeNode;
 	depth: number;
 	selectedPath: string | null;
+	conflictPaths: ReadonlySet<string>;
 	onSelectPath: (path: string) => void;
 	filesByPath: Map<string, VcsFileChange>;
 	onFileDragStart: (event: ReactDragEvent<HTMLButtonElement>, file: VcsFileChange) => void;
@@ -1422,6 +1504,9 @@ function UnstagedFileTreeRow({
 	const isDirectory = node.type === "directory";
 	const file = filesByPath.get(node.path);
 	const selected = !isDirectory && node.path === selectedPath;
+	const hasConflict = isDirectory
+		? Array.from(conflictPaths).some((path) => path === node.path || path.startsWith(`${node.path}/`))
+		: conflictPaths.has(node.path);
 	return (
 		<div>
 			<button
@@ -1435,6 +1520,8 @@ function UnstagedFileTreeRow({
 					isDirectory && "kb-file-tree-row-directory",
 					!isDirectory && "cursor-pointer hover:bg-surface-2",
 					selected && "kb-file-tree-row-selected",
+					hasConflict && "kb-file-tree-row-conflict",
+					hasConflict && selected && "ring-1 ring-status-red/60",
 				)}
 				style={{ paddingLeft: depth * 12 + 8 }}
 				onDragStart={(event) => {
@@ -1448,9 +1535,10 @@ function UnstagedFileTreeRow({
 					}
 				}}
 			>
-				{isDirectory ? <Folder size={14} /> : <FileText size={14} />}
+				{isDirectory ? <Folder size={14} /> : <FileText size={14} className={hasConflict ? "text-status-orange" : undefined} />}
 				{file ? <FileStatusGlyph status={file.status} /> : null}
 				<span className="min-w-0 flex-1 truncate">{node.name}</span>
+				{hasConflict ? <AlertTriangle size={16} className="ml-auto shrink-0 text-status-red" /> : null}
 			</button>
 			{node.children.length > 0 ? (
 				<div>
@@ -1460,6 +1548,7 @@ function UnstagedFileTreeRow({
 							node={child}
 							depth={depth + 1}
 							selectedPath={selectedPath}
+							conflictPaths={conflictPaths}
 							onSelectPath={onSelectPath}
 							filesByPath={filesByPath}
 							onFileDragStart={onFileDragStart}
@@ -1474,11 +1563,13 @@ function UnstagedFileTreeRow({
 function UnstagedFileRow({
 	file,
 	selected,
+	hasConflict,
 	onSelectPath,
 	onFileDragStart,
 }: {
 	file: VcsFileChange;
 	selected: boolean;
+	hasConflict: boolean;
 	onSelectPath: (path: string) => void;
 	onFileDragStart: (event: ReactDragEvent<HTMLButtonElement>, file: VcsFileChange) => void;
 }): React.ReactElement {
@@ -1488,13 +1579,19 @@ function UnstagedFileRow({
 			data-testid="vcs-working-copy-file-row"
 			data-file-path={file.path}
 			draggable
-			className={cn("kb-file-tree-row cursor-pointer hover:bg-surface-2", selected && "kb-file-tree-row-selected")}
+			className={cn(
+				"kb-file-tree-row cursor-pointer hover:bg-surface-2",
+				selected && "kb-file-tree-row-selected",
+				hasConflict && "kb-file-tree-row-conflict",
+				hasConflict && selected && "ring-1 ring-status-red/60",
+			)}
 			onDragStart={(event) => onFileDragStart(event, file)}
 			onClick={() => onSelectPath(file.path)}
 		>
-			<FileText size={14} />
+			<FileText size={14} className={hasConflict ? "text-status-orange" : undefined} />
 			<FileStatusGlyph status={file.status} />
 			<span className="min-w-0 flex-1 truncate">{file.path}</span>
+			{hasConflict ? <AlertTriangle size={16} className="ml-auto shrink-0 text-status-red" /> : null}
 		</button>
 	);
 }
@@ -1541,6 +1638,8 @@ function WorkspaceStackLane({
 	selectedCommitHash,
 	selectedFilePath,
 	selectedFiles,
+	conflictCommitIds,
+	conflictPathsByCommitId,
 	diffState,
 	fileViewMode,
 	isFileSectionCollapsed,
@@ -1584,6 +1683,8 @@ function WorkspaceStackLane({
 	selectedCommitHash: string | null;
 	selectedFilePath: string | null;
 	selectedFiles: VcsFileChange[];
+	conflictCommitIds: ReadonlySet<string>;
+	conflictPathsByCommitId: ReadonlyMap<string, ReadonlySet<string>>;
 	diffState: QueryState<RuntimeGitCommitDiffResponse>;
 	fileViewMode: VcsFileViewMode;
 	isFileSectionCollapsed: boolean;
@@ -1685,6 +1786,8 @@ function WorkspaceStackLane({
 							selectedCommitHash={selectedCommitHash}
 							selectedFilePath={selectedFilePath}
 							selectedFiles={selectedFiles}
+							conflictCommitIds={conflictCommitIds}
+							conflictPathsByCommitId={conflictPathsByCommitId}
 							diffState={diffState}
 							fileViewMode={fileViewMode}
 							isFileSectionCollapsed={isFileSectionCollapsed}
@@ -1748,33 +1851,51 @@ function StackStartCommitPanel({
 	const hasSelection = Boolean(composer?.selection);
 	const title = composer?.title ?? "";
 	const body = composer?.body ?? "";
+	const hasStagedFiles = stagedFiles.length > 0;
 	return (
 		<div className="mb-3 rounded-lg border border-border bg-surface-0/90 p-3 shadow-sm">
-			<div
-				data-testid="vcs-workspace-stack-header-drop-target"
-				data-drop-target-state={dropTargetState}
-				className={cn(
-					"rounded-md border-2 border-dashed border-border bg-surface-1/70 px-3 py-5 text-center text-sm font-medium text-text-secondary transition-colors",
-					dropTargetState === "valid" && "border-accent/80 bg-accent/10 text-accent",
-					dropTargetState === "invalid" && "border-status-red/80 bg-status-red/10 text-status-red",
-				)}
-				onDragOver={onDragOver}
-				onDragLeave={onDragLeave}
-				onDrop={onDrop}
-			>
-				Drop files to stage or commit directly
-			</div>
+			{hasStagedFiles ? null : (
+				<div
+					data-testid="vcs-workspace-stack-header-drop-target"
+					data-drop-target-state={dropTargetState}
+					className={cn(
+						"rounded-md border-2 border-dashed border-border bg-surface-1/70 px-3 py-5 text-center text-sm font-medium text-text-secondary transition-colors",
+						dropTargetState === "valid" && "border-accent/80 bg-accent/10 text-accent",
+						dropTargetState === "invalid" && "border-status-red/80 bg-status-red/10 text-status-red",
+						workspaceDropTargetOverlayClassName(dropTargetState),
+					)}
+					onDragOver={onDragOver}
+					onDragLeave={onDragLeave}
+					onDrop={onDrop}
+				>
+					Drop files to stage or commit directly
+				</div>
+			)}
 			{composer ? (
-				<div className="mt-3 grid gap-3">
-					{stagedFiles.length > 0 ? (
-						<VcsInlineFileSection
-							title="Staged"
-							files={stagedFiles}
-							selectedPath={selectedStagedFilePath}
-							viewMode={fileViewMode}
-							onViewModeChange={onFileViewModeChange}
-							onSelectPath={onSelectStagedFile}
-						/>
+				<div className={cn("grid gap-3", !hasStagedFiles && "mt-3")}>
+					{hasStagedFiles ? (
+						<div
+							data-testid="vcs-workspace-staged-drop-target"
+							data-drop-target-state={dropTargetState}
+							className={cn(
+								"overflow-hidden rounded-md border border-border bg-surface-0 transition-shadow",
+								workspaceDropTargetClassName(dropTargetState),
+								workspaceDropTargetOverlayClassName(dropTargetState),
+							)}
+							onDragOver={onDragOver}
+							onDragLeave={onDragLeave}
+							onDrop={onDrop}
+						>
+							<VcsInlineFileSection
+								title="Staged"
+								files={stagedFiles}
+								selectedPath={selectedStagedFilePath}
+								viewMode={fileViewMode}
+								onViewModeChange={onFileViewModeChange}
+								onSelectPath={onSelectStagedFile}
+								className="mx-0 mb-0 rounded-none border-0 bg-transparent"
+							/>
+						</div>
 					) : null}
 				<div className="rounded-md border border-border bg-surface-0">
 					<input
@@ -1800,10 +1921,6 @@ function StackStartCommitPanel({
 						}}
 					/>
 					<div className="mx-3 border-t border-divider py-3">
-						<div className="mb-3 flex min-w-0 items-center gap-2 text-xs text-text-secondary">
-							<FilePlus size={14} className="shrink-0 text-accent" />
-							<span className="min-w-0 truncate">{hasSelection ? selectionSummary(composer.selection) : "Drop working-copy changes to attach them"}</span>
-						</div>
 						{composer.error ? <div className="mb-3 text-xs text-status-red">{composer.error}</div> : null}
 						<div className="grid grid-cols-[minmax(0,0.42fr)_minmax(0,1fr)] gap-2">
 							<Button variant="default" onClick={onCancel}>
@@ -1823,27 +1940,6 @@ function StackStartCommitPanel({
 			)}
 		</div>
 	);
-}
-
-function selectionSummary(selection: VcsChangeSelection | null): string {
-	if (!selection) {
-		return "No changes attached";
-	}
-	const paths = selection.paths ?? [];
-	const hunks = selection.hunks ?? [];
-	if (paths.length === 1) {
-		return paths[0] ?? "1 file attached";
-	}
-	if (paths.length > 1) {
-		return `${paths.length} files attached`;
-	}
-	if (hunks.length === 1) {
-		return `${hunks[0]?.path ?? "1 file"} hunk attached`;
-	}
-	if (hunks.length > 1) {
-		return `${hunks.length} hunks attached`;
-	}
-	return "No changes attached";
 }
 
 function filesForSelection(files: VcsFileChange[], selection: VcsChangeSelection | null): VcsFileChange[] {
@@ -1867,6 +1963,20 @@ function filesForSelection(files: VcsFileChange[], selection: VcsChangeSelection
 	});
 }
 
+function commitHashForChangeId(stacks: BranchesStack[], changeId: string | null): string | null {
+	if (!changeId) {
+		return null;
+	}
+	for (const stack of stacks) {
+		for (const change of stack.changes) {
+			if (change.changeId === changeId) {
+				return change.commitId;
+			}
+		}
+	}
+	return null;
+}
+
 function WorkspaceStackCard({
 	stackId,
 	group,
@@ -1874,6 +1984,8 @@ function WorkspaceStackCard({
 	selectedCommitHash,
 	selectedFilePath,
 	selectedFiles,
+	conflictCommitIds,
+	conflictPathsByCommitId,
 	diffState,
 	fileViewMode,
 	isFileSectionCollapsed,
@@ -1900,6 +2012,8 @@ function WorkspaceStackCard({
 	selectedCommitHash: string | null;
 	selectedFilePath: string | null;
 	selectedFiles: VcsFileChange[];
+	conflictCommitIds: ReadonlySet<string>;
+	conflictPathsByCommitId: ReadonlyMap<string, ReadonlySet<string>>;
 	diffState: QueryState<RuntimeGitCommitDiffResponse>;
 	fileViewMode: VcsFileViewMode;
 	isFileSectionCollapsed: boolean;
@@ -1967,6 +2081,8 @@ function WorkspaceStackCard({
 								selected={selectedCommitHash === change.commitId}
 								selectedFilePath={selectedFilePath}
 								selectedFiles={selectedFiles}
+								hasConflict={conflictCommitIds.has(change.changeId)}
+								conflictPaths={conflictPathsByCommitId.get(change.changeId) ?? EMPTY_CONFLICT_PATHS}
 								diffState={diffState}
 								fileViewMode={fileViewMode}
 								isFileSectionCollapsed={isFileSectionCollapsed}
@@ -1997,6 +2113,8 @@ function WorkspaceStackChangeRow({
 	selected,
 	selectedFilePath,
 	selectedFiles,
+	hasConflict,
+	conflictPaths,
 	diffState,
 	fileViewMode,
 	isFileSectionCollapsed,
@@ -2018,6 +2136,8 @@ function WorkspaceStackChangeRow({
 	selected: boolean;
 	selectedFilePath: string | null;
 	selectedFiles: VcsFileChange[];
+	hasConflict: boolean;
+	conflictPaths: ReadonlySet<string>;
 	diffState: QueryState<RuntimeGitCommitDiffResponse>;
 	fileViewMode: VcsFileViewMode;
 	isFileSectionCollapsed: boolean;
@@ -2052,6 +2172,7 @@ function WorkspaceStackChangeRow({
 			className={cn(
 				"overflow-hidden border-b border-divider bg-surface-0 transition-shadow last:border-b-0",
 				change.isCurrent && "border-l-4 border-l-accent",
+				hasConflict && "border-status-red/35 bg-status-red/10",
 				selected && "bg-surface-2",
 				selected && SELECTED_CHANGE_MARKER_CLASS,
 			)}
@@ -2068,7 +2189,7 @@ function WorkspaceStackChangeRow({
 				>
 					<div className="relative flex w-6 shrink-0 justify-center self-stretch">
 						<span className="absolute bottom-[-13px] top-[-13px] w-px bg-accent" />
-						<span className="relative mt-1 h-2.5 w-2.5 rotate-45 rounded-[2px] bg-accent" />
+						<span className={cn("relative mt-1 h-2.5 w-2.5 rotate-45 rounded-[2px] bg-accent", hasConflict && "bg-status-red")} />
 					</div>
 					<Avatar
 						src={change.authorAvatarUrl}
@@ -2085,6 +2206,7 @@ function WorkspaceStackChangeRow({
 							<CopyValueButton label="Commit" displayValue={change.changeId} copyValue={change.changeId} />
 						</div>
 					</div>
+					{hasConflict ? <StatusChip label="conflict" tone="red" icon={<AlertTriangle size={11} />} /> : null}
 					{change.isHead ? <StatusChip label="head" tone="green" /> : null}
 				</button>
 				<Button
@@ -2110,6 +2232,7 @@ function WorkspaceStackChangeRow({
 					onCollapsedChange={onFileSectionCollapsedChange}
 					onSelectPath={onSelectFile}
 					onFileDragStart={(event, file) => onFileDragStart(event, file, change)}
+					conflictPaths={conflictPaths}
 				/>
 			) : null}
 		</div>

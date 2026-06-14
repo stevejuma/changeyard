@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { loadConfig } from "../config/loadConfig.js";
+import { normalizeVcsCommandArgs, vcsNoColorEnv } from "../vcs/argv.js";
 import { isDenied } from "../workspace/patterns.js";
 import type { WorkspaceMetadata } from "../types.js";
 
@@ -58,10 +59,11 @@ function summarizePlainCopyDiff(repoRoot: string, workspaceRoot: string, neverCo
 }
 
 function runCommand(command: string, args: string[], cwd: string): string {
-  const result = spawnSync(command, args, { cwd, encoding: "utf8" });
+  const normalizedArgs = normalizeVcsCommandArgs(command, args);
+  const result = spawnSync(command, normalizedArgs, { cwd, encoding: "utf8", env: vcsNoColorEnv() });
   const output = `${result.stdout ?? ""}${result.stderr ?? ""}`.trim();
   if (result.status !== 0) {
-    return output || `${command} ${args.join(" ")} failed`;
+    return output || `${command} ${normalizedArgs.join(" ")} failed`;
   }
   return output || "No output.";
 }

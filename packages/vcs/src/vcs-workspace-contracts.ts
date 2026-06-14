@@ -276,9 +276,14 @@ export function disabledReasonForVcsWorkspaceOperation(
 
 	switch (operation.kind) {
 		case "create_commit":
-			return capabilities.supportsWorkingCopyCommit
+			if (operation.selection.source === "working_copy") {
+				return capabilities.supportsWorkingCopyCommit
+					? null
+					: "This provider does not support committing selected working-copy changes.";
+			}
+			return capabilities.supportsMoveChangesAcrossCommits
 				? null
-				: "This provider does not support committing selected working-copy changes.";
+				: "This provider does not support moving selected changes into a new commit.";
 		case "reword_commit":
 		case "amend_commit":
 		case "split_commit":
@@ -321,6 +326,11 @@ function capabilitySupportsHunkSelectionForOperation(
 		capabilities.supportsWorkingCopyCommit &&
 		operation.kind === "create_commit" &&
 		operation.selection.source === "working_copy"
+	) || (
+		capabilities.supportsCommittedHunkSelection &&
+		capabilities.supportsMoveChangesAcrossCommits &&
+		operation.kind === "create_commit" &&
+		operation.selection.source === "commit"
 	) || (
 		capabilities.supportsCommitRewrite &&
 		operation.kind === "amend_commit" &&

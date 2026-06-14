@@ -628,6 +628,25 @@ body.kb-dependency-link-mode {
 	color: var(--color-accent-fg);
 }
 
+.kb-file-tree-row-conflict {
+	border-top: 1px solid color-mix(in srgb, var(--color-status-red) 34%, transparent);
+	border-bottom: 1px solid color-mix(in srgb, var(--color-status-red) 34%, transparent);
+	border-radius: 0;
+	background: color-mix(in srgb, var(--color-status-red) 18%, transparent);
+	color: var(--color-text-primary);
+}
+
+.kb-file-tree-row-conflict:hover:not(.kb-file-tree-row-directory) {
+	background: color-mix(in srgb, var(--color-status-red) 24%, transparent);
+}
+
+.kb-file-tree-row-conflict.kb-file-tree-row-selected,
+.kb-file-tree-row-conflict.kb-file-tree-row-selected:hover {
+	background: color-mix(in srgb, var(--color-status-red) 28%, var(--color-surface-1));
+	color: var(--color-text-primary);
+	box-shadow: inset 2px 0 0 var(--color-status-red);
+}
+
 /* -- Diff rows -- */
 
 .kb-diff-row {

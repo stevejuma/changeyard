@@ -18,6 +18,35 @@ export interface RunJjOptions {
 	trimStdout?: boolean;
 }
 
+export function normalizeJjArgs(args: readonly string[]): string[] {
+	const next: string[] = [];
+	for (let index = 0; index < args.length; index++) {
+		const arg = args[index];
+		if (!arg) {
+			continue;
+		}
+		if (arg === "--color") {
+			index++;
+			continue;
+		}
+		if (arg?.startsWith("--color=")) {
+			continue;
+		}
+		next.push(arg);
+	}
+	return ["--color=never", ...next];
+}
+
+function jjNoColorEnv(): NodeJS.ProcessEnv {
+	return {
+		...process.env,
+		NO_COLOR: "1",
+		CLICOLOR: "0",
+		CLICOLOR_FORCE: "0",
+		FORCE_COLOR: "0",
+	};
+}
+
 function normalizeProcessExitCode(code: unknown): number {
 	if (typeof code === "number" && Number.isFinite(code)) {
 		return code;
@@ -33,14 +62,15 @@ function normalizeProcessExitCode(code: unknown): number {
 
 export async function runJj(cwd: string, args: string[], options: RunJjOptions = {}): Promise<JjCommandResult> {
 	const startedAt = Date.now();
+	const normalizedArgs = normalizeJjArgs(args);
 	try {
-		const { stdout, stderr } = await execFileAsync("jj", args, {
+		const { stdout, stderr } = await execFileAsync("jj", normalizedArgs, {
 			cwd,
 			encoding: "utf8",
 			maxBuffer: JJ_MAX_BUFFER_BYTES,
-			env: process.env,
+			env: jjNoColorEnv(),
 		});
-		logJjTiming(args, startedAt);
+		logJjTiming(normalizedArgs, startedAt);
 		const rawStdout = String(stdout ?? "");
 		const normalizedStdout = rawStdout.trim();
 		const normalizedStderr = String(stderr ?? "").trim();
@@ -53,7 +83,7 @@ export async function runJj(cwd: string, args: string[], options: RunJjOptions =
 			exitCode: 0,
 		};
 	} catch (error) {
-		logJjTiming(args, startedAt);
+		logJjTiming(normalizedArgs, startedAt);
 		const candidate = error as {
 			code?: string | number | null;
 			stdout?: unknown;
@@ -64,7 +94,7 @@ export async function runJj(cwd: string, args: string[], options: RunJjOptions =
 		const stdout = options.trimStdout === false ? rawStdout : rawStdout.trim();
 		const stderr = String(candidate.stderr ?? "").trim();
 		const message = String(candidate.message ?? "").trim();
-		const command = `jj ${args.join(" ")} failed`;
+		const command = `jj ${normalizedArgs.join(" ")} failed`;
 		const errorMessage = `Failed to run Jujutsu Command: \n Command: \n ${command} \n ${stderr || message}`;
 		const exitCode = normalizeProcessExitCode(candidate.code);
 		return {

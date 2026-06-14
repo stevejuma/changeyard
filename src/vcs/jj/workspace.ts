@@ -24,9 +24,19 @@ type JjWorkingCopyHunkRestoreDiscardOperation = JjRestoreDiscardOperation & {
 type JjCommittedHunkDiscardOperation = JjRestoreDiscardOperation & {
 	selection: NeutralSelection & { source: "commit"; hunks: JjHunkSelection[] };
 };
-type JjWorkingCopyHunkCommitOperation = Extract<NeutralOperation, { kind: "amend_commit" | "create_commit" }> & {
-	selection: NeutralSelection & { source: "working_copy"; hunks: JjHunkSelection[] };
+type JjWorkingCopyHunkCommitOperation =
+	| (Extract<NeutralOperation, { kind: "amend_commit" }> & {
+			selection: NeutralSelection & { source: "working_copy"; hunks: JjHunkSelection[] };
+	  })
+	| (Extract<NeutralOperation, { kind: "create_commit" }> & {
+			selection: NeutralSelection & { source: "working_copy"; hunks: JjHunkSelection[] };
+	  });
+type JjCommittedHunkCreateCommitOperation = Extract<NeutralOperation, { kind: "create_commit" }> & {
+	selection: NeutralSelection & { source: "commit"; hunks: JjHunkSelection[] };
 };
+type JjCommittedHunkRewriteOperation =
+	| Extract<NeutralOperation, { kind: "split_commit" | "move_changes" | "uncommit_changes" }>
+	| JjCommittedHunkCreateCommitOperation;
 
 type JjPatchFile = {
 	path: string;
@@ -129,6 +139,22 @@ async function readJjWorkspaceConflicts(cwd: string, runner: VcsCommandRunner) {
 		.filter((entry): entry is { changeId: string; commitId: string; title: string | null } => Boolean(entry));
 }
 
+async function readJjWorkspaceConflictPaths(cwd: string, runner: VcsCommandRunner): Promise<string[]> {
+	const result = await runner({
+		command: "jj",
+		args: ["resolve", "--list"],
+		cwd,
+	});
+	if (!result.ok) {
+		return [];
+	}
+	return result.stdout
+		.split("\n")
+		.map((line) => line.trim().split(/\s+/)[0] ?? "")
+		.filter(Boolean)
+		.sort((left, right) => left.localeCompare(right));
+}
+
 export async function loadJjWorkspaceState(
 	cwd: string,
 	runner: VcsCommandRunner,
@@ -136,7 +162,10 @@ export async function loadJjWorkspaceState(
 ) {
 	const state = await loadJjState(cwd, runner, options);
 	const repoCwd = state.repository.root ?? cwd;
-	const conflictChanges = await readJjWorkspaceConflicts(repoCwd, runner);
+	const [conflictChanges, conflictPaths] = await Promise.all([
+		readJjWorkspaceConflicts(repoCwd, runner),
+		readJjWorkspaceConflictPaths(repoCwd, runner),
+	]);
 	const appliedStackIds = options.appliedStackIds ?? [];
 	const changesById = new Map(state.changes.map((change) => [change.changeId, change]));
 	const stacks = state.stacks.map((stack) => ({
@@ -186,16 +215,25 @@ export async function loadJjWorkspaceState(
 			]);
 		}
 	}
-	const conflicts = conflictChanges.map((conflict) => ({
-		id: `jj-conflict-${conflict.changeId}`,
-		path: null,
-		message: conflict.title
-			? `JJ conflict in ${conflict.title}.`
-			: `JJ conflict in change ${conflict.changeId}.`,
-		commitIds: [conflict.changeId],
-		stackIds: stackIdsByCommitId.get(conflict.changeId) ?? [],
-	}));
-	const workingCopyFiles = state.unassignedChanges.map((change) => toWorkspaceFile(change.path, change.status));
+	const conflicts = conflictChanges.flatMap((conflict) => {
+		const paths = conflictPaths.length > 0 ? conflictPaths : [null];
+		return paths.map((path) => ({
+			id: path ? `jj-conflict-${conflict.changeId}-${path}` : `jj-conflict-${conflict.changeId}`,
+			path,
+			message: conflict.title
+				? `JJ conflict in ${path ? `${path} in ` : ""}${conflict.title}.`
+				: `JJ conflict in ${path ?? `change ${conflict.changeId}`}.`,
+			commitIds: [conflict.changeId],
+			stackIds: stackIdsByCommitId.get(conflict.changeId) ?? [],
+		}));
+	});
+	const workingCopyFilesByPath = new Map(state.unassignedChanges.map((change) => [change.path, toWorkspaceFile(change.path, change.status)]));
+	for (const path of conflictPaths) {
+		if (!workingCopyFilesByPath.has(path)) {
+			workingCopyFilesByPath.set(path, toWorkspaceFile(path, "modified"));
+		}
+	}
+	const workingCopyFiles = [...workingCopyFilesByPath.values()].sort((left, right) => left.path.localeCompare(right.path));
 	return {
 		projectId: cwd,
 		provider: "jj" as const,
@@ -238,9 +276,6 @@ export async function previewJjWorkspaceOperation(
 	}
 	if (isJjSupportedWorkingCopyHunkCommitOperation(input.operation)) {
 		return await previewJjWorkingCopyHunkCommitOperation(cwd, runner, input.operation);
-	}
-	if (input.operation.kind === "create_commit") {
-		return await previewJjCreateCommitOperation(cwd, runner, input.operation);
 	}
 	if (isJjCommittedHunkDiscardOperation(input.operation)) {
 		const validation = await validateJjCommittedHunkDiscardOperation(cwd, runner, input.operation);
@@ -294,6 +329,9 @@ export async function previewJjWorkspaceOperation(
 			diagnostics: [],
 		};
 	}
+	if (input.operation.kind === "create_commit") {
+		return await previewJjCreateCommitOperation(cwd, runner, input.operation);
+	}
 	if (isJjHunkRestoreDiscardOperation(input.operation)) {
 		const validation = await validateJjWorkingCopyHunkOperation(cwd, runner, input.operation);
 		if (validation) {
@@ -338,9 +376,6 @@ export async function applyJjWorkspaceOperation(
 	}
 	if (isJjSupportedWorkingCopyHunkCommitOperation(input.operation)) {
 		return await applyJjWorkingCopyHunkCommitOperation(cwd, runner, input.operation);
-	}
-	if (input.operation.kind === "create_commit") {
-		return await applyJjCreateCommitOperation(cwd, runner, input.operation);
 	}
 	if (isJjCommittedHunkDiscardOperation(input.operation)) {
 		const validation = await validateJjCommittedHunkDiscardOperation(cwd, runner, input.operation);
@@ -397,6 +432,12 @@ export async function applyJjWorkspaceOperation(
 			recovery: null,
 			diagnostics: [],
 		};
+	}
+	if (isJjCommittedPathMoveOperation(input.operation)) {
+		return await applyJjCommittedPathMoveOperation(cwd, runner, input.operation);
+	}
+	if (input.operation.kind === "create_commit") {
+		return await applyJjCreateCommitOperation(cwd, runner, input.operation);
 	}
 	if (isJjHunkRestoreDiscardOperation(input.operation)) {
 		const validation = await validateJjWorkingCopyHunkOperation(cwd, runner, input.operation);
@@ -456,6 +497,7 @@ async function translateOperation(
 		operation.kind !== "undo" &&
 		operation.kind !== "redo" &&
 		!isJjSupportedWorkingCopyHunkCommitOperation(operation) &&
+		!isJjCommittedHunkRewriteOperation(operation) &&
 		"selection" in operation &&
 		operation.selection?.hunks?.length
 	) {
@@ -543,6 +585,7 @@ async function translateOperation(
 					sourceChangeId: operation.selection.commitId,
 					targetChangeId: operation.targetCommitId,
 					paths,
+					allowDescendantTarget: true,
 				},
 				reason: "",
 			};
@@ -637,11 +680,27 @@ function isJjSupportedWorkingCopyHunkCommitOperation(
 
 function isJjCommittedHunkRewriteOperation(
 	operation: NeutralOperation,
-): operation is Extract<NeutralOperation, { kind: "split_commit" | "move_changes" | "uncommit_changes" }> {
+): operation is JjCommittedHunkRewriteOperation {
 	return (
-		(operation.kind === "split_commit" || operation.kind === "move_changes" || operation.kind === "uncommit_changes") &&
+		(
+			operation.kind === "split_commit" ||
+			operation.kind === "move_changes" ||
+			operation.kind === "uncommit_changes" ||
+			operation.kind === "create_commit"
+		) &&
 		operation.selection.source === "commit" &&
 		Boolean(operation.selection.hunks?.length)
+	);
+}
+
+function isJjCommittedPathMoveOperation(
+	operation: NeutralOperation,
+): operation is Extract<NeutralOperation, { kind: "move_changes" | "uncommit_changes" }> {
+	return (
+		(operation.kind === "move_changes" || operation.kind === "uncommit_changes") &&
+		operation.selection.source === "commit" &&
+		Boolean(operation.selection.paths?.length) &&
+		!(operation.selection.hunks?.length)
 	);
 }
 
@@ -656,7 +715,7 @@ function isJjCommittedHunkDiscardOperation(
 }
 
 function sourceCommitIdForCommittedHunkOperation(
-	operation: Extract<NeutralOperation, { kind: "split_commit" | "move_changes" | "uncommit_changes" }>,
+	operation: JjCommittedHunkRewriteOperation,
 ): string | null {
 	if (operation.kind === "split_commit") {
 		return operation.commitId;
@@ -665,9 +724,11 @@ function sourceCommitIdForCommittedHunkOperation(
 }
 
 function titleForCommittedHunkOperation(
-	operation: Extract<NeutralOperation, { kind: "split_commit" | "move_changes" | "uncommit_changes" }>,
+	operation: JjCommittedHunkRewriteOperation,
 ): string {
 	switch (operation.kind) {
+		case "create_commit":
+			return "Create commit from selected hunks";
 		case "split_commit":
 			return "Split selected hunks";
 		case "move_changes":
@@ -678,9 +739,11 @@ function titleForCommittedHunkOperation(
 }
 
 function appliedTitleForCommittedHunkOperation(
-	operation: Extract<NeutralOperation, { kind: "split_commit" | "move_changes" | "uncommit_changes" }>,
+	operation: JjCommittedHunkRewriteOperation,
 ): string {
 	switch (operation.kind) {
+		case "create_commit":
+			return "Created commit";
 		case "split_commit":
 			return "Split selected hunks";
 		case "move_changes":
@@ -691,11 +754,13 @@ function appliedTitleForCommittedHunkOperation(
 }
 
 function summaryForCommittedHunkOperation(
-	operation: Extract<NeutralOperation, { kind: "split_commit" | "move_changes" | "uncommit_changes" }>,
+	operation: JjCommittedHunkRewriteOperation,
 	sourceCommitId: string | null,
 ): string {
 	const count = operation.selection.hunks?.length ?? 0;
 	switch (operation.kind) {
+		case "create_commit":
+			return `Create a new commit at top of ${operation.stackId} from ${count} selected hunk(s) in ${sourceCommitId ?? "the source commit"}.`;
 		case "split_commit":
 			return `Split ${count} selected hunk(s) out of ${sourceCommitId ?? operation.commitId}.`;
 		case "move_changes":
@@ -708,7 +773,7 @@ function summaryForCommittedHunkOperation(
 async function validateJjCommittedHunkOperation(
 	cwd: string,
 	runner: VcsCommandRunner,
-	operation: Extract<NeutralOperation, { kind: "split_commit" | "move_changes" | "uncommit_changes" }>,
+	operation: JjCommittedHunkRewriteOperation,
 ): Promise<string | null> {
 	const hunks = operation.selection.hunks ?? [];
 	const paths = operation.selection.paths ?? [];
@@ -721,6 +786,15 @@ async function validateJjCommittedHunkOperation(
 	}
 	if (operation.kind === "split_commit" && operation.selection.commitId && operation.selection.commitId !== operation.commitId) {
 		return "JJ split hunk selection must come from the commit being split.";
+	}
+	if (operation.kind === "create_commit" && !normalizeOperationMessage(operation.message)) {
+		return "Enter a commit title before previewing.";
+	}
+	if (operation.kind === "create_commit") {
+		const target = await resolveCreateCommitStackHeadChangeId(cwd, runner, operation);
+		if (!target.ok) {
+			return target.reason;
+		}
 	}
 	if (operation.kind === "move_changes" && operation.targetCommitId === sourceCommitId) {
 		return "Source and target changes must be different.";
@@ -771,11 +845,18 @@ async function validateJjCommittedHunkDiscardOperation(
 }
 
 function toJjPathOperationForCommittedHunks(
-	operation: Extract<NeutralOperation, { kind: "split_commit" | "move_changes" | "uncommit_changes" }>,
+	operation: JjCommittedHunkRewriteOperation,
 	sourceCommitId: string,
 	paths: string[],
 ): VcsPreviewOperationInput {
 	switch (operation.kind) {
+		case "create_commit":
+			return {
+				kind: "split_change",
+				changeId: sourceCommitId,
+				message: operation.message,
+				paths,
+			};
 		case "split_commit":
 			return {
 				kind: "split_change",
@@ -789,6 +870,7 @@ function toJjPathOperationForCommittedHunks(
 				sourceChangeId: sourceCommitId,
 				targetChangeId: operation.targetCommitId,
 				paths,
+				allowDescendantTarget: true,
 			};
 		case "uncommit_changes":
 			return {
@@ -838,6 +920,25 @@ function validateJjWorkingCopySelection(selection: NeutralSelection): string | n
 	return null;
 }
 
+function validateJjCommittedCreateCommitSelection(selection: NeutralSelection): string | null {
+	if (selection.source !== "commit") {
+		return "Choose committed changes.";
+	}
+	if (!selection.commitId) {
+		return "Choose a source commit.";
+	}
+	const paths = selection.paths ?? [];
+	const hunks = selection.hunks ?? [];
+	if (paths.length === 0 && hunks.length === 0) {
+		return "Choose one or more committed files or hunks.";
+	}
+	const overlappingPath = paths.find((path) => hunks.some((hunk) => hunk.path === path));
+	if (overlappingPath) {
+		return `Choose either the whole file or individual hunks for ${overlappingPath}, not both.`;
+	}
+	return null;
+}
+
 function normalizeOperationMessage(message: string): string | null {
 	const trimmed = message.trim();
 	return trimmed.length > 0 ? trimmed : null;
@@ -866,7 +967,10 @@ async function previewJjCreateCommitOperation(
 	if (!message) {
 		return unsupportedPreview(operation, "Enter a commit title before previewing.");
 	}
-	const validation = validateJjWorkingCopySelection(operation.selection);
+	const validation =
+		operation.selection.source === "working_copy"
+			? validateJjWorkingCopySelection(operation.selection)
+			: validateJjCommittedCreateCommitSelection(operation.selection);
 	if (validation) {
 		return unsupportedPreview(operation, validation);
 	}
@@ -951,6 +1055,35 @@ async function applyJjCreateCommitOperation(
 	if (isJjSupportedWorkingCopyHunkCommitOperation(operation)) {
 		return await applyJjWorkingCopyHunkCommitOperation(cwd, runner, operation);
 	}
+	if (isJjCommittedHunkRewriteOperation(operation)) {
+		const validation = await validateJjCommittedHunkOperation(cwd, runner, operation);
+		if (validation) {
+			return unsupportedApply(operation, validation);
+		}
+		const patch = await buildSelectedJjCommittedHunkPatch(cwd, runner, operation);
+		if (!patch.ok) {
+			return unsupportedApply(operation, patch.reason);
+		}
+		const applyResult = await applyJjCommittedHunkOperationWithEditor(patch.repoCwd, runner, operation, patch);
+		if (!applyResult.ok) {
+			return failedApply(operation, applyResult.stderr.trim() || applyResult.stdout.trim() || "Could not create commit from selected JJ hunks.");
+		}
+		return successfulApply(operation, "Created commit", `Created new commit at top of ${operation.stackId}.`, [target.headChangeId]);
+	}
+	if (operation.selection.source === "commit") {
+		if (!operation.selection.commitId || paths.length === 0) {
+			return unsupportedApply(operation, "Choose one or more committed files.");
+		}
+		const applyResult = await runner({
+			command: "jj",
+			args: ["split", "-r", operation.selection.commitId, "--insert-after", target.headChangeId, "-m", message, "--", ...paths],
+			cwd,
+		});
+		if (!applyResult.ok) {
+			return failedApply(operation, applyResult.stderr.trim() || applyResult.stdout.trim() || "Could not create JJ commit.");
+		}
+		return successfulApply(operation, "Created commit", `Created new commit at top of ${operation.stackId}.`, [target.headChangeId]);
+	}
 	const applyResult = await runner({
 		command: "jj",
 		args: ["split", "-r", "@", "--insert-after", target.headChangeId, "-m", message, "--", ...paths],
@@ -960,6 +1093,58 @@ async function applyJjCreateCommitOperation(
 		return failedApply(operation, applyResult.stderr.trim() || applyResult.stdout.trim() || "Could not create JJ commit.");
 	}
 	return successfulApply(operation, "Created commit", `Created new commit at top of ${operation.stackId}.`, [target.headChangeId]);
+}
+
+async function applyJjCommittedPathMoveOperation(
+	cwd: string,
+	runner: VcsCommandRunner,
+	operation: Extract<NeutralOperation, { kind: "move_changes" | "uncommit_changes" }>,
+) {
+	const sourceCommitId = operation.selection.commitId;
+	const paths = operation.selection.paths ?? [];
+	if (!sourceCommitId || paths.length === 0) {
+		return unsupportedApply(operation, "Choose one or more committed files.");
+	}
+	const targetChangeId = operation.kind === "move_changes" ? operation.targetCommitId : "@";
+	const splitResult = await runner({
+		command: "jj",
+		args: [
+			"split",
+			"-r",
+			sourceCommitId,
+			"--insert-after",
+			targetChangeId,
+			"-m",
+			"changeyard move selected files",
+			"--",
+			...paths,
+		],
+		cwd,
+	});
+	if (!splitResult.ok) {
+		return failedApply(operation, splitResult.stderr.trim() || splitResult.stdout.trim() || "Could not move selected JJ files.");
+	}
+	const temporaryChangeId = parseCreatedJjChangeId(splitResult.stdout) ?? parseCreatedJjChangeId(splitResult.stderr);
+	if (!temporaryChangeId) {
+		return failedApply(operation, splitResult.stderr.trim() || "Could not determine the temporary JJ change id.");
+	}
+	const squashResult = await runner({
+		command: "jj",
+		args: ["squash", "--from", temporaryChangeId, "--into", targetChangeId],
+		cwd,
+	});
+	if (!squashResult.ok) {
+		return failedApply(operation, squashResult.stderr.trim() || squashResult.stdout.trim() || "Could not squash selected JJ files into the target.");
+	}
+	await runner({ command: "jj", args: ["abandon", temporaryChangeId], cwd });
+	return successfulApply(
+		operation,
+		operation.kind === "move_changes" ? "Moved selected files" : "Uncommitted selected files",
+		operation.kind === "move_changes"
+			? `Moved ${paths.length} selected file(s) into ${operation.targetCommitId}.`
+			: `Moved ${paths.length} selected file(s) into the working copy.`,
+		commitIdsFromOperation(operation),
+	);
 }
 
 async function applyJjWorkingCopyHunkCommitOperation(
@@ -994,7 +1179,7 @@ async function buildSelectedJjCommittedHunkPatch(
 	cwd: string,
 	runner: VcsCommandRunner,
 	operation:
-		| Extract<NeutralOperation, { kind: "split_commit" | "move_changes" | "uncommit_changes" }>
+		| JjCommittedHunkRewriteOperation
 		| JjCommittedHunkDiscardOperation,
 ): Promise<{ ok: true; patch: string; repoCwd: string; paths: string[] } | { ok: false; reason: string }> {
 	const sourceCommitId =
@@ -1164,10 +1349,21 @@ function parseCreatedJjChangeId(output: string): string | null {
 async function applyJjCommittedHunkOperationWithEditor(
 	repoCwd: string,
 	runner: VcsCommandRunner,
-	operation: Extract<NeutralOperation, { kind: "split_commit" | "move_changes" | "uncommit_changes" }>,
+	operation: JjCommittedHunkRewriteOperation,
 	patch: { patch: string; paths: string[] },
 ) {
 	const sourceCommitId = sourceCommitIdForCommittedHunkOperation(operation);
+	const target =
+		operation.kind === "create_commit"
+			? await resolveCreateCommitStackHeadChangeId(repoCwd, runner, operation)
+			: operation.kind === "move_changes"
+				? { ok: true as const, headChangeId: operation.targetCommitId }
+				: operation.kind === "uncommit_changes"
+					? { ok: true as const, headChangeId: "@" }
+					: null;
+	if (target && !target.ok) {
+		return { ok: false, stdout: "", stderr: target.reason, exitCode: 1 };
+	}
 	const tempDir = await mkdtemp(join(tmpdir(), "changeyard-jj-hunks-"));
 	const patchPath = join(tempDir, "selected.patch");
 	const editorPath = join(tempDir, "select-hunks-editor.sh");
@@ -1182,14 +1378,16 @@ async function applyJjCommittedHunkOperationWithEditor(
 				cwd: repoCwd,
 			});
 		}
-		return await runner({
+		const splitResult = await runner({
 			command: "jj",
 			args: [
-				"squash",
-				"--from",
+				"split",
+				"-r",
 				sourceCommitId ?? "",
-				"--into",
-				operation.kind === "move_changes" ? operation.targetCommitId : "@",
+				"--insert-after",
+				target?.headChangeId ?? "",
+				"-m",
+				operation.kind === "create_commit" ? (normalizeOperationMessage(operation.message) ?? "") : "changeyard move selected hunks",
 				"--interactive",
 				"--tool",
 				editorPath,
@@ -1197,6 +1395,27 @@ async function applyJjCommittedHunkOperationWithEditor(
 			],
 			cwd: repoCwd,
 		});
+		if (!splitResult.ok || operation.kind === "create_commit") {
+			return splitResult;
+		}
+		const temporaryChangeId = parseCreatedJjChangeId(splitResult.stdout) ?? parseCreatedJjChangeId(splitResult.stderr);
+		if (!temporaryChangeId) {
+			return {
+				ok: false,
+				stdout: splitResult.stdout,
+				stderr: splitResult.stderr.trim() || "Could not determine the temporary JJ change id.",
+				exitCode: 1,
+			};
+		}
+		const squashResult = await runner({
+			command: "jj",
+			args: ["squash", "--from", temporaryChangeId, "--into", target?.headChangeId ?? ""],
+			cwd: repoCwd,
+		});
+		if (squashResult.ok) {
+			await runner({ command: "jj", args: ["abandon", temporaryChangeId], cwd: repoCwd });
+		}
+		return squashResult;
 	} finally {
 		await rm(tempDir, { recursive: true, force: true });
 	}

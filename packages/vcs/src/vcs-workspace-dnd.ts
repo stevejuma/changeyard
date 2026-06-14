@@ -125,9 +125,6 @@ export function createVcsWorkspaceCreateCommitOperationFromDrop(
 	if (!selection) {
 		return { valid: false, reason: "Choose a valid file or hunk selection." };
 	}
-	if (selection.source !== "working_copy") {
-		return { valid: false, reason: "Only working-copy changes can start a new commit." };
-	}
 	return {
 		valid: true,
 		operation: {

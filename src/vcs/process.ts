@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { appendFileSync } from "node:fs";
+import { normalizeVcsCommandArgs, vcsNoColorEnv } from "./argv.js";
 const MAX_BUFFER_BYTES = 10 * 1024 * 1024;
 const ALLOWED_COMMANDS = new Set(["git", "gh", "jj"]);
 
@@ -56,10 +57,11 @@ export function redactSecrets(text: string): string {
 export async function runVcsCommand(input: RunVcsCommandInput): Promise<VcsCommandResult> {
 	validateArgv(input);
 	const startedAt = Date.now();
+	const args = normalizeVcsCommandArgs(input.command, input.args);
 	return new Promise((resolve) => {
-		const child = spawn(input.command, input.args, {
+		const child = spawn(input.command, args, {
 			cwd: input.cwd,
-			env: process.env,
+			env: vcsNoColorEnv(),
 			stdio: ["pipe", "pipe", "pipe"],
 		});
 		let stdout = "";
@@ -71,7 +73,7 @@ export async function runVcsCommand(input: RunVcsCommandInput): Promise<VcsComma
 				return;
 			}
 			settled = true;
-			logVcsTiming(input, startedAt);
+			logVcsTiming({ ...input, args }, startedAt);
 			resolve(result);
 		}
 

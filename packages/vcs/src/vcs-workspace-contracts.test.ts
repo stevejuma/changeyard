@@ -147,6 +147,22 @@ test("validateVcsWorkspaceOperation gates hunk selections by capability", () => 
 				stackId: "feature/workspace",
 				message: "Add workspace contract",
 				selection: {
+					source: "commit",
+					commitId: "commit-1",
+					hunks: [{ path: "src/workspace.ts", hunkId: "hunk-1" }],
+				},
+			},
+			{ ...unsupportedWorkspaceCapabilities, supportsCommittedHunkSelection: true, supportsMoveChangesAcrossCommits: true },
+		),
+		{ valid: true, reason: null },
+	);
+	assert.deepEqual(
+		validateVcsWorkspaceOperation(
+			{
+				kind: "create_commit",
+				stackId: "feature/workspace",
+				message: "Add workspace contract",
+				selection: {
 					source: "working_copy",
 					hunks: [{ path: "src/workspace.ts", hunkId: "hunk-1" }],
 				},

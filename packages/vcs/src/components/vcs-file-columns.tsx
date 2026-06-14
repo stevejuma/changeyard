@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronLeft, ChevronRight, FileText, Folder, FolderOpen, FolderTree, List } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, FileText, Folder, FolderOpen, FolderTree, List, X } from "lucide-react";
 import type { DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent } from "react";
 import { useMemo } from "react";
 
@@ -188,6 +188,7 @@ function FileTreeRow({
 	selectedPath,
 	onSelectPath,
 	filesByPath,
+	conflictPaths,
 	onFileDragStart,
 }: {
 	node: FileTreeNode;
@@ -195,11 +196,15 @@ function FileTreeRow({
 	selectedPath: string | null;
 	onSelectPath: (path: string) => void;
 	filesByPath: Map<string, VcsFileChange>;
+	conflictPaths?: ReadonlySet<string>;
 	onFileDragStart?: (event: ReactDragEvent<HTMLButtonElement>, file: VcsFileChange) => void;
 }): React.ReactElement {
 	const isDirectory = node.type === "directory";
 	const isSelected = !isDirectory && node.path === selectedPath;
 	const file = filesByPath.get(node.path);
+	const hasConflict = isDirectory
+		? Array.from(conflictPaths ?? []).some((path) => path === node.path || path.startsWith(`${node.path}/`))
+		: Boolean(conflictPaths?.has(node.path));
 	const addedClassName = isSelected ? "text-accent-fg" : "text-status-green";
 	const removedClassName = isSelected ? "text-accent-fg" : "text-status-red";
 
@@ -214,6 +219,8 @@ function FileTreeRow({
 					"kb-file-tree-row",
 					isDirectory && "kb-file-tree-row-directory",
 					isSelected && "kb-file-tree-row-selected",
+					hasConflict && "kb-file-tree-row-conflict",
+					hasConflict && isSelected && "ring-1 ring-status-red/60",
 				)}
 				onDragStart={(event) => {
 					if (file && onFileDragStart) {
@@ -227,7 +234,7 @@ function FileTreeRow({
 					}
 				}}
 			>
-				{isDirectory ? <Folder size={14} /> : <FileText size={14} />}
+				{isDirectory ? <Folder size={14} /> : <FileText size={14} className={hasConflict ? "text-status-orange" : undefined} />}
 				<span className="truncate">{node.name}</span>
 				{file ? (
 					<span className="ml-auto flex gap-1 font-mono text-[10px]">
@@ -235,6 +242,7 @@ function FileTreeRow({
 						{(file.deletions ?? 0) > 0 ? <span className={removedClassName}>-{file.deletions}</span> : null}
 					</span>
 				) : null}
+				{hasConflict ? <AlertTriangle size={16} className="ml-auto shrink-0 text-status-red" /> : null}
 			</button>
 			{node.children.length > 0 ? (
 				<div>
@@ -246,6 +254,7 @@ function FileTreeRow({
 							selectedPath={selectedPath}
 							onSelectPath={onSelectPath}
 							filesByPath={filesByPath}
+							conflictPaths={conflictPaths}
 							onFileDragStart={onFileDragStart}
 						/>
 					))}
@@ -258,11 +267,13 @@ function FileTreeRow({
 function FileListRow({
 	file,
 	selectedPath,
+	hasConflict = false,
 	onSelectPath,
 	onFileDragStart,
 }: {
 	file: VcsFileChange;
 	selectedPath: string | null;
+	hasConflict?: boolean;
 	onSelectPath: (path: string) => void;
 	onFileDragStart?: (event: ReactDragEvent<HTMLButtonElement>, file: VcsFileChange) => void;
 }): React.ReactElement {
@@ -276,17 +287,23 @@ function FileListRow({
 			data-testid="vcs-file-row"
 			data-file-path={file.path}
 			draggable={Boolean(onFileDragStart)}
-			className={cn("kb-file-tree-row", isSelected && "kb-file-tree-row-selected")}
+			className={cn(
+				"kb-file-tree-row",
+				isSelected && "kb-file-tree-row-selected",
+				hasConflict && "kb-file-tree-row-conflict",
+				hasConflict && isSelected && "ring-1 ring-status-red/60",
+			)}
 			onDragStart={(event) => onFileDragStart?.(event, file)}
 			onClick={() => onSelectPath(file.path)}
 		>
-			<FileText size={14} />
+			<FileText size={14} className={hasConflict ? "text-status-orange" : undefined} />
 			<FileStatusGlyph status={file.status} />
 			<span className="min-w-0 flex-1 truncate">{file.path}</span>
 			<span className="flex shrink-0 gap-1 font-mono text-[10px]">
 				{(file.additions ?? 0) > 0 ? <span className={addedClassName}>+{file.additions}</span> : null}
 				{(file.deletions ?? 0) > 0 ? <span className={removedClassName}>-{file.deletions}</span> : null}
 			</span>
+			{hasConflict ? <AlertTriangle size={16} className="ml-auto shrink-0 text-status-red" /> : null}
 		</button>
 	);
 }
@@ -360,6 +377,8 @@ export function VcsInlineFileSection({
 	onFileDragStart,
 	collapsed = false,
 	onCollapsedChange,
+	className,
+	conflictPaths,
 }: {
 	title?: string;
 	files: VcsFileChange[];
@@ -372,16 +391,25 @@ export function VcsInlineFileSection({
 	onFileDragStart?: (event: ReactDragEvent<HTMLButtonElement>, file: VcsFileChange) => void;
 	collapsed?: boolean;
 	onCollapsedChange?: (collapsed: boolean) => void;
+	className?: string;
+	conflictPaths?: ReadonlySet<string>;
 }): React.ReactElement {
 	const filesByPath = useMemo(() => new Map(files.map((file) => [file.path, file])), [files]);
 	const tree = useMemo(() => buildFileTree(files.map((file) => file.path)), [files]);
 	const additions = files.reduce((sum, file) => sum + (file.additions ?? 0), 0);
 	const deletions = files.reduce((sum, file) => sum + (file.deletions ?? 0), 0);
+	const conflictCount = conflictPaths ? files.filter((file) => conflictPaths.has(file.path)).length : 0;
 	const headerContent = (
 		<>
 			{collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
 			<span className="min-w-0 flex-1 truncate text-sm font-semibold text-text-primary">{title}</span>
 			<span className="rounded-full bg-surface-2 px-1.5 py-0.5 text-[11px] font-semibold">{files.length}</span>
+			{conflictCount > 0 ? (
+				<span className="inline-flex items-center gap-1 rounded-full border border-status-red/35 bg-status-red/10 px-1.5 py-0.5 text-[11px] font-semibold text-status-red">
+					<AlertTriangle size={11} />
+					{conflictCount}
+				</span>
+			) : null}
 			{additions > 0 ? <span className="text-[12px] font-medium text-status-green">+{additions}</span> : null}
 			{deletions > 0 ? <span className="text-[12px] font-medium text-status-red">-{deletions}</span> : null}
 			<FileViewToggle mode={viewMode} onModeChange={onViewModeChange} />
@@ -389,7 +417,7 @@ export function VcsInlineFileSection({
 	);
 
 	return (
-		<div className="mx-2 mb-2 rounded-lg border border-divider bg-surface-0">
+		<div className={cn("mx-2 mb-2 rounded-lg border border-divider bg-surface-0", className)}>
 				{onCollapsedChange ? (
 					<div
 						role="button"
@@ -433,6 +461,7 @@ export function VcsInlineFileSection({
 										selectedPath={selectedPath}
 										onSelectPath={onSelectPath}
 										filesByPath={filesByPath}
+										conflictPaths={conflictPaths}
 										onFileDragStart={onFileDragStart}
 									/>
 								))
@@ -441,6 +470,7 @@ export function VcsInlineFileSection({
 										key={fileKey(file)}
 										file={file}
 										selectedPath={selectedPath}
+										hasConflict={Boolean(conflictPaths?.has(file.path))}
 										onSelectPath={onSelectPath}
 										onFileDragStart={onFileDragStart}
 									/>
@@ -561,7 +591,7 @@ export function VcsFileDiffColumn({
 				<Button
 					variant="ghost"
 					size="sm"
-					icon={<ChevronRight size={14} />}
+					icon={<X size={14} />}
 					aria-label="Close diff column"
 					title="Close diff"
 					onClick={onClose}

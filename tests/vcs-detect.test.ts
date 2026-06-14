@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { detectVcsState } from "../src/vcs/detect.js";
+import { normalizeVcsCommandArgs } from "../src/vcs/argv.js";
 import { redactSecrets, runVcsCommand } from "../src/vcs/process.js";
 
 test("redactSecrets removes basic credential material from URLs", () => {
@@ -20,6 +21,12 @@ test("runVcsCommand rejects invalid argv segments before execution", async () =>
 			}),
 		/non-empty strings/i,
 	);
+});
+
+test("normalizeVcsCommandArgs forces jj color off", () => {
+	assert.deepEqual(normalizeVcsCommandArgs("jj", ["log", "--color=always", "-r", "@"]), ["--color=never", "log", "-r", "@"]);
+	assert.deepEqual(normalizeVcsCommandArgs("jj", ["diff", "--color", "always", "--summary"]), ["--color=never", "diff", "--summary"]);
+	assert.deepEqual(normalizeVcsCommandArgs("git", ["status", "--short"]), ["status", "--short"]);
 });
 
 test("detectVcsState reports jj repositories from the injected runner", async () => {

@@ -111,7 +111,15 @@ test("createVcsWorkspaceCreateCommitOperationFromDrop maps working-copy selectio
 			"feature/api",
 			"Add README",
 		),
-		{ valid: false, reason: "Only working-copy changes can start a new commit." },
+		{
+			valid: true,
+			operation: {
+				kind: "create_commit",
+				stackId: "feature/api",
+				message: "Add README",
+				selection: { source: "commit", commitId: "abc123", paths: ["README.md"] },
+			},
+		},
 	);
 });
 
@@ -159,6 +167,15 @@ test("createVcsWorkspaceOperationFromDrop maps committed hunks to move_changes a
 		valid: true,
 		operation: {
 			kind: "uncommit_changes",
+			selection: { source: "commit", commitId: "abc123", hunks: [payload.hunk] },
+		},
+	});
+	assert.deepEqual(createVcsWorkspaceOperationFromDrop(payload, { kind: "stack_header", stackId: "feature/api" }), {
+		valid: true,
+		operation: {
+			kind: "create_commit",
+			stackId: "feature/api",
+			message: "New commit",
 			selection: { source: "commit", commitId: "abc123", hunks: [payload.hunk] },
 		},
 	});

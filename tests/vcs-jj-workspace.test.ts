@@ -85,6 +85,10 @@ function createConflictStateRunner(calls: string[] = []): VcsCommandRunner {
 			calls.push(joined);
 			return ok("api222\t22222222\tAPI change\n");
 		}
+		if (joined === "jj resolve --list") {
+			calls.push(joined);
+			return ok("src/api.ts    2-sided conflict\nsrc/config.ts    2-sided conflict");
+		}
 		return await baseRunner(input);
 	};
 }
@@ -170,14 +174,23 @@ test("loadJjWorkspaceState surfaces JJ conflicts as neutral workspace conflicts"
 	assert.equal(state.workingCopy.hasConflicts, true);
 	assert.deepEqual(state.conflicts, [
 		{
-			id: "jj-conflict-api222",
-			path: null,
-			message: "JJ conflict in API change.",
+			id: "jj-conflict-api222-src/api.ts",
+			path: "src/api.ts",
+			message: "JJ conflict in src/api.ts in API change.",
+			commitIds: ["api222"],
+			stackIds: ["feature/api"],
+		},
+		{
+			id: "jj-conflict-api222-src/config.ts",
+			path: "src/config.ts",
+			message: "JJ conflict in src/config.ts in API change.",
 			commitIds: ["api222"],
 			stackIds: ["feature/api"],
 		},
 	]);
+	assert.deepEqual(state.workingCopy.files.map((file) => file.path), ["src/api.ts", "src/config.ts", "src/new.ts"]);
 	assert.ok(calls.some((call) => call.includes("--revisions conflicts()")));
+	assert.ok(calls.includes("jj resolve --list"));
 });
 
 test("loadJjWorkspaceState preserves multiple applied JJ workspace stacks", async () => {
@@ -317,7 +330,7 @@ test("previewJjWorkspaceOperation translates neutral committed file move to JJ s
 	assert.match(preview.summary, /Move src\/api\.ts from api222 into root111/i);
 });
 
-test("applyJjWorkspaceOperation moves selected committed files through JJ squash", async () => {
+test("applyJjWorkspaceOperation moves selected committed files through a temporary split", async () => {
 	const calls: string[] = [];
 	const baseRunner = createStateRunner(calls);
 	const result = await applyJjWorkspaceOperation(
@@ -332,8 +345,14 @@ test("applyJjWorkspaceOperation moves selected committed files through JJ squash
 		async (input) => {
 			const joined = `${input.command} ${input.args.join(" ")}`;
 			calls.push(joined);
-			if (joined === "jj squash --from api222 --into root111 src/api.ts") {
+			if (joined === "jj split -r api222 --insert-after root111 -m changeyard move selected files -- src/api.ts") {
+				return { ok: true, stdout: "Created new commit temp333 33333333 changeyard move selected files", stderr: "", exitCode: 0 };
+			}
+			if (joined === "jj squash --from temp333 --into root111") {
 				return ok("Squashed selected files into root111");
+			}
+			if (joined === "jj abandon temp333") {
+				return ok("Abandoned 0 commits");
 			}
 			calls.pop();
 			return await baseRunner(input);
@@ -344,7 +363,8 @@ test("applyJjWorkspaceOperation moves selected committed files through JJ squash
 	assert.equal(result.operation.kind, "move_changes");
 	assert.deepEqual(result.affectedCommitIds, ["api222", "root111"]);
 	assert.deepEqual(result.affectedPaths, ["src/api.ts"]);
-	assert.equal(calls.at(-1), "jj squash --from api222 --into root111 src/api.ts");
+	assert.ok(calls.includes("jj split -r api222 --insert-after root111 -m changeyard move selected files -- src/api.ts"));
+	assert.ok(calls.includes("jj squash --from temp333 --into root111"));
 });
 
 test("previewJjWorkspaceOperation allows selected committed hunk movement", async () => {
@@ -374,7 +394,7 @@ test("previewJjWorkspaceOperation allows selected committed hunk movement", asyn
 	assert.ok(!calls.some((call) => call.startsWith("jj squash --from api222 --into root111 --interactive")));
 });
 
-test("applyJjWorkspaceOperation moves selected committed hunks through JJ squash diff editor", async () => {
+test("applyJjWorkspaceOperation moves selected committed hunks through a temporary split", async () => {
 	const calls: string[] = [];
 	const baseRunner = createStateRunner(calls);
 	const result = await applyJjWorkspaceOperation(
@@ -393,8 +413,14 @@ test("applyJjWorkspaceOperation moves selected committed hunks through JJ squash
 		async (input) => {
 			const joined = `${input.command} ${input.args.join(" ")}`;
 			calls.push(joined);
-			if (/^jj squash --from api222 --into root111 --interactive --tool .+ src\/api\.ts$/.test(joined)) {
+			if (/^jj split -r api222 --insert-after root111 -m changeyard move selected hunks --interactive --tool .+ src\/api\.ts$/.test(joined)) {
+				return { ok: true, stdout: "Created new commit temp333 33333333 changeyard move selected hunks", stderr: "", exitCode: 0 };
+			}
+			if (joined === "jj squash --from temp333 --into root111") {
 				return ok("Squashed selected hunks into root111");
+			}
+			if (joined === "jj abandon temp333") {
+				return ok("Abandoned 0 commits");
 			}
 			calls.pop();
 			return await baseRunner(input);
@@ -406,7 +432,8 @@ test("applyJjWorkspaceOperation moves selected committed hunks through JJ squash
 	assert.deepEqual(result.affectedCommitIds, ["api222", "root111"]);
 	assert.deepEqual(result.affectedPaths, ["src/api.ts"]);
 	assert.ok(calls.includes("jj diff --ignore-working-copy --git --color=never -r api222 -- src/api.ts"));
-	assert.match(calls.at(-1) ?? "", /^jj squash --from api222 --into root111 --interactive --tool .+ src\/api\.ts$/);
+	assert.ok(calls.some((call) => /^jj split -r api222 --insert-after root111 -m changeyard move selected hunks --interactive --tool .+ src\/api\.ts$/.test(call)));
+	assert.ok(calls.includes("jj squash --from temp333 --into root111"));
 });
 
 test("previewJjWorkspaceOperation allows selected committed hunk discard", async () => {
@@ -500,7 +527,7 @@ test("previewJjWorkspaceOperation translates neutral uncommit to JJ squash into 
 	assert.match(preview.summary, /Move src\/api\.ts from root111 into @/i);
 });
 
-test("applyJjWorkspaceOperation uncommits selected committed files through JJ squash into working copy", async () => {
+test("applyJjWorkspaceOperation uncommits selected committed files through a temporary split into working copy", async () => {
 	const calls: string[] = [];
 	const baseRunner = createStateRunner(calls);
 	const result = await applyJjWorkspaceOperation(
@@ -514,8 +541,14 @@ test("applyJjWorkspaceOperation uncommits selected committed files through JJ sq
 		async (input) => {
 			const joined = `${input.command} ${input.args.join(" ")}`;
 			calls.push(joined);
-			if (joined === "jj squash --from root111 --into @ src/api.ts") {
+			if (joined === "jj split -r root111 --insert-after @ -m changeyard move selected files -- src/api.ts") {
+				return { ok: true, stdout: "Created new commit temp333 33333333 changeyard move selected files", stderr: "", exitCode: 0 };
+			}
+			if (joined === "jj squash --from temp333 --into @") {
 				return ok("Squashed selected files into the working copy");
+			}
+			if (joined === "jj abandon temp333") {
+				return ok("Abandoned 0 commits");
 			}
 			calls.pop();
 			return await baseRunner(input);
@@ -524,12 +557,13 @@ test("applyJjWorkspaceOperation uncommits selected committed files through JJ sq
 
 	assert.equal(result.ok, true);
 	assert.equal(result.operation.kind, "uncommit_changes");
-	assert.deepEqual(result.affectedCommitIds, ["root111", "api222"]);
+	assert.deepEqual(result.affectedCommitIds, ["root111"]);
 	assert.deepEqual(result.affectedPaths, ["src/api.ts"]);
-	assert.equal(calls.at(-1), "jj squash --from root111 --into @ src/api.ts");
+	assert.ok(calls.includes("jj split -r root111 --insert-after @ -m changeyard move selected files -- src/api.ts"));
+	assert.ok(calls.includes("jj squash --from temp333 --into @"));
 });
 
-test("applyJjWorkspaceOperation uncommits selected committed hunks through JJ squash diff editor", async () => {
+test("applyJjWorkspaceOperation uncommits selected committed hunks through a temporary split into working copy", async () => {
 	const calls: string[] = [];
 	const baseRunner = createStateRunner(calls);
 	const result = await applyJjWorkspaceOperation(
@@ -547,8 +581,14 @@ test("applyJjWorkspaceOperation uncommits selected committed hunks through JJ sq
 		async (input) => {
 			const joined = `${input.command} ${input.args.join(" ")}`;
 			calls.push(joined);
-			if (/^jj squash --from root111 --into @ --interactive --tool .+ src\/api\.ts$/.test(joined)) {
+			if (/^jj split -r root111 --insert-after @ -m changeyard move selected hunks --interactive --tool .+ src\/api\.ts$/.test(joined)) {
+				return { ok: true, stdout: "Created new commit temp333 33333333 changeyard move selected hunks", stderr: "", exitCode: 0 };
+			}
+			if (joined === "jj squash --from temp333 --into @") {
 				return ok("Squashed selected hunks into the working copy");
+			}
+			if (joined === "jj abandon temp333") {
+				return ok("Abandoned 0 commits");
 			}
 			calls.pop();
 			return await baseRunner(input);
@@ -560,7 +600,8 @@ test("applyJjWorkspaceOperation uncommits selected committed hunks through JJ sq
 	assert.deepEqual(result.affectedCommitIds, ["root111"]);
 	assert.deepEqual(result.affectedPaths, ["src/api.ts"]);
 	assert.ok(calls.includes("jj diff --ignore-working-copy --git --color=never -r root111 -- src/api.ts"));
-	assert.match(calls.at(-1) ?? "", /^jj squash --from root111 --into @ --interactive --tool .+ src\/api\.ts$/);
+	assert.ok(calls.some((call) => /^jj split -r root111 --insert-after @ -m changeyard move selected hunks --interactive --tool .+ src\/api\.ts$/.test(call)));
+	assert.ok(calls.includes("jj squash --from temp333 --into @"));
 });
 
 test("previewJjWorkspaceOperation translates neutral move commit to JJ reorder preview", async () => {
