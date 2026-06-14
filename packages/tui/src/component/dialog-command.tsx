@@ -26,6 +26,7 @@ export type CommandOption = DialogSelectOption<string> & {
   slash?: Slash;
   hidden?: boolean;
   enabled?: boolean;
+  keywords?: readonly string[];
 };
 
 function init() {
@@ -39,6 +40,10 @@ function init() {
     return all.map((x) => ({
       ...x,
       footer: x.keybind ? keybind.print(x.keybind) : undefined,
+      keywords: [
+        ...(x.keywords ?? []),
+        ...(x.slash ? [x.slash.name, ...(x.slash.aliases ?? [])].map((name) => `/${name}`) : []),
+      ],
     }));
   });
 
@@ -150,7 +155,7 @@ function DialogCommand(props: { options: CommandOption[]; suggestedOptions: Comm
   return (
     <DialogSelect
       ref={(r) => (ref = r)}
-      title="Commands"
+      title="Commands · Create change"
       options={list()}
       onSelect={handleSelect}
     />

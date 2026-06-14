@@ -1,8 +1,8 @@
 import { createStore } from "solid-js/store";
 import { createSimpleContext } from "./helper";
-import type { ChangeDetail, ChangeListItem, PlanningSectionId } from "../runtime-client";
+import type { ChangeDetail, ChangeListItem, DoctorResponse, PlanningSectionId } from "../runtime-client";
 
-export type PreviewTab = "detail" | "planning" | "workspace" | "review";
+export type PreviewTab = "detail" | "planning" | "workspace" | "review" | "activity" | "diagnostics";
 
 export type CreatePreset = {
   id: "quick" | "planned" | "strict" | "legacy";
@@ -58,6 +58,8 @@ export const { use: useAppState, provider: AppStateProvider } = createSimpleCont
       previewTab: "detail" as PreviewTab,
       sidebarOpen: true,
       planningPrompt: null as string | null,
+      doctor: null as DoctorResponse | null,
+      runtimeHealthy: false,
     });
 
     return {
@@ -87,6 +89,12 @@ export const { use: useAppState, provider: AppStateProvider } = createSimpleCont
       },
       get planningPrompt() {
         return store.planningPrompt;
+      },
+      get doctor() {
+        return store.doctor;
+      },
+      get runtimeHealthy() {
+        return store.runtimeHealthy;
       },
       get selected() {
         return store.changes[store.selectedIndex] ?? null;
@@ -120,6 +128,12 @@ export const { use: useAppState, provider: AppStateProvider } = createSimpleCont
       },
       setPlanningPrompt(prompt: string | null) {
         setStore("planningPrompt", prompt);
+      },
+      setDoctor(doctor: DoctorResponse | null) {
+        setStore("doctor", doctor);
+      },
+      setRuntimeHealthy(runtimeHealthy: boolean) {
+        setStore("runtimeHealthy", runtimeHealthy);
       },
     };
   },

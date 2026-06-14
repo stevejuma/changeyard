@@ -3,6 +3,7 @@ import { useKeyboard, useRenderer } from "@opentui/solid";
 import { TextareaRenderable } from "@opentui/core";
 import { Prompt } from "../component/prompt";
 import { PreviewPanel } from "../component/panels";
+import { StatusBar } from "../component/status-bar";
 import { Toast } from "../ui/toast";
 import { useTheme } from "../context/theme";
 import { useAppState, groupChanges } from "../context/app-state";
@@ -87,7 +88,13 @@ export function Workspace() {
 
         <box flexGrow={1} flexDirection="column" minHeight={0}>
           <box flexGrow={1} border={true} borderColor={theme.border} padding={1} minHeight={0} backgroundColor={theme.background}>
-            <PreviewPanel tab={state.previewTab} detail={state.detail} prompt={state.planningPrompt} />
+            <PreviewPanel
+              tab={state.previewTab}
+              detail={state.detail}
+              prompt={state.planningPrompt}
+              changes={state.changes}
+              doctor={state.doctor}
+            />
           </box>
           <box alignItems="center" paddingTop={1} paddingBottom={1} paddingLeft={2} paddingRight={2}>
             <box width="100%" maxWidth={75}>
@@ -97,19 +104,7 @@ export function Workspace() {
         </box>
       </box>
 
-      <box
-        height={2}
-        paddingLeft={1}
-        paddingRight={1}
-        border={true}
-        borderColor={theme.border}
-        flexDirection="row"
-        justifyContent="space-between"
-        backgroundColor={theme.backgroundPanel}
-      >
-        <text fg={state.error ? theme.error : theme.textMuted}>{state.error ?? state.status}</text>
-        <text fg={theme.textMuted}>selected: {state.selected?.id ?? "none"}</text>
-      </box>
+      <StatusBar />
       <Toast />
     </box>
   );

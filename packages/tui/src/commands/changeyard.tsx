@@ -1,4 +1,4 @@
-import { createMemo, onMount } from "solid-js";
+import { createMemo, onCleanup, onMount } from "solid-js";
 import { useCommandDialog } from "../component/dialog-command";
 import { useAppState, createPresets, presetIndexFromArg, parseSlashCommand, type PreviewTab } from "../context/app-state";
 import { useRoute } from "../context/route";
@@ -25,16 +25,22 @@ export function useChangeyardActions() {
 
   async function refresh(nextSelectedId = state.selected?.id) {
     state.setError(null);
-    await client.health();
-    await client.selectCurrentWorkspace();
-    const nextChanges = await client.listChanges();
-    state.setChanges(nextChanges);
-    const desiredIndex = nextSelectedId ? nextChanges.findIndex((change) => change.id === nextSelectedId) : 0;
-    const clampedIndex = desiredIndex >= 0 ? desiredIndex : 0;
-    state.setSelectedIndex(clampedIndex);
-    const nextSelected = nextChanges[clampedIndex] ?? null;
-    state.setDetail(nextSelected ? await client.getChange(nextSelected.id) : null);
-    state.setStatus(nextChanges.length === 0 ? "No changes yet. Run /create quick to start." : "Ready");
+    try {
+      await client.health();
+      state.setRuntimeHealthy(true);
+      await client.selectCurrentWorkspace();
+      const nextChanges = await client.listChanges();
+      state.setChanges(nextChanges);
+      const desiredIndex = nextSelectedId ? nextChanges.findIndex((change) => change.id === nextSelectedId) : 0;
+      const clampedIndex = desiredIndex >= 0 ? desiredIndex : 0;
+      state.setSelectedIndex(clampedIndex);
+      const nextSelected = nextChanges[clampedIndex] ?? null;
+      state.setDetail(nextSelected ? await client.getChange(nextSelected.id) : null);
+      state.setStatus(nextChanges.length === 0 ? "No changes yet. Run /create quick to start." : "Ready");
+    } catch (caught) {
+      state.setRuntimeHealthy(false);
+      throw caught;
+    }
   }
 
   function goToWorkspace(changeId?: string) {
@@ -182,6 +188,9 @@ export function useChangeyardActions() {
       workspace: () => setPreviewTab("workspace"),
       "review-view": () => setPreviewTab("review"),
       reviewview: () => setPreviewTab("review"),
+      activity: () => setPreviewTab("activity"),
+      history: () => setPreviewTab("activity"),
+      diagnostics: () => setPreviewTab("diagnostics"),
       themes: () => route.config("appearance"),
       config: (args) => route.config(configTabFromArg(args)),
       agents: () => route.config("agent"),
@@ -207,6 +216,8 @@ export function useChangeyardActions() {
       },
       doctor: () => {
         void composerSettings.doctorProject().then((report) => {
+          state.setDoctor(report);
+          state.setPreviewTab("diagnostics");
           const lines = [
             ...(report.ok.length > 0 ? [`ok: ${report.ok.join(", ")}`] : []),
             ...report.warnings.map((warning) => `warning: ${warning}`),
@@ -255,9 +266,17 @@ export function RegisterChangeyardCommands() {
         actions.updateSelection(0);
       }
     }).catch((caught) => {
+      state.setRuntimeHealthy(false);
       state.setError(caught instanceof Error ? caught.message : String(caught));
       state.setStatus("Runtime connection failed");
     });
+    const interval = setInterval(() => {
+      if (route.data.type !== "workspace") return;
+      void actions.refresh().catch(() => {
+        state.setStatus("Runtime refresh failed");
+      });
+    }, 5000);
+    onCleanup(() => clearInterval(interval));
   });
 
   command.register(() => [
@@ -265,6 +284,8 @@ export function RegisterChangeyardCommands() {
       title: "Help",
       value: "help",
       category: "System",
+      description: "Show shortcuts and slash commands",
+      keywords: ["shortcuts", "commands"],
       suggested: true,
       slash: { name: "help" },
       onSelect: () => dialog.replace(() => <DialogHelp />),
@@ -273,6 +294,7 @@ export function RegisterChangeyardCommands() {
       title: "Go home",
       value: "home",
       category: "Navigation",
+      description: "Return to the TUI home screen",
       suggested: true,
       slash: { name: "home" },
       onSelect: () => route.home(),
@@ -281,6 +303,7 @@ export function RegisterChangeyardCommands() {
       title: "Configure Changeyard",
       value: "project.config",
       category: "Setup",
+      description: "Open project, planning, agent, and appearance settings",
       suggested: true,
       slash: { name: "config" },
       onSelect: () => route.config(),
@@ -289,6 +312,7 @@ export function RegisterChangeyardCommands() {
       title: "Switch theme",
       value: "theme.switch",
       category: "System",
+      description: "Open appearance settings",
       slash: { name: "themes" },
       onSelect: () => route.config("appearance"),
     },
@@ -296,6 +320,7 @@ export function RegisterChangeyardCommands() {
       title: "Select agent",
       value: "agents.select",
       category: "System",
+      description: "Choose the default launch agent",
       slash: { name: "agents" },
       onSelect: () => route.config("agent"),
     },
@@ -303,6 +328,7 @@ export function RegisterChangeyardCommands() {
       title: "Initialize Changeyard",
       value: "project.init",
       category: "Setup",
+      description: "Scaffold .changeyard in this repository",
       slash: { name: "init" },
       onSelect: () => actions.executeSlash("/init"),
     },
@@ -310,6 +336,7 @@ export function RegisterChangeyardCommands() {
       title: "Update Changeyard scaffold",
       value: "project.update",
       category: "Setup",
+      description: "Refresh bundled templates, skills, and commands",
       slash: { name: "update" },
       onSelect: () => actions.executeSlash("/update"),
     },
@@ -317,6 +344,7 @@ export function RegisterChangeyardCommands() {
       title: "Configure provider",
       value: "project.provider",
       category: "Setup",
+      description: "Set remote sync provider",
       slash: { name: "provider" },
       onSelect: () => route.config("project"),
     },
@@ -324,6 +352,7 @@ export function RegisterChangeyardCommands() {
       title: "Configure VCS",
       value: "project.vcs",
       category: "Setup",
+      description: "Set workspace isolation engine",
       slash: { name: "vcs" },
       onSelect: () => route.config("project"),
     },
@@ -331,6 +360,7 @@ export function RegisterChangeyardCommands() {
       title: "Run doctor",
       value: "project.doctor",
       category: "Setup",
+      description: "Inspect local Changeyard health and diagnostics",
       slash: { name: "doctor" },
       onSelect: () => actions.executeSlash("/doctor"),
     },
@@ -362,6 +392,7 @@ export function RegisterChangeyardCommands() {
       title: "Refresh changes",
       value: "refresh",
       category: "Change",
+      description: "Reload change list and selected detail",
       slash: { name: "refresh", aliases: ["r"] },
       onSelect: () => void actions.refresh(),
     },
@@ -369,6 +400,7 @@ export function RegisterChangeyardCommands() {
       title: "Toggle sidebar",
       value: "sidebar",
       category: "Navigation",
+      description: "Show or hide the change list",
       keybind: "sidebar_toggle",
       slash: { name: "sidebar" },
       onSelect: () => state.toggleSidebar(),
@@ -377,6 +409,7 @@ export function RegisterChangeyardCommands() {
       title: "Create change",
       value: "create",
       category: "Change",
+      description: "Create a quick, planned, strict, or legacy change",
       suggested: true,
       slash: { name: "create", aliases: ["new"] },
       onSelect: () => dialog.replace(() => <CreateDialog onCreate={actions.createChangeFromPreset} />),
@@ -385,6 +418,7 @@ export function RegisterChangeyardCommands() {
       title: "Load planning prompt",
       value: "prompt",
       category: "Planning",
+      description: "Load the first planning prompt for the selected change",
       slash: { name: "prompt" },
       onSelect: () => void actions.loadPrompt(),
     },
@@ -392,6 +426,7 @@ export function RegisterChangeyardCommands() {
       title: "Validate change",
       value: "validate",
       category: "Lifecycle",
+      description: "Run document and lifecycle validation",
       slash: { name: "validate" },
       onSelect: () => void actions.runAction("validate"),
     },
@@ -399,6 +434,7 @@ export function RegisterChangeyardCommands() {
       title: "Sync change",
       value: "sync",
       category: "Lifecycle",
+      description: "Sync selected change with configured provider",
       slash: { name: "sync" },
       onSelect: () => void actions.runAction("sync"),
     },
@@ -406,6 +442,7 @@ export function RegisterChangeyardCommands() {
       title: "Start workspace",
       value: "start",
       category: "Lifecycle",
+      description: "Create or enter the isolated change workspace",
       slash: { name: "start" },
       onSelect: () => void actions.runAction("start"),
     },
@@ -413,6 +450,7 @@ export function RegisterChangeyardCommands() {
       title: "Verify change",
       value: "verify",
       category: "Lifecycle",
+      description: "Verify current workspace context",
       slash: { name: "verify" },
       onSelect: () => void actions.runAction("verify"),
     },
@@ -420,6 +458,7 @@ export function RegisterChangeyardCommands() {
       title: "Complete change",
       value: "complete",
       category: "Lifecycle",
+      description: "Complete selected change locally",
       slash: { name: "complete" },
       onSelect: () => void actions.runAction("complete"),
     },
@@ -427,6 +466,7 @@ export function RegisterChangeyardCommands() {
       title: "Start review",
       value: "review",
       category: "Lifecycle",
+      description: "Start a local review workflow",
       slash: { name: "review" },
       onSelect: () => void actions.runAction("review"),
     },
@@ -434,6 +474,7 @@ export function RegisterChangeyardCommands() {
       title: "Show detail",
       value: "detail",
       category: "Preview",
+      description: "Show markdown detail for the selected change",
       slash: { name: "detail" },
       onSelect: () => actions.setPreviewTab("detail"),
     },
@@ -441,6 +482,7 @@ export function RegisterChangeyardCommands() {
       title: "Show planning",
       value: "planning",
       category: "Preview",
+      description: "Show planning gates and sections",
       slash: { name: "planning" },
       onSelect: () => state.setPreviewTab("planning"),
     },
@@ -448,6 +490,7 @@ export function RegisterChangeyardCommands() {
       title: "Show workspace",
       value: "workspace-view",
       category: "Preview",
+      description: "Show workspace state for the selected change",
       slash: { name: "workspace" },
       onSelect: () => state.setPreviewTab("workspace"),
     },
@@ -455,8 +498,25 @@ export function RegisterChangeyardCommands() {
       title: "Show review",
       value: "review-view",
       category: "Preview",
+      description: "Show review and remote links",
       slash: { name: "review-view", aliases: ["reviewview"] },
       onSelect: () => state.setPreviewTab("review"),
+    },
+    {
+      title: "Show activity",
+      value: "activity",
+      category: "Diagnostics",
+      description: "Show recent change and doctor activity",
+      slash: { name: "activity", aliases: ["history"] },
+      onSelect: () => actions.setPreviewTab("activity"),
+    },
+    {
+      title: "Show diagnostics",
+      value: "diagnostics",
+      category: "Diagnostics",
+      description: "Show the latest doctor result",
+      slash: { name: "diagnostics" },
+      onSelect: () => actions.setPreviewTab("diagnostics"),
     },
   ]);
 

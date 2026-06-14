@@ -1,7 +1,8 @@
-import { Show } from "solid-js";
+import { For, Show } from "solid-js";
 import { useTheme } from "../context/theme";
 import { badgeText, type PreviewTab } from "../context/app-state";
-import type { ChangeDetail } from "../runtime-client";
+import type { ChangeDetail, ChangeListItem, DoctorResponse } from "../runtime-client";
+import { buildActivityItems } from "../utils/activity";
 
 function Spacer() {
   return <box height={1} />;
@@ -82,8 +83,64 @@ export function ReviewPanel(props: { detail: ChangeDetail }) {
   );
 }
 
-export function PreviewPanel(props: { tab: PreviewTab; detail: ChangeDetail | null; prompt: string | null }) {
+export function ActivityPanel(props: { changes: ChangeListItem[]; doctor: DoctorResponse | null }) {
   const { theme } = useTheme();
+  const items = () => buildActivityItems({ changes: props.changes, doctor: props.doctor }).slice(0, 80);
+  return (
+    <box flexDirection="column">
+      <text fg={theme.text}>activity</text>
+      <Show when={items().length > 0} fallback={<text fg={theme.textMuted}>No activity yet. Run /refresh or /doctor.</text>}>
+        <For each={items()}>
+          {(item) => (
+            <text fg={item.severity === "warning" ? theme.warning : item.severity === "error" ? theme.error : theme.textMuted}>
+              {item.title}: {item.description}
+            </text>
+          )}
+        </For>
+      </Show>
+    </box>
+  );
+}
+
+export function DiagnosticsPanel(props: { doctor: DoctorResponse | null }) {
+  const { theme } = useTheme();
+  return (
+    <box flexDirection="column">
+      <text fg={theme.text}>diagnostics</text>
+      <Show when={props.doctor} fallback={<text fg={theme.textMuted}>Run /doctor to load diagnostics.</text>}>
+        {(doctor) => (
+          <>
+            <text fg={theme.textMuted}>ok: {doctor().ok.length}</text>
+            <For each={doctor().ok}>
+              {(line) => <text fg={theme.success}>ok: {line}</text>}
+            </For>
+            <For each={doctor().warnings}>
+              {(line) => <text fg={theme.warning}>warning: {line}</text>}
+            </For>
+            <For each={doctor().notes}>
+              {(line) => <text fg={theme.textMuted}>note: {line}</text>}
+            </For>
+          </>
+        )}
+      </Show>
+    </box>
+  );
+}
+
+export function PreviewPanel(props: {
+  tab: PreviewTab;
+  detail: ChangeDetail | null;
+  prompt: string | null;
+  changes: ChangeListItem[];
+  doctor: DoctorResponse | null;
+}) {
+  const { theme } = useTheme();
+  if (props.tab === "activity") {
+    return <ActivityPanel changes={props.changes} doctor={props.doctor} />;
+  }
+  if (props.tab === "diagnostics") {
+    return <DiagnosticsPanel doctor={props.doctor} />;
+  }
   return (
     <Show
       when={props.detail}
