@@ -1225,6 +1225,18 @@ export const runtimeChangeyardWorkspaceStatusSchema = z.object({
 	rootMismatch: z.boolean(),
 	errors: z.array(z.string()),
 	nextCommand: z.string().nullable(),
+	targetRef: z.string().nullable(),
+	baseCommitId: z.string().nullable(),
+	currentTargetCommitId: z.string().nullable(),
+	targetMoved: z.boolean(),
+	workspaceChangeId: z.string().nullable(),
+	workspaceCommitId: z.string().nullable(),
+	seedDescription: z.string().nullable(),
+	landingDescription: z.string().nullable(),
+	landingDescriptionValid: z.boolean(),
+	landingDescriptionError: z.string().nullable(),
+	landable: z.boolean(),
+	landBlockers: z.array(z.string()),
 });
 export type RuntimeChangeyardWorkspaceStatus = z.infer<typeof runtimeChangeyardWorkspaceStatusSchema>;
 

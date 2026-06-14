@@ -69,6 +69,18 @@ export type WorkspaceStatus = {
   rootMismatch: boolean;
   errors: string[];
   nextCommand: string | null;
+  targetRef: string | null;
+  baseCommitId: string | null;
+  currentTargetCommitId: string | null;
+  targetMoved: boolean;
+  workspaceChangeId: string | null;
+  workspaceCommitId: string | null;
+  seedDescription: string | null;
+  landingDescription: string | null;
+  landingDescriptionValid: boolean;
+  landingDescriptionError: string | null;
+  landable: boolean;
+  landBlockers: string[];
 };
 
 export type NextActionResponse = {

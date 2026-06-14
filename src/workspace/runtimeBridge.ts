@@ -266,6 +266,15 @@ export function verifyTaskWorkspace(options: {
   }
 
   if (options.repositoryKind === "jj") {
+    const staleUpdateResult = runCommand("jj", ["workspace", "update-stale"], expectedPath);
+    if (!staleUpdateResult.ok) {
+      errors.push(staleUpdateResult.stderr || staleUpdateResult.stdout || "Could not update stale jj workspace.");
+      return {
+        ok: false,
+        errors,
+      };
+    }
+
     const rootResult = runCommand("jj", ["workspace", "root"], expectedPath);
     if (!rootResult.ok || !rootResult.stdout) {
       errors.push(rootResult.stderr || rootResult.stdout || "Could not resolve jj workspace root.");
@@ -285,7 +294,13 @@ export function verifyTaskWorkspace(options: {
     const statusResult = runCommand("jj", ["status"], expectedPath);
     if (!statusResult.ok) {
       errors.push(statusResult.stderr || statusResult.stdout || "Could not inspect jj workspace status.");
-    } else if (/conflict/i.test(statusResult.stdout)) {
+    }
+    const conflictsResult = runCommand("jj", ["resolve", "--list"], expectedPath);
+    const conflictOutput = conflictsResult.stderr || conflictsResult.stdout;
+    const noConflicts = !conflictsResult.ok && conflictOutput.includes("No conflicts found");
+    if (!conflictsResult.ok && !noConflicts) {
+      errors.push(conflictsResult.stderr || conflictsResult.stdout || "Could not inspect jj workspace conflicts.");
+    } else if (conflictsResult.ok && conflictsResult.stdout.trim()) {
       errors.push("jj workspace reports conflicts");
     }
 

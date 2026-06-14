@@ -97,10 +97,17 @@ function jjWorkspaceState(workspacePath: string, bookmark: string): { exists: bo
   try {
     const list = shellCommandRunner("jj", ["bookmark", "list"], workspacePath);
     const status = shellCommandRunner("jj", ["status"], workspacePath);
+    let conflicts = false;
+    try {
+      conflicts = shellCommandRunner("jj", ["resolve", "--list"], workspacePath).trim().length > 0;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.includes("No conflicts found")) throw error;
+    }
     return {
       exists: list.includes(bookmark),
       dirty: status.trim().length > 0,
-      conflicts: /conflict/i.test(status),
+      conflicts,
     };
   } catch {
     return { exists: false, dirty: true, conflicts: true };

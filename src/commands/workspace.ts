@@ -22,6 +22,18 @@ export type WorkspaceStatus = {
   rootMismatch: boolean;
   errors: string[];
   nextCommand: string | null;
+  targetRef: string | null;
+  baseCommitId: string | null;
+  currentTargetCommitId: string | null;
+  targetMoved: boolean;
+  workspaceChangeId: string | null;
+  workspaceCommitId: string | null;
+  seedDescription: string | null;
+  landingDescription: string | null;
+  landingDescriptionValid: boolean;
+  landingDescriptionError: string | null;
+  landable: boolean;
+  landBlockers: string[];
 };
 
 export type WorkspaceDeleteOptions = {
@@ -67,6 +79,38 @@ function commandOutput(command: string, args: string[], cwd: string): string {
   }
 }
 
+function commandResult(command: string, args: string[], cwd: string): { ok: true; output: string } | { ok: false; error: string } {
+  try {
+    return { ok: true, output: shellCommandRunner(command, args, cwd) };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+export function validateLandingDescription(id: string, description: string | null | undefined, seedDescription: string | null | undefined): string | null {
+  const trimmed = (description ?? "").trim();
+  if (!trimmed || trimmed === "(no description set)") {
+    return `Describe the task commit before landing: jj describe -m "${id}: <summary of landed work>"`;
+  }
+  if (seedDescription && trimmed === seedDescription.trim()) {
+    return `Replace the generated task description before landing: jj describe -m "${id}: <summary of landed work>"`;
+  }
+  if (!trimmed.includes(id)) {
+    return `Landing description must include ${id}: jj describe -m "${id}: <summary of landed work>"`;
+  }
+  return null;
+}
+
+function jjLogValue(cwd: string, revision: string, template: string): string | null {
+  const output = commandOutput("jj", ["log", "--ignore-working-copy", "--at-op=@", "-r", revision, "--no-graph", "-T", template], cwd);
+  return output.trim() || null;
+}
+
+function jjCurrentTargetCommit(repoRoot: string, targetRef: string | undefined): string | null {
+  if (!targetRef) return null;
+  return jjLogValue(repoRoot, targetRef, "commit_id");
+}
+
 function repositoryKind(engine: string): WorkspaceRepositoryKind | null {
   if (engine === "jj") return "jj";
   if (engine === "git-worktree") return "git";
@@ -102,11 +146,24 @@ function plainCopyDirty(repoRoot: string, workspacePath: string, neverCopy: stri
 function inspectDirtyState(metadata: WorkspaceMetadata, neverCopy: string[]): { dirty: boolean; conflicts: boolean; errors: string[] } {
   if (!existsSync(metadata.path)) return { dirty: false, conflicts: false, errors: [`Workspace path does not exist: ${metadata.path}`] };
   if (metadata.engine === "jj") {
-    const status = commandOutput("jj", ["status"], metadata.path);
+    const staleUpdate = commandResult("jj", ["workspace", "update-stale"], metadata.path);
+    if (!staleUpdate.ok) {
+      return { dirty: false, conflicts: false, errors: [`Could not update stale jj workspace: ${staleUpdate.error}`] };
+    }
+    const statusResult = commandResult("jj", ["status"], metadata.path);
+    if (!statusResult.ok) {
+      return { dirty: false, conflicts: false, errors: [`Could not inspect jj workspace status: ${statusResult.error}`] };
+    }
+    const conflictsResult = commandResult("jj", ["resolve", "--list"], metadata.path);
+    const noConflicts = !conflictsResult.ok && conflictsResult.error.includes("No conflicts found");
+    if (!conflictsResult.ok && !noConflicts) {
+      return { dirty: false, conflicts: false, errors: [`Could not inspect jj workspace conflicts: ${conflictsResult.error}`] };
+    }
+    const status = statusResult.output;
     return {
       dirty: !status.includes("The working copy has no changes."),
-      conflicts: /conflict/i.test(status),
-      errors: status ? [] : ["Could not inspect jj workspace status"],
+      conflicts: conflictsResult.ok && conflictsResult.output.trim().length > 0,
+      errors: [],
     };
   }
   if (metadata.engine === "git-worktree") {
@@ -143,6 +200,18 @@ export function getWorkspaceStatus(id: string, repoRoot = process.cwd()): Worksp
       rootMismatch: false,
       errors: [`Workspace metadata not found for ${id}`],
       nextCommand: status === "merged" ? null : `cy start ${id}`,
+      targetRef: null,
+      baseCommitId: null,
+      currentTargetCommitId: null,
+      targetMoved: false,
+      workspaceChangeId: null,
+      workspaceCommitId: null,
+      seedDescription: null,
+      landingDescription: null,
+      landingDescriptionValid: false,
+      landingDescriptionError: null,
+      landable: false,
+      landBlockers: status === "merged" ? [] : [`Workspace metadata not found for ${id}`],
     };
   }
 
@@ -159,6 +228,18 @@ export function getWorkspaceStatus(id: string, repoRoot = process.cwd()): Worksp
   const rootMismatch = path.resolve(metadata.repoRoot) !== path.resolve(repoRoot);
   if (rootMismatch) errors.push(`Workspace repo root mismatch: expected ${repoRoot}, got ${metadata.repoRoot}`);
   const landed = status === "merged" && !dirtyState.dirty;
+  const workspaceChangeId = metadata.workspaceChangeId ?? (metadata.engine === "jj" ? jjLogValue(metadata.path, "@", "change_id.short()") : null);
+  const workspaceCommitId = metadata.workspaceCommitId ?? (metadata.engine === "jj" ? jjLogValue(metadata.path, "@", "commit_id") : null);
+  const landingDescription = metadata.engine === "jj" && workspaceChangeId ? jjLogValue(metadata.path, workspaceChangeId, "description") : null;
+  const landingDescriptionError = metadata.engine === "jj" ? validateLandingDescription(id, landingDescription, metadata.seedDescription) : null;
+  const currentTargetCommitId = metadata.engine === "jj" ? jjCurrentTargetCommit(repoRoot, metadata.targetRef) : null;
+  const targetMoved = Boolean(metadata.baseCommitId && currentTargetCommitId && metadata.baseCommitId !== currentTargetCommitId);
+  const landBlockers = [
+    ...errors,
+    ...(dirtyState.conflicts ? [`Workspace ${id} has conflicts`] : []),
+    ...(metadata.engine === "jj" && !workspaceChangeId ? [`Workspace ${id} is missing workspaceChangeId metadata; recreate the workspace with cy start ${id}`] : []),
+    ...(landingDescriptionError ? [landingDescriptionError] : []),
+  ];
 
   return {
     id,
@@ -173,6 +254,18 @@ export function getWorkspaceStatus(id: string, repoRoot = process.cwd()): Worksp
     rootMismatch,
     errors,
     nextCommand: landed ? `cy workspace delete ${id}` : status === "ready_for_pr" ? `cy land ${id}` : status === "in_progress" ? `cd ${path.relative(repoRoot, metadata.path) || metadata.path} && cy verify ${id}` : null,
+    targetRef: metadata.targetRef ?? null,
+    baseCommitId: metadata.baseCommitId ?? null,
+    currentTargetCommitId,
+    targetMoved,
+    workspaceChangeId,
+    workspaceCommitId,
+    seedDescription: metadata.seedDescription ?? null,
+    landingDescription,
+    landingDescriptionValid: !landingDescriptionError,
+    landingDescriptionError,
+    landable: status === "ready_for_pr" && landBlockers.length === 0,
+    landBlockers,
   };
 }
 
@@ -196,7 +289,13 @@ function formatWorkspaceStatus(status: WorkspaceStatus): string {
     `conflicts: ${String(status.conflicts)}`,
     `landed: ${String(status.landed)}`,
     `rootMismatch: ${String(status.rootMismatch)}`,
+    `targetRef: ${status.targetRef ?? "unknown"}`,
+    `targetMoved: ${String(status.targetMoved)}`,
+    `workspaceChange: ${status.workspaceChangeId ?? "unknown"}`,
+    `landingDescription: ${status.landingDescriptionValid ? "ok" : status.landingDescriptionError ?? "unknown"}`,
+    `landable: ${String(status.landable)}`,
   ];
+  if (status.landBlockers.length > 0) lines.push(`landBlockers: ${status.landBlockers.join("; ")}`);
   if (status.errors.length > 0) lines.push(`errors: ${status.errors.join("; ")}`);
   if (status.nextCommand) lines.push(`Next: ${status.nextCommand}`);
   return lines.join("\n");
