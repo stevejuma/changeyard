@@ -54,6 +54,7 @@ export function getNextAction(id: string, repoRoot = process.cwd()): NextAction 
   if (!id) throw new Error("change id is required");
   const status = getStatus(id, repoRoot);
   const workspace = workspaceOrNull(id, repoRoot);
+  const effectiveStatus = workspace?.status ?? status.status;
   const blockers: string[] = [];
   const planningNextAction = status.planning?.nextAction ?? null;
   const ready = {
@@ -74,7 +75,7 @@ export function getNextAction(id: string, repoRoot = process.cwd()): NextAction 
     blockers.push(...status.planning.errors);
   }
 
-  switch (status.status) {
+  switch (effectiveStatus) {
     case "draft":
       nextKind = "validate";
       nextCommand = `cy validate ${id}`;
@@ -147,14 +148,14 @@ export function getNextAction(id: string, repoRoot = process.cwd()): NextAction 
       nextCommand = `cy status ${id}`;
       break;
     default:
-      blockers.push(`No workflow recommendation for status ${status.status}`);
+      blockers.push(`No workflow recommendation for status ${effectiveStatus}`);
       break;
   }
 
   return {
     id: status.id,
     title: status.title,
-    status: status.status,
+    status: effectiveStatus,
     cwd: repoRoot,
     expectedCwd,
     nextKind,

@@ -1,10 +1,11 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { loadConfig } from "../config/loadConfig.js";
-import { parseFrontmatter } from "../documents/frontmatter.js";
 import { changesRoot } from "../paths.js";
 import { getPlanningStatusSummary } from "../planning/status.js";
+import { readOverlayChangeDocument } from "../state/workspaceOverlay.js";
 import type { ChangeSummary } from "../types.js";
+import { readWorkspaceMetadataFromRoot } from "./workspace.js";
 
 export function listChanges(repoRoot = process.cwd()): ChangeSummary[] {
   const config = loadConfig(repoRoot);
@@ -15,9 +16,11 @@ export function listChanges(repoRoot = process.cwd()): ChangeSummary[] {
     .sort()
     .map((file) => {
       const filePath = path.join(changes, file);
-      const parsed = parseFrontmatter(readFileSync(filePath, "utf8"));
+      const rootParsed = readOverlayChangeDocument(filePath, null);
+      const id = String(rootParsed.frontmatter.id ?? path.basename(file, ".md"));
+      const parsed = readOverlayChangeDocument(filePath, readWorkspaceMetadataFromRoot(id, repoRoot));
       return {
-        id: String(parsed.frontmatter.id ?? path.basename(file, ".md")),
+        id,
         title: String(parsed.frontmatter.title ?? "Untitled"),
         status: String(parsed.frontmatter.status ?? "unknown"),
         type: String(parsed.frontmatter.type ?? "unknown"),
