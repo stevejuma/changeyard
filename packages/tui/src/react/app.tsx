@@ -229,10 +229,13 @@ export function App(props: {
         setUiMode("act");
         return "act";
       }
+      const profiles = templateProfiles.length > 0 ? templateProfiles : DEFAULT_TEMPLATE_PROFILES;
       if (current === "act") {
+        const firstProfile = profiles[0] ?? "quick";
+        setSelectedTemplateProfile(firstProfile);
+        setPatch({ status: `Profile ${firstProfile}`, error: null });
         return "profile";
       }
-      const profiles = templateProfiles.length > 0 ? templateProfiles : DEFAULT_TEMPLATE_PROFILES;
       const currentProfile = selectedTemplateProfile && profiles.includes(selectedTemplateProfile)
         ? selectedTemplateProfile
         : profiles[0] ?? "quick";

@@ -95,6 +95,15 @@ const cases: TestCase[] = [
       mockInput.pressTab();
       frame = await waitForFrame(setup, (text: string) => text.includes("● Plan"), { maxPasses: 40 });
       assert(frame.includes("○ Act") && frame.includes("○ bug"), "expected cycle back to plan after final profile");
+      mockInput.pressTab();
+      frame = await waitForFrame(setup, (text: string) => text.includes("● Act"), { maxPasses: 40 });
+      assert(frame.includes("○ Plan"), "expected second cycle to move from plan to act");
+      mockInput.pressTab();
+      frame = await waitForFrame(setup, (text: string) => text.includes("● quick"), { maxPasses: 40 });
+      assert(frame.includes("Profile quick"), "expected re-entering profile to restart at the first template profile");
+      mockInput.pressTab();
+      frame = await waitForFrame(setup, (text: string) => text.includes("● feature"), { maxPasses: 40 });
+      assert(frame.includes("Profile feature"), "expected second profile cycle to continue past first profile");
     },
   },
   {
