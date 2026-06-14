@@ -43,7 +43,7 @@ export async function importKanbanServer(fromModuleUrl: URL | string): Promise<K
   if (!existsSync(modulePath)) {
     throw new Error(
       useBundledArtifacts(fromModuleUrl)
-        ? "Changeyard runtime was not found. Run npm run build before launching cy ui/tui/server."
+        ? "Changeyard runtime was not found. Run npm run build before launching cy --kanban, cy --tui, cy --vcs, or cy server."
         : "Changeyard runtime source was not found. Expected packages/kanban/src/server/index.js.",
     );
   }

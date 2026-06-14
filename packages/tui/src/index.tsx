@@ -1,20 +1,18 @@
-import { render } from "@opentui/solid";
+import { createCliRenderer } from "@opentui/core";
+import { createRoot } from "@opentui/react";
 import { RuntimeClient, RuntimeClientError } from "./runtime-client";
-import { App, type AppArgs, type AppMode } from "./app";
-import { resolveConfigTabId, type ConfigTabId } from "./views/config-data";
+import { App } from "./react/app";
 
 type Args = {
   connect: string;
   project?: string;
-  mode: AppMode;
-  configTab?: ConfigTabId;
   debug: boolean;
   smokeTest: boolean;
   smokeCreateAll: boolean;
 };
 
 function parseArgs(argv: string[]): Args {
-  const args: Args = { connect: "", mode: "board", debug: false, smokeTest: false, smokeCreateAll: false };
+  const args: Args = { connect: "", debug: false, smokeTest: false, smokeCreateAll: false };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--debug") {
@@ -27,17 +25,6 @@ function parseArgs(argv: string[]): Args {
     }
     if (arg === "--smoke-create-all") {
       args.smokeCreateAll = true;
-      continue;
-    }
-    if (arg === "--mode") {
-      const mode = argv[++index];
-      if (mode === "config" || mode === "board") {
-        args.mode = mode;
-      }
-      continue;
-    }
-    if (arg === "--config-tab") {
-      args.configTab = resolveConfigTabId(argv[++index]);
       continue;
     }
     if (arg === "--connect") {
@@ -55,21 +42,27 @@ function parseArgs(argv: string[]): Args {
 }
 
 async function main() {
+  process.env.OPENTUI_GRAPHICS = "0";
   const args = parseArgs(process.argv.slice(2));
-  const client = new RuntimeClient(args.connect);
-  const appArgs: AppArgs = {
-    client,
-    project: args.project,
-    mode: args.mode,
-    configTab: args.configTab,
-    smokeTest: args.smokeTest,
-    smokeCreateAll: args.smokeCreateAll,
-  };
-
-  await render(() => <App {...appArgs} />, {
+  const renderer = await createCliRenderer({
     exitOnCtrlC: true,
+    autoFocus: true,
+    enableMouseMovement: true,
     targetFps: 30,
   });
+  const root = createRoot(renderer);
+  renderer.on("destroy", () => {
+    root.unmount();
+  });
+  root.render(
+    <App
+      client={new RuntimeClient(args.connect)}
+      project={args.project}
+      debug={args.debug}
+      smokeTest={args.smokeTest}
+      smokeCreateAll={args.smokeCreateAll}
+    />,
+  );
 }
 
 main().catch((error) => {
@@ -80,8 +73,8 @@ main().catch((error) => {
       message,
       "",
       "Fallback options:",
-      "- retry with `cy tui --debug`",
-      "- launch the browser UI with `cy ui`",
+      "- retry with `cy --tui --debug`",
+      "- launch the browser UI with `cy --kanban`",
       "- inspect changes with `cy list` and `cy status <id>`",
       "",
     ].join("\n"),

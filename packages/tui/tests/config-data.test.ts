@@ -1,43 +1,30 @@
 import assert from "node:assert/strict";
 import {
-  CONFIG_TABS,
-  planningRows,
-  projectRows,
-  resolveConfigTabId,
-} from "../src/views/config-data";
+  buildMentionOptions,
+  buildSlashOptions,
+  extractMentionQuery,
+  formatMention,
+  getAutocompleteMode,
+  insertMention,
+} from "../src/react/autocomplete";
+import type { SlashCommand } from "../src/react/types";
 
-function assertEqual<T>(actual: T, expected: T, message: string) {
-  if (actual !== expected) {
-    throw new Error(`${message}: expected ${String(expected)}, got ${String(actual)}`);
-  }
-}
+const commands: SlashCommand[] = [
+  { name: "config", description: "Open the control panel", run: () => {} },
+  { name: "agent", description: "Start configured agent", run: () => {} },
+];
 
-assertEqual(resolveConfigTabId("planning"), "planning", "planning tab");
-assertEqual(resolveConfigTabId("unknown"), "project", "unknown tab fallback");
-assertEqual(CONFIG_TABS.length, 5, "tab count");
+assert.equal(getAutocompleteMode("/con"), "/", "slash mode");
+assert.equal(getAutocompleteMode("inspect @src"), "@", "mention mode");
+assert.equal(extractMentionQuery("inspect @src"), "src", "mention query");
+assert.equal(formatMention("src/cli.ts"), "@src/cli.ts", "simple mention");
+assert.equal(formatMention("src/with space.ts"), '@"src/with space.ts"', "quoted mention");
+assert.equal(insertMention("inspect @src", "@src/cli.ts"), "inspect @src/cli.ts ", "insert mention");
+assert.equal(buildSlashOptions(commands, "/con")[0]?.display, "/config", "slash filtering");
+assert.equal(
+  buildMentionOptions([{ path: "src/cli.ts", name: "cli.ts", changed: true }])[0]?.value,
+  "@src/cli.ts",
+  "mention options",
+);
 
-const rows = projectRows({
-  initialized: true,
-  providerType: "github",
-  vcsEngine: "jj",
-  vcsFallback: "jj",
-  projectDefaultBase: "main",
-});
-assertEqual(rows[0]?.value, "github", "provider row");
-assertEqual(rows[1]?.value, "jj", "vcs row");
-
-const planning = planningRows({
-  initialized: true,
-  providerType: "noop",
-  vcsEngine: "plain-copy",
-  vcsFallback: "plain-copy",
-  projectDefaultBase: "main",
-  planningDefaultProfile: "openspec-lite",
-  planningDefaultStrictness: "strict",
-  planningAllowQuickChanges: false,
-});
-assertEqual(planning[0]?.value, "openspec-lite", "planning profile");
-assertEqual(planning[1]?.value, "strict", "planning strictness");
-assertEqual(planning[2]?.value, "off", "quick changes off");
-
-process.stdout.write("ok - config-data helpers\n");
+process.stdout.write("ok - react autocomplete helpers\n");

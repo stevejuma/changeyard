@@ -31,7 +31,7 @@ function parsePackJson(output) {
 
 async function waitForServerUrl(child) {
   return await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("Timed out waiting for cy ui to start")), 20000);
+    const timer = setTimeout(() => reject(new Error("Timed out waiting for cy --kanban to start")), 20000);
     let stdout = "";
     let stderr = "";
 
@@ -48,11 +48,26 @@ async function waitForServerUrl(child) {
     });
     child.on("exit", (code) => {
       clearTimeout(timer);
-      reject(new Error(`cy ui exited before reporting a URL (code ${code}): ${stderr || stdout}`));
+      reject(new Error(`cy --kanban exited before reporting a URL (code ${code}): ${stderr || stdout}`));
     });
     child.on("error", (error) => {
       clearTimeout(timer);
       reject(error);
+    });
+  });
+}
+
+async function stopChild(child) {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  child.kill("SIGTERM");
+  await new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      resolve();
+    }, 5000);
+    child.once("close", () => {
+      clearTimeout(timer);
+      resolve();
     });
   });
 }
@@ -87,7 +102,8 @@ try {
     throw new Error("Installed package did not expose a usable changeyard CLI");
   }
 
-  const uiProcess = spawn("npx", ["changeyard", "ui", "--no-open", "--port", "auto"], {
+  const installedCli = path.join(installDir, "node_modules", "changeyard", "dist", "src", "cli.js");
+  const uiProcess = spawn(process.execPath, [installedCli, "--kanban", "--no-open", "--port", "auto"], {
     cwd: installDir,
     stdio: ["ignore", "pipe", "pipe"],
     env: process.env,
@@ -103,7 +119,7 @@ try {
       throw new Error(`Installed package UI board query failed with HTTP ${boardResponse.status}`);
     }
   } finally {
-    uiProcess.kill("SIGTERM");
+    await stopChild(uiProcess);
   }
 
   writeFileSync(path.join(workdir, "smoke-install.log"), `smoke-install-from-tarball passed for ${packagedArtifact}\n`);

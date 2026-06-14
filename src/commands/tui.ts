@@ -39,9 +39,9 @@ function assertBunAvailable(): void {
   });
   if (result.status !== 0) {
     throw new Error([
-      "cy tui requires Bun because OpenTUI's renderer runs through Bun for this client.",
-      "Install Bun from https://bun.sh, then retry `cy tui`.",
-      "Node-only commands such as `cy`, `cy ui`, and `cy server` do not require Bun.",
+      "cy --tui requires Bun because OpenTUI's renderer runs through Bun for this client.",
+      "Install Bun from https://bun.sh, then retry `cy --tui`.",
+      "Node-only commands such as `cy --kanban`, `cy --vcs`, and `cy server` do not require Bun.",
     ].join("\n"));
   }
 }
@@ -74,8 +74,6 @@ function runBunTui(input: {
   configTab?: string;
 }): Promise<number> {
   return awaitableChild("bun", [
-    "--preload",
-    "@opentui/solid/preload",
     input.entrypoint,
     "--connect",
     input.runtimeUrl,
@@ -107,7 +105,7 @@ export async function runTui(options: TuiOptions = {}, cwd = process.cwd()): Pro
   const embedded = options.connect ? null : await startEmbeddedRuntime(options, repoRoot);
   const runtimeUrl = options.connect ?? embedded?.url;
   if (!runtimeUrl) {
-    throw new Error("Missing runtime URL for cy tui.");
+    throw new Error("Missing runtime URL for cy --tui.");
   }
 
   try {
@@ -125,8 +123,8 @@ export async function runTui(options: TuiOptions = {}, cwd = process.cwd()): Pro
       throw new Error([
         `OpenTUI exited with status ${code}.`,
         "Fallback options:",
-        "- retry with `cy tui --debug`",
-        "- launch the browser UI with `cy ui`",
+        "- retry with `cy --tui --debug`",
+        "- launch the browser UI with `cy --kanban`",
         "- inspect changes with `cy list` and `cy status <id>`",
       ].join("\n"));
     }

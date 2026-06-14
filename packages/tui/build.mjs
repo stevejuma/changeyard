@@ -1,12 +1,12 @@
-import solidPlugin from "@opentui/solid/bun-plugin";
 import { build } from "bun";
 
-await build({
+const result = await build({
   entrypoints: ["src/index.tsx"],
   outdir: "dist",
   target: "bun",
-  plugins: [solidPlugin],
+  format: "esm",
   external: [
+    "@opentui/core",
     "@opentui/core-darwin-x64",
     "@opentui/core-darwin-arm64",
     "@opentui/core-linux-x64",
@@ -17,3 +17,10 @@ await build({
     "@opentui/core-win32-arm64",
   ],
 });
+
+if (!result.success) {
+  for (const log of result.logs) {
+    console.error(log);
+  }
+  process.exit(1);
+}

@@ -31,6 +31,7 @@ export type UiOptions = {
   host?: string;
   port?: number | "auto";
   open?: boolean;
+  openPath?: "/" | "/vcs";
 };
 
 const PLANNING_SECTION_TITLES: Record<PlanningSectionId, string> = {
@@ -417,7 +418,7 @@ export function createChangeyardUiApi() {
 
 export function assertUiNodeVersion(): void {
   const major = Number(process.versions.node.split(".")[0]);
-  if (major < 22) throw new Error("cy ui requires Node.js 22 or newer.");
+  if (major < 22) throw new Error("Changeyard web UI requires Node.js 22 or newer.");
 }
 
 export function resolveUiServerModuleUrl(): URL {
@@ -443,6 +444,7 @@ export async function runUi(options: UiOptions = {}, cwd = process.cwd()): Promi
     host: options.host ?? config.ui?.host ?? "127.0.0.1",
     port: options.port ?? config.ui?.port ?? "auto",
     open: options.open ?? config.ui?.open ?? true,
+    openPath: options.openPath ?? "/",
     changeyardApi: createChangeyardUiApi(),
   });
   const runtimeProcess = process as typeof process & {
@@ -459,5 +461,6 @@ export async function runUi(options: UiOptions = {}, cwd = process.cwd()): Promi
     },
   });
 
-  return `Changeyard UI running at ${server.url}`;
+  const displayUrl = options.openPath === "/vcs" ? new URL("/vcs", server.url).toString() : server.url;
+  return `Changeyard UI running at ${displayUrl}`;
 }

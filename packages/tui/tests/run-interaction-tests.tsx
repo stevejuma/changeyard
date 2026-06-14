@@ -1,47 +1,37 @@
-import { testRender } from "@opentui/solid";
-import type { TestRendererSetup } from "@opentui/core/testing";
-import { App } from "../src/app";
-import { createMockRuntimeClient } from "./mock-runtime-client";
+import { testRender } from "@opentui/react/test-utils";
+import type { RuntimeClient } from "../src/runtime-client";
+import { App } from "../src/react/app";
+import { createMockRuntimeClient, createMockRuntimeClientWithChanges } from "./mock-runtime-client";
 
 const TEST_WIDTH = 100;
 const TEST_HEIGHT = 32;
+const originalConsoleError = console.error;
+
+console.error = (...args: unknown[]) => {
+  const message = String(args[0] ?? "");
+  if (message.includes("was not wrapped in act")) return;
+  originalConsoleError(...args);
+};
 
 type TestCase = {
   name: string;
-  run: (ctx: TestRendererSetup) => Promise<void>;
+  client?: RuntimeClient;
+  run: (ctx: Awaited<ReturnType<typeof testRender>>) => Promise<void>;
 };
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
-async function mountHomeApp(): Promise<TestRendererSetup> {
+async function mountApp(client: RuntimeClient = createMockRuntimeClient()): Promise<Awaited<ReturnType<typeof testRender>>> {
   const setup = await testRender(
-    () => (
-      <App
-        client={createMockRuntimeClient()}
-        project="/tmp/changeyard-test"
-        smokeTest={false}
-        smokeCreateAll={false}
-      />
-    ),
-    { width: TEST_WIDTH, height: TEST_HEIGHT },
-  );
-  await setup.flush();
-  return setup;
-}
-
-async function mountConfigApp(): Promise<TestRendererSetup> {
-  const setup = await testRender(
-    () => (
-      <App
-        client={createMockRuntimeClient()}
-        project="/tmp/changeyard-test"
-        mode="config"
-        smokeTest={false}
-        smokeCreateAll={false}
-      />
-    ),
+    <App
+      client={client}
+      project="/tmp/changeyard-test"
+      debug={false}
+      smokeTest={false}
+      smokeCreateAll={false}
+    />,
     { width: TEST_WIDTH, height: TEST_HEIGHT },
   );
   await setup.flush();
@@ -50,199 +40,95 @@ async function mountConfigApp(): Promise<TestRendererSetup> {
 
 const cases: TestCase[] = [
   {
-    name: "renders home screen with composer",
+    name: "renders Cline-style home with bottom composer",
     async run({ captureCharFrame }) {
       const frame = captureCharFrame();
-      assert(frame.includes("Type a change title"), "expected composer placeholder");
-      assert(frame.includes("ctrl+p"), "expected command palette hint");
+      assert(frame.includes("Changeyard"), "expected product label");
+      assert(frame.includes("What change should move next?"), "expected composer placeholder");
+      assert(frame.includes("jj @"), "expected repository status");
     },
   },
   {
-    name: "opens command palette with ctrl+p from focused composer",
+    name: "shows slash autocomplete below composer",
     async run({ mockInput, waitForFrame }) {
-      mockInput.pressKey("p", { ctrl: true });
-      const frame = await waitForFrame((text) => text.includes("Commands"), { maxPasses: 40 });
-      assert(frame.includes("Create change"), "expected create command in palette");
+      await mockInput.typeText("/con");
+      const frame = await waitForFrame((text) => text.includes("/config"), { maxPasses: 40 });
+      assert(frame.includes("Open the control panel"), "expected config command description");
     },
   },
   {
-    name: "opens help dialog via /help slash command",
-    async run({ mockInput, waitForFrame, flush }) {
-      await mockInput.typeText("/help");
-      mockInput.pressEnter();
-      await flush();
-      mockInput.pressEnter();
-      const frame = await waitForFrame((text) => text.includes("Help"), { maxPasses: 40 });
-      assert(frame.includes("Press ctrl+p"), "expected help body text");
-    },
-  },
-  {
-    name: "runs command selected from command palette",
-    async run({ mockInput, waitForFrame, flush }) {
-      mockInput.pressKey("p", { ctrl: true });
-      await waitForFrame((text) => text.includes("Commands"), { maxPasses: 40 });
-      await flush();
-      mockInput.pressEnter();
-      const frame = await waitForFrame((text) => text.includes("Help") && !text.includes("Commands"), {
-        maxPasses: 40,
-      });
-      assert(frame.includes("Press ctrl+p"), "expected help after selecting from command palette");
-    },
-  },
-  {
-    name: "closes command palette",
-    async run({ mockInput, mockMouse, waitForFrame, flush }) {
-      mockInput.pressKey("p", { ctrl: true });
-      await waitForFrame((text) => text.includes("Commands"), { maxPasses: 40 });
-      await flush();
-      await mockMouse.click(88, 11);
-      await waitForFrame((text) => !text.includes("Commands"), { maxPasses: 40 });
-    },
-  },
-  {
-    name: "autocomplete enter completes slash without executing",
-    async run({ mockInput, waitForFrame, flush }) {
-      await mockInput.typeText("/he");
-      mockInput.pressEnter();
-      await flush();
-      const frame = await waitForFrame((text) => !text.includes("Press ctrl+p") && !text.includes("esc/enter"), {
-        maxPasses: 40,
-      });
-      assert(frame.includes("/help") || frame.includes("/he"), "expected completed slash in composer");
-    },
-  },
-  {
-    name: "closes help dialog with enter",
-    async run({ mockInput, waitForFrame, flush, captureCharFrame }) {
-      await mockInput.typeText("/help");
-      mockInput.pressEnter();
-      await flush();
-      mockInput.pressEnter();
-      await waitForFrame((text) => text.includes("Help"), { maxPasses: 40 });
-      await flush();
-      mockInput.pressEnter();
-      await waitForFrame((text) => !text.includes("esc/enter"), { maxPasses: 40 });
-      const frame = captureCharFrame();
-      assert(frame.includes("Type a change title"), "expected composer after closing help");
-    },
-  },
-  {
-    name: "shows composer status bar with profile and agent",
-    async run({ waitForFrame }) {
-      const frame = await waitForFrame((text) => text.includes("profiles") && text.includes(" · "), {
-        maxPasses: 40,
-      });
-      assert(/Quick change|Planned feature|Strict planned feature|Legacy unplanned task/.test(frame), "expected profile label");
-    },
-  },
-  {
-    name: "creates change from plain title using selected profile",
-    async run({ mockInput, waitForFrame, flush }) {
-      await mockInput.typeText("Fix onboarding copy");
-      mockInput.pressEnter();
-      await flush();
-      const frame = await waitForFrame((text) => text.includes("Fix onboarding copy") || text.includes("Created chg-mock-001"), {
-        maxPasses: 40,
-      });
-      assert(frame.includes("Fix onboarding copy"), "expected created change title in sidebar");
-    },
-  },
-  {
-    name: "opens config view via /config slash command",
+    name: "opens config panel from slash command",
     async run({ mockInput, waitForFrame, flush }) {
       await mockInput.typeText("/config");
       mockInput.pressEnter();
       await flush();
-      mockInput.pressEnter();
-      const frame = await waitForFrame((text) => text.includes("Changeyard Config") && text.includes("Provider"), {
-        maxPasses: 40,
-      });
-      assert(frame.includes("Planning"), "expected config tabs");
+      const frame = await waitForFrame((text) => text.includes("Changeyard Config"), { maxPasses: 40 });
+      assert(frame.includes("Agent / Runtime") && frame.includes("Codex"), "expected agent config block");
     },
   },
   {
-    name: "opens agent tab via /agents slash command",
-    async run({ mockInput, waitForFrame, flush }) {
-      await mockInput.typeText("/agents");
-      mockInput.pressEnter();
-      await flush();
-      mockInput.pressEnter();
-      const frame = await waitForFrame((text) => text.includes("Changeyard Config") && text.includes("Launch agent"), {
-        maxPasses: 40,
-      });
-      assert(frame.includes("Claude"), "expected selected agent label");
-    },
-  },
-  {
-    name: "opens appearance tab via /themes slash command",
-    async run({ mockInput, waitForFrame, flush }) {
-      await mockInput.typeText("/themes");
-      mockInput.pressEnter();
-      await flush();
-      mockInput.pressEnter();
-      const frame = await waitForFrame((text) => text.includes("Changeyard Config") && text.includes("Theme"), {
-        maxPasses: 40,
-      });
-      assert(frame.includes("Create preset"), "expected appearance settings");
-    },
-  },
-  {
-    name: "autocomplete lists slash commands while typing",
+    name: "shows file mention autocomplete",
     async run({ mockInput, waitForFrame }) {
-      await mockInput.typeText("/cre");
-      const frame = await waitForFrame((text) => /create|Create/i.test(text), { maxPasses: 40 });
-      assert(/create|Create/i.test(frame), "expected create slash suggestion");
+      await mockInput.typeText("Review @src");
+      const frame = await waitForFrame((text) => text.includes("src/cli.ts"), { maxPasses: 40 });
+      assert(frame.includes("workspace file") || frame.includes("changed"), "expected file mention metadata");
+    },
+  },
+  {
+    name: "starts an agent session from slash command",
+    client: createMockRuntimeClientWithChanges([
+      {
+        id: "CY-MOCK-001",
+        title: "Mock agent task",
+        type: "quick",
+        status: "in_progress",
+        path: "changes/CY-MOCK-001.md",
+        labels: [],
+        planning: null,
+      },
+    ]),
+    async run({ mockInput, waitForFrame, flush }) {
+      await mockInput.typeText("/agent");
+      mockInput.pressEnter();
+      await flush();
+      const frame = await waitForFrame((text) => text.includes("Agent Session") && text.includes("running"), {
+        maxPasses: 40,
+      });
+      assert(frame.includes("Codex"), "expected configured agent session");
+    },
+  },
+  {
+    name: "creates a quick change from plain input",
+    async run({ mockInput, waitForFrame, flush }) {
+      await mockInput.typeText("Fix onboarding copy");
+      mockInput.pressEnter();
+      await flush();
+      const frame = await waitForFrame((text) => text.includes("Fix onboarding copy"), { maxPasses: 40 });
+      assert(frame.includes("CY-MOCK"), "expected created change id");
     },
   },
 ];
 
 let failed = 0;
 
-const standaloneCases: TestCase[] = [
-  {
-    name: "renders standalone config mode with project tab",
-    async run({ captureCharFrame }) {
-      const frame = captureCharFrame();
-      assert(frame.includes("Changeyard Config"), "expected config header");
-      assert(frame.includes("Provider"), "expected provider row");
-      assert(frame.includes("VCS engine"), "expected vcs row");
-    },
-  },
-];
-
-for (const testCase of standaloneCases) {
-  let setup: TestRendererSetup | null = null;
-  try {
-    setup = await mountConfigApp();
-    await testCase.run(setup);
-    process.stdout.write(`ok - ${testCase.name}\n`);
-  } catch (error) {
-    failed += 1;
-    const message = error instanceof Error ? error.stack ?? error.message : String(error);
-    process.stderr.write(`not ok - ${testCase.name}\n${message}\n`);
-  } finally {
-    setup?.renderer.destroy();
-  }
-}
-
 for (const testCase of cases) {
-  let setup: TestRendererSetup | null = null;
+  let setup: Awaited<ReturnType<typeof testRender>> | null = null;
   try {
-    setup = await mountHomeApp();
+    setup = await mountApp(testCase.client);
     await testCase.run(setup);
     process.stdout.write(`ok - ${testCase.name}\n`);
   } catch (error) {
     failed += 1;
-    const message = error instanceof Error ? error.stack ?? error.message : String(error);
-    process.stderr.write(`not ok - ${testCase.name}\n${message}\n`);
+    process.stderr.write(`not ok - ${testCase.name}\n`);
+    process.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
   } finally {
     setup?.renderer.destroy();
   }
 }
 
 if (failed > 0) {
-  process.exitCode = 1;
   process.stderr.write(`\n${failed}/${cases.length} tui interaction tests failed\n`);
-} else {
-  process.stdout.write(`\n${cases.length}/${cases.length} tui interaction tests passed\n`);
+  process.exit(1);
 }
+
+process.stdout.write(`\n${cases.length}/${cases.length} tui interaction tests passed\n`);

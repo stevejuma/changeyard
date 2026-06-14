@@ -128,6 +128,71 @@ export type RuntimeConfigResponse = {
   agents: RuntimeAgentDefinition[];
 };
 
+export type RepositoryStatusResponse = {
+  type: "jj" | "git" | "none" | "unknown";
+  displayRef: string;
+  changeId?: string | null;
+  commitId?: string | null;
+  diffSummary: string;
+  dirty: boolean;
+};
+
+export type WorkspaceFileSearchMatch = {
+  path: string;
+  name: string;
+  changed: boolean;
+};
+
+export type TaskSessionSummary = {
+  taskId: string;
+  state: string;
+  agentId: string | null;
+  workspacePath: string | null;
+  pid: number | null;
+  startedAt: number | null;
+  updatedAt: number;
+  lastOutputAt: number | null;
+  reviewReason: string | null;
+  exitCode: number | null;
+  latestHookActivity?: {
+    activityText?: string | null;
+    source?: string | null;
+  } | null;
+  warningMessage?: string | null;
+  externalSession?: {
+    provider: string;
+    sessionId: string | null;
+    transcriptPath: string | null;
+    resumeCommand: string[];
+    source: string | null;
+  } | null;
+};
+
+export type TaskSessionResponse = {
+  ok: boolean;
+  summary: TaskSessionSummary | null;
+  error?: string;
+};
+
+export type TaskChatMessage = {
+  id: string;
+  role: "user" | "assistant" | "system" | "tool" | "reasoning" | "status";
+  content: string;
+  createdAt: number;
+  meta?: {
+    toolName?: string | null;
+    hookEventName?: string | null;
+    displayRole?: string | null;
+    reason?: string | null;
+  } | null;
+};
+
+export type TaskChatMessagesResponse = {
+  ok: boolean;
+  messages: TaskChatMessage[];
+  error?: string;
+};
+
 export type ProjectConfigResponse = {
   initialized: boolean;
   providerType: "noop" | "local-folder" | "forgejo" | "github" | "gitlab";
@@ -335,6 +400,90 @@ export class RuntimeClient {
   async doctorProject(): Promise<DoctorResponse> {
     await this.ensureWorkspace();
     return await this.query<DoctorResponse>("changes.doctor");
+  }
+
+  async getRepositoryStatus(): Promise<RepositoryStatusResponse> {
+    await this.ensureWorkspace();
+    try {
+      const detect = await this.query<{ engine?: string; type?: string; provider?: string; defaultBase?: string | null }>("vcs.detect");
+      const engine = detect.engine ?? detect.type ?? detect.provider ?? "unknown";
+      if (engine === "jj") {
+        const [state, diff] = await Promise.all([
+          this.query<{
+            current?: { changeId?: string | null; commitId?: string | null; description?: string | null } | null;
+            workingCopy?: { changeId?: string | null; commitId?: string | null; description?: string | null } | null;
+          }>("vcs.jjState").catch(() => null),
+          this.query<{ files?: Array<{ additions?: number; deletions?: number; path?: string }> }>("vcs.diff", {}).catch(() => null),
+        ]);
+        const current = state?.current ?? state?.workingCopy ?? null;
+        const files = diff?.files ?? [];
+        const additions = files.reduce((sum, file) => sum + (file.additions ?? 0), 0);
+        const deletions = files.reduce((sum, file) => sum + (file.deletions ?? 0), 0);
+        return {
+          type: "jj",
+          displayRef: current?.description || current?.changeId || "jj @",
+          changeId: current?.changeId ?? null,
+          commitId: current?.commitId ?? null,
+          diffSummary: files.length > 0 ? `${files.length} files +${additions} -${deletions}` : "clean",
+          dirty: files.length > 0,
+        };
+      }
+      if (engine === "git" || engine === "git-worktree") {
+        const diff = await this.query<{ files?: Array<{ additions?: number; deletions?: number; path?: string }> }>("vcs.diff", {}).catch(() => null);
+        const files = diff?.files ?? [];
+        const additions = files.reduce((sum, file) => sum + (file.additions ?? 0), 0);
+        const deletions = files.reduce((sum, file) => sum + (file.deletions ?? 0), 0);
+        return {
+          type: "git",
+          displayRef: detect.defaultBase ?? "git",
+          diffSummary: files.length > 0 ? `${files.length} files +${additions} -${deletions}` : "clean",
+          dirty: files.length > 0,
+        };
+      }
+      return { type: "none", displayRef: "no repo", diffSummary: "clean", dirty: false };
+    } catch {
+      return { type: "unknown", displayRef: "repo unknown", diffSummary: "unavailable", dirty: false };
+    }
+  }
+
+  async searchFiles(query: string, limit = 12): Promise<WorkspaceFileSearchMatch[]> {
+    await this.ensureWorkspace();
+    const response = await this.query<{ files: WorkspaceFileSearchMatch[] }>("workspace.searchFiles", { query, limit });
+    return response.files;
+  }
+
+  async startTaskSession(input: {
+    taskId: string;
+    taskTitle?: string;
+    prompt: string;
+    baseRef: string;
+    agentId?: string;
+    startInPlanMode?: boolean;
+    cols?: number;
+    rows?: number;
+  }): Promise<TaskSessionResponse> {
+    await this.ensureWorkspace();
+    return await this.mutation<TaskSessionResponse>("runtime.startTaskSession", input);
+  }
+
+  async stopTaskSession(taskId: string): Promise<TaskSessionResponse> {
+    await this.ensureWorkspace();
+    return await this.mutation<TaskSessionResponse>("runtime.stopTaskSession", { taskId });
+  }
+
+  async sendTaskSessionInput(taskId: string, text: string, appendNewline = true): Promise<TaskSessionResponse> {
+    await this.ensureWorkspace();
+    return await this.mutation<TaskSessionResponse>("runtime.sendTaskSessionInput", { taskId, text, appendNewline });
+  }
+
+  async getTaskChatMessages(taskId: string): Promise<TaskChatMessagesResponse> {
+    await this.ensureWorkspace();
+    return await this.query<TaskChatMessagesResponse>("runtime.getTaskChatMessages", { taskId });
+  }
+
+  async sendTaskChatMessage(taskId: string, text: string): Promise<TaskSessionResponse> {
+    await this.ensureWorkspace();
+    return await this.mutation<TaskSessionResponse>("runtime.sendTaskChatMessage", { taskId, text });
   }
 
   subscribeToRuntimeEvents(onEvent: (event: unknown) => void): RuntimeEventSubscription {

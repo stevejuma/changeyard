@@ -46,6 +46,7 @@ type ParsedArgs = {
   command: string;
   positional: string[];
   flags: Record<string, string | boolean | string[]>;
+  explicitCommand: boolean;
 };
 
 type MutationOptions = {
@@ -54,9 +55,17 @@ type MutationOptions = {
   verbose?: boolean;
 };
 
+function normalizeRootArg(arg: string): string {
+  if (arg === "-i") return "--tui";
+  if (arg === "-h") return "--help";
+  return arg;
+}
+
 function parseArgs(argv: string[]): ParsedArgs {
-  const startsWithFlag = argv[0]?.startsWith("--") ?? false;
-  const [command = "help", ...rest] = startsWithFlag ? ["help", ...argv] : argv;
+  const normalizedArgv = argv.map(normalizeRootArg);
+  const startsWithFlag = normalizedArgv[0]?.startsWith("-") ?? false;
+  const explicitCommand = normalizedArgv.length > 0 && !startsWithFlag;
+  const [command = "help", ...rest] = startsWithFlag ? ["help", ...normalizedArgv] : normalizedArgv;
   const positional: string[] = [];
   const flags: Record<string, string | boolean | string[]> = {};
 
@@ -79,7 +88,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     }
   }
 
-  return { command, positional, flags };
+  return { command, positional, flags, explicitCommand };
 }
 
 function isTrue(value: unknown): boolean {
@@ -129,6 +138,9 @@ function usage(): string {
   return `Changeyard: markdown-first local change workflow manager
 
 Usage:
+  cy [-i|--tui] [--connect <url>] [--host <host>] [--port <port|auto>] [--project <path>] [--debug]
+  cy --kanban [--host <host>] [--port <port|auto>] [--open|--no-open]
+  cy --vcs [--host <host>] [--port <port|auto>] [--open|--no-open]
   cy init [--dry-run] [--tools all|none|<tool-id>[,<tool-id>...]]
   cy update [--dry-run] [--tools all|none|<tool-id>[,<tool-id>...]]
   cy create --template <name> --title <title> [--priority <priority>] [--label <label>...] [--author <name>] [--plan-file <path>] [--planning <none|openspec-lite>] [--strict] [--no-planning] [--dry-run]
@@ -158,15 +170,16 @@ Usage:
   cy plan strict disable CY-0001 [--dry-run]
   cy plan export CY-0001 --format openspec [--dry-run]
   cy plan import CY-0001 --format speckit [--dry-run]
-  cy ui [--host <host>] [--port <port|auto>] [--open|--no-open]
   cy server [--host <host>] [--port <port|auto>] [--project <path>] [--json]
-  cy tui [--connect <url>] [--host <host>] [--port <port|auto>] [--project <path>] [--debug]
-  cy config [--json] [--project <path>] [--connect <url>] [--host <host>] [--port <port|auto>] [--debug]
+  cy config --json [--project <path>]
   cy hooks ingest --event to_review|to_in_progress|activity
   cy install [--dir <path>] [--dry-run]
   cy uninstall [--dir <path>] [--dry-run]
 
 Global options:
+  -i, --tui     start the OpenTUI terminal interface
+  --kanban      start the local Changeyard web UI
+  --vcs         start the local Changeyard VCS web UI
   --json         print machine-readable output
   --dry-run      simulate mutating commands without writing
   --verbose      print additional diagnostic output
@@ -231,13 +244,12 @@ function commandUsage(command: string): string {
     list: `${"list".padEnd(12)}list all local changes.\n\nExample:\n${commandExamples(["cy list"])}`,
     status: `${"status".padEnd(12)}print one change summary.\n\nExample:\n${commandExamples(["cy status CY-0001"])}`,
     plan: `${"plan".padEnd(12)}inspect planning status, generate planning prompts, toggle strict mode, or manage adapter mirrors.\n\nExamples:\n${commandExamples(["cy plan status CY-0001", "cy plan status CY-0001 --json", "cy plan prompt CY-0001 proposal", "cy plan strict enable CY-0001", "cy plan export CY-0001 --format openspec", "cy plan import CY-0001 --format speckit --dry-run"])}`,
-    ui: `${"ui".padEnd(12)}start the local Changeyard board UI.\n\nExamples:\n${commandExamples(["cy ui --no-open", "cy ui --host 127.0.0.1 --port 4310"])}`,
+    ui: `${"ui".padEnd(12)}removed. Use cy --kanban instead.\n\nExamples:\n${commandExamples(["cy --kanban --no-open", "cy --kanban --host 127.0.0.1 --port 4310"])}`,
     server: `${"server".padEnd(12)}start the local Changeyard runtime API without opening the browser UI.\n\nExamples:\n${commandExamples(["cy server", "cy server --host 127.0.0.1 --port auto", "cy server --project /path/to/repo --json"])}`,
-    tui: `${"tui".padEnd(12)}start the OpenTUI terminal interface. Requires Bun.\n\nExamples:\n${commandExamples(["cy tui", "cy tui --connect http://127.0.0.1:4310", "cy tui --project /path/to/repo --debug"])}`,
-    config: `${"config".padEnd(12)}open the interactive config TUI or print config as JSON. Requires Bun for interactive mode.\n\nExamples:\n${commandExamples([
-      "cy config",
+    tui: `${"tui".padEnd(12)}removed. Use cy --tui or cy -i instead.\n\nExamples:\n${commandExamples(["cy --tui", "cy --tui --connect http://127.0.0.1:4310", "cy --tui --project /path/to/repo --debug"])}`,
+    config: `${"config".padEnd(12)}print config as JSON. Interactive config lives inside the TUI at /config.\n\nExamples:\n${commandExamples([
       "cy config --json",
-      "cy config --project /path/to/repo",
+      "cy config --json --project /path/to/repo",
     ])}`,
     hooks: `${"hooks".padEnd(12)}forward terminal-agent hook events to the local Changeyard runtime.\n\nExamples:\n${commandExamples(["cy hooks ingest --event to_review", "cy hooks notify --event activity --activity-text \"Waiting for input\""])}`,
     install: `${"install".padEnd(12)}symlink cy and changeyard into a local bin directory (default: ~/.local/bin).\n\nExamples:\n${commandExamples([
@@ -258,9 +270,23 @@ function commandBaseName(command: string): CommandName {
   if (command === "begin") return "start";
   if (command === "check") return "verify";
   if (command === "done") return "complete";
-  if (command === "kanban") return "ui";
-  if (command === "view" || command === "menu") return "tui";
   return command as CommandName;
+}
+
+function removedInvocationMessage(command: string): string | null {
+  if (command === "tui") return "cy tui was removed. Use `cy --tui` or `cy -i` instead.";
+  if (command === "ui" || command === "kanban") return "cy ui was removed. Use `cy --kanban` instead.";
+  if (command === "view" || command === "menu") return `cy ${command} was removed. Use \`cy --tui\` or \`cy -i\` instead.`;
+  return null;
+}
+
+function countRootLaunchFlags(flags: Record<string, string | boolean | string[]>): number {
+  return ["tui", "kanban", "vcs"].filter((name) => asBooleanFlag(flags, name)).length;
+}
+
+function parsePortFlag(flags: Record<string, string | boolean | string[]>): number | "auto" | undefined {
+  const rawPort = stringFlag(flags, "port");
+  return rawPort === "auto" ? "auto" : rawPort ? Number(rawPort) : undefined;
 }
 
 function outputLine(command: string, output: unknown): void {
@@ -293,6 +319,8 @@ async function main(): Promise<void> {
     }
   };
 
+  const rootLaunchFlags = countRootLaunchFlags(args.flags);
+
   if (asBooleanFlag(args.flags, "help") || asBooleanFlag(args.flags, "h")) {
     const output = commandUsage(command);
     if (json) console.log(JSON.stringify({ ok: true, ...jsonPayload("help", output) }, null, 2));
@@ -302,6 +330,50 @@ async function main(): Promise<void> {
 
   let output: unknown;
   try {
+    const removedMessage = args.explicitCommand ? removedInvocationMessage(args.command) : null;
+    if (removedMessage) {
+      throw new Error(removedMessage);
+    }
+    if (rootLaunchFlags > 1) {
+      throw new Error("Choose only one launch target: --tui, --kanban, or --vcs.");
+    }
+    if (args.explicitCommand && rootLaunchFlags > 0) {
+      throw new Error("Launch flags must be used without a subcommand. Use `cy --tui`, `cy --kanban`, or `cy --vcs`.");
+    }
+
+    if (asBooleanFlag(args.flags, "kanban") || asBooleanFlag(args.flags, "vcs")) {
+      output = await runUi({
+        open: args.flags["no-open"] === true ? false : args.flags.open === true ? true : undefined,
+        host: stringFlag(args.flags, "host"),
+        port: parsePortFlag(args.flags),
+        openPath: asBooleanFlag(args.flags, "vcs") ? "/vcs" : "/",
+      }, process.cwd());
+      if (json) {
+        console.log(JSON.stringify({ ok: true, ...jsonPayload(asBooleanFlag(args.flags, "vcs") ? "vcs" : "kanban", output) }, null, 2));
+      } else if (shouldShowText) {
+        outputLine(asBooleanFlag(args.flags, "vcs") ? "vcs" : "kanban", output);
+      }
+      return;
+    }
+
+    if (!args.explicitCommand || asBooleanFlag(args.flags, "tui")) {
+      output = await runTui({
+        connect: stringFlag(args.flags, "connect"),
+        debug: asBooleanFlag(args.flags, "debug"),
+        host: stringFlag(args.flags, "host"),
+        port: parsePortFlag(args.flags),
+        project: projectRoot,
+        smokeTest: asBooleanFlag(args.flags, "smoke-test"),
+        smokeCreateAll: asBooleanFlag(args.flags, "smoke-create-all"),
+      }, process.cwd());
+      if (json) {
+        console.log(JSON.stringify({ ok: true, ...jsonPayload("tui", output) }, null, 2));
+      } else if (shouldShowText) {
+        outputLine("tui", output);
+      }
+      return;
+    }
+
     switch (command) {
       case "init":
         output = runInit(repoRoot, { dryRun, tools: stringFlag(args.flags, "tools") });
@@ -415,13 +487,7 @@ async function main(): Promise<void> {
         break;
       }
       case "ui": {
-        const rawPort = stringFlag(args.flags, "port");
-        output = await runUi({
-          open: args.flags["no-open"] === true ? false : args.flags.open === true ? true : undefined,
-          host: stringFlag(args.flags, "host"),
-          port: rawPort === "auto" ? "auto" : rawPort ? Number(rawPort) : undefined,
-        }, process.cwd());
-        break;
+        throw new Error("cy ui was removed. Use `cy --kanban` instead.");
       }
       case "server": {
         const rawPort = stringFlag(args.flags, "port");
@@ -433,19 +499,12 @@ async function main(): Promise<void> {
         break;
       }
       case "tui": {
-        const rawPort = stringFlag(args.flags, "port");
-        output = await runTui({
-          connect: stringFlag(args.flags, "connect"),
-          debug: asBooleanFlag(args.flags, "debug"),
-          host: stringFlag(args.flags, "host"),
-          port: rawPort === "auto" ? "auto" : rawPort ? Number(rawPort) : undefined,
-          project: projectRoot,
-          smokeTest: asBooleanFlag(args.flags, "smoke-test"),
-          smokeCreateAll: asBooleanFlag(args.flags, "smoke-create-all"),
-        }, process.cwd());
-        break;
+        throw new Error("cy tui was removed. Use `cy --tui` or `cy -i` instead.");
       }
       case "config": {
+        if (!json) {
+          throw new Error("Interactive cy config was removed. Use `cy --tui` and open `/config`, or run `cy config --json`.");
+        }
         const rawPort = stringFlag(args.flags, "port");
         output = await runConfig({
           json: json,

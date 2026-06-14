@@ -26,7 +26,7 @@ try {
   const cli = path.join(process.cwd(), "dist", "src", "cli.js");
   run(process.execPath, [cli, "init"], repo);
   run(process.execPath, [cli, "quick", "--title", "Smoke quick change"], repo);
-  run(process.execPath, [cli, "tui", "--project", repo, "--smoke-test", "--smoke-create-all"], repo, {
+  run(process.execPath, [cli, "--tui", "--project", repo, "--smoke-test", "--smoke-create-all"], repo, {
     ...process.env,
     FORCE_COLOR: "0",
   });

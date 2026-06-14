@@ -1168,13 +1168,13 @@ test("changes project config routes expose and persist core changeyard settings"
   }
 });
 
-test("cy tui reports missing Bun without requiring runtime startup", () => {
+test("cy --tui reports missing Bun without requiring runtime startup", () => {
   const repo = tempRepo();
   try {
     runInit(repo);
     const result = spawnSync(process.execPath, [
       path.join(process.cwd(), "dist/src/cli.js"),
-      "tui",
+      "--tui",
       "--project",
       repo,
     ], {
@@ -1186,7 +1186,7 @@ test("cy tui reports missing Bun without requiring runtime startup", () => {
       },
     });
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /cy tui requires Bun/);
+    assert.match(result.stderr, /cy --tui requires Bun/);
     assert.match(result.stderr, /Node-only commands/);
   } finally {
     cleanup(repo);

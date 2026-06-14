@@ -2,13 +2,13 @@
 id: CY-0014
 title: Rewrite TUI around Cline CLI patterns
 type: agent-task
-status: synced
+status: merged
 priority: medium
 labels:
   - agent-ready
 author: stevejuma
 createdAt: 2026-06-14T14:25:35.665Z
-updatedAt: 2026-06-14T14:27:11.760Z
+updatedAt: 2026-06-14T15:18:56.956Z
 base:
   vcs: unknown
   revision: main
@@ -24,25 +24,27 @@ remote:
   issueUrl: null
   pullRequestNumber: null
   pullRequestUrl: null
+  mergedLocally: true
 checks:
   profile: standard
-  lastRun: null
-  lastStatus: null
+  lastRun: 2026-06-14T15:08:26.609Z
+  lastStatus: passed
 planning:
   model: openspec-lite
   storage: inline
   schema: changeyard-openspec-lite@1
   strictness: strict
-  phase: draft
+  phase: ready
   gates:
-    proposal: pending
-    specDeltas: pending
-    design: pending
-    tasks: pending
-    verification: pending
-    strictClarifications: pending
-    strictChecklist: pending
-    strictAnalysis: pending
+    proposal: complete
+    specDeltas: complete
+    design: complete
+    tasks: complete
+    verification: complete
+    strictClarifications: complete
+    strictChecklist: complete
+    strictAnalysis: complete
+mergedAt: 2026-06-14T15:18:56.951Z
 ---
 
 # Summary
@@ -166,16 +168,16 @@ The work changes launch routing and TUI packaging. The web runtime, VCS UI, and 
 
 ## 2. Implementation
 
-- [ ] Add new CLI launcher flags and legacy invocation migration errors.
-- [ ] Convert TUI package/build/app shell from Solid to React.
-- [ ] Port/adapt Cline-style TUI components and route structure.
-- [ ] Add repository status and file mention runtime-client support.
-- [ ] Add task-session runtime-client support and session panel.
-- [ ] Update docs/help/completions/tests.
+- [x] Add new CLI launcher flags and legacy invocation migration errors.
+- [x] Convert TUI package/build/app shell from Solid to React.
+- [x] Port/adapt Cline-style TUI components and route structure.
+- [x] Add repository status and file mention runtime-client support.
+- [x] Add task-session runtime-client support and session panel.
+- [x] Update docs/help/completions/tests.
 
 ## 3. Verification
 
-- [ ] Run checks and record results.
+- [x] Run checks and record results.
 <!-- cy:tasks:end -->
 
 <!-- cy:verification:start -->
@@ -203,7 +205,15 @@ The work changes launch routing and TUI packaging. The web runtime, VCS UI, and 
 
 ## Result
 
-_Not run yet._
+Passed:
+
+- `npm run build`
+- `npm run check:tui`
+- `npm run smoke:tui`
+- `npm run smoke:install`
+- `npm pack --dry-run --json --ignore-scripts`
+- `node dist/src/cli.js --kanban --no-open --port auto` startup probe
+- Removed invocation probes for `cy ui`, `cy tui`, `cy view`, and interactive `cy config`
 <!-- cy:verification:end -->
 
 <!-- cy:clarifications:start -->
@@ -235,21 +245,21 @@ _Not run yet._
 
 ## Gate Result
 
-Pending.
+Pass.
 <!-- cy:analysis:end -->
 
 # Acceptance Criteria
-- [ ] `cy`, `cy -i`, `cy --tui`, and `cy -i --tui` route to the TUI launcher.
-- [ ] `cy --kanban` launches the web Kanban UI and `cy --vcs` launches the VCS UI.
-- [ ] `cy tui`, `cy ui`, `cy view`, and `cy menu` are rejected with migration hints.
-- [ ] `cy config --json` remains supported.
-- [ ] `packages/tui` no longer depends on Solid and builds/typechecks with React/OpenTUI.
-- [ ] The TUI includes Cline-style home/workspace/config surfaces, bottom input, slash autocomplete, status bar, and tracked logo.
-- [ ] The TUI supports `@` file mentions.
-- [ ] The TUI shows JJ/Git repository state and active diff summary when available.
-- [ ] The TUI can start and follow a configured agent session for a Changeyard change.
-- [ ] Existing workflow commands and `/export-diagnostics` remain available from the TUI.
-- [ ] Required checks run and results are recorded.
+- [x] `cy`, `cy -i`, `cy --tui`, and `cy -i --tui` route to the TUI launcher.
+- [x] `cy --kanban` launches the web Kanban UI and `cy --vcs` launches the VCS UI.
+- [x] `cy tui`, `cy ui`, `cy view`, and `cy menu` are rejected with migration hints.
+- [x] `cy config --json` remains supported.
+- [x] `packages/tui` no longer depends on Solid and builds/typechecks with React/OpenTUI.
+- [x] The TUI includes Cline-style home/workspace/config surfaces, bottom input, slash autocomplete, status bar, and tracked logo.
+- [x] The TUI supports `@` file mentions.
+- [x] The TUI shows JJ/Git repository state and active diff summary when available.
+- [x] The TUI can start and follow a configured agent session for a Changeyard change.
+- [x] Existing workflow commands and `/export-diagnostics` remain available from the TUI.
+- [x] Required checks run and results are recorded.
 
 # Agent Plan
 
@@ -257,4 +267,8 @@ Implement in a verified Changeyard workspace. Start with launch routing and pack
 
 # Completion Notes
 
-Summarize what changed, what checks ran, and what risks remain.
+Replaced the Solid TUI with a React/OpenTUI shell inspired by Cline CLI: landing, workspace, config/control blocks, bottom composer, slash suggestions, `@` file mentions, status bar, animated tracked logo, and an agent-session panel backed by existing runtime task-session APIs. Updated runtime-client calls for repository status, workspace file search, and session lifecycle/input/message APIs.
+
+Changed launch routing to `cy`/`cy -i`/`cy --tui`, `cy --kanban`, and `cy --vcs`; old `cy tui`, `cy ui`, `cy view`, `cy menu`, and interactive `cy config` now return migration hints while `cy config --json` remains available. Packaging now builds and ships `packages/tui/dist`, bundles React/OpenTUI React into the TUI artifact, and promotes runtime dependencies needed by packed installs.
+
+Verification passed with `npm run build`, `npm run check:tui`, `npm run smoke:tui`, `npm run smoke:install`, dry pack file-list inspection, local `cy --kanban --no-open --port auto` startup probe, and targeted removed-invocation probes.

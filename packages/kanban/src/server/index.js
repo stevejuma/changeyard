@@ -283,7 +283,8 @@ export async function startChangeyardRuntime(options) {
 	};
 
 	if (options.openBrowser) {
-		openInBrowser(runtimeServer.url, { warn });
+		const openUrl = options.openPath ? new URL(options.openPath, runtimeServer.url).toString() : runtimeServer.url;
+		openInBrowser(openUrl, { warn });
 	}
 
 	return {
@@ -298,5 +299,6 @@ export async function startChangeyardKanban(options) {
 		mode: "web",
 		serveWebAssets: true,
 		openBrowser: options.open ?? true,
+		openPath: options.openPath,
 	});
 }

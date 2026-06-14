@@ -4,8 +4,8 @@
     "target": "ESNext",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "jsx": "preserve",
-    "jsxImportSource": "@opentui/solid",
+    "jsx": "react-jsx",
+    "jsxImportSource": "@opentui/react",
     "customConditions": ["browser"],
     "strict": true,
     "skipLibCheck": true,
@@ -13,5 +13,19 @@
     "forceConsistentCasingInFileNames": true,
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "tests/**/*.ts", "tests/**/*.tsx"]
+  "include": [
+    "src/index.tsx",
+    "src/runtime-client.ts",
+    "src/react/**/*.ts",
+    "src/react/**/*.tsx",
+    "src/utils/activity.ts",
+    "src/utils/activity-events.ts",
+    "src/utils/command-search.ts",
+    "src/utils/diagnostic-bundle.ts",
+    "src/utils/diagnostics.ts",
+    "src/utils/prompt-history.ts",
+    "src/utils/status-format.ts",
+    "tests/**/*.ts",
+    "tests/**/*.tsx"
+  ]
 }

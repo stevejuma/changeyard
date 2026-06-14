@@ -1,4 +1,14 @@
-import type { ChangeDetail, ChangeListItem, PlanningSectionId, RuntimeClient, ProjectConfigResponse, DoctorResponse, RuntimeConfigResponse } from "../src/runtime-client";
+import type {
+  ChangeDetail,
+  ChangeListItem,
+  DoctorResponse,
+  PlanningSectionId,
+  ProjectConfigResponse,
+  RuntimeClient,
+  RuntimeConfigResponse,
+  TaskChatMessagesResponse,
+  TaskSessionResponse,
+} from "../src/runtime-client";
 
 function mockChangeDetail(id: string, title = "Mock"): ChangeDetail {
   return {
@@ -13,6 +23,36 @@ function mockChangeDetail(id: string, title = "Mock"): ChangeDetail {
     sections: [],
   };
 }
+
+const mockSessionResponse: TaskSessionResponse = {
+  ok: true,
+  summary: {
+    taskId: "CY-MOCK-001",
+    state: "running",
+    agentId: "codex",
+    workspacePath: "/tmp/changeyard-test",
+    pid: 123,
+    startedAt: Date.now(),
+    updatedAt: Date.now(),
+    lastOutputAt: Date.now(),
+    reviewReason: null,
+    exitCode: null,
+    latestHookActivity: { activityText: "Running Changeyard workflow", source: "mock" },
+    warningMessage: null,
+  },
+};
+
+const mockMessages: TaskChatMessagesResponse = {
+  ok: true,
+  messages: [
+    {
+      id: "msg-1",
+      role: "assistant",
+      content: "Starting Changeyard workflow.",
+      createdAt: Date.now(),
+    },
+  ],
+};
 
 export function createMockRuntimeClient(overrides: Partial<RuntimeClient> = {}): RuntimeClient {
   let changes: ChangeListItem[] = [];
@@ -32,7 +72,7 @@ export function createMockRuntimeClient(overrides: Partial<RuntimeClient> = {}):
       return { ...item, body: "", sections: [] };
     },
     createChange: async (input: { title: string }) => {
-      const created = mockChangeDetail("chg-mock-001", input.title);
+      const created = mockChangeDetail("CY-MOCK-001", input.title);
       changes = [created];
       return { ...created, body: "", sections: [] };
     },
@@ -94,7 +134,7 @@ export function createMockRuntimeClient(overrides: Partial<RuntimeClient> = {}):
     }),
     getRuntimeConfig: async () =>
       ({
-        selectedAgentId: "claude",
+        selectedAgentId: "codex",
         agents: [
           {
             id: "claude",
@@ -185,6 +225,29 @@ export function createMockRuntimeClient(overrides: Partial<RuntimeClient> = {}):
       reason: "mock runtime",
       unsubscribe: () => {},
     }),
+    getRepositoryStatus: async () => ({
+      type: "jj",
+      displayRef: "jj @",
+      changeId: "mockchange",
+      commitId: "mockcommit",
+      diffSummary: "1 files +2 -1",
+      dirty: true,
+    }),
+    searchFiles: async () => [
+      { path: "src/cli.ts", name: "cli.ts", changed: true },
+      { path: "packages/tui/src/react/app.tsx", name: "app.tsx", changed: false },
+    ],
+    startTaskSession: async (input: { taskId: string }) => ({
+      ...mockSessionResponse,
+      summary: mockSessionResponse.summary ? { ...mockSessionResponse.summary, taskId: input.taskId } : null,
+    }),
+    stopTaskSession: async (taskId: string) => ({
+      ok: true,
+      summary: mockSessionResponse.summary ? { ...mockSessionResponse.summary, taskId, state: "stopped" } : null,
+    }),
+    sendTaskSessionInput: async () => mockSessionResponse,
+    getTaskChatMessages: async () => mockMessages,
+    sendTaskChatMessage: async () => mockSessionResponse,
     ...overrides,
   };
 
