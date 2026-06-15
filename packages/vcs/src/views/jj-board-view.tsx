@@ -82,6 +82,7 @@ import {
 	type VcsOperationPreview,
 	type VcsWorkspaceConflict,
 	type VcsWorkspaceOperation,
+	type VcsWorkspaceOperationInput,
 	type VcsWorkspaceState,
 } from "@/vcs-workspace-contracts";
 
@@ -1616,6 +1617,34 @@ function WorkspaceReady({
 		}
 	}
 
+	function operationContextFor(operation: VcsWorkspaceOperation): VcsWorkspaceOperationInput["operationContext"] {
+		let stack = null as VcsWorkspaceState["stacks"][number] | null;
+		let selectedCommitId: string | null = null;
+		if (operation.kind === "create_commit") {
+			stack = data.stacks.find((candidate) => candidate.stackId === operation.stackId) ?? null;
+			selectedCommitId = stack?.headCommitId ?? null;
+		} else if (operation.kind === "add_empty_commit") {
+			stack = data.stacks.find((candidate) => candidate.commits.some((commit) => commit.commitId === operation.targetCommitId)) ?? null;
+			selectedCommitId = operation.targetCommitId;
+		} else if (operation.kind === "abandon_commit" || operation.kind === "reword_commit") {
+			stack = data.stacks.find((candidate) => candidate.commits.some((commit) => commit.commitId === operation.commitId)) ?? null;
+			selectedCommitId = operation.commitId;
+		}
+		if (!stack) {
+			return { stateVersion: data.stateVersion };
+		}
+		const orderedCommitIds = stack.commits.map((commit) => commit.commitId);
+		const selectedIndex = selectedCommitId ? orderedCommitIds.indexOf(selectedCommitId) : -1;
+		return {
+			stateVersion: data.stateVersion,
+			stackId: stack.stackId,
+			headCommitId: stack.headCommitId,
+			orderedCommitIds,
+			selectedCommitId,
+			nextLowerCommitId: selectedIndex > 0 ? orderedCommitIds[selectedIndex - 1] ?? null : null,
+		};
+	}
+
 	async function applyPendingWorkspaceOperation(): Promise<void> {
 		if (!pendingOperation) {
 			return;
@@ -1634,7 +1663,7 @@ function WorkspaceReady({
 		try {
 			const result = await applyPreviewedVcsOperation({
 				workspaceId,
-				input: { operation: pendingOperation },
+				input: { operation: pendingOperation, operationContext: operationContextFor(pendingOperation) },
 			}).unwrap();
 			if (!result.ok) {
 				throw new Error(result.summary || "Workspace operation failed.");
@@ -1643,17 +1672,22 @@ function WorkspaceReady({
 				await updateProjectConfig({
 					vcsAppliedStacks: applyWorkspaceStackId(appliedStackIds, pendingOperation.stackId),
 				});
-				} else if (pendingOperation.kind === "unapply_stack") {
-					await updateProjectConfig({
-						vcsAppliedStacks: unapplyWorkspaceStackId(appliedStackIds, pendingOperation.stackId),
-					});
-				}
-				if (!graphMutation) {
+			} else if (pendingOperation.kind === "unapply_stack") {
+				await updateProjectConfig({
+					vcsAppliedStacks: unapplyWorkspaceStackId(appliedStackIds, pendingOperation.stackId),
+				});
+			}
+			if (!graphMutation) {
+				preserveSelectionAfterWorkspaceOperation(pendingOperation, result.affectedCommitIds);
+				closeWorkspaceOperationPreview();
+			}
+			if (graphMutation) {
+				const affectedCommitIds = result.affectedCommitIds;
+				const needsWorkspaceRefresh = !result.cacheUpdate || result.cacheUpdate === "workspace";
+				if (!needsWorkspaceRefresh) {
 					preserveSelectionAfterWorkspaceOperation(pendingOperation, result.affectedCommitIds);
-					closeWorkspaceOperationPreview();
-				}
-				if (graphMutation) {
-					const affectedCommitIds = result.affectedCommitIds;
+					setPendingGraphRefresh((current) => (current === pendingOperation ? null : current));
+				} else {
 					void onWorkspaceStateRefresh()
 						.then(() => {
 							preserveSelectionAfterWorkspaceOperation(pendingOperation, affectedCommitIds);
@@ -1661,9 +1695,10 @@ function WorkspaceReady({
 						.catch((error: unknown) => {
 							console.error("Failed to refresh workspace state after graph mutation.", error);
 						})
-					.finally(() => {
-						setPendingGraphRefresh((current) => (current === pendingOperation ? null : current));
-					});
+						.finally(() => {
+							setPendingGraphRefresh((current) => (current === pendingOperation ? null : current));
+						});
+				}
 			}
 		} catch (error) {
 			const message = error instanceof Error ? error.message : "Workspace operation failed.";

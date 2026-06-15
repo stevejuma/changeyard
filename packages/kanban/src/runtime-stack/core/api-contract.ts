@@ -537,6 +537,7 @@ export type RuntimeVcsWorkspaceStateRequest = z.infer<typeof runtimeVcsWorkspace
 export const runtimeVcsWorkspaceStateResponseSchema = z.object({
 	projectId: z.string(),
 	provider: runtimeVcsProviderKindSchema,
+	stateVersion: z.number().int().nonnegative().optional(),
 	targetRef: z.string(),
 	headId: z.string().nullable(),
 	mode: runtimeVcsWorkspaceModeSchema,
@@ -758,8 +759,19 @@ export const runtimeVcsOperationWarningSchema = z.object({
 });
 export type RuntimeVcsOperationWarning = z.infer<typeof runtimeVcsOperationWarningSchema>;
 
+export const runtimeVcsWorkspaceOperationContextSchema = z.object({
+	stateVersion: z.number().int().nonnegative().optional(),
+	stackId: z.string().optional(),
+	headCommitId: z.string().nullable().optional(),
+	orderedCommitIds: z.array(z.string()).optional(),
+	selectedCommitId: z.string().nullable().optional(),
+	nextLowerCommitId: z.string().nullable().optional(),
+});
+export type RuntimeVcsWorkspaceOperationContext = z.infer<typeof runtimeVcsWorkspaceOperationContextSchema>;
+
 export const runtimeVcsWorkspaceOperationRequestSchema = z.object({
 	operation: runtimeVcsWorkspaceOperationSchema,
+	operationContext: runtimeVcsWorkspaceOperationContextSchema.optional(),
 });
 export type RuntimeVcsWorkspaceOperationRequest = z.infer<typeof runtimeVcsWorkspaceOperationRequestSchema>;
 
@@ -785,6 +797,31 @@ export const runtimeVcsOperationRecoverySchema = z.object({
 });
 export type RuntimeVcsOperationRecovery = z.infer<typeof runtimeVcsOperationRecoverySchema>;
 
+export const runtimeVcsOperationCacheUpdateSchema = z.enum(["none", "commits", "stacks", "working_copy", "workspace"]);
+export type RuntimeVcsOperationCacheUpdate = z.infer<typeof runtimeVcsOperationCacheUpdateSchema>;
+
+export const runtimeVcsOperationCachePayloadSchema = z.object({
+	commits: z.array(runtimeVcsWorkspaceCommitSchema).optional(),
+	stacks: z.array(runtimeVcsWorkspaceStackSchema).optional(),
+	removedStackIds: z.array(z.string()).optional(),
+	workingCopy: runtimeVcsWorkingCopyStateSchema.nullable().optional(),
+	conflicts: z.array(runtimeVcsWorkspaceConflictSchema).optional(),
+	headId: z.string().nullable().optional(),
+	mode: runtimeVcsWorkspaceModeSchema.optional(),
+	appliedStackIds: z.array(z.string()).optional(),
+});
+export type RuntimeVcsOperationCachePayload = z.infer<typeof runtimeVcsOperationCachePayloadSchema>;
+
+export const runtimeVcsOperationTimingSchema = z.object({
+	totalMs: z.number().nonnegative().optional(),
+	commandMs: z.number().nonnegative().optional(),
+	updateReadMs: z.number().nonnegative().optional(),
+	commandCount: z.number().int().nonnegative().optional(),
+	fallbackReason: z.string().optional(),
+	reconcileMs: z.number().nonnegative().optional(),
+});
+export type RuntimeVcsOperationTiming = z.infer<typeof runtimeVcsOperationTimingSchema>;
+
 export const runtimeVcsOperationResultSchema = z.object({
 	ok: z.boolean(),
 	operation: runtimeVcsWorkspaceOperationSchema,
@@ -795,6 +832,10 @@ export const runtimeVcsOperationResultSchema = z.object({
 	affectedPaths: z.array(z.string()),
 	recovery: runtimeVcsOperationRecoverySchema.nullable(),
 	diagnostics: z.array(runtimeVcsDiagnosticSchema),
+	cacheUpdate: runtimeVcsOperationCacheUpdateSchema.optional(),
+	cachePayload: runtimeVcsOperationCachePayloadSchema.nullable().optional(),
+	invalidateTags: z.array(z.string()).optional(),
+	timing: runtimeVcsOperationTimingSchema.nullable().optional(),
 });
 export type RuntimeVcsOperationResultResponse = z.infer<typeof runtimeVcsOperationResultSchema>;
 

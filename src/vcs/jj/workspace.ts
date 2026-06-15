@@ -14,7 +14,7 @@ import { applyJjOperation } from "./apply.js";
 import { loadJjDiff } from "./diff.js";
 import { previewJjOperation } from "./preview.js";
 import { loadJjState, type LoadJjStateOptions } from "./state.js";
-import type { NeutralFileStatus, NeutralOperation, NeutralOperationRequest, NeutralSelection } from "../workspace-types.js";
+import type { NeutralFileStatus, NeutralOperation, NeutralOperationContext, NeutralOperationRequest, NeutralSelection } from "../workspace-types.js";
 
 type JjHunkSelection = NonNullable<NeutralSelection["hunks"]>[number];
 type JjRestoreDiscardOperation = Extract<NeutralOperation, { kind: "restore_changes" | "discard_changes" }>;
@@ -72,6 +72,31 @@ function workspaceCapabilities() {
 		supportsWorkingCopyCommit: true,
 	};
 }
+
+const COMMIT_METADATA_INVALIDATION_TAGS = ["OperationHistory", "OperationDetails", "RepositoryLog"] as const;
+const STACK_GRAPH_INVALIDATION_TAGS = [
+	"BranchListing",
+	"BranchDetails",
+	"DivergentBookmarks",
+	"OperationHistory",
+	"OperationDetails",
+	"RepositoryLog",
+] as const;
+const WORKSPACE_INVALIDATION_TAGS = [
+	"Stacks",
+	"StackDetails",
+	"WorktreeChanges",
+	"BranchListing",
+	"BranchDetails",
+	"HeadSha",
+	"BaseBranchData",
+	"DivergentBookmarks",
+	"Diff",
+	"CommitChanges",
+	"OperationHistory",
+	"OperationDetails",
+	"RepositoryLog",
+] as const;
 
 function workingCopySummary(files: Array<{ status: NeutralFileStatus }>) {
 	const summary = {
@@ -168,6 +193,65 @@ function toWorkspaceFile(path: string, status: NeutralFileStatus) {
 	};
 }
 
+function toWorkspaceStack(
+	stack: VcsJjStateResult["stacks"][number],
+	state: Pick<VcsJjStateResult, "bookmarks" | "changes">,
+	appliedStackIds: readonly string[] = [],
+) {
+	const changesById = new Map(state.changes.map((change) => [change.changeId, change]));
+	const headChangeIds = new Set(stack.heads.map((head) => head.changeId));
+	const stackRemoteTracking = combineRemoteTrackingInfo(
+		...stack.changes
+			.filter((change) => change.isHead || headChangeIds.has(change.changeId))
+			.map((change) => classifyRemoteBookmarksForChange(change, state.bookmarks)),
+	);
+	return {
+		stackId: stack.id,
+		name: stack.id,
+		targetRef: stack.tip,
+		baseRef: stack.base,
+		headCommitId: stack.heads[0]?.changeId ?? stack.changes.at(-1)?.changeId ?? null,
+		isApplied: appliedStackIds.includes(stack.id),
+		isCurrent: stack.isCheckedOut,
+		commits: stack.changes.map((change) => {
+			const description = normalizeDescription(change.description || change.title);
+			const remoteTracking = combineRemoteTrackingInfo(
+				classifyRemoteBookmarksForChange(change, state.bookmarks),
+				stackRemoteTracking,
+			);
+			return {
+				commitId: change.changeId,
+				displayId: change.commitId,
+				title: description.title,
+				description: description.body,
+				authorName: change.authorName,
+				authorEmail: change.authorEmail,
+				authorAvatarUrl: change.authorAvatarUrl,
+				timestamp: change.timestamp,
+				parentCommitIds: changesById.get(change.changeId)?.parentChangeIds ?? [],
+				stackIds: [stack.id],
+				isHead: change.isHead,
+				isCurrent: change.isCurrent,
+				metadata: {
+					changeId: change.changeId,
+					commitHash: change.commitId,
+					bookmarks: change.bookmarks,
+					remoteBookmarks: change.remoteBookmarks,
+					trackedRemoteBookmarks: remoteTracking.trackedRemoteBookmarks,
+					untrackedRemoteBookmarks: remoteTracking.untrackedRemoteBookmarks,
+					immutableReason: remoteTracking.immutableReason,
+				},
+			};
+		}),
+		metadata: {
+			tip: stack.tip,
+			base: stack.base,
+			headChangeIds: stack.heads.map((head) => head.changeId),
+			headCommitHashes: stack.heads.map((head) => head.commitId),
+		},
+	};
+}
+
 async function readJjWorkspaceConflicts(cwd: string, runner: VcsCommandRunner) {
 	const result = await runner({
 		command: "jj",
@@ -231,60 +315,7 @@ export async function loadJjWorkspaceState(
 		readJjWorkspaceConflictPaths(repoCwd, runner),
 	]);
 	const appliedStackIds = options.appliedStackIds ?? [];
-	const changesById = new Map(state.changes.map((change) => [change.changeId, change]));
-	const stacks = state.stacks.map((stack) => {
-		const headChangeIds = new Set(stack.heads.map((head) => head.changeId));
-		const stackRemoteTracking = combineRemoteTrackingInfo(
-			...stack.changes
-				.filter((change) => change.isHead || headChangeIds.has(change.changeId))
-				.map((change) => classifyRemoteBookmarksForChange(change, state.bookmarks)),
-		);
-		return {
-			stackId: stack.id,
-			name: stack.id,
-			targetRef: stack.tip,
-			baseRef: stack.base,
-			headCommitId: stack.heads[0]?.changeId ?? stack.changes.at(-1)?.changeId ?? null,
-			isApplied: appliedStackIds.includes(stack.id),
-			isCurrent: stack.isCheckedOut,
-			commits: stack.changes.map((change) => {
-				const description = normalizeDescription(change.description || change.title);
-				const remoteTracking = combineRemoteTrackingInfo(
-					classifyRemoteBookmarksForChange(change, state.bookmarks),
-					stackRemoteTracking,
-				);
-				return {
-					commitId: change.changeId,
-					displayId: change.commitId,
-					title: description.title,
-					description: description.body,
-					authorName: change.authorName,
-					authorEmail: change.authorEmail,
-					authorAvatarUrl: change.authorAvatarUrl,
-					timestamp: change.timestamp,
-					parentCommitIds: changesById.get(change.changeId)?.parentChangeIds ?? [],
-					stackIds: [stack.id],
-					isHead: change.isHead,
-					isCurrent: change.isCurrent,
-					metadata: {
-						changeId: change.changeId,
-						commitHash: change.commitId,
-						bookmarks: change.bookmarks,
-						remoteBookmarks: change.remoteBookmarks,
-						trackedRemoteBookmarks: remoteTracking.trackedRemoteBookmarks,
-						untrackedRemoteBookmarks: remoteTracking.untrackedRemoteBookmarks,
-						immutableReason: remoteTracking.immutableReason,
-					},
-				};
-			}),
-			metadata: {
-				tip: stack.tip,
-				base: stack.base,
-				headChangeIds: stack.heads.map((head) => head.changeId),
-				headCommitHashes: stack.heads.map((head) => head.commitId),
-			},
-		};
-	});
+	const stacks = state.stacks.map((stack) => toWorkspaceStack(stack, state, appliedStackIds));
 	const stackIdsByCommitId = new Map<string, string[]>();
 	for (const stack of stacks) {
 		for (const commit of stack.commits) {
@@ -338,6 +369,267 @@ export async function loadJjWorkspaceStacks(
 ) {
 	const state = await loadJjWorkspaceState(cwd, runner, options);
 	return { stacks: state.stacks };
+}
+
+type JjWorkspaceState = Awaited<ReturnType<typeof loadJjWorkspaceState>>;
+type CachedJjWorkspaceState = JjWorkspaceState & { stateVersion?: number };
+type JjWorkspaceStack = JjWorkspaceState["stacks"][number];
+type JjWorkspaceCommit = JjWorkspaceStack["commits"][number];
+type JjOperationCachePayload = {
+	commits?: JjWorkspaceCommit[];
+	stacks?: JjWorkspaceStack[];
+	removedStackIds?: string[];
+	workingCopy?: JjWorkspaceState["workingCopy"] | null;
+	conflicts?: JjWorkspaceState["conflicts"];
+	headId?: string | null;
+	mode?: JjWorkspaceState["mode"];
+	appliedStackIds?: string[];
+};
+
+type JjOperationResultShape = {
+	ok: boolean;
+	operation: NeutralOperation;
+	title: string;
+	summary: string;
+	affectedStackIds: string[];
+	affectedCommitIds: string[];
+	affectedPaths: string[];
+	recovery: { refName?: string; instructions: string[] } | null;
+	diagnostics: VcsDiagnostic[];
+	cacheUpdate?: "none" | "commits" | "stacks" | "working_copy" | "workspace";
+	cachePayload?: JjOperationCachePayload | null;
+	invalidateTags?: readonly string[];
+	timing?: Record<string, number | string> | null;
+};
+
+function cloneWorkspaceStack(stack: JjWorkspaceStack): JjWorkspaceStack {
+	return JSON.parse(JSON.stringify(stack)) as JjWorkspaceStack;
+}
+
+function contextMatchesCachedState(context: NeutralOperationContext | undefined, cachedState: CachedJjWorkspaceState | null | undefined): boolean {
+	if (!context?.stateVersion || !cachedState?.stateVersion) {
+		return Boolean(cachedState);
+	}
+	return context.stateVersion === cachedState.stateVersion;
+}
+
+function cachedStackForOperation(
+	input: NeutralOperationRequest,
+	cachedState: CachedJjWorkspaceState | null | undefined,
+	stackId: string | null | undefined,
+): JjWorkspaceStack | null {
+	if (!stackId || !contextMatchesCachedState(input.operationContext, cachedState)) {
+		return null;
+	}
+	return cachedState?.stacks.find((stack) => stack.stackId === stackId) ?? null;
+}
+
+function cachedStackContainingCommit(
+	input: NeutralOperationRequest,
+	cachedState: CachedJjWorkspaceState | null | undefined,
+	commitId: string,
+): JjWorkspaceStack | null {
+	if (!contextMatchesCachedState(input.operationContext, cachedState)) {
+		return null;
+	}
+	const contextStack = input.operationContext?.stackId
+		? cachedState?.stacks.find((stack) => stack.stackId === input.operationContext?.stackId)
+		: null;
+	if (contextStack?.commits.some((commit) => commit.commitId === commitId)) {
+		return contextStack;
+	}
+	return cachedState?.stacks.find((stack) => stack.commits.some((commit) => commit.commitId === commitId)) ?? null;
+}
+
+function cachePayloadFromPatchedStack(cachedState: CachedJjWorkspaceState | null | undefined, stack: JjWorkspaceStack): JjOperationCachePayload {
+	return {
+		stacks: [stack],
+		headId: cachedState?.headId,
+		mode: cachedState?.mode,
+		conflicts: cachedState?.conflicts,
+		appliedStackIds: cachedState?.appliedStackIds,
+	};
+}
+
+function commitFromMessage(input: {
+	changeId: string;
+	message: string;
+	parentCommitIds: string[];
+	stackId: string;
+	isHead: boolean;
+	isCurrent?: boolean;
+}): JjWorkspaceCommit {
+	const description = normalizeDescription(input.message);
+	return {
+		commitId: input.changeId,
+		displayId: input.changeId,
+		title: description.title,
+		description: description.body,
+		authorName: null,
+		authorEmail: null,
+		authorAvatarUrl: null,
+		timestamp: new Date().toISOString(),
+		parentCommitIds: input.parentCommitIds,
+		stackIds: [input.stackId],
+		isHead: input.isHead,
+		isCurrent: input.isCurrent ?? false,
+		metadata: {
+			changeId: input.changeId,
+			commitHash: input.changeId,
+			bookmarks: input.isHead ? [input.stackId] : [],
+			remoteBookmarks: [],
+			trackedRemoteBookmarks: [],
+			untrackedRemoteBookmarks: [],
+			immutableReason: null,
+		},
+	};
+}
+
+function patchStackWithNewCommit(
+	stack: JjWorkspaceStack,
+	targetCommitId: string,
+	newCommit: JjWorkspaceCommit,
+	placement: "before" | "after",
+): JjWorkspaceStack {
+	const nextStack = cloneWorkspaceStack(stack);
+	const targetIndex = nextStack.commits.findIndex((commit) => commit.commitId === targetCommitId);
+	const insertIndex = targetIndex < 0 ? nextStack.commits.length : placement === "after" ? targetIndex + 1 : targetIndex;
+	if (newCommit.isHead) {
+		for (const commit of nextStack.commits) {
+			commit.isHead = false;
+			commit.metadata = {
+				...(commit.metadata ?? {}),
+				bookmarks: (commit.metadata?.bookmarks ?? []).filter((bookmark) => bookmark !== stack.stackId),
+			};
+		}
+		nextStack.headCommitId = newCommit.commitId;
+	}
+	nextStack.commits.splice(insertIndex, 0, newCommit);
+	return nextStack;
+}
+
+function patchStackAfterAbandon(stack: JjWorkspaceStack, abandonedCommitId: string, replacementCommitId: string | null): JjWorkspaceStack {
+	const nextStack = cloneWorkspaceStack(stack);
+	const wasHead = nextStack.headCommitId === abandonedCommitId;
+	nextStack.commits = nextStack.commits.filter((commit) => commit.commitId !== abandonedCommitId);
+	if (wasHead) {
+		if (replacementCommitId) {
+			nextStack.headCommitId = replacementCommitId;
+		}
+		for (const commit of nextStack.commits) {
+			const isReplacement = commit.commitId === replacementCommitId;
+			commit.isHead = isReplacement;
+			commit.metadata = {
+				...(commit.metadata ?? {}),
+				bookmarks: isReplacement
+					? [...new Set([...(commit.metadata?.bookmarks ?? []), nextStack.stackId])]
+					: (commit.metadata?.bookmarks ?? []).filter((bookmark) => bookmark !== nextStack.stackId),
+			};
+		}
+	}
+	return nextStack;
+}
+
+function patchCommitMessage(commit: JjWorkspaceCommit, message: string): JjWorkspaceCommit {
+	const description = normalizeDescription(message);
+	return {
+		...commit,
+		title: description.title,
+		description: description.body,
+	};
+}
+
+function withNoCacheUpdate<T extends JjOperationResultShape>(result: T): T {
+	return {
+		...result,
+		cacheUpdate: result.cacheUpdate ?? "none",
+		cachePayload: result.cachePayload ?? null,
+		invalidateTags: result.invalidateTags ?? [],
+	};
+}
+
+function withWorkspaceCacheFallback<T extends JjOperationResultShape>(result: T): T {
+	return {
+		...result,
+		cacheUpdate: "workspace",
+		cachePayload: null,
+		invalidateTags: WORKSPACE_INVALIDATION_TAGS,
+	};
+}
+
+async function withCommitCacheUpdate<T extends JjOperationResultShape>(
+	result: T,
+	cwd: string,
+	runner: VcsCommandRunner,
+	commitIds: readonly string[],
+): Promise<T> {
+	if (!result.ok || commitIds.length === 0) {
+		return result.ok ? withWorkspaceCacheFallback(result) : withNoCacheUpdate(result);
+	}
+	const state = await loadJjWorkspaceState(cwd, runner);
+	const commits = state.stacks.flatMap((stack) => stack.commits).filter((commit) => commitIds.includes(commit.commitId));
+	if (commits.length === 0) {
+		return withWorkspaceCacheFallback(result);
+	}
+	return {
+		...result,
+		cacheUpdate: "commits",
+		cachePayload: {
+			commits,
+			headId: state.headId,
+			mode: state.mode,
+			conflicts: state.conflicts,
+		},
+		invalidateTags: COMMIT_METADATA_INVALIDATION_TAGS,
+	};
+}
+
+async function withStackCacheUpdate<T extends JjOperationResultShape>(
+	result: T,
+	cwd: string,
+	runner: VcsCommandRunner,
+	stackIds: readonly string[],
+	options: { removedStackIds?: readonly string[] } = {},
+): Promise<T> {
+	if (!result.ok) {
+		return withNoCacheUpdate(result);
+	}
+	const uniqueStackIds = [...new Set(stackIds.filter(Boolean))];
+	const removedStackIds = [...new Set(options.removedStackIds ?? [])];
+	if (uniqueStackIds.length === 0 && removedStackIds.length === 0) {
+		return withWorkspaceCacheFallback(result);
+	}
+	const state = await loadJjWorkspaceState(cwd, runner);
+	const stacks = state.stacks.filter((stack) => uniqueStackIds.includes(stack.stackId));
+	if (stacks.length === 0 && removedStackIds.length === 0) {
+		return withWorkspaceCacheFallback(result);
+	}
+	return {
+		...result,
+		cacheUpdate: "stacks" as const,
+		cachePayload: {
+			stacks,
+			removedStackIds,
+			headId: state.headId,
+			mode: state.mode,
+			conflicts: state.conflicts,
+		},
+		invalidateTags: STACK_GRAPH_INVALIDATION_TAGS,
+	};
+}
+
+async function stackIdsContainingCommits(cwd: string, runner: VcsCommandRunner, commitIds: readonly string[]): Promise<string[]> {
+	if (commitIds.length === 0) {
+		return [];
+	}
+	const state = await loadJjWorkspaceState(cwd, runner);
+	const stackIds = new Set<string>();
+	for (const stack of state.stacks) {
+		if (stack.commits.some((commit) => commitIds.includes(commit.commitId))) {
+			stackIds.add(stack.stackId);
+		}
+	}
+	return [...stackIds];
 }
 
 export async function loadJjWorkspaceDiff(cwd: string, runner: VcsCommandRunner) {
@@ -471,7 +763,8 @@ export async function applyJjWorkspaceOperation(
 	cwd: string,
 	input: NeutralOperationRequest,
 	runner: VcsCommandRunner,
-) {
+	cachedState: CachedJjWorkspaceState | null = null,
+): Promise<JjOperationResultShape> {
 	if (input.operation.kind === "begin_edit_commit") {
 		return await applyJjBeginEditCommitOperation(cwd, runner, input.operation);
 	}
@@ -556,10 +849,36 @@ export async function applyJjWorkspaceOperation(
 		return await applyJjCommittedPathMoveOperation(cwd, runner, input.operation);
 	}
 	if (input.operation.kind === "create_commit") {
-		return await applyJjCreateCommitOperation(cwd, runner, input.operation);
+		return await applyJjCreateCommitOperation(
+			cwd,
+			runner,
+			{ ...input, operation: input.operation },
+			cachedState,
+		);
 	}
 	if (input.operation.kind === "abandon_commit") {
-		return await applyJjAbandonCommitOperation(cwd, runner, input.operation);
+		return await applyJjAbandonCommitOperation(
+			cwd,
+			runner,
+			{ ...input, operation: input.operation },
+			cachedState,
+		);
+	}
+	if (input.operation.kind === "reword_commit") {
+		return await applyJjFastRewordOperation(
+			cwd,
+			runner,
+			{ ...input, operation: input.operation },
+			cachedState,
+		);
+	}
+	if (input.operation.kind === "add_empty_commit") {
+		return await applyJjFastAddEmptyCommitOperation(
+			cwd,
+			runner,
+			{ ...input, operation: input.operation },
+			cachedState,
+		);
 	}
 	if (input.operation.kind === "rename_stack" || input.operation.kind === "delete_stack" || input.operation.kind === "squash_stack") {
 		return await applyJjStackOperation(cwd, runner, input.operation);
@@ -598,10 +917,17 @@ export async function applyJjWorkspaceOperation(
 	const translated = await translateOperation(cwd, runner, input.operation);
 	if (!translated.operation) {
 		return unsupportedApply(input.operation, translated.reason);
+		}
+		const result = await applyJjOperation(cwd, translated.operation, runner);
+		const neutral = toNeutralApply(input.operation, result);
+		if (!neutral.ok) {
+			return withNoCacheUpdate(neutral);
+		}
+		if (input.operation.kind === "create_bookmark") {
+			return await withStackCacheUpdate(neutral, cwd, runner, [input.operation.bookmarkName]);
+		}
+		return withWorkspaceCacheFallback(neutral);
 	}
-	const result = await applyJjOperation(cwd, translated.operation, runner);
-	return toNeutralApply(input.operation, result);
-}
 
 function toNeutralDiff(diff: VcsJjDiffResult) {
 	return {
@@ -1176,6 +1502,141 @@ function previewJjAbandonCommitOperation(operation: Extract<NeutralOperation, { 
 	};
 }
 
+function fastStackCacheUpdateForCreatedCommit<T extends JjOperationResultShape>(
+	result: T,
+	input: NeutralOperationRequest,
+	cachedState: CachedJjWorkspaceState | null,
+	cachedStack: JjWorkspaceStack | null,
+	createdChangeId: string | null,
+	targetHeadChangeId: string,
+	message: string,
+): T | null {
+	if (!result.ok || !cachedStack || !createdChangeId || createdChangeId === targetHeadChangeId) {
+		return null;
+	}
+	const newCommit = commitFromMessage({
+		changeId: createdChangeId,
+		message,
+		parentCommitIds: [targetHeadChangeId],
+		stackId: cachedStack.stackId,
+		isHead: true,
+	});
+	const patchedStack = patchStackWithNewCommit(cachedStack, targetHeadChangeId, newCommit, "after");
+	return {
+		...result,
+		cacheUpdate: "stacks",
+		cachePayload: cachePayloadFromPatchedStack(cachedState, patchedStack),
+		invalidateTags: STACK_GRAPH_INVALIDATION_TAGS,
+		timing: {
+			...(result.timing ?? {}),
+			commandCount: 2,
+		},
+	};
+}
+
+async function applyJjFastRewordOperation(
+	cwd: string,
+	runner: VcsCommandRunner,
+	input: NeutralOperationRequest & { operation: Extract<NeutralOperation, { kind: "reword_commit" }> },
+	cachedState: CachedJjWorkspaceState | null,
+) {
+	const { operation } = input;
+	const message = normalizeOperationMessage(operation.message);
+	if (!message) {
+		return unsupportedApply(operation, "Enter a commit message.");
+	}
+	const startedAt = Date.now();
+	const result = await runner({ command: "jj", args: ["describe", "-r", operation.commitId, "-m", message], cwd });
+	const commandMs = Date.now() - startedAt;
+	if (!result.ok) {
+		return failedApply(operation, result.stderr.trim() || result.stdout.trim() || "Could not reword JJ commit.");
+	}
+	const neutral = successfulApply(operation, "Updated commit message", `Updated ${operation.commitId} description.`, [operation.commitId]);
+	const stack = cachedStackContainingCommit(input, cachedState, operation.commitId);
+	const commit = stack?.commits.find((candidate) => candidate.commitId === operation.commitId) ?? null;
+	if (!stack || !commit) {
+		return await withCommitCacheUpdate(
+			{
+				...neutral,
+				timing: { commandMs, commandCount: 1, fallbackReason: "missing_cached_commit" },
+			},
+			cwd,
+			runner,
+			[operation.commitId],
+		);
+	}
+	return {
+		...neutral,
+		cacheUpdate: "commits" as const,
+		cachePayload: {
+			commits: [patchCommitMessage(commit, message)],
+			headId: cachedState?.headId,
+			mode: cachedState?.mode,
+			conflicts: cachedState?.conflicts,
+		},
+		invalidateTags: COMMIT_METADATA_INVALIDATION_TAGS,
+		timing: { commandMs, commandCount: 1 },
+	};
+}
+
+async function applyJjFastAddEmptyCommitOperation(
+	cwd: string,
+	runner: VcsCommandRunner,
+	input: NeutralOperationRequest & { operation: Extract<NeutralOperation, { kind: "add_empty_commit" }> },
+	cachedState: CachedJjWorkspaceState | null,
+) {
+	const { operation } = input;
+	const message = normalizeOperationMessage(operation.message);
+	if (!message) {
+		return unsupportedApply(operation, "Enter a commit message.");
+	}
+	const insertArg = operation.placement === "before" ? "--insert-before" : "--insert-after";
+	const startedAt = Date.now();
+	const result = await runner({ command: "jj", args: ["new", insertArg, operation.targetCommitId, "--no-edit", "-m", message], cwd });
+	const commandMs = Date.now() - startedAt;
+	if (!result.ok) {
+		return failedApply(operation, result.stderr.trim() || result.stdout.trim() || "Could not create empty JJ commit.");
+	}
+	const neutral = successfulApply(operation, "Created empty commit", `Created empty commit ${operation.placement} ${operation.targetCommitId}.`, [
+		parseCreatedJjChangeId(result.stdout) ?? parseCreatedJjChangeId(result.stderr) ?? operation.targetCommitId,
+		operation.targetCommitId,
+	]);
+	const createdChangeId = neutral.affectedCommitIds.find((commitId) => commitId !== operation.targetCommitId) ?? null;
+	const cachedStack = cachedStackContainingCommit(input, cachedState, operation.targetCommitId);
+	if (!cachedStack || !createdChangeId) {
+		const stackIds = await stackIdsContainingCommits(cwd, runner, [operation.targetCommitId]);
+		return await withStackCacheUpdate(
+			{
+				...neutral,
+				timing: { commandMs, commandCount: 1, fallbackReason: "missing_cached_stack" },
+			},
+			cwd,
+			runner,
+			stackIds,
+		);
+	}
+	const targetCommit = cachedStack.commits.find((commit) => commit.commitId === operation.targetCommitId) ?? null;
+	const isNewHead = operation.placement === "after" && cachedStack.headCommitId === operation.targetCommitId;
+	const parentCommitIds = operation.placement === "after"
+		? [operation.targetCommitId]
+		: targetCommit?.parentCommitIds ?? [];
+	const newCommit = commitFromMessage({
+		changeId: createdChangeId,
+		message,
+		parentCommitIds,
+		stackId: cachedStack.stackId,
+		isHead: isNewHead,
+	});
+	const patchedStack = patchStackWithNewCommit(cachedStack, operation.targetCommitId, newCommit, operation.placement);
+	return {
+		...neutral,
+		cacheUpdate: "stacks" as const,
+		cachePayload: cachePayloadFromPatchedStack(cachedState, patchedStack),
+		invalidateTags: STACK_GRAPH_INVALIDATION_TAGS,
+		timing: { commandMs, commandCount: 1 },
+	};
+}
+
 async function previewJjCreateCommitOperation(
 	cwd: string,
 	runner: VcsCommandRunner,
@@ -1257,19 +1718,30 @@ async function previewJjWorkingCopyHunkCommitOperation(
 async function applyJjCreateCommitOperation(
 	cwd: string,
 	runner: VcsCommandRunner,
-	operation: Extract<NeutralOperation, { kind: "create_commit" }>,
+	input: NeutralOperationRequest & { operation: Extract<NeutralOperation, { kind: "create_commit" }> },
+	cachedState: CachedJjWorkspaceState | null,
 ) {
-	const preview = await previewJjCreateCommitOperation(cwd, runner, operation);
-	if (!preview.valid) {
-		return unsupportedApply(operation, preview.summary);
-	}
-	const target = await resolveCreateCommitStackHeadChangeId(cwd, runner, operation);
-	if (!target.ok) {
-		return unsupportedApply(operation, target.reason);
-	}
+	const { operation } = input;
 	const message = normalizeOperationMessage(operation.message);
 	if (!message) {
 		return unsupportedApply(operation, "Enter a commit title before previewing.");
+	}
+	const validation =
+		!operation.selection
+			? null
+			: operation.selection.source === "working_copy"
+			? validateJjWorkingCopySelection(operation.selection)
+			: validateJjCommittedCreateCommitSelection(operation.selection);
+	if (validation) {
+		return unsupportedApply(operation, validation);
+	}
+	const cachedStack = cachedStackForOperation(input, cachedState, operation.stackId);
+	const contextHeadChangeId = input.operationContext?.headCommitId ?? cachedStack?.headCommitId ?? null;
+	const target = contextHeadChangeId
+		? { ok: true as const, headChangeId: contextHeadChangeId }
+		: await resolveCreateCommitStackHeadChangeId(cwd, runner, operation);
+	if (!target.ok) {
+		return unsupportedApply(operation, target.reason);
 	}
 	if (!operation.selection) {
 		const applyResult = await runner({
@@ -1284,12 +1756,34 @@ async function applyJjCreateCommitOperation(
 		if (!finalized.ok) {
 			return failedApply(operation, finalized.message);
 		}
-		return successfulApply(
-			operation,
-			"Created commit",
-			`Created empty commit at top of ${operation.stackId}.`,
-			finalized.affectedCommitIds,
+		const fastResult = fastStackCacheUpdateForCreatedCommit(
+			successfulApply(
+				operation,
+				"Created commit",
+				`Created empty commit at top of ${operation.stackId}.`,
+				finalized.affectedCommitIds,
+			),
+			input,
+			cachedState,
+			cachedStack,
+			finalized.affectedCommitIds[0] ?? null,
+			target.headChangeId,
+			message,
 		);
+		if (fastResult) {
+			return fastResult;
+		}
+			return await withStackCacheUpdate(
+				successfulApply(
+					operation,
+					"Created commit",
+					`Created empty commit at top of ${operation.stackId}.`,
+					finalized.affectedCommitIds,
+				),
+				cwd,
+				runner,
+				[operation.stackId],
+			);
 	}
 	const paths = operation.selection.paths ?? [];
 	if (isJjSupportedWorkingCopyHunkCommitOperation(operation)) {
@@ -1312,12 +1806,17 @@ async function applyJjCreateCommitOperation(
 		if (!finalized.ok) {
 			return failedApply(operation, finalized.message);
 		}
-		return successfulApply(
-			operation,
-			"Created commit",
-			`Created new commit at top of ${operation.stackId}.`,
-			finalized.affectedCommitIds,
-		);
+			return await withStackCacheUpdate(
+				successfulApply(
+					operation,
+					"Created commit",
+					`Created new commit at top of ${operation.stackId}.`,
+					finalized.affectedCommitIds,
+				),
+				cwd,
+				runner,
+				[operation.stackId],
+			);
 	}
 	if (operation.selection.source === "commit") {
 		if (!operation.selection.commitId || paths.length === 0) {
@@ -1335,12 +1834,17 @@ async function applyJjCreateCommitOperation(
 		if (!finalized.ok) {
 			return failedApply(operation, finalized.message);
 		}
-		return successfulApply(
-			operation,
-			"Created commit",
-			`Created new commit at top of ${operation.stackId}.`,
-			finalized.affectedCommitIds,
-		);
+			return await withStackCacheUpdate(
+				successfulApply(
+					operation,
+					"Created commit",
+					`Created new commit at top of ${operation.stackId}.`,
+					finalized.affectedCommitIds,
+				),
+				cwd,
+				runner,
+				[operation.stackId],
+			);
 	}
 	const applyResult = await runner({
 		command: "jj",
@@ -1354,22 +1858,87 @@ async function applyJjCreateCommitOperation(
 	if (!finalized.ok) {
 		return failedApply(operation, finalized.message);
 	}
-	return successfulApply(
-		operation,
-		"Created commit",
-		`Created new commit at top of ${operation.stackId}.`,
-		finalized.affectedCommitIds,
-	);
+		return await withStackCacheUpdate(
+			successfulApply(
+				operation,
+				"Created commit",
+				`Created new commit at top of ${operation.stackId}.`,
+				finalized.affectedCommitIds,
+			),
+			cwd,
+			runner,
+			[operation.stackId],
+		);
 }
 
 async function applyJjAbandonCommitOperation(
 	cwd: string,
 	runner: VcsCommandRunner,
-	operation: Extract<NeutralOperation, { kind: "abandon_commit" }>,
+	input: NeutralOperationRequest & { operation: Extract<NeutralOperation, { kind: "abandon_commit" }> },
+	cachedState: CachedJjWorkspaceState | null,
 ) {
+	const { operation } = input;
+	const cachedStack = cachedStackContainingCommit(input, cachedState, operation.commitId);
+	if (cachedStack) {
+		const targetIndex = cachedStack.commits.findIndex((commit) => commit.commitId === operation.commitId);
+		const isHead = cachedStack.headCommitId === operation.commitId;
+		const replacementCommitId = isHead ? input.operationContext?.nextLowerCommitId ?? cachedStack.commits[targetIndex - 1]?.commitId ?? null : null;
+		if (isHead && replacementCommitId) {
+			const bookmarkResult = await runner({
+				command: "jj",
+				args: ["bookmark", "set", "--allow-backwards", cachedStack.stackId, "-r", replacementCommitId],
+				cwd,
+			});
+			if (!bookmarkResult.ok) {
+				return failedApply(
+					operation,
+					bookmarkResult.stderr.trim() || bookmarkResult.stdout.trim() || `Could not move bookmark ${cachedStack.stackId}.`,
+				);
+			}
+		}
+		const abandonArgs = isHead && !replacementCommitId
+			? ["abandon", "--retain-bookmarks", operation.commitId]
+			: ["abandon", operation.commitId];
+		const abandonResult = await runner({ command: "jj", args: abandonArgs, cwd });
+		if (!abandonResult.ok) {
+			return failedApply(operation, abandonResult.stderr.trim() || abandonResult.stdout.trim() || "Could not delete JJ commit.");
+		}
+		if (isHead && !replacementCommitId) {
+			const finalized = successfulApply(
+				operation,
+				"Deleted commit",
+				`Abandoned ${operation.commitId}. Descendants were rebased onto its parent.`,
+				[operation.commitId],
+			);
+			return await withStackCacheUpdate(finalized, cwd, runner, [cachedStack.stackId]);
+		}
+		const patchedStack = patchStackAfterAbandon(cachedStack, operation.commitId, replacementCommitId);
+		return {
+			ok: true,
+			operation,
+			title: "Deleted commit",
+			summary:
+				replacementCommitId
+					? `Abandoned ${operation.commitId} and moved ${cachedStack.stackId} to ${replacementCommitId}.`
+					: `Abandoned ${operation.commitId}. Descendants were rebased onto its parent.`,
+			affectedStackIds: [cachedStack.stackId],
+			affectedCommitIds: uniqueCommitIds([operation.commitId, replacementCommitId ?? ""]),
+			affectedPaths: [],
+			recovery: null,
+			diagnostics: [],
+			cacheUpdate: "stacks" as const,
+			cachePayload: cachePayloadFromPatchedStack(cachedState, patchedStack),
+			invalidateTags: STACK_GRAPH_INVALIDATION_TAGS,
+			timing: { commandCount: isHead && replacementCommitId ? 2 : 1 },
+		};
+	}
+
 	const state = await loadJjWorkspaceState(cwd, runner);
 	const headStacks = state.stacks.filter((stack) => stack.headCommitId === operation.commitId);
-	const affectedStackIds = headStacks.map((stack) => stack.stackId);
+	const containingStackIds = state.stacks
+		.filter((stack) => stack.commits.some((commit) => commit.commitId === operation.commitId))
+		.map((stack) => stack.stackId);
+	const affectedStackIds = headStacks.length > 0 ? headStacks.map((stack) => stack.stackId) : containingStackIds;
 	const replacementCommitIds: string[] = [];
 	for (const stack of headStacks) {
 		const targetIndex = stack.commits.findIndex((commit) => commit.commitId === operation.commitId);
@@ -1398,20 +1967,25 @@ async function applyJjAbandonCommitOperation(
 	if (!abandonResult.ok) {
 		return failedApply(operation, abandonResult.stderr.trim() || abandonResult.stdout.trim() || "Could not delete JJ commit.");
 	}
-	return {
-		ok: true,
-		operation,
-		title: "Deleted commit",
-		summary:
-			replacementCommitIds.length > 0
-				? `Abandoned ${operation.commitId} and moved ${affectedStackIds.join(", ")} to ${replacementCommitIds.join(", ")}.`
-				: `Abandoned ${operation.commitId}. Descendants were rebased onto its parent.`,
+	return await withStackCacheUpdate(
+		{
+			ok: true,
+			operation,
+			title: "Deleted commit",
+			summary:
+				replacementCommitIds.length > 0
+					? `Abandoned ${operation.commitId} and moved ${affectedStackIds.join(", ")} to ${replacementCommitIds.join(", ")}.`
+					: `Abandoned ${operation.commitId}. Descendants were rebased onto its parent.`,
+			affectedStackIds,
+			affectedCommitIds: [operation.commitId, ...replacementCommitIds],
+			affectedPaths: [],
+			recovery: null,
+			diagnostics: [],
+		},
+		cwd,
+		runner,
 		affectedStackIds,
-		affectedCommitIds: [operation.commitId, ...replacementCommitIds],
-		affectedPaths: [],
-		recovery: null,
-		diagnostics: [],
-	};
+	);
 }
 
 async function previewJjStackOperation(
@@ -1501,14 +2075,26 @@ async function applyJjStackOperation(
 		if (!result.ok) {
 			return failedApply(operation, result.stderr.trim() || result.stdout.trim() || `Could not rename ${operation.stackId}.`);
 		}
-		return successfulApply(operation, "Renamed stack", `Renamed ${operation.stackId} to ${operation.name}.`, []);
+		return await withStackCacheUpdate(
+			successfulApply(operation, "Renamed stack", `Renamed ${operation.stackId} to ${operation.name}.`, []),
+			cwd,
+			runner,
+			[operation.name],
+			{ removedStackIds: [operation.stackId] },
+		);
 	}
 	if (operation.kind === "delete_stack") {
 		const result = await runner({ command: "jj", args: ["bookmark", "delete", operation.stackId], cwd });
 		if (!result.ok) {
 			return failedApply(operation, result.stderr.trim() || result.stdout.trim() || `Could not delete ${operation.stackId}.`);
 		}
-		return successfulApply(operation, "Deleted stack", `Deleted bookmark ${operation.stackId}.`, []);
+		return await withStackCacheUpdate(
+			successfulApply(operation, "Deleted stack", `Deleted bookmark ${operation.stackId}.`, []),
+			cwd,
+			runner,
+			[],
+			{ removedStackIds: [operation.stackId] },
+		);
 	}
 	const sourceCommitIds = preview.affectedCommitIds.slice(1);
 	const targetCommitId = preview.affectedCommitIds[0];
@@ -1529,10 +2115,15 @@ async function applyJjStackOperation(
 	if (!result.ok) {
 		return failedApply(operation, result.stderr.trim() || result.stdout.trim() || `Could not squash ${operation.stackId}.`);
 	}
-	return successfulApply(operation, "Squashed stack", `Squashed ${sourceCommitIds.length} commit(s) into ${targetCommitId}.`, [
-		targetCommitId,
-		...sourceCommitIds,
-	]);
+	return await withStackCacheUpdate(
+		successfulApply(operation, "Squashed stack", `Squashed ${sourceCommitIds.length} commit(s) into ${targetCommitId}.`, [
+			targetCommitId,
+			...sourceCommitIds,
+		]),
+		cwd,
+		runner,
+		[operation.stackId],
+	);
 }
 
 async function applyJjCommittedPathMoveOperation(
@@ -1612,13 +2203,15 @@ async function applyJjWorkingCopyHunkCommitOperation(
 		operation.kind === "amend_commit"
 			? `Moved selected working-copy changes into ${operation.commitId}.`
 			: `Created new commit at top of ${operation.stackId}.`;
-	if (operation.kind === "create_commit") {
-		const finalized = await finalizeJjCreateCommitApply(cwd, runner, operation, target.headChangeId, applyResult);
-		if (!finalized.ok) {
-			return failedApply(operation, finalized.message);
+		if (operation.kind === "create_commit") {
+			const finalized = await finalizeJjCreateCommitApply(cwd, runner, operation, target.headChangeId, applyResult);
+			if (!finalized.ok) {
+				return failedApply(operation, finalized.message);
+			}
+			return await withStackCacheUpdate(successfulApply(operation, title, summary, finalized.affectedCommitIds), cwd, runner, [
+				operation.stackId,
+			]);
 		}
-		return successfulApply(operation, title, summary, finalized.affectedCommitIds);
-	}
 	return successfulApply(operation, title, summary, [target.headChangeId]);
 }
 
@@ -2635,7 +3228,7 @@ async function readCurrentJjParentChanges(
 }
 
 function unsupportedApply(operation: NeutralOperation, reason: string) {
-	return {
+	return withNoCacheUpdate({
 		ok: false,
 		operation,
 		title: "Operation unavailable",
@@ -2647,11 +3240,11 @@ function unsupportedApply(operation: NeutralOperation, reason: string) {
 			instructions: ["No repository changes were attempted."],
 		},
 		diagnostics: [createDiagnostic("warning", "jj_workspace_operation_unsupported", reason)],
-	};
+	});
 }
 
 function failedApply(operation: NeutralOperation, reason: string) {
-	return {
+	return withNoCacheUpdate({
 		ok: false,
 		operation,
 		title: "Operation failed",
@@ -2665,11 +3258,11 @@ function failedApply(operation: NeutralOperation, reason: string) {
 			],
 		},
 		diagnostics: [createDiagnostic("error", "jj_workspace_operation_failed", reason)],
-	};
+	});
 }
 
 function failedApplyWithRecovery(operation: NeutralOperation, reason: string, instructions: string[]) {
-	return {
+	return withNoCacheUpdate({
 		ok: false,
 		operation,
 		title: "Operation failed",
@@ -2681,11 +3274,11 @@ function failedApplyWithRecovery(operation: NeutralOperation, reason: string, in
 			instructions,
 		},
 		diagnostics: [createDiagnostic("error", "jj_workspace_operation_failed", reason)],
-	};
+	});
 }
 
 function successfulApply(operation: NeutralOperation, title: string, summary: string, affectedCommitIds: string[]) {
-	return {
+	return withWorkspaceCacheFallback({
 		ok: true,
 		operation,
 		title,
@@ -2695,7 +3288,7 @@ function successfulApply(operation: NeutralOperation, title: string, summary: st
 		affectedPaths: pathsFromOperation(operation),
 		recovery: null,
 		diagnostics: [],
-	};
+	});
 }
 
 function stackIdsFromOperation(operation: NeutralOperation): string[] {

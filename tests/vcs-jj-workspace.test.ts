@@ -322,6 +322,91 @@ test("previewJjWorkspaceOperation translates neutral reword to JJ edit-message p
 	assert.match(preview.summary, /Update api222 description/i);
 });
 
+test("applyJjWorkspaceOperation returns a targeted commit update for reword", async () => {
+	const calls: string[] = [];
+	let reworded = false;
+	const baseRunner = createStateRunner(calls);
+	const result = await applyJjWorkspaceOperation(
+		"/repo",
+		{ operation: { kind: "reword_commit", commitId: "api222", message: "Refined API change\n\nUpdated body" } },
+		async (input) => {
+			const joined = `${input.command} ${input.args.join(" ")}`;
+			if (joined.startsWith('jj log --ignore-working-copy --at-op=@ --revisions (::"feature/api")')) {
+				calls.push(joined);
+				return ok([
+					"root111\t11111111\tMain\tAlice\talice@example.com\t2026-01-01T10:00:00Z\t\tmain\tmain@origin\t0",
+					[
+						"api222",
+						"22222222",
+						JSON.stringify(reworded ? "Refined API change\n\nUpdated body" : "API change\n\nDetailed PR body\n- keeps markdown"),
+						"Bob",
+						"bob@example.com",
+						"2026-01-01T11:00:00Z",
+						"root111",
+						"feature/api",
+						"feature/api@origin",
+						"1",
+					].join("\t"),
+				].join("\n"));
+			}
+			calls.push(joined);
+			if (joined === "jj describe -r api222 -m Refined API change\n\nUpdated body") {
+				reworded = true;
+				return ok("Working copy now at: api222");
+			}
+			calls.pop();
+			return await baseRunner(input);
+		},
+	);
+
+	assert.equal(result.ok, true);
+	assert.equal(result.operation.kind, "reword_commit");
+	assert.equal(result.cacheUpdate, "commits");
+	assert.deepEqual(result.invalidateTags, ["OperationHistory", "OperationDetails", "RepositoryLog"]);
+	assert.equal(result.invalidateTags?.includes("Stacks"), false);
+	assert.equal(result.cachePayload?.commits?.[0]?.commitId, "api222");
+	assert.equal(result.cachePayload?.commits?.[0]?.title, "Refined API change");
+	assert.equal(result.cachePayload?.commits?.[0]?.description, "Updated body");
+	assert.ok(calls.includes("jj describe -r api222 -m Refined API change\n\nUpdated body"));
+});
+
+test("applyJjWorkspaceOperation fast reword patches cached commit without reloading workspace", async () => {
+	const cachedState = await loadJjWorkspaceState("/repo", createStateRunner(), {
+		appliedStackIds: ["feature/api"],
+	});
+	(cachedState as typeof cachedState & { stateVersion: number }).stateVersion = 7;
+	const calls: string[] = [];
+	const result = await applyJjWorkspaceOperation(
+		"/repo",
+		{
+			operation: { kind: "reword_commit", commitId: "api222", message: "Fast reword\n\nCached body" },
+			operationContext: {
+				stateVersion: 7,
+				stackId: "feature/api",
+				headCommitId: "api222",
+				orderedCommitIds: ["root111", "api222"],
+				selectedCommitId: "api222",
+				nextLowerCommitId: "root111",
+			},
+		},
+		async ({ command, args }) => {
+			const joined = `${command} ${args.join(" ")}`;
+			calls.push(joined);
+			if (joined === "jj describe -r api222 -m Fast reword\n\nCached body") {
+				return ok("Description updated");
+			}
+			return fail(joined);
+		},
+		cachedState,
+	);
+
+	assert.equal(result.ok, true);
+	assert.equal(result.cacheUpdate, "commits");
+	assert.equal(result.cachePayload?.commits?.[0]?.title, "Fast reword");
+	assert.equal(result.cachePayload?.commits?.[0]?.description, "Cached body");
+	assert.deepEqual(calls, ["jj describe -r api222 -m Fast reword\n\nCached body"]);
+});
+
 test("previewJjWorkspaceOperation translates neutral discard to JJ working-copy restore preview", async () => {
 	const preview = await previewJjWorkspaceOperation(
 		"/repo",
@@ -870,11 +955,14 @@ test("applyJjWorkspaceOperation creates a selected working-copy file commit at t
 
 	assert.equal(result.ok, true);
 	assert.equal(result.operation.kind, "create_commit");
+	assert.equal(result.cacheUpdate, "stacks");
 	assert.deepEqual(result.affectedStackIds, ["feature/api"]);
 	assert.deepEqual(result.affectedCommitIds, ["selected123", "api222"]);
 	assert.deepEqual(result.affectedPaths, ["src/api.ts"]);
+	assert.equal(result.cachePayload?.stacks?.[0]?.stackId, "feature/api");
+	assert.equal(result.invalidateTags?.includes("Stacks"), false);
 	assert.ok(calls.includes("jj split -r @ --insert-after api222 -m New API -- src/api.ts"));
-	assert.equal(calls.at(-1), "jj bookmark set feature/api -r selected123");
+	assert.ok(calls.includes("jj bookmark set feature/api -r selected123"));
 });
 
 test("applyJjWorkspaceOperation creates an empty commit at the top of the stack", async () => {
@@ -899,11 +987,59 @@ test("applyJjWorkspaceOperation creates an empty commit at the top of the stack"
 
 	assert.equal(result.ok, true);
 	assert.equal(result.operation.kind, "create_commit");
+	assert.equal(result.cacheUpdate, "stacks");
 	assert.deepEqual(result.affectedStackIds, ["feature/api"]);
 	assert.deepEqual(result.affectedCommitIds, ["empty123", "api222"]);
-	assert.deepEqual(calls.slice(-2), [
-		"jj new --no-edit --insert-after api222 -m Empty API commit",
-		"jj bookmark set feature/api -r empty123",
+	assert.equal(result.cachePayload?.stacks?.[0]?.stackId, "feature/api");
+	assert.equal(result.invalidateTags?.includes("Stacks"), false);
+	assert.ok(calls.includes("jj new --no-edit --insert-after api222 -m Empty API commit"));
+	assert.ok(calls.includes("jj bookmark set feature/api -r empty123"));
+});
+
+test("applyJjWorkspaceOperation fast creates an empty top commit from cached stack context", async () => {
+	const cachedState = await loadJjWorkspaceState("/repo", createStateRunner(), {
+		appliedStackIds: ["feature/api"],
+	});
+	(cachedState as typeof cachedState & { stateVersion: number }).stateVersion = 9;
+	const calls: string[] = [];
+	const result = await applyJjWorkspaceOperation(
+		"/repo",
+		{
+			operation: { kind: "create_commit", stackId: "feature/api", message: "Fast empty commit" },
+			operationContext: {
+				stateVersion: 9,
+				stackId: "feature/api",
+				headCommitId: "api222",
+				orderedCommitIds: ["root111", "api222"],
+				selectedCommitId: "api222",
+				nextLowerCommitId: "root111",
+			},
+		},
+		async ({ command, args }) => {
+			const joined = `${command} ${args.join(" ")}`;
+			calls.push(joined);
+			if (joined === "jj new --no-edit --insert-after api222 -m Fast empty commit") {
+				return ok("Created new commit empty-fast");
+			}
+			if (joined === "jj bookmark set feature/api -r empty-fast") {
+				return ok("Moved bookmark");
+			}
+			return fail(joined);
+		},
+		cachedState,
+	);
+
+	assert.equal(result.ok, true);
+	assert.equal(result.cacheUpdate, "stacks");
+	assert.deepEqual(result.cachePayload?.stacks?.[0]?.commits.map((commit) => commit.commitId), [
+		"root111",
+		"api222",
+		"empty-fast",
+	]);
+	assert.equal(result.cachePayload?.stacks?.[0]?.headCommitId, "empty-fast");
+	assert.deepEqual(calls, [
+		"jj new --no-edit --insert-after api222 -m Fast empty commit",
+		"jj bookmark set feature/api -r empty-fast",
 	]);
 });
 
@@ -940,9 +1076,12 @@ test("applyJjWorkspaceOperation abandons non-head commits normally", async () =>
 
 	assert.equal(result.ok, true);
 	assert.equal(result.operation.kind, "abandon_commit");
-	assert.deepEqual(result.affectedStackIds, []);
+	assert.equal(result.cacheUpdate, "stacks");
+	assert.deepEqual(result.affectedStackIds, ["feature/api"]);
 	assert.deepEqual(result.affectedCommitIds, ["root111"]);
-	assert.equal(calls.at(-1), "jj abandon root111");
+	assert.equal(result.cachePayload?.stacks?.[0]?.stackId, "feature/api");
+	assert.equal(result.invalidateTags?.includes("Stacks"), false);
+	assert.ok(calls.includes("jj abandon root111"));
 });
 
 test("applyJjWorkspaceOperation moves stack bookmark before abandoning a stack head", async () => {
@@ -967,9 +1106,53 @@ test("applyJjWorkspaceOperation moves stack bookmark before abandoning a stack h
 
 	assert.equal(result.ok, true);
 	assert.equal(result.operation.kind, "abandon_commit");
+	assert.equal(result.cacheUpdate, "stacks");
 	assert.deepEqual(result.affectedStackIds, ["feature/api"]);
 	assert.deepEqual(result.affectedCommitIds, ["api222", "root111"]);
-	assert.deepEqual(calls.slice(-2), [
+	assert.equal(result.cachePayload?.stacks?.[0]?.stackId, "feature/api");
+	assert.equal(result.invalidateTags?.includes("Stacks"), false);
+	assert.ok(calls.includes("jj bookmark set --allow-backwards feature/api -r root111"));
+	assert.ok(calls.includes("jj abandon api222"));
+});
+
+test("applyJjWorkspaceOperation fast abandons a stack head from cached stack context", async () => {
+	const cachedState = await loadJjWorkspaceState("/repo", createStateRunner(), {
+		appliedStackIds: ["feature/api"],
+	});
+	(cachedState as typeof cachedState & { stateVersion: number }).stateVersion = 10;
+	const calls: string[] = [];
+	const result = await applyJjWorkspaceOperation(
+		"/repo",
+		{
+			operation: { kind: "abandon_commit", commitId: "api222" },
+			operationContext: {
+				stateVersion: 10,
+				stackId: "feature/api",
+				headCommitId: "api222",
+				orderedCommitIds: ["root111", "api222"],
+				selectedCommitId: "api222",
+				nextLowerCommitId: "root111",
+			},
+		},
+		async ({ command, args }) => {
+			const joined = `${command} ${args.join(" ")}`;
+			calls.push(joined);
+			if (joined === "jj bookmark set --allow-backwards feature/api -r root111") {
+				return ok("Moved bookmark");
+			}
+			if (joined === "jj abandon api222") {
+				return ok("Abandoned");
+			}
+			return fail(joined);
+		},
+		cachedState,
+	);
+
+	assert.equal(result.ok, true);
+	assert.equal(result.cacheUpdate, "stacks");
+	assert.deepEqual(result.cachePayload?.stacks?.[0]?.commits.map((commit) => commit.commitId), ["root111"]);
+	assert.equal(result.cachePayload?.stacks?.[0]?.headCommitId, "root111");
+	assert.deepEqual(calls, [
 		"jj bookmark set --allow-backwards feature/api -r root111",
 		"jj abandon api222",
 	]);
@@ -997,9 +1180,12 @@ test("applyJjWorkspaceOperation retains bookmarks when abandoning a one-commit s
 
 	assert.equal(result.ok, true);
 	assert.equal(result.operation.kind, "abandon_commit");
+	assert.equal(result.cacheUpdate, "stacks");
 	assert.deepEqual(result.affectedStackIds, ["feature/api"]);
 	assert.deepEqual(result.affectedCommitIds, ["api222"]);
-	assert.equal(calls.at(-1), "jj abandon --retain-bookmarks api222");
+	assert.equal(result.cachePayload?.stacks?.[0]?.stackId, "feature/api");
+	assert.equal(result.invalidateTags?.includes("Stacks"), false);
+	assert.ok(calls.includes("jj abandon --retain-bookmarks api222"));
 });
 
 test("applyJjWorkspaceOperation creates an empty commit relative to a target commit", async () => {
@@ -1021,11 +1207,15 @@ test("applyJjWorkspaceOperation creates an empty commit relative to a target com
 
 	assert.equal(result.ok, true);
 	assert.equal(result.operation.kind, "add_empty_commit");
-	assert.equal(calls.at(-1), "jj new --insert-before api222 --no-edit -m Prep API commit");
+	assert.equal(result.cacheUpdate, "stacks");
+	assert.equal(result.cachePayload?.stacks?.[0]?.stackId, "feature/api");
+	assert.equal(result.invalidateTags?.includes("Stacks"), false);
+	assert.ok(calls.includes("jj new --insert-before api222 --no-edit -m Prep API commit"));
 });
 
 test("applyJjWorkspaceOperation creates a bookmark at the target commit", async () => {
 	const calls: string[] = [];
+	let created = false;
 	const baseRunner = createStateRunner(calls);
 	const result = await applyJjWorkspaceOperation(
 		"/repo",
@@ -1033,7 +1223,34 @@ test("applyJjWorkspaceOperation creates a bookmark at the target commit", async 
 		async (input) => {
 			const joined = `${input.command} ${input.args.join(" ")}`;
 			calls.push(joined);
+			if (
+				created &&
+				(
+					joined.startsWith("jj bookmark list --all-remotes --ignore-working-copy --at-op=@ --revisions all() ~ ::main@origin --template ") ||
+					joined.startsWith("jj bookmark list --all-remotes --ignore-working-copy --at-op=@ --revisions all() ~ ::trunk() --template ")
+				)
+			) {
+				return ok([
+					"feature/api\t\tapi222\t22222222\t1\t0",
+					"feature/api\tgit\tapi222\t22222222\t1\t1",
+					"feature/api\torigin\tapi222\t22222222\t1\t1",
+					"feature/new-api\t\tapi222\t22222222\t1\t0",
+				].join("\n"));
+			}
+			if (created && joined.startsWith("jj log --ignore-working-copy --at-op=@ --revisions (::(")) {
+				return ok([
+					"root111\t11111111\tMain\tAlice\talice@example.com\t2026-01-01T10:00:00Z\t\tmain\tmain@origin\t0",
+					"api222\t22222222\tAPI change\tBob\tbob@example.com\t2026-01-01T11:00:00Z\troot111\tfeature/api|feature/new-api\tfeature/api@origin\t1",
+				].join("\n"));
+			}
+			if (created && joined.startsWith('jj log --ignore-working-copy --at-op=@ --revisions (::"feature/new-api")')) {
+				return ok([
+					"root111\t11111111\tMain\tAlice\talice@example.com\t2026-01-01T10:00:00Z\t\tmain\tmain@origin\t0",
+					"api222\t22222222\tAPI change\tBob\tbob@example.com\t2026-01-01T11:00:00Z\troot111\tfeature/api feature/new-api\tfeature/api@origin\t1",
+				].join("\n"));
+			}
 			if (joined === "jj bookmark create feature/new-api -r api222") {
+				created = true;
 				return ok("Created 1 bookmarks");
 			}
 			calls.pop();
@@ -1043,7 +1260,10 @@ test("applyJjWorkspaceOperation creates a bookmark at the target commit", async 
 
 	assert.equal(result.ok, true);
 	assert.equal(result.operation.kind, "create_bookmark");
-	assert.equal(calls.at(-1), "jj bookmark create feature/new-api -r api222");
+	assert.equal(result.cacheUpdate, "stacks");
+	assert.equal(result.cachePayload?.stacks?.[0]?.stackId, "feature/new-api");
+	assert.equal(result.invalidateTags?.includes("Stacks"), false);
+	assert.ok(calls.includes("jj bookmark create feature/new-api -r api222"));
 });
 
 test("applyJjWorkspaceOperation renames and deletes stack bookmarks", async () => {
@@ -1063,7 +1283,10 @@ test("applyJjWorkspaceOperation renames and deletes stack bookmarks", async () =
 		},
 	);
 	assert.equal(renameResult.ok, true);
-	assert.equal(renameCalls.at(-1), "jj bookmark rename feature/api feature/api-v2");
+	assert.equal(renameResult.cacheUpdate, "stacks");
+	assert.deepEqual(renameResult.cachePayload?.removedStackIds, ["feature/api"]);
+	assert.equal(renameResult.invalidateTags?.includes("Stacks"), false);
+	assert.ok(renameCalls.includes("jj bookmark rename feature/api feature/api-v2"));
 
 	const deleteCalls: string[] = [];
 	const deleteBaseRunner = createStateRunner(deleteCalls);
@@ -1081,7 +1304,10 @@ test("applyJjWorkspaceOperation renames and deletes stack bookmarks", async () =
 		},
 	);
 	assert.equal(deleteResult.ok, true);
-	assert.equal(deleteCalls.at(-1), "jj bookmark delete feature/api");
+	assert.equal(deleteResult.cacheUpdate, "stacks");
+	assert.deepEqual(deleteResult.cachePayload?.removedStackIds, ["feature/api"]);
+	assert.equal(deleteResult.invalidateTags?.includes("Stacks"), false);
+	assert.ok(deleteCalls.includes("jj bookmark delete feature/api"));
 	assert.equal(deleteCalls.some((call) => call.includes("abandon")), false);
 });
 
@@ -1104,7 +1330,10 @@ test("applyJjWorkspaceOperation squashes stack commits into the head", async () 
 
 	assert.equal(result.ok, true);
 	assert.equal(result.operation.kind, "squash_stack");
-	assert.equal(calls.at(-1), "jj squash --from root111 --into api222 --use-destination-message");
+	assert.equal(result.cacheUpdate, "stacks");
+	assert.equal(result.cachePayload?.stacks?.[0]?.stackId, "feature/api");
+	assert.equal(result.invalidateTags?.includes("Stacks"), false);
+	assert.ok(calls.includes("jj squash --from root111 --into api222 --use-destination-message"));
 });
 
 test("previewJjWorkspaceOperation previews commit edit mode", async () => {

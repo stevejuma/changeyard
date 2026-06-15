@@ -48,6 +48,16 @@ export type NeutralOperation =
 	| { kind: "undo" }
 	| { kind: "redo" };
 
+export type NeutralOperationContext = {
+	stateVersion?: number;
+	stackId?: string;
+	headCommitId?: string | null;
+	orderedCommitIds?: string[];
+	selectedCommitId?: string | null;
+	nextLowerCommitId?: string | null;
+};
+
 export type NeutralOperationRequest = {
 	operation: NeutralOperation;
+	operationContext?: NeutralOperationContext;
 };

@@ -34,6 +34,110 @@ import type {
 } from "./types.js";
 
 type GitWorkspaceStateResult = Awaited<ReturnType<typeof loadGitWorkspaceState>>;
+type JjWorkspaceStateResult = Awaited<ReturnType<typeof loadJjWorkspaceState>>;
+type NeutralWorkspaceStateResult = {
+	provider: string;
+	headId: string | null;
+	mode: string;
+	conflicts: unknown[];
+	workingCopy: unknown;
+	stacks: Array<{ stackId: string; commits: Array<{ commitId: string }> }>;
+	appliedStackIds: string[];
+	stateVersion?: number;
+} & Record<string, unknown>;
+
+type WorkspaceStateCacheEntry = {
+	key: string;
+	repoRoot: string;
+	stateVersion: number;
+	state: NeutralWorkspaceStateResult;
+};
+
+const workspaceStateCache = new Map<string, WorkspaceStateCacheEntry>();
+const latestWorkspaceStateCacheKeyByRepo = new Map<string, string>();
+let nextWorkspaceStateVersion = 1;
+
+function workspaceStateCacheKey(repoRoot: string, input?: { targetRef?: string | null; appliedStackIds?: string[] }) {
+	const targetRef = input?.targetRef ?? "";
+	const appliedStackIds = [...(input?.appliedStackIds ?? [])].sort().join("\x1f");
+	return `${repoRoot}\x00${targetRef}\x00${appliedStackIds}`;
+}
+
+function cacheWorkspaceState(
+	repoRoot: string,
+	input: { targetRef?: string | null; appliedStackIds?: string[] } | undefined,
+	state: Record<string, unknown>,
+) {
+	const key = workspaceStateCacheKey(repoRoot, input);
+	const stateVersion = nextWorkspaceStateVersion++;
+	const versionedState = { ...state, stateVersion } as NeutralWorkspaceStateResult;
+	workspaceStateCache.set(key, { key, repoRoot, stateVersion, state: versionedState });
+	latestWorkspaceStateCacheKeyByRepo.set(repoRoot, key);
+	return versionedState;
+}
+
+function getLatestWorkspaceStateCache(repoRoot: string, stateVersion?: number | null): WorkspaceStateCacheEntry | null {
+	const key = latestWorkspaceStateCacheKeyByRepo.get(repoRoot);
+	const entry = key ? workspaceStateCache.get(key) ?? null : null;
+	if (!entry) {
+		return null;
+	}
+	if (stateVersion !== undefined && stateVersion !== null && entry.stateVersion !== stateVersion) {
+		return null;
+	}
+	return entry;
+}
+
+function patchCachedWorkspaceState(entry: WorkspaceStateCacheEntry, result: Awaited<ReturnType<typeof applyJjWorkspaceOperation>>) {
+	if (!result.ok || !result.cacheUpdate || result.cacheUpdate === "none" || result.cacheUpdate === "workspace" || !result.cachePayload) {
+		return;
+	}
+	const state = entry.state;
+	const payload = result.cachePayload;
+	if (payload.headId !== undefined) {
+		state.headId = payload.headId;
+	}
+	if (payload.mode !== undefined) {
+		state.mode = payload.mode;
+	}
+	if (payload.appliedStackIds) {
+		state.appliedStackIds = payload.appliedStackIds;
+	}
+	if (payload.conflicts) {
+		state.conflicts = payload.conflicts;
+	}
+	if (payload.workingCopy) {
+		state.workingCopy = payload.workingCopy;
+	}
+	for (const stackId of payload.removedStackIds ?? []) {
+		state.stacks = state.stacks.filter((stack) => stack.stackId !== stackId);
+		state.appliedStackIds = state.appliedStackIds.filter((appliedStackId) => appliedStackId !== stackId);
+	}
+	for (const stack of payload.stacks ?? []) {
+		const index = state.stacks.findIndex((candidate) => candidate.stackId === stack.stackId);
+		if (index >= 0) {
+			state.stacks[index] = stack;
+		} else {
+			state.stacks.push(stack);
+		}
+	}
+	for (const commit of payload.commits ?? []) {
+		for (const stack of state.stacks) {
+			const index = stack.commits.findIndex((candidate) => candidate.commitId === commit.commitId);
+			if (index >= 0) {
+				stack.commits[index] = commit;
+			}
+		}
+	}
+}
+
+function scheduleWorkspaceStateReconcile(repoRoot: string, input: { targetRef?: string | null; appliedStackIds?: string[] } | undefined) {
+	setTimeout(() => {
+		void getVcsWorkspaceState(repoRoot, input).catch((error: unknown) => {
+			console.warn("Failed to reconcile VCS workspace state after fast operation.", error);
+		});
+	}, 150);
+}
 
 function emptyWorkingCopyState() {
 	return {
@@ -251,19 +355,21 @@ export async function getVcsWorkspaceState(
 	const config = loadConfig(repoRoot);
 	const detect = await detectVcsState(repoRoot, runVcsCommand);
 	if (detect.repository.kind === "jj") {
-		return await loadJjWorkspaceState(repoRoot, runVcsCommand, {
+		const state = await loadJjWorkspaceState(repoRoot, runVcsCommand, {
 			targetBranch: input?.targetRef ?? config.vcs.targetBranch ?? null,
 			appliedStackIds: input?.appliedStackIds ?? config.vcs.appliedStacks ?? [],
 		});
+		return cacheWorkspaceState(repoRoot, input, state);
 	}
 	if (detect.repository.kind === "git") {
-		return await loadGitWorkspaceState(repoRoot, runVcsCommand, {
+		const state = await loadGitWorkspaceState(repoRoot, runVcsCommand, {
 			targetBranch: input?.targetRef ?? config.vcs.targetBranch ?? null,
 			appliedStackIds: input?.appliedStackIds ?? config.vcs.appliedStacks ?? [],
 		});
+		return cacheWorkspaceState(repoRoot, input, state);
 	}
 	const targetRef = input?.targetRef ?? config.vcs.targetBranch ?? detect.jj.defaultBase ?? detect.git.defaultBranch ?? "";
-	return {
+	return cacheWorkspaceState(repoRoot, input, {
 		projectId: repoRoot,
 		provider: "git" as const,
 		targetRef,
@@ -282,7 +388,7 @@ export async function getVcsWorkspaceState(
 				stackIds: [],
 			},
 		],
-	};
+	});
 }
 
 export async function getVcsWorkspaceStacks(
@@ -368,7 +474,15 @@ export async function previewVcsWorkspaceOperation(repoRoot: string, input: Neut
 export async function applyVcsWorkspaceOperation(repoRoot: string, input: NeutralOperationRequest) {
 	const detect = await detectVcsState(repoRoot, runVcsCommand);
 	if (detect.repository.kind === "jj") {
-		return await applyJjWorkspaceOperation(repoRoot, input, runVcsCommand);
+		const cachedEntry = getLatestWorkspaceStateCache(repoRoot, input.operationContext?.stateVersion);
+		const result = await applyJjWorkspaceOperation(repoRoot, input, runVcsCommand, cachedEntry?.state.provider === "jj" ? cachedEntry.state as never : null);
+		if (cachedEntry) {
+			patchCachedWorkspaceState(cachedEntry, result);
+			if (result.ok && result.cacheUpdate && result.cacheUpdate !== "workspace") {
+				scheduleWorkspaceStateReconcile(repoRoot, undefined);
+			}
+		}
+		return result;
 	}
 	if (detect.repository.kind === "git") {
 		const config = loadConfig(repoRoot);

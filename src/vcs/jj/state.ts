@@ -23,7 +23,7 @@ export async function loadJjState(
 	runner: VcsCommandRunner,
 	options: LoadJjStateOptions = {},
 ): Promise<VcsJjStateResult> {
-	const detect = await detectVcsState(cwd, runner);
+	const detect = await detectVcsState(cwd, runner, { includePublishingAuth: false });
 	return await loadJjStateFromDetect(cwd, runner, detect, options);
 }
 

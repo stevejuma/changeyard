@@ -37,10 +37,12 @@ import type {
 	VcsDiffResult,
 	VcsOperationPreview,
 	VcsOperationResult,
+	VcsWorkspaceCommit,
 	VcsWorkspaceOperationInput,
 	VcsWorkspaceStack,
 	VcsWorkspaceState,
 	VcsWorkspaceStateInput,
+	VcsWorkingCopyState,
 } from "@/vcs-workspace-contracts";
 
 export type VcsApiTag =
@@ -76,6 +78,25 @@ export const VCS_WORKSPACE_OPERATION_INVALIDATION_TAGS = [
 	"OperationDetails",
 	"RepositoryLog",
 ] satisfies VcsApiTag[];
+
+const VCS_API_TAGS = new Set<VcsApiTag>([
+	"Stacks",
+	"StackDetails",
+	"WorktreeChanges",
+	"BranchListing",
+	"BranchDetails",
+	"HeadSha",
+	"BaseBranchData",
+	"DivergentBookmarks",
+	"Diff",
+	"CommitChanges",
+	"ProjectConfig",
+	"VcsDetection",
+	"OperationHistory",
+	"OperationDetails",
+	"RepositoryLog",
+	"Projects",
+]);
 
 type WorkspaceQueryArg = {
 	workspaceId: string;
@@ -163,6 +184,96 @@ function errorMessage(error: unknown, fallback: string): string {
 		return error.message;
 	}
 	return fallback;
+}
+
+function normalizeVcsApiTags(tags: readonly string[] | undefined): VcsApiTag[] {
+	if (!tags) {
+		return [];
+	}
+	return tags.filter((tag): tag is VcsApiTag => VCS_API_TAGS.has(tag as VcsApiTag));
+}
+
+function replaceWorkspaceCommit(draft: VcsWorkspaceState, commit: VcsWorkspaceCommit): boolean {
+	let replaced = false;
+	for (const stack of draft.stacks) {
+		const index = stack.commits.findIndex((candidate) => candidate.commitId === commit.commitId);
+		if (index >= 0) {
+			stack.commits[index] = {
+				...commit,
+				stackIds: commit.stackIds.length > 0 ? commit.stackIds : stack.commits[index]?.stackIds ?? [stack.stackId],
+			};
+			replaced = true;
+		}
+	}
+	return replaced;
+}
+
+function replaceWorkspaceStack(draft: VcsWorkspaceState, stack: VcsWorkspaceStack): void {
+	const index = draft.stacks.findIndex((candidate) => candidate.stackId === stack.stackId);
+	if (index >= 0) {
+		draft.stacks[index] = {
+			...stack,
+			isApplied: draft.stacks[index]?.isApplied ?? stack.isApplied,
+		};
+		return;
+	}
+	draft.stacks.push(stack);
+}
+
+function patchWorkspaceWorkingCopy(draft: VcsWorkspaceState, workingCopy: VcsWorkingCopyState | null | undefined): void {
+	if (workingCopy) {
+		draft.workingCopy = workingCopy;
+	}
+}
+
+export function patchWorkspaceStateFromOperationResult(draft: VcsWorkspaceState, result: VcsOperationResult): boolean {
+	if (!result.ok || !result.cacheUpdate || result.cacheUpdate === "none") {
+		return true;
+	}
+	if (result.cacheUpdate === "workspace") {
+		return false;
+	}
+	const payload = result.cachePayload;
+	if (!payload) {
+		return false;
+	}
+	if (payload.headId !== undefined) {
+		draft.headId = payload.headId;
+	}
+	if (payload.mode !== undefined) {
+		draft.mode = payload.mode;
+	}
+	if (payload.appliedStackIds) {
+		draft.appliedStackIds = payload.appliedStackIds;
+	}
+	if (payload.conflicts) {
+		draft.conflicts = payload.conflicts;
+	}
+	if (result.cacheUpdate === "commits") {
+		const commits = payload.commits ?? [];
+		return commits.length > 0 && commits.every((commit) => replaceWorkspaceCommit(draft, commit));
+	}
+	if (result.cacheUpdate === "stacks") {
+		for (const stackId of payload.removedStackIds ?? []) {
+			draft.stacks = draft.stacks.filter((stack) => stack.stackId !== stackId);
+			draft.appliedStackIds = draft.appliedStackIds.filter((appliedStackId) => appliedStackId !== stackId);
+		}
+		for (const stack of payload.stacks ?? []) {
+			replaceWorkspaceStack(draft, stack);
+		}
+		return Boolean((payload.stacks?.length ?? 0) > 0 || (payload.removedStackIds?.length ?? 0) > 0);
+	}
+	if (result.cacheUpdate === "working_copy") {
+		for (const stack of payload.stacks ?? []) {
+			replaceWorkspaceStack(draft, stack);
+		}
+		for (const commit of payload.commits ?? []) {
+			replaceWorkspaceCommit(draft, commit);
+		}
+		patchWorkspaceWorkingCopy(draft, payload.workingCopy);
+		return true;
+	}
+	return false;
 }
 
 export function toRuntimeQueryState<T>(result: RtkResult<T>, message: string): QueryState<T> {
@@ -582,7 +693,27 @@ export const vcsApi = createApi({
 					return { error };
 				}
 			},
-			invalidatesTags: VCS_WORKSPACE_OPERATION_INVALIDATION_TAGS,
+			onQueryStarted: async (arg, { dispatch, queryFulfilled }) => {
+				try {
+					const { data } = await queryFulfilled;
+					let patched = false;
+					if (data.ok && data.cacheUpdate && data.cacheUpdate !== "workspace") {
+						dispatch(
+							vcsApi.util.updateQueryData("getVcsWorkspaceState", { workspaceId: arg.workspaceId }, (draft) => {
+								patched = patchWorkspaceStateFromOperationResult(draft, data);
+							}),
+						);
+					}
+					const invalidateTags = patched
+						? normalizeVcsApiTags(data.invalidateTags)
+						: VCS_WORKSPACE_OPERATION_INVALIDATION_TAGS;
+					if (invalidateTags.length > 0) {
+						dispatch(vcsApi.util.invalidateTags(invalidateTags));
+					}
+				} catch {
+					dispatch(vcsApi.util.invalidateTags(VCS_WORKSPACE_OPERATION_INVALIDATION_TAGS));
+				}
+			},
 		}),
 		getRepositoryCommitDiff: builder.query<RuntimeGitCommitDiffResponse, CommitDiffQueryArg>({
 			queryFn: async ({ workspaceId, commitHash }, { signal }) => {

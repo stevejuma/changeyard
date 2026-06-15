@@ -3,6 +3,10 @@ import { redactSecrets, runVcsCommand, type RunVcsCommandInput, type VcsCommandR
 
 export type VcsCommandRunner = (input: RunVcsCommandInput) => Promise<VcsCommandResult>;
 
+export interface DetectVcsStateOptions {
+	includePublishingAuth?: boolean;
+}
+
 function createDiagnostic(level: VcsDiagnostic["level"], code: string, message: string): VcsDiagnostic {
 	return { level, code, message };
 }
@@ -136,7 +140,9 @@ async function readGithubAuth(provider: VcsProvider, cwd: string, runner: VcsCom
 export async function detectVcsState(
 	cwd: string,
 	runner: VcsCommandRunner = runVcsCommand,
+	options: DetectVcsStateOptions = {},
 ): Promise<VcsDetectResult> {
+	const includePublishingAuth = options.includePublishingAuth ?? true;
 	const diagnostics: VcsDiagnostic[] = [];
 
 	const jjVersionResult = await runner({
@@ -208,7 +214,13 @@ export async function detectVcsState(
 		remoteName && repository.kind !== "none"
 			? await readGitDefaultBranch(repoCwd, remoteName, runner)
 			: null;
-	const publishingAuth = await readGithubAuth(provider, repoCwd, runner);
+	const publishingAuth = includePublishingAuth
+		? await readGithubAuth(provider, repoCwd, runner)
+		: {
+				available: provider === "github",
+				authenticated: false,
+				reason: provider === "github" ? "Publishing auth was not checked for this workspace state read." : null,
+			};
 
 	if (!remoteName) {
 		diagnostics.push(createDiagnostic("info", "remote_missing", "No Git remote is configured yet."));

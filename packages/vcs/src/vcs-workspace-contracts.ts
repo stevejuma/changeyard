@@ -23,6 +23,7 @@ export interface VcsWorkspaceCapabilities {
 export interface VcsWorkspaceState {
 	projectId: string;
 	provider: VcsProviderKind;
+	stateVersion?: number;
 	targetRef: string;
 	headId: string | null;
 	mode: VcsWorkspaceMode;
@@ -173,6 +174,28 @@ export interface VcsOperationPreview {
 	diagnostics: VcsDiagnostic[];
 }
 
+export type VcsOperationCacheUpdateKind = "none" | "commits" | "stacks" | "working_copy" | "workspace";
+
+export interface VcsOperationCachePayload {
+	commits?: VcsWorkspaceCommit[];
+	stacks?: VcsWorkspaceStack[];
+	removedStackIds?: string[];
+	workingCopy?: VcsWorkingCopyState | null;
+	conflicts?: VcsWorkspaceConflict[];
+	headId?: string | null;
+	mode?: VcsWorkspaceMode;
+	appliedStackIds?: string[];
+}
+
+export interface VcsOperationTiming {
+	totalMs?: number;
+	commandMs?: number;
+	updateReadMs?: number;
+	commandCount?: number;
+	fallbackReason?: string;
+	reconcileMs?: number;
+}
+
 export interface VcsOperationResult {
 	ok: boolean;
 	operation: VcsWorkspaceOperation;
@@ -183,6 +206,10 @@ export interface VcsOperationResult {
 	affectedPaths: string[];
 	recovery: VcsOperationRecovery | null;
 	diagnostics: VcsDiagnostic[];
+	cacheUpdate?: VcsOperationCacheUpdateKind;
+	cachePayload?: VcsOperationCachePayload | null;
+	invalidateTags?: string[];
+	timing?: VcsOperationTiming | null;
 }
 
 export interface VcsOperationRecovery {
@@ -211,9 +238,19 @@ export interface VcsWorkspaceStateInput {
 	appliedStackIds?: string[];
 }
 
+export interface VcsWorkspaceOperationContext {
+	stateVersion?: number;
+	stackId?: string;
+	headCommitId?: string | null;
+	orderedCommitIds?: string[];
+	selectedCommitId?: string | null;
+	nextLowerCommitId?: string | null;
+}
+
 export interface VcsWorkspaceOperationInput {
 	projectId: string;
 	operation: VcsWorkspaceOperation;
+	operationContext?: VcsWorkspaceOperationContext;
 }
 
 export interface VcsWorkspaceEngine {
