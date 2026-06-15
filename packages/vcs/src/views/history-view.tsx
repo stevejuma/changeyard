@@ -83,7 +83,7 @@ const GRAPH_LANE_COLORS = [
 	"var(--color-status-lime)",
 	"var(--color-status-gold)",
 ];
-const REMOTE_LANE_COLOR = "color-mix(in srgb, var(--color-status-blue) 75%, white 10%)";
+const REMOTE_LANE_COLOR = "color-mix(in srgb, var(--color-status-blue) 78%, var(--color-surface-0))";
 const GRAPH_ROW_HEIGHT = 90;
 const GRAPH_LANE_WIDTH = 12;
 const GRAPH_NODE_RADIUS = 4;

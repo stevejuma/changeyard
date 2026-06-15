@@ -96,7 +96,7 @@ const ACTIVE_GRAPH_LANE_COLORS = [
 	"var(--color-status-lime)",
 	"var(--color-status-gold)",
 ];
-const ACTIVE_GRAPH_REMOTE_LANE_COLOR = "color-mix(in srgb, var(--color-status-blue) 75%, white 10%)";
+const ACTIVE_GRAPH_REMOTE_LANE_COLOR = "color-mix(in srgb, var(--color-status-blue) 78%, var(--color-surface-0))";
 const ACTIVE_GRAPH_LANE_WIDTH = 12;
 const ACTIVE_GRAPH_NODE_RADIUS = 4;
 const ACTIVE_GRAPH_LEFT_PAD = 8;

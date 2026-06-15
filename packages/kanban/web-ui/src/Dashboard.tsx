@@ -131,19 +131,19 @@ export default function Dashboard(): ReactElement {
 
 				<section className="grid gap-3 md:grid-cols-4">
 					<div className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-1)] p-4">
-						<div className="text-xs uppercase text-[var(--color-text-muted)]">Projects</div>
+						<div className="text-xs uppercase text-text-tertiary">Projects</div>
 						<div className="mt-2 text-3xl font-semibold">{projects.length}</div>
 					</div>
 					<div className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-1)] p-4">
-						<div className="text-xs uppercase text-[var(--color-text-muted)]">Active Tasks</div>
+						<div className="text-xs uppercase text-text-tertiary">Active Tasks</div>
 						<div className="mt-2 text-3xl font-semibold">{taskCounts.active}</div>
 					</div>
 					<div className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-1)] p-4">
-						<div className="text-xs uppercase text-[var(--color-text-muted)]">Ready For Review</div>
+						<div className="text-xs uppercase text-text-tertiary">Ready For Review</div>
 						<div className="mt-2 text-3xl font-semibold">{taskCounts.review}</div>
 					</div>
 					<div className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-1)] p-4">
-						<div className="text-xs uppercase text-[var(--color-text-muted)]">Connected Clients</div>
+						<div className="text-xs uppercase text-text-tertiary">Connected Clients</div>
 						<div className="mt-2 text-3xl font-semibold">{hubClients?.total ?? 0}</div>
 					</div>
 				</section>
@@ -152,11 +152,11 @@ export default function Dashboard(): ReactElement {
 					<div className="flex flex-wrap items-center justify-between gap-3">
 						<div>
 							<h2 className="text-sm font-semibold">Hub Clients</h2>
-							<p className="mt-1 text-xs text-[var(--color-text-muted)]">
+							<p className="mt-1 text-xs text-text-tertiary">
 								Live browser and terminal clients connected to this runtime.
 							</p>
 						</div>
-						<div className="text-xs text-[var(--color-text-muted)]">{hubClients?.total ?? 0} connected</div>
+						<div className="text-xs text-text-tertiary">{hubClients?.total ?? 0} connected</div>
 					</div>
 					<div className="mt-4 grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
 						{Object.entries(CLIENT_SURFACE_LABELS).map(([surface, label]) => (
@@ -164,7 +164,7 @@ export default function Dashboard(): ReactElement {
 								key={surface}
 								className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2"
 							>
-								<div className="text-[11px] uppercase text-[var(--color-text-muted)]">{label}</div>
+								<div className="text-[11px] uppercase text-text-tertiary">{label}</div>
 								<div className="mt-1 text-xl font-semibold">
 									{clientCounts[surface as keyof typeof clientCounts] ?? 0}
 								</div>
@@ -181,7 +181,7 @@ export default function Dashboard(): ReactElement {
 									<span className="truncate text-[var(--color-text-secondary)]">
 										{client.workspaceId ?? "No workspace"}
 									</span>
-									<span className="text-[var(--color-text-muted)]">
+									<span className="text-text-tertiary">
 										{new Date(client.connectedAt).toLocaleTimeString()}
 									</span>
 								</div>
@@ -238,7 +238,7 @@ export default function Dashboard(): ReactElement {
 					<div className="flex flex-wrap items-center justify-between gap-3">
 						<div>
 							<div className="text-sm font-medium">{activeProject?.name ?? "No active project"}</div>
-							<div className="mt-1 text-xs text-[var(--color-text-muted)]">
+							<div className="mt-1 text-xs text-text-tertiary">
 								{activeProject?.path ?? "Add a project from the Kanban workspace to begin."}
 							</div>
 						</div>

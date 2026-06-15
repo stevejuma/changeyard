@@ -24,6 +24,8 @@ export type ThemeDefinition = {
 	readonly accent: string;
 	readonly accent2: string;
 	readonly surface: string;
+	readonly accentFg: string;
+	readonly accent2Fg: string;
 };
 
 export type ThemeTerminalColors = {
@@ -36,17 +38,116 @@ export type ThemeTerminalColors = {
 };
 
 export const THEMES: readonly ThemeDefinition[] = [
-	{ id: "default", label: "Default", group: "dark", accent: "#0084FF", accent2: "#7C5CFF", surface: "#1F2428" },
-	{ id: "graphite", label: "Graphite", group: "dark", accent: "#D4915C", accent2: "#7A8F9C", surface: "#1E1E1E" },
-	{ id: "midnight", label: "Midnight", group: "dark", accent: "#6366F1", accent2: "#EC4899", surface: "#121214" },
-	{ id: "pitch", label: "Pitch", group: "dark", accent: "#2DD4BF", accent2: "#6B7280", surface: "#000000" },
-	{ id: "solarized-dark", label: "Solarized Dark", group: "dark", accent: "#268BD2", accent2: "#2AA198", surface: "#002B36" },
-	{ id: "light", label: "Light", group: "light", accent: "#0084FF", accent2: "#7C5CFF", surface: "#FFFFFF" },
-	{ id: "overcast", label: "Overcast", group: "light", accent: "#0D9488", accent2: "#D97706", surface: "#EEF0F3" },
-	{ id: "solarized-light", label: "Solarized Light", group: "light", accent: "#4A7C96", accent2: "#D33682", surface: "#FDF6E3" },
-	{ id: "latte", label: "Latte", group: "light", accent: "#9C8878", accent2: "#7A8F9C", surface: "#FFFFFF" },
-	{ id: "high-contrast-dark", label: "High Contrast Dark", group: "high-contrast", accent: "#FFFFFF", accent2: "#FF4081", surface: "#000000" },
-	{ id: "high-contrast-light", label: "High Contrast Light", group: "high-contrast", accent: "#0050A0", accent2: "#B91C1C", surface: "#FFFFFF" },
+	{
+		id: "default",
+		label: "Default",
+		group: "dark",
+		accent: "#0084FF",
+		accent2: "#7C5CFF",
+		surface: "#1F2428",
+		accentFg: "#FFFFFF",
+		accent2Fg: "#FFFFFF",
+	},
+	{
+		id: "graphite",
+		label: "Graphite",
+		group: "dark",
+		accent: "#D4915C",
+		accent2: "#7A8F9C",
+		surface: "#1E1E1E",
+		accentFg: "#FFFFFF",
+		accent2Fg: "#FFFFFF",
+	},
+	{
+		id: "midnight",
+		label: "Midnight",
+		group: "dark",
+		accent: "#6366F1",
+		accent2: "#EC4899",
+		surface: "#121214",
+		accentFg: "#FFFFFF",
+		accent2Fg: "#FFFFFF",
+	},
+	{
+		id: "pitch",
+		label: "Pitch",
+		group: "dark",
+		accent: "#2DD4BF",
+		accent2: "#6B7280",
+		surface: "#000000",
+		accentFg: "#000000",
+		accent2Fg: "#FFFFFF",
+	},
+	{
+		id: "solarized-dark",
+		label: "Solarized Dark",
+		group: "dark",
+		accent: "#268BD2",
+		accent2: "#2AA198",
+		surface: "#002B36",
+		accentFg: "#FFFFFF",
+		accent2Fg: "#FFFFFF",
+	},
+	{
+		id: "light",
+		label: "Light",
+		group: "light",
+		accent: "#0969DA",
+		accent2: "#6F42C1",
+		surface: "#FFFFFF",
+		accentFg: "#FFFFFF",
+		accent2Fg: "#FFFFFF",
+	},
+	{
+		id: "overcast",
+		label: "Overcast",
+		group: "light",
+		accent: "#0F766E",
+		accent2: "#92400E",
+		surface: "#F3F6FA",
+		accentFg: "#FFFFFF",
+		accent2Fg: "#FFFFFF",
+	},
+	{
+		id: "solarized-light",
+		label: "Solarized Light",
+		group: "light",
+		accent: "#2A6F97",
+		accent2: "#6C5A9A",
+		surface: "#FDF6E3",
+		accentFg: "#FFFFFF",
+		accent2Fg: "#FFFFFF",
+	},
+	{
+		id: "latte",
+		label: "Latte",
+		group: "light",
+		accent: "#6F5D51",
+		accent2: "#5F7180",
+		surface: "#FFFCF8",
+		accentFg: "#FFFFFF",
+		accent2Fg: "#FFFFFF",
+	},
+	{
+		id: "high-contrast-dark",
+		label: "High Contrast Dark",
+		group: "high-contrast",
+		accent: "#FFFFFF",
+		accent2: "#FF4081",
+		surface: "#000000",
+		accentFg: "#000000",
+		accent2Fg: "#FFFFFF",
+	},
+	{
+		id: "high-contrast-light",
+		label: "High Contrast Light",
+		group: "high-contrast",
+		accent: "#0050A0",
+		accent2: "#B91C1C",
+		surface: "#FFFFFF",
+		accentFg: "#FFFFFF",
+		accent2Fg: "#FFFFFF",
+	},
 ];
 
 export const THEME_GROUPS: readonly { key: ThemeGroup; label: string }[] = [

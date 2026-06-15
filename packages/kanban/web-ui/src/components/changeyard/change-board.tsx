@@ -337,12 +337,12 @@ function FileStatusGlyph({ status }: { status: RuntimeChangeyardBoardFileSummary
 	const label = status.charAt(0).toUpperCase();
 	const tone =
 		status === "added" || status === "untracked"
-			? "bg-green-100 text-green-700"
+			? "bg-status-green/15 text-status-green"
 			: status === "deleted"
-				? "bg-red-100 text-red-700"
+				? "bg-status-red/15 text-status-red"
 				: status === "renamed" || status === "copied"
-					? "bg-amber-100 text-amber-700"
-					: "bg-surface-2 text-text-secondary";
+					? "bg-status-gold/15 text-status-gold"
+					: "bg-status-blue/10 text-status-blue";
 	return (
 		<span className={cn("grid h-5 w-5 shrink-0 place-items-center rounded-full text-[10px] font-semibold", tone)}>
 			{label}

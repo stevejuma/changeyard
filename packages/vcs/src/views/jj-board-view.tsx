@@ -688,7 +688,7 @@ function WorkspacePageSkeleton(): React.ReactElement {
 							<div className="kb-skeleton h-4 w-44" />
 							<div className="kb-skeleton ml-auto h-6 w-6 rounded" />
 						</header>
-						<div className="min-h-0 flex-1 bg-[radial-gradient(circle,_rgba(125,125,125,0.18)_1px,_transparent_1px)] [background-size:10px_10px] p-3">
+						<div className="kb-vcs-dot-grid min-h-0 flex-1 p-3">
 							<div className="mb-3 h-11 rounded-lg border border-dashed border-border bg-surface-0/80" />
 							<div className="rounded-lg border border-border bg-surface-0">
 								<div className="border-b border-divider p-3">
@@ -2613,7 +2613,7 @@ function EmptyWorkspaceLanes({
 			onDragLeave={onDragLeave}
 			onDrop={onDrop}
 		>
-			<div className="flex h-full items-center justify-center bg-[radial-gradient(circle,_rgba(125,125,125,0.18)_1px,_transparent_1px)] [background-size:10px_10px] p-8 text-center">
+			<div className="kb-vcs-dot-grid flex h-full items-center justify-center p-8 text-center">
 				<EmptyState title="No stacks applied">
 					Open Branches and apply a local stack to show it in this workspace.
 				</EmptyState>
@@ -2780,7 +2780,7 @@ function WorkspaceStackLane({
 				data-stack-id={stack.id}
 				data-drop-target-state={stackDropTargetState}
 					className={cn(
-						"relative min-h-0 flex-1 overflow-y-auto bg-[radial-gradient(circle,_rgba(125,125,125,0.18)_1px,_transparent_1px)] [background-size:10px_10px] p-3 transition-shadow",
+						"kb-vcs-dot-grid relative min-h-0 flex-1 overflow-y-auto p-3 transition-shadow",
 						workspaceDropTargetClassName(stackDropTargetState),
 					)}
 				onDragOver={onDragOverStack}

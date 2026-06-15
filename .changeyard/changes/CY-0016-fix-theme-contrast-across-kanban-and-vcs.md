@@ -2,13 +2,13 @@
 id: CY-0016
 title: Fix theme contrast across Kanban and VCS
 type: agent-task
-status: synced
+status: merged
 priority: medium
 labels:
   - agent-ready
 author: stevejuma
 createdAt: 2026-06-15T20:09:59.377Z
-updatedAt: 2026-06-15T20:10:48.159Z
+updatedAt: 2026-06-15T20:50:10.888Z
 base:
   vcs: unknown
   revision: main
@@ -24,10 +24,11 @@ remote:
   issueUrl: null
   pullRequestNumber: null
   pullRequestUrl: null
+  mergedLocally: true
 checks:
   profile: standard
-  lastRun: null
-  lastStatus: null
+  lastRun: 2026-06-15T20:27:57.885Z
+  lastStatus: passed
 planning:
   model: openspec-lite
   storage: inline
@@ -43,6 +44,7 @@ planning:
     strictClarifications: skipped
     strictChecklist: skipped
     strictAnalysis: skipped
+mergedAt: 2026-06-15T20:50:10.884Z
 ---
 
 # Summary
