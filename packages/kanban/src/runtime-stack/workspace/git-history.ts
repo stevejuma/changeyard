@@ -642,12 +642,13 @@ function parseCommitNumstatEntries(output: string): CommitDiffStatEntry[] {
 export async function getCommitDiff(options: {
 	cwd: string;
 	commitHash: string;
+	baseCommitHash?: string;
 }): Promise<RuntimeGitCommitDiffResponse> {
 	const engine = await detectWorkspaceEngine(options.cwd);
 	if (engine === "jj") {
 		return await getJjCommitDiff(options);
 	}
-	const { cwd, commitHash } = options;
+	const { cwd, commitHash, baseCommitHash } = options;
 
 	const repoRootResult = await runGit(cwd, ["rev-parse", "--show-toplevel"]);
 	if (!repoRootResult.ok || !repoRootResult.stdout) {
@@ -655,13 +656,21 @@ export async function getCommitDiff(options: {
 	}
 	const repoRoot = repoRootResult.stdout;
 
-	const [nameStatusResult, numstatResult, diffResult] = await Promise.all([
-		runGit(repoRoot, ["diff-tree", "--root", "--no-commit-id", "-r", "-M", "--name-status", "-z", commitHash]),
-		runGit(repoRoot, ["diff-tree", "--root", "--no-commit-id", "-r", "-M", "--numstat", "-z", commitHash]),
-		runGit(repoRoot, ["show", "--format=", "--find-renames", "--patch", "--diff-algorithm=histogram", commitHash], {
-			trimStdout: false,
-		}),
-	]);
+	const [nameStatusResult, numstatResult, diffResult] = baseCommitHash
+		? await Promise.all([
+				runGit(repoRoot, ["diff", "-M", "--name-status", "-z", baseCommitHash, commitHash]),
+				runGit(repoRoot, ["diff", "-M", "--numstat", "-z", baseCommitHash, commitHash]),
+				runGit(repoRoot, ["diff", "--find-renames", "--patch", "--diff-algorithm=histogram", baseCommitHash, commitHash], {
+					trimStdout: false,
+				}),
+			])
+		: await Promise.all([
+				runGit(repoRoot, ["diff-tree", "--root", "--no-commit-id", "-r", "-M", "--name-status", "-z", commitHash]),
+				runGit(repoRoot, ["diff-tree", "--root", "--no-commit-id", "-r", "-M", "--numstat", "-z", commitHash]),
+				runGit(repoRoot, ["show", "--format=", "--find-renames", "--patch", "--diff-algorithm=histogram", commitHash], {
+					trimStdout: false,
+				}),
+			]);
 
 	const filesByKey = new Map<string, RuntimeGitCommitDiffResponse["files"][number]>();
 	const getEntryKey = (path: string, previousPath?: string): string =>
@@ -1025,13 +1034,17 @@ async function getJjRefs(cwd: string): Promise<RuntimeGitRefsResponse> {
 async function getJjCommitDiff(options: {
 	cwd: string;
 	commitHash: string;
+	baseCommitHash?: string;
 }): Promise<RuntimeGitCommitDiffResponse> {
 	const repoRoot = await getJjStdout(["workspace", "root"], options.cwd).catch(() => null);
 	if (!repoRoot) {
 		return { ok: false, commitHash: options.commitHash, files: [], error: "No jj repository detected." };
 	}
 
-	const diffResult = await runJj(repoRoot, ["diff", "--ignore-working-copy", "-r", options.commitHash, "--git"], { trimStdout: false });
+	const diffArgs = options.baseCommitHash
+		? ["diff", "--ignore-working-copy", "--from", options.baseCommitHash, "--to", options.commitHash, "--git"]
+		: ["diff", "--ignore-working-copy", "-r", options.commitHash, "--git"];
+	const diffResult = await runJj(repoRoot, diffArgs, { trimStdout: false });
 	if (!diffResult.ok) {
 		return {
 			ok: false,

@@ -52,6 +52,11 @@
 
 }
 
+:root {
+	--kb-open-target-icon-filter: brightness(0) invert(1);
+	--kb-open-target-icon-opacity: 0.9;
+}
+
 /* -- Theme overrides -------------------------------------------------- */
 /* Each [data-theme] block overrides only the structural palette;
    status colors, typography, and border-radius stay constant.
@@ -175,6 +180,8 @@
 	--color-status-rose: #A40E3B;
 	--color-status-cyan: #0B5F66;
 	--color-status-lime: #3F6212;
+	--kb-open-target-icon-filter: brightness(0) saturate(100%);
+	--kb-open-target-icon-opacity: 0.82;
 }
 
 [data-theme="overcast"] {
@@ -206,6 +213,8 @@
 	--color-status-rose: #A40E3B;
 	--color-status-cyan: #0B5F66;
 	--color-status-lime: #3F6212;
+	--kb-open-target-icon-filter: brightness(0) saturate(100%);
+	--kb-open-target-icon-opacity: 0.82;
 }
 
 [data-theme="solarized-light"] {
@@ -237,6 +246,8 @@
 	--color-status-rose: #A40E3B;
 	--color-status-cyan: #0B5F66;
 	--color-status-lime: #3F6212;
+	--kb-open-target-icon-filter: brightness(0) saturate(100%);
+	--kb-open-target-icon-opacity: 0.82;
 }
 
 [data-theme="latte"] {
@@ -268,6 +279,8 @@
 	--color-status-rose: #A40E3B;
 	--color-status-cyan: #0B5F66;
 	--color-status-lime: #3F6212;
+	--kb-open-target-icon-filter: brightness(0) saturate(100%);
+	--kb-open-target-icon-opacity: 0.82;
 }
 
 /* --- High contrast --------------------------------------------------- */
@@ -322,6 +335,8 @@
 	--color-status-rose: #A40E3B;
 	--color-status-cyan: #0B5F66;
 	--color-status-lime: #3F6212;
+	--kb-open-target-icon-filter: brightness(0) saturate(100%);
+	--kb-open-target-icon-opacity: 1;
 }
 
 
@@ -620,6 +635,11 @@ body.kb-dependency-link-mode {
 	background-color: var(--color-surface-3) !important;
 }
 
+.kb-open-target-icon {
+	filter: var(--kb-open-target-icon-filter);
+	opacity: var(--kb-open-target-icon-opacity);
+}
+
 /* -- Shared UI patterns -- */
 
 .kb-status-banner {
@@ -653,6 +673,113 @@ body.kb-dependency-link-mode {
 .kb-project-row-selected:hover {
 	background: var(--color-accent);
 	color: var(--color-accent-fg);
+}
+
+.vcs-project-nav-item {
+	min-width: 0;
+}
+
+.vcs-project-workspaces {
+	margin: 2px 0 5px;
+	padding-left: 18px;
+}
+
+.vcs-project-workspaces-trigger {
+	display: flex;
+	width: 100%;
+	align-items: center;
+	gap: 4px;
+	border: 0;
+	background: transparent;
+	color: var(--color-text-secondary);
+	cursor: pointer;
+	font-size: 11px;
+	font-weight: 500;
+	line-height: 16px;
+	padding: 2px 4px;
+	text-align: left;
+}
+
+.vcs-project-workspaces-trigger:hover {
+	color: var(--color-text-primary);
+}
+
+.vcs-project-workspaces-label {
+	text-transform: uppercase;
+	letter-spacing: 0;
+}
+
+.vcs-project-workspaces-chevron {
+	color: var(--color-text-tertiary);
+	transform: rotate(0deg);
+	transition: transform 120ms ease;
+}
+
+.vcs-project-workspaces-chevron.is-open {
+	transform: rotate(90deg);
+}
+
+.vcs-project-workspaces-count {
+	margin-left: auto;
+	border-radius: 999px;
+	background: var(--color-surface-3);
+	color: var(--color-text-secondary);
+	font-size: 10px;
+	font-weight: 600;
+	line-height: 14px;
+	min-width: 18px;
+	padding: 0 5px;
+	text-align: center;
+}
+
+.vcs-project-workspace-list {
+	display: grid;
+	gap: 3px;
+	margin-left: 5px;
+	padding-left: 9px;
+	border-left: 1px solid var(--color-border);
+}
+
+.vcs-project-workspace-item {
+	min-width: 0;
+	width: 100%;
+	border: 0;
+	border-radius: 4px;
+	background: var(--color-surface-2);
+	color: inherit;
+	cursor: pointer;
+	font: inherit;
+	padding: 4px 6px;
+	text-align: left;
+}
+
+.vcs-project-workspace-item:hover {
+	background: var(--color-surface-3);
+}
+
+.vcs-project-workspace-item:disabled {
+	cursor: default;
+	opacity: 0.7;
+}
+
+.vcs-project-workspace-name {
+	overflow: hidden;
+	color: var(--color-text-primary);
+	font-size: 11px;
+	font-weight: 500;
+	line-height: 15px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.vcs-project-workspace-detail {
+	overflow: hidden;
+	color: var(--color-text-tertiary);
+	font-family: var(--font-mono);
+	font-size: 10px;
+	line-height: 14px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .kb-project-count-tag {

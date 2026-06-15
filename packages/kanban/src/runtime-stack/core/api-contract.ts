@@ -1226,11 +1226,23 @@ export const runtimeProjectTaskCountsSchema = z.object({
 });
 export type RuntimeProjectTaskCounts = z.infer<typeof runtimeProjectTaskCountsSchema>;
 
+export const runtimeProjectWorkspaceSummarySchema = z.object({
+	id: z.string(),
+	title: z.string(),
+	status: z.string().optional(),
+	engine: z.string().optional(),
+	name: z.string().optional(),
+	path: z.string().optional(),
+	branch: z.string().optional(),
+});
+export type RuntimeProjectWorkspaceSummary = z.infer<typeof runtimeProjectWorkspaceSummarySchema>;
+
 export const runtimeProjectSummarySchema = z.object({
 	id: z.string(),
 	path: z.string(),
 	name: z.string(),
 	taskCounts: runtimeProjectTaskCountsSchema,
+	workspaces: z.array(runtimeProjectWorkspaceSummarySchema).optional(),
 });
 export type RuntimeProjectSummary = z.infer<typeof runtimeProjectSummarySchema>;
 
@@ -2598,6 +2610,7 @@ export type RuntimeGitCommitDiffFile = z.infer<typeof runtimeGitCommitDiffFileSc
 
 export const runtimeGitCommitDiffRequestSchema = z.object({
 	commitHash: z.string(),
+	baseCommitHash: z.string().optional(),
 	taskScope: runtimeTaskWorkspaceInfoRequestSchema.nullable().optional(),
 });
 export type RuntimeGitCommitDiffRequest = z.infer<typeof runtimeGitCommitDiffRequestSchema>;

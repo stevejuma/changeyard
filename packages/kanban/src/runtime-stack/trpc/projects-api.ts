@@ -6,6 +6,7 @@ import type {
 	RuntimeProjectAddResponse,
 	RuntimeProjectSummary,
 	RuntimeProjectTaskCounts,
+	RuntimeProjectWorkspaceSummary,
 } from "../core/api-contract.js";
 import { parseDirectoryListRequest, parseProjectAddRequest, parseProjectRemoveRequest } from "../core/api-validation.js";
 import {
@@ -22,6 +23,7 @@ import { ensureInitialCommit, initializeGitRepository } from "../workspace/initi
 import { isPathWithinRoot } from "../workspace/path-sandbox.js";
 import { deleteTaskWorktree } from "../workspace/task-worktree.js";
 import type { RuntimeTrpcContext } from "./app-router.js";
+import type { RuntimeChangeyardApiAdapter } from "./changes-api.js";
 
 interface DisposeWorkspaceOptions {
 	stopTerminalSessions?: boolean;
@@ -55,15 +57,82 @@ export interface CreateProjectsApiDependencies {
 		projects: RuntimeProjectSummary[];
 	}>;
 	pickDirectoryPathFromSystemDialog: () => string | null;
+	changeyardApi?: RuntimeChangeyardApiAdapter | null;
 	serverCwd: string;
 }
 
 export function createProjectsApi(deps: CreateProjectsApiDependencies): RuntimeTrpcContext["projectsApi"] {
 	const filesystemRoot = resolve(deps.serverCwd, "/");
 
+	async function summarizeProjectWorkspaces(repoPath: string): Promise<RuntimeProjectWorkspaceSummary[]> {
+		if (!deps.changeyardApi) {
+			return [];
+		}
+		try {
+			const changes = await deps.changeyardApi.listChanges(repoPath);
+			const seen = new Set<string>();
+			const workspaces: RuntimeProjectWorkspaceSummary[] = [];
+			for (const change of changes) {
+				const workspace = change.workspace;
+				if (!workspace?.path && !workspace?.branch && !workspace?.name) {
+					continue;
+				}
+				if (workspace.path && !(await workspaceDirectoryExists(repoPath, workspace.path))) {
+					continue;
+				}
+				const id = change.id;
+				if (seen.has(id)) {
+					continue;
+				}
+				seen.add(id);
+				workspaces.push({
+					id,
+					title: change.title,
+					status: change.status,
+					engine: workspace.engine,
+					name: workspace.name,
+					path: workspace.path,
+					branch: workspace.branch,
+				});
+			}
+			return workspaces.sort((a, b) => a.title.localeCompare(b.title));
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			deps.warn(`Failed to summarize project workspaces for ${repoPath}: ${message}`);
+			return [];
+		}
+	}
+
+	async function workspaceDirectoryExists(repoPath: string, workspacePath: string): Promise<boolean> {
+		const absolutePath = isAbsolute(workspacePath) ? workspacePath : resolve(repoPath, workspacePath);
+		try {
+			return (await stat(absolutePath)).isDirectory();
+		} catch {
+			return false;
+		}
+	}
+
+	async function enrichProjectSummary(project: RuntimeProjectSummary): Promise<RuntimeProjectSummary> {
+		const workspaces = await summarizeProjectWorkspaces(project.path);
+		return workspaces.length > 0 ? { ...project, workspaces } : project;
+	}
+
+	async function enrichProjectsPayload(payload: {
+		currentProjectId: string | null;
+		projects: RuntimeProjectSummary[];
+	}): Promise<{
+		currentProjectId: string | null;
+		projects: RuntimeProjectSummary[];
+	}> {
+		return {
+			currentProjectId: payload.currentProjectId,
+			projects: await Promise.all(payload.projects.map((project) => enrichProjectSummary(project))),
+		};
+	}
+
 	return {
 		listProjects: async (preferredWorkspaceId) => {
-			const payload = await deps.buildProjectsPayload(preferredWorkspaceId);
+			const payload = await enrichProjectsPayload(await deps.buildProjectsPayload(preferredWorkspaceId));
 			return {
 				currentProjectId: payload.currentProjectId,
 				projects: payload.projects,
@@ -139,13 +208,16 @@ export function createProjectsApi(deps: CreateProjectsApiDependencies): RuntimeT
 				}
 				const taskCounts = await deps.summarizeProjectTaskCounts(context.workspaceId, context.repoPath);
 				void deps.broadcastRuntimeProjectsUpdated(context.workspaceId);
-				return {
-					ok: true,
-					project: deps.createProjectSummary({
+				const project = await enrichProjectSummary(
+					deps.createProjectSummary({
 						workspaceId: context.workspaceId,
 						repoPath: context.repoPath,
 						taskCounts,
 					}),
+				);
+				return {
+					ok: true,
+					project,
 				} satisfies RuntimeProjectAddResponse;
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);

@@ -106,9 +106,6 @@ export function validateLandingDescription(id: string, description: string | nul
   if (!trimmed || trimmed === "(no description set)") {
     return `Describe the task commit before landing: jj describe -m "${id}: <summary of landed work>"`;
   }
-  if (seedDescription && trimmed === seedDescription.trim()) {
-    return `Replace the generated task description before landing: jj describe -m "${id}: <summary of landed work>"`;
-  }
   if (!trimmed.includes(id)) {
     return `Landing description must include ${id}: jj describe -m "${id}: <summary of landed work>"`;
   }

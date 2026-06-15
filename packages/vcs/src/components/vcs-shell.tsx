@@ -20,6 +20,7 @@ import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 
 import { VcsProjectNavigationPanel } from "@/components/project-navigation-panel";
+import { OpenWorkspaceButton } from "@/components/open-workspace-button";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
@@ -30,6 +31,7 @@ import { StatusChip, type StatusChipTone } from "@/components/ui/status-chip";
 import { VcsFileDiffColumn, VcsInlineFileSection, findFileByPath, type VcsFileChange } from "@/components/vcs-file-columns";
 import { VcsConsolePanel } from "@/components/vcs-console-panel";
 import { KeyValue } from "@/components/vcs-panels";
+import { useOpenWorkspace } from "@/hooks/use-open-workspace";
 import { ResizableBottomPane } from "@/resize/resizable-bottom-pane";
 import type { QueryState, RuntimeGitCommit, RuntimeProjectSummary, RuntimeProjectsResponse } from "@/runtime/types";
 import {
@@ -116,6 +118,7 @@ export type VcsShellProjectState = {
 	onProjectNavCollapsedChange: (collapsed: boolean) => void;
 	onSelectProject: (projectId: string) => void;
 	onAddProject: () => void;
+	onOpenWorkspaceProject: (path: string) => void;
 	onRemoveProject: (projectId: string) => Promise<boolean>;
 	onClearOtherProjects: () => Promise<boolean>;
 	onOpenSettings: () => void;
@@ -410,10 +413,12 @@ function VcsRepositoryStatus({
 	status,
 	isGraphOpen,
 	onToggleGraph,
+	openWorkspaceControl,
 }: {
 	status?: VcsRepositoryStatusState;
 	isGraphOpen: boolean;
 	onToggleGraph: () => void;
+	openWorkspaceControl: ReturnType<typeof useOpenWorkspace>;
 }): React.ReactElement | null {
 	if (!status?.workspacePath || status.workspaceState.status !== "ready") {
 		return null;
@@ -425,7 +430,6 @@ function VcsRepositoryStatus({
 			? status.diffState.data.files
 			: state.workingCopy.files;
 	const summary = summarizeFiles(files);
-	const modeLabel = repositoryModeLabel(state.mode);
 	const modeTone =
 		state.mode === "conflicted"
 			? "border-status-red/40 bg-status-red/10 text-status-red"
@@ -438,9 +442,19 @@ function VcsRepositoryStatus({
 			<span className="min-w-0 truncate font-mono text-xs text-text-secondary" title={status.workspacePath}>
 				{formatPathForDisplay(status.workspacePath)}
 			</span>
-			<span className={cn("inline-flex h-7 shrink-0 items-center rounded-md border px-2 text-xs font-medium", modeTone)}>
-				{modeLabel}
-			</span>
+			<OpenWorkspaceButton
+				options={openWorkspaceControl.openTargetOptions}
+				selectedOptionId={openWorkspaceControl.selectedOpenTargetId}
+				disabled={!openWorkspaceControl.canOpenWorkspace || openWorkspaceControl.isOpeningWorkspace}
+				loading={openWorkspaceControl.isOpeningWorkspace}
+				onOpen={openWorkspaceControl.onOpenWorkspace}
+				onSelectOption={openWorkspaceControl.onSelectOpenTarget}
+			/>
+			{state.mode !== "normal" ? (
+				<span className={cn("inline-flex h-7 shrink-0 items-center rounded-md border px-2 text-xs font-medium", modeTone)}>
+					{repositoryModeLabel(state.mode)}
+				</span>
+			) : null}
 			{activeCommit ? (
 				<Button
 					variant={isGraphOpen ? "primary" : "default"}
@@ -1254,11 +1268,65 @@ export function VcsShell({
 	const [consoleHeight, setConsoleHeight] = useState(() =>
 		readVcsNumberPreference(CONSOLE_HEIGHT_LIMITS.key, CONSOLE_HEIGHT_LIMITS.fallback, CONSOLE_HEIGHT_LIMITS.min, CONSOLE_HEIGHT_LIMITS.max),
 	);
-	const projectName = projectState.currentProject?.name ?? "No project selected";
+	const openWorkspaceControl = useOpenWorkspace({
+		currentProjectId: projectState.currentProjectId,
+		workspacePath: projectState.repositoryStatus?.workspacePath,
+	});
 
 	useEffect(() => {
 		setRepositoryGraphOpen(false);
 	}, [projectState.currentProjectId]);
+
+	const desktopBodyNavigation = (
+		<div className="hidden shrink-0 items-center justify-end gap-1 border-b border-divider bg-surface-0 px-3 py-2 lg:flex">
+			<nav className="flex items-center gap-1" aria-label="VCS views">
+				{navItems.map((item) => {
+					const Icon = item.icon;
+					const active = isVcsNavItemActive(item.href, currentPath);
+					const href = withWorkspaceParam(item.href, projectState.currentProjectId);
+					return (
+						<a
+							key={item.href}
+							href={href}
+							onClick={(event) => {
+								if (!shouldHandleVcsLinkClick(event)) {
+									return;
+								}
+								event.preventDefault();
+								setRepositoryGraphOpen(false);
+								navigate(href);
+							}}
+							aria-current={active ? "page" : undefined}
+							className={cn(
+								"inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-text-secondary hover:bg-surface-2 hover:text-text-primary",
+								active && "bg-surface-3 text-text-primary",
+							)}
+						>
+							<Icon size={14} />
+							<span>{item.label}</span>
+						</a>
+					);
+				})}
+			</nav>
+			<div className="h-5 w-px bg-border" />
+			<nav className="flex items-center gap-1" aria-label="Changeyard surfaces">
+				{surfaceLinks.map((item) => {
+					const Icon = item.icon;
+					return (
+						<a
+							key={item.href}
+							href={item.href}
+							data-changeyard-surface-link
+							className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-text-secondary hover:bg-surface-2 hover:text-text-primary"
+						>
+							<Icon size={14} />
+							<span>{item.label}</span>
+						</a>
+					);
+				})}
+			</nav>
+		</div>
+	);
 
 	return (
 		<div className="flex h-screen min-h-0 bg-surface-0 text-text-primary">
@@ -1270,93 +1338,45 @@ export function VcsShell({
 				onCollapsedChange={projectState.onProjectNavCollapsedChange}
 				onSelectProject={projectState.onSelectProject}
 				onAddProject={projectState.onAddProject}
+				onOpenWorkspaceProject={projectState.onOpenWorkspaceProject}
 				onRemoveProject={projectState.onRemoveProject}
 				onClearOtherProjects={projectState.onClearOtherProjects}
 				/>
 				<div className="flex min-w-0 flex-1 flex-col">
-					<header className="flex min-h-[49px] shrink-0 items-center justify-between gap-3 border-b border-divider bg-surface-1 px-3">
+					<header className="flex h-10 min-h-[40px] shrink-0 items-center justify-between gap-3 border-b border-divider bg-surface-1 px-3">
 						<div className="flex min-w-0 flex-1 items-center gap-3">
-							<div className="min-w-0">
-								<h1 className="truncate text-sm font-semibold text-text-primary">{projectName}</h1>
-							</div>
-							<div className="hidden h-5 w-px shrink-0 bg-border md:block" />
 							<div className="hidden min-w-0 flex-1 md:flex">
 								<VcsRepositoryStatus
 									status={projectState.repositoryStatus}
 									isGraphOpen={isRepositoryGraphOpen}
 									onToggleGraph={() => setRepositoryGraphOpen((current) => !current)}
+									openWorkspaceControl={openWorkspaceControl}
 								/>
-							</div>
 						</div>
-						<div className="flex shrink-0 items-center gap-2">
-						<nav className="hidden items-center gap-1 lg:flex" aria-label="VCS views">
-							{navItems.map((item) => {
-								const Icon = item.icon;
-								const active = isVcsNavItemActive(item.href, currentPath);
-								const href = withWorkspaceParam(item.href, projectState.currentProjectId);
-								return (
-									<a
-										key={item.href}
-										href={href}
-										onClick={(event) => {
-											if (!shouldHandleVcsLinkClick(event)) {
-												return;
-											}
-											event.preventDefault();
-											setRepositoryGraphOpen(false);
-											navigate(href);
-										}}
-										aria-current={active ? "page" : undefined}
-										className={cn(
-											"inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-text-secondary hover:bg-surface-2 hover:text-text-primary",
-											active && "bg-surface-3 text-text-primary",
-										)}
-									>
-										<Icon size={14} />
-										<span>{item.label}</span>
-									</a>
-								);
-							})}
-						</nav>
-						<div className="hidden h-5 w-px bg-border lg:block" />
-						<nav className="hidden items-center gap-1 lg:flex" aria-label="Changeyard surfaces">
-							{surfaceLinks.map((item) => {
-								const Icon = item.icon;
-								return (
-									<a
-										key={item.href}
-										href={item.href}
-										data-changeyard-surface-link
-										className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-text-secondary hover:bg-surface-2 hover:text-text-primary"
-									>
-										<Icon size={14} />
-										<span>{item.label}</span>
-									</a>
-								);
-							})}
-						</nav>
+					</div>
+					<div className="flex shrink-0 items-center gap-2">
 						{actions}
 						<Button
 							variant="ghost"
-							size="sm"
-							icon={<Settings size={14} />}
-							aria-label="Open settings"
-							title="Open settings"
-							onClick={projectState.onOpenSettings}
-						>
-							Settings
-						</Button>
-						<Button
-							variant="default"
-							size="sm"
-							icon={<Terminal size={14} />}
-							disabled={!projectState.currentProjectId}
-							aria-label={isConsoleOpen ? "Close console" : "Open console"}
-							title={projectState.currentProjectId ? (isConsoleOpen ? "Close console" : "Open console") : "Select a project to open console"}
-							onClick={() => setConsoleOpen((current) => !current)}
-						/>
-					</div>
-				</header>
+								size="sm"
+								icon={<Settings size={14} />}
+								aria-label="Open settings"
+								title="Open settings"
+								onClick={projectState.onOpenSettings}
+							>
+								Settings
+							</Button>
+							<Button
+								variant="default"
+								size="sm"
+								icon={<Terminal size={14} />}
+								disabled={!projectState.currentProjectId}
+								aria-label={isConsoleOpen ? "Close console" : "Open console"}
+								title={projectState.currentProjectId ? (isConsoleOpen ? "Close console" : "Open console") : "Select a project to open console"}
+								onClick={() => setConsoleOpen((current) => !current)}
+							/>
+						</div>
+					</header>
 				<nav className="flex shrink-0 gap-1 overflow-x-auto border-b border-border bg-surface-1 px-2 py-2 lg:hidden" aria-label="VCS views">
 					{navItems.map((item) => {
 						const Icon = item.icon;
@@ -1408,10 +1428,11 @@ export function VcsShell({
 							</a>
 						);
 					})}
-					</nav>
-					<main className="min-h-0 flex-1 overflow-hidden bg-surface-0">
-						{isRepositoryGraphOpen ? (
-							<ActiveChangeGraphView
+				</nav>
+				{desktopBodyNavigation}
+				<main className="min-h-0 flex-1 overflow-hidden bg-surface-0">
+					{isRepositoryGraphOpen ? (
+						<ActiveChangeGraphView
 								workspaceId={projectState.currentProjectId}
 								status={projectState.repositoryStatus}
 							/>

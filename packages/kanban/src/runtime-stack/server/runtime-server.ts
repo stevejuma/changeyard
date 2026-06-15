@@ -297,13 +297,14 @@ function writeAssetResponse(request: IncomingMessage, response: ServerResponse, 
 				disposeWorkspace: (workspaceId, options) => {
 					disposeClineTaskSessionService(workspaceId);
 					return deps.disposeWorkspace(workspaceId, options);
-				},
-				collectProjectWorktreeTaskIdsForRemoval: deps.collectProjectWorktreeTaskIdsForRemoval,
-				warn: deps.warn,
-				buildProjectsPayload: deps.workspaceRegistry.buildProjectsPayload,
-				pickDirectoryPathFromSystemDialog: deps.pickDirectoryPathFromSystemDialog,
-				serverCwd: process.cwd(),
-			}),
+					},
+					collectProjectWorktreeTaskIdsForRemoval: deps.collectProjectWorktreeTaskIdsForRemoval,
+					warn: deps.warn,
+					buildProjectsPayload: deps.workspaceRegistry.buildProjectsPayload,
+					pickDirectoryPathFromSystemDialog: deps.pickDirectoryPathFromSystemDialog,
+					changeyardApi: deps.changeyardApi ?? null,
+					serverCwd: process.cwd(),
+				}),
 			hooksApi: createHooksApi({
 				getWorkspacePathById: deps.workspaceRegistry.getWorkspacePathById,
 				ensureTerminalManagerForWorkspace: deps.ensureTerminalManagerForWorkspace,

@@ -1916,13 +1916,8 @@ test("land rebases and lands a described jj workspace task commit without root w
     assert.match(runComplete("CY-0001", { noPr: true }, workspacePath), /Next: cy land CY-0001/);
     assert.equal(parseFrontmatter(readFileSync(rootChangePath, "utf8")).frontmatter.status, "ready");
     assert.equal(parseFrontmatter(readFileSync(workspaceChangePath, "utf8")).frontmatter.status, "ready_for_pr");
-    assert.match(runLand("CY-0001", { dryRun: true }, repo), /landingDescription: blocked/);
+    assert.match(runLand("CY-0001", { dryRun: true }, repo), /landingDescription: ok/);
     assert.match(runLand("CY-0001", { dryRun: true }, repo), /metadataSource: workspace/);
-    assert.throws(
-      () => runLand("CY-0001", {}, repo),
-      /Replace the generated task description before landing: jj describe -m "CY-0001: <summary of landed work>"/,
-    );
-    runCommand("jj", ["describe", "-m", "CY-0001: Implement JJ workspace landing"], workspacePath);
     assert.match(runLand("CY-0001", { dryRun: true }, repo), /targetMoved: true/);
     assert.match(runLand("CY-0001", {}, repo), /Landed CY-0001 into main/);
 

@@ -52,6 +52,11 @@
 
 }
 
+:root {
+	--kb-open-target-icon-filter: brightness(0) invert(1);
+	--kb-open-target-icon-opacity: 0.9;
+}
+
 /* -- Theme overrides -------------------------------------------------- */
 /* Each [data-theme] block overrides only the structural palette;
    status colors, typography, and border-radius stay constant.
@@ -175,6 +180,8 @@
 	--color-status-rose: #A40E3B;
 	--color-status-cyan: #0B5F66;
 	--color-status-lime: #3F6212;
+	--kb-open-target-icon-filter: brightness(0) saturate(100%);
+	--kb-open-target-icon-opacity: 0.82;
 }
 
 [data-theme="overcast"] {
@@ -206,6 +213,8 @@
 	--color-status-rose: #A40E3B;
 	--color-status-cyan: #0B5F66;
 	--color-status-lime: #3F6212;
+	--kb-open-target-icon-filter: brightness(0) saturate(100%);
+	--kb-open-target-icon-opacity: 0.82;
 }
 
 [data-theme="solarized-light"] {
@@ -237,6 +246,8 @@
 	--color-status-rose: #A40E3B;
 	--color-status-cyan: #0B5F66;
 	--color-status-lime: #3F6212;
+	--kb-open-target-icon-filter: brightness(0) saturate(100%);
+	--kb-open-target-icon-opacity: 0.82;
 }
 
 [data-theme="latte"] {
@@ -268,6 +279,8 @@
 	--color-status-rose: #A40E3B;
 	--color-status-cyan: #0B5F66;
 	--color-status-lime: #3F6212;
+	--kb-open-target-icon-filter: brightness(0) saturate(100%);
+	--kb-open-target-icon-opacity: 0.82;
 }
 
 /* --- High contrast --------------------------------------------------- */
@@ -322,6 +335,8 @@
 	--color-status-rose: #A40E3B;
 	--color-status-cyan: #0B5F66;
 	--color-status-lime: #3F6212;
+	--kb-open-target-icon-filter: brightness(0) saturate(100%);
+	--kb-open-target-icon-opacity: 1;
 }
 
 
@@ -610,6 +625,11 @@ body.kb-dependency-link-mode {
 
 .kb-navbar-btn:active {
 	background-color: var(--color-surface-3) !important;
+}
+
+.kb-open-target-icon {
+	filter: var(--kb-open-target-icon-filter);
+	opacity: var(--kb-open-target-icon-opacity);
 }
 
 /* -- Shared UI patterns -- */

@@ -1,5 +1,5 @@
 import * as RadixDropdownMenu from "@radix-ui/react-dropdown-menu";
-import { AlertTriangle, ArrowDown, ArrowUp, Check, ChevronDown, Copy, FileText, Folder, FolderTree, GitBranch, GitCommitHorizontal, Info, Layers, List, LockKeyhole, Maximize2, MoreHorizontal, PanelLeft, Pencil, PencilLine, Play, Plus, RotateCcw, Sparkles, Trash2, Type, Unlink, Upload, WrapText, X } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, Check, ChevronDown, Copy, FileText, Folder, FolderTree, GitBranch, GitCommitHorizontal, Info, Layers, List, LockKeyhole, Maximize2, MoreHorizontal, Pencil, PencilLine, Play, Plus, RotateCcw, Sparkles, Trash2, Type, Unlink, Upload, WrapText, X } from "lucide-react";
 import { Fragment, useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent } from "react";
 
 import {
@@ -762,6 +762,8 @@ function WorkspaceReady({
 	const [selectedFilePath, setSelectedFilePath] = useState<string | null>(() => readQueryParam("file"));
 	const [selectedUnstagedFilePath, setSelectedUnstagedFilePath] = useState<string | null>(() => readWorkingCopyFileQueryParam());
 	const [selectedComposerDiffStackId, setSelectedComposerDiffStackId] = useState<string | null>(null);
+	const [selectedStackHeaderId, setSelectedStackHeaderId] = useState<string | null>(null);
+	const [selectedStackFilePath, setSelectedStackFilePath] = useState<string | null>(null);
 	const [hasUserClearedFile, setHasUserClearedFile] = useState(false);
 	const [isFileSectionCollapsed, setFileSectionCollapsed] = useState(false);
 	const [isUnstagedCollapsed, setUnstagedCollapsed] = useState(() =>
@@ -824,20 +826,24 @@ function WorkspaceReady({
 			),
 		[commitEditMode?.appliedStackIdsSnapshot, data.appliedStackIds, projectConfig.vcsAppliedStacks],
 	);
-		const appliedStacks = useMemo(
-			() => selectAppliedWorkspaceStacks(stacks, appliedStackIds),
-			[stacks, appliedStackIds],
-		);
-		const pendingGraphRefreshStackIds = useMemo(
-			() => workspaceGraphRefreshStackIds(pendingGraphRefresh, stacks),
-			[pendingGraphRefresh, stacks],
-		);
-		const selectedStackId = useMemo(() => {
-			if (!selectedCommitHash) {
-				return null;
-			}
+	const appliedStacks = useMemo(
+		() => selectAppliedWorkspaceStacks(stacks, appliedStackIds),
+		[stacks, appliedStackIds],
+	);
+	const pendingGraphRefreshStackIds = useMemo(
+		() => workspaceGraphRefreshStackIds(pendingGraphRefresh, stacks),
+		[pendingGraphRefresh, stacks],
+	);
+	const selectedStackId = useMemo(() => {
+		if (!selectedCommitHash) {
+			return null;
+		}
 		return appliedStacks.find((stack) => stack.changes.some((change) => stackChangeMatchesSelection(change, selectedCommitHash)))?.id ?? null;
 	}, [appliedStacks, selectedCommitHash]);
+	const selectedHeaderStack = useMemo(
+		() => appliedStacks.find((stack) => stack.id === selectedStackHeaderId) ?? null,
+		[appliedStacks, selectedStackHeaderId],
+	);
 	const selectedCommitChangeId = useMemo(() => {
 		if (!selectedCommitHash) {
 			return null;
@@ -877,13 +883,15 @@ function WorkspaceReady({
 		}
 		return null;
 	}, [appliedStacks, selectedCommitHash]);
-	const selectedCommitDiffHash = selectedStackChange?.commitId ?? (
-		selectedWorkspaceCommit
+	const selectedCommitDiffHash =
+		selectedHeaderStack?.tip ??
+		selectedStackChange?.commitId ??
+		(selectedWorkspaceCommit
 			? metadataString(selectedWorkspaceCommit.metadata?.commitHash) ?? selectedWorkspaceCommit.displayId ?? selectedWorkspaceCommit.commitId
-			: selectedCommitHash
-	);
+			: selectedCommitHash);
+	const selectedCommitDiffBaseHash = selectedHeaderStack?.base;
 	const commitDiffResult = useGetRepositoryCommitDiffQuery(
-		{ workspaceId: workspaceId ?? "", commitHash: selectedCommitDiffHash ?? "" },
+		{ workspaceId: workspaceId ?? "", commitHash: selectedCommitDiffHash ?? "", baseCommitHash: selectedCommitDiffBaseHash },
 		{ skip: !workspaceId || !selectedCommitDiffHash },
 	);
 	const commitDiffQuery = {
@@ -891,6 +899,7 @@ function WorkspaceReady({
 		refresh: () => void commitDiffResult.refetch(),
 	};
 	const files = toFileChanges(commitDiffQuery.state);
+	const selectedHeaderStackFiles = selectedStackHeaderId ? files : [];
 	const selectedFile = findFileByPath(files, selectedFilePath);
 	const floatingCommitSummaryFile = findFileByPath(files, floatingCommitSummaryFilePath) ?? selectedFile;
 	const floatingCommitSummarySelectedFilePath = floatingCommitSummaryFile?.path ?? null;
@@ -954,6 +963,29 @@ function WorkspaceReady({
 	}, [selectedCommitHash]);
 
 	useEffect(() => {
+		if (!selectedStackHeaderId) {
+			return;
+		}
+		if (!appliedStacks.some((stack) => stack.id === selectedStackHeaderId)) {
+			setSelectedStackHeaderId(null);
+			setSelectedStackFilePath(null);
+		}
+	}, [appliedStacks, selectedStackHeaderId]);
+
+	useEffect(() => {
+		if (!selectedStackHeaderId) {
+			return;
+		}
+		if (selectedStackFilePath && selectedHeaderStackFiles.some((file) => file.path === selectedStackFilePath)) {
+			return;
+		}
+		setSelectedStackFilePath(getFirstFilePath(selectedHeaderStackFiles));
+	}, [selectedHeaderStackFiles, selectedStackFilePath, selectedStackHeaderId]);
+
+	useEffect(() => {
+		if (selectedStackHeaderId) {
+			return;
+		}
 		if (isFileSectionCollapsed || commitDiffQuery.state.status !== "ready" || !commitDiffQuery.state.data.ok) {
 			return;
 		}
@@ -974,7 +1006,7 @@ function WorkspaceReady({
 		const nextFilePath = getFirstFilePath(nextFiles);
 		setSelectedFilePath(nextFilePath);
 		writeQueryParam("file", nextFilePath);
-	}, [commitDiffQuery.state, hasUserClearedFile, isFileSectionCollapsed, selectedFilePath]);
+	}, [commitDiffQuery.state, hasUserClearedFile, isFileSectionCollapsed, selectedFilePath, selectedStackHeaderId]);
 
 	async function unapplyStack(stackId: string): Promise<void> {
 		const operation = {
@@ -1523,6 +1555,8 @@ function WorkspaceReady({
 		setSelectedCommitHash(commitId);
 		setSelectedFilePath(path);
 		setSelectedUnstagedFilePath(null);
+		setSelectedStackHeaderId(null);
+		setSelectedStackFilePath(null);
 		setHasUserClearedFile(options.autoSelectFile === false);
 		setFileSectionCollapsed(false);
 		writeQueryParam("commit", commitId);
@@ -1537,6 +1571,8 @@ function WorkspaceReady({
 	function clearCommittedSelection(): void {
 		setSelectedCommitHash(null);
 		setSelectedFilePath(null);
+		setSelectedStackHeaderId(null);
+		setSelectedStackFilePath(null);
 		setHasUserClearedFile(true);
 		setFileSectionCollapsed(false);
 		setCommitSummaryEdit(null);
@@ -1549,6 +1585,8 @@ function WorkspaceReady({
 		setSelectedUnstagedFilePath(path);
 		setSelectedCommitHash(null);
 		setSelectedFilePath(null);
+		setSelectedStackHeaderId(null);
+		setSelectedStackFilePath(null);
 		setHasUserClearedFile(true);
 		setUnstagedCollapsed(false);
 		writeQueryParam("commit", null);
@@ -1777,6 +1815,8 @@ function WorkspaceReady({
 		if (stackChangeMatchesSelection(change, selectedCommitHash)) {
 			setSelectedCommitHash(null);
 			setSelectedFilePath(null);
+			setSelectedStackHeaderId(null);
+			setSelectedStackFilePath(null);
 			setHasUserClearedFile(true);
 			setFileSectionCollapsed(false);
 			writeQueryParam("commit", null);
@@ -1787,6 +1827,8 @@ function WorkspaceReady({
 		setSelectedFilePath(null);
 		setSelectedUnstagedFilePath(null);
 		setSelectedComposerDiffStackId(null);
+		setSelectedStackHeaderId(null);
+		setSelectedStackFilePath(null);
 		setHasUserClearedFile(false);
 		setFileSectionCollapsed(false);
 		writeQueryParam("commit", change.changeId);
@@ -1809,6 +1851,30 @@ function WorkspaceReady({
 		writeWorkingCopyFileQueryParam(null);
 	}
 
+	function selectStackHeader(stackId: string): void {
+		if (selectedStackHeaderId === stackId) {
+			setSelectedStackHeaderId(null);
+			setSelectedStackFilePath(null);
+			setHasUserClearedFile(true);
+			return;
+		}
+		setSelectedStackHeaderId(stackId);
+		setSelectedStackFilePath(null);
+		setSelectedCommitHash(null);
+		setSelectedFilePath(null);
+		setSelectedUnstagedFilePath(null);
+		setSelectedComposerDiffStackId(null);
+		setHasUserClearedFile(false);
+		setFileSectionCollapsed(false);
+		writeQueryParam("commit", null);
+		writeQueryParam("file", null);
+		writeWorkingCopyFileQueryParam(null);
+	}
+
+	function selectStackFile(path: string): void {
+		setSelectedStackFilePath((current) => (current === path ? null : path));
+	}
+
 	function selectUnstagedFile(path: string): void {
 		if (selectedUnstagedFilePath === path) {
 			setSelectedUnstagedFilePath(null);
@@ -1820,6 +1886,8 @@ function WorkspaceReady({
 		setSelectedComposerDiffStackId(null);
 		setSelectedCommitHash(null);
 		setSelectedFilePath(null);
+		setSelectedStackHeaderId(null);
+		setSelectedStackFilePath(null);
 		setHasUserClearedFile(true);
 		writeQueryParam("commit", null);
 		writeWorkingCopyFileQueryParam(path);
@@ -1837,6 +1905,8 @@ function WorkspaceReady({
 			if ((selectedCommitHash === sourceCommitHash || selectedCommitHash === sourceChangeId) && selectedFilePath === path && selectedComposerDiffStackId === stackId) {
 				setSelectedCommitHash(null);
 				setSelectedFilePath(null);
+				setSelectedStackHeaderId(null);
+				setSelectedStackFilePath(null);
 				setSelectedComposerDiffStackId(null);
 				writeQueryParam("commit", null);
 				writeQueryParam("file", null);
@@ -1845,6 +1915,8 @@ function WorkspaceReady({
 			setSelectedCommitHash(sourceChangeId);
 			setSelectedFilePath(path);
 			setSelectedUnstagedFilePath(null);
+			setSelectedStackHeaderId(null);
+			setSelectedStackFilePath(null);
 			setSelectedComposerDiffStackId(stackId);
 			setHasUserClearedFile(false);
 			writeQueryParam("commit", sourceChangeId);
@@ -1862,6 +1934,8 @@ function WorkspaceReady({
 		setSelectedComposerDiffStackId(stackId);
 		setSelectedCommitHash(null);
 		setSelectedFilePath(null);
+		setSelectedStackHeaderId(null);
+		setSelectedStackFilePath(null);
 		setHasUserClearedFile(true);
 		writeQueryParam("commit", null);
 		writeWorkingCopyFileQueryParam(path);
@@ -2131,11 +2205,14 @@ function WorkspaceReady({
 										onCollapse={() => setStackCollapsed(stack.id, true)}
 									onWidthChange={(width) => changeStackColumnWidth(stack.id, width)}
 									onUnapply={() => void unapplyStack(stack.id)}
-									selectedCommitHash={selectedCommitHash}
-									selectedFilePath={selectedFilePath}
-									selectedFiles={files}
-									conflictCommitIds={conflictCommitIds}
-									conflictPathsByCommitId={conflictPathsByCommitId}
+										selectedCommitHash={selectedCommitHash}
+										selectedFilePath={selectedFilePath}
+										selectedFiles={files}
+										selectedStackHeaderId={selectedStackHeaderId}
+										selectedStackFilePath={selectedStackFilePath}
+										selectedStackFiles={selectedHeaderStackFiles}
+										conflictCommitIds={conflictCommitIds}
+										conflictPathsByCommitId={conflictPathsByCommitId}
 									diffState={commitDiffQuery.state}
 									fileViewMode={fileViewMode}
 									isFileSectionCollapsed={isFileSectionCollapsed}
@@ -2143,6 +2220,8 @@ function WorkspaceReady({
 									onFileViewModeChange={changeFileViewMode}
 									onFileSectionCollapsedChange={changeFileSectionCollapsed}
 									onSelectStackChange={selectStackChange}
+									onSelectStackHeader={selectStackHeader}
+									onSelectStackFile={selectStackFile}
 									onEditCommit={openCommitEdit}
 									onUncommitCommit={previewUncommitCommit}
 									onDeleteCommit={previewDeleteCommit}
@@ -2380,7 +2459,6 @@ function UnstagedColumnHeader({
 }): React.ReactElement {
 	return (
 		<div className="flex min-w-0 items-center gap-2">
-			<PanelLeft size={15} className="shrink-0 text-text-tertiary" />
 			<span className="min-w-0 flex-1 truncate text-sm font-semibold text-text-primary">Working Copy</span>
 			{hasConflicts ? <StatusChip label="Conflicts" tone="orange" icon={<AlertTriangle size={11} />} /> : null}
 			<StatusChip label={String(count)} tone="neutral" />
@@ -2647,16 +2725,21 @@ function WorkspaceStackLane({
 	selectedCommitHash,
 	selectedFilePath,
 	selectedFiles,
+	selectedStackHeaderId,
+	selectedStackFilePath,
+	selectedStackFiles,
 	conflictCommitIds,
 	conflictPathsByCommitId,
 	diffState,
 	fileViewMode,
 	isFileSectionCollapsed,
 	canEditCommit,
-	onFileViewModeChange,
-	onFileSectionCollapsedChange,
-	onSelectStackChange,
-	onEditCommit,
+		onFileViewModeChange,
+		onFileSectionCollapsedChange,
+		onSelectStackChange,
+		onSelectStackHeader,
+		onSelectStackFile,
+		onEditCommit,
 	onUncommitCommit,
 	onDeleteCommit,
 	onBeginEditCommit,
@@ -2702,6 +2785,9 @@ function WorkspaceStackLane({
 	selectedCommitHash: string | null;
 	selectedFilePath: string | null;
 	selectedFiles: VcsFileChange[];
+	selectedStackHeaderId: string | null;
+	selectedStackFilePath: string | null;
+	selectedStackFiles: VcsFileChange[];
 	conflictCommitIds: ReadonlySet<string>;
 	conflictPathsByCommitId: ReadonlyMap<string, ReadonlySet<string>>;
 	diffState: QueryState<RuntimeGitCommitDiffResponse>;
@@ -2711,6 +2797,8 @@ function WorkspaceStackLane({
 	onFileViewModeChange: (mode: VcsFileViewMode) => void;
 	onFileSectionCollapsedChange: (collapsed: boolean) => void;
 	onSelectStackChange: (change: BranchesStackChange) => void;
+	onSelectStackHeader: (stackId: string) => void;
+	onSelectStackFile: (path: string) => void;
 	onEditCommit: (change: BranchesStackChange) => void;
 	onUncommitCommit: (change: BranchesStackChange) => void;
 	onDeleteCommit: (change: BranchesStackChange) => void;
@@ -2811,19 +2899,24 @@ function WorkspaceStackLane({
 							stackId={stack.id}
 							group={group}
 							groupIndex={groupIndex}
-							selectedCommitHash={selectedCommitHash}
-							selectedFilePath={selectedFilePath}
-							selectedFiles={selectedFiles}
-							conflictCommitIds={conflictCommitIds}
+								selectedCommitHash={selectedCommitHash}
+								selectedFilePath={selectedFilePath}
+								selectedFiles={selectedFiles}
+								selectedStackHeaderId={selectedStackHeaderId}
+								selectedStackFilePath={selectedStackFilePath}
+								selectedStackFiles={selectedStackFiles}
+								conflictCommitIds={conflictCommitIds}
 							conflictPathsByCommitId={conflictPathsByCommitId}
 							diffState={diffState}
 							fileViewMode={fileViewMode}
 							isFileSectionCollapsed={isFileSectionCollapsed}
 							canEditCommit={canEditCommit}
 							onFileViewModeChange={onFileViewModeChange}
-							onFileSectionCollapsedChange={onFileSectionCollapsedChange}
-								onSelectStackChange={onSelectStackChange}
-								onEditCommit={onEditCommit}
+								onFileSectionCollapsedChange={onFileSectionCollapsedChange}
+									onSelectStackChange={onSelectStackChange}
+									onSelectStackHeader={onSelectStackHeader}
+									onSelectStackFile={onSelectStackFile}
+									onEditCommit={onEditCommit}
 								onUncommitCommit={onUncommitCommit}
 								onDeleteCommit={onDeleteCommit}
 								onBeginEditCommit={onBeginEditCommit}
@@ -3447,6 +3540,9 @@ function WorkspaceStackCard({
 	selectedCommitHash,
 	selectedFilePath,
 	selectedFiles,
+	selectedStackHeaderId,
+	selectedStackFilePath,
+	selectedStackFiles,
 	conflictCommitIds,
 	conflictPathsByCommitId,
 	diffState,
@@ -3456,6 +3552,8 @@ function WorkspaceStackCard({
 	onFileViewModeChange,
 	onFileSectionCollapsedChange,
 		onSelectStackChange,
+	onSelectStackHeader,
+	onSelectStackFile,
 		onEditCommit,
 		onUncommitCommit,
 		onDeleteCommit,
@@ -3484,6 +3582,9 @@ function WorkspaceStackCard({
 	selectedCommitHash: string | null;
 	selectedFilePath: string | null;
 	selectedFiles: VcsFileChange[];
+	selectedStackHeaderId: string | null;
+	selectedStackFilePath: string | null;
+	selectedStackFiles: VcsFileChange[];
 	conflictCommitIds: ReadonlySet<string>;
 	conflictPathsByCommitId: ReadonlyMap<string, ReadonlySet<string>>;
 	diffState: QueryState<RuntimeGitCommitDiffResponse>;
@@ -3493,10 +3594,12 @@ function WorkspaceStackCard({
 	onFileViewModeChange: (mode: VcsFileViewMode) => void;
 	onFileSectionCollapsedChange: (collapsed: boolean) => void;
 	onSelectStackChange: (change: BranchesStackChange) => void;
-		onEditCommit: (change: BranchesStackChange) => void;
-		onUncommitCommit: (change: BranchesStackChange) => void;
-		onDeleteCommit: (change: BranchesStackChange) => void;
-		onBeginEditCommit: (change: BranchesStackChange) => void;
+	onSelectStackHeader: (stackId: string) => void;
+	onSelectStackFile: (path: string) => void;
+	onEditCommit: (change: BranchesStackChange) => void;
+	onUncommitCommit: (change: BranchesStackChange) => void;
+	onDeleteCommit: (change: BranchesStackChange) => void;
+	onBeginEditCommit: (change: BranchesStackChange) => void;
 	onAddEmptyCommit: (targetCommitId: string, placement: "before" | "after") => void;
 	onCreateBookmark: (targetCommitId: string) => void;
 	onRenameStack: (stackId: string) => void;
@@ -3518,16 +3621,29 @@ function WorkspaceStackCard({
 	const stackHeaderDropTargetKey = workspaceStackHeaderDropTargetInstanceKey(stackId, group.head.bookmarkName, groupIndex);
 	const stackHeaderDropTargetState = getStackHeaderDropTargetState(stackHeaderDropTargetKey);
 	const remoteBookmarkActions = getStackRemoteBookmarkActions(group);
+	const isHeaderSelected = selectedStackHeaderId === stackId;
 	return (
 		<section className="overflow-hidden rounded-lg border border-border bg-surface-0 shadow-sm">
 			<header
+				role="button"
+				tabIndex={0}
 				data-testid="vcs-workspace-stack-card-header-drop-target"
 				data-drop-target-key={stackHeaderDropTargetKey}
 				data-drop-target-state={stackHeaderDropTargetState}
 				className={cn(
-					"border-b border-divider px-3 py-3 transition-colors",
+					"cursor-pointer border-b border-divider px-3 py-3 transition-colors hover:bg-surface-2",
+					isHeaderSelected && "bg-surface-2",
+					isHeaderSelected && SELECTED_CHANGE_MARKER_CLASS,
 					workspaceDropTargetOverlayClassName(stackHeaderDropTargetState),
 				)}
+				aria-pressed={isHeaderSelected}
+				onClick={() => onSelectStackHeader(stackId)}
+				onKeyDown={(event) => {
+					if (event.key === "Enter" || event.key === " ") {
+						event.preventDefault();
+						onSelectStackHeader(stackId);
+					}
+				}}
 				onDragOver={(event) => onDragOverStackHeader(event, stackHeaderDropTargetKey)}
 				onDragLeave={(event) => onDragLeaveStackHeader(event, stackHeaderDropTargetKey)}
 				onDrop={onDropStackHeader}
@@ -3542,6 +3658,18 @@ function WorkspaceStackCard({
 					</div>
 				</div>
 			</header>
+			{isHeaderSelected ? (
+				<VcsInlineFileSection
+					title="Stack files"
+					files={selectedStackFiles}
+					selectedPath={selectedStackFilePath}
+					isLoading={false}
+					viewMode={fileViewMode}
+					onViewModeChange={onFileViewModeChange}
+					onSelectPath={onSelectStackFile}
+					className="mx-2 mt-2"
+				/>
+			) : null}
 			<div className="flex items-center gap-1.5 border-b border-divider bg-surface-1 px-3 py-2">
 				<Button variant="default" size="sm" icon={<Upload size={13} />} disabled>
 					Push
@@ -3585,9 +3713,9 @@ function WorkspaceStackCard({
 								canEditCommit={canEditCommit}
 								canUncommitCommit={selected && selectedFiles.length > 0}
 								onFileViewModeChange={onFileViewModeChange}
-								onFileSectionCollapsedChange={onFileSectionCollapsedChange}
-								onSelectStackChange={onSelectStackChange}
-								onEditCommit={onEditCommit}
+									onFileSectionCollapsedChange={onFileSectionCollapsedChange}
+									onSelectStackChange={onSelectStackChange}
+									onEditCommit={onEditCommit}
 								onUncommitCommit={onUncommitCommit}
 								onDeleteCommit={onDeleteCommit}
 								onBeginEditCommit={onBeginEditCommit}
@@ -3751,8 +3879,8 @@ function WorkspaceStackChangeRow({
 	canUncommitCommit: boolean;
 	onFileViewModeChange: (mode: VcsFileViewMode) => void;
 	onFileSectionCollapsedChange: (collapsed: boolean) => void;
-		onSelectStackChange: (change: BranchesStackChange) => void;
-		onEditCommit: (change: BranchesStackChange) => void;
+	onSelectStackChange: (change: BranchesStackChange) => void;
+	onEditCommit: (change: BranchesStackChange) => void;
 		onUncommitCommit: (change: BranchesStackChange) => void;
 		onDeleteCommit: (change: BranchesStackChange) => void;
 		onBeginEditCommit: (change: BranchesStackChange) => void;

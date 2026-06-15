@@ -1,6 +1,5 @@
-import * as RadixPopover from "@radix-ui/react-popover";
+import * as RadixDropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Check, ChevronDown } from "lucide-react";
-import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
@@ -39,7 +38,6 @@ export function OpenWorkspaceButton({
 	onOpen: () => void;
 	onSelectOption: (optionId: OpenTargetId) => void;
 }): React.ReactElement {
-	const [isPopoverOpen, setIsPopoverOpen] = useState(false);
 	const selectedOption = options.find((option) => option.id === selectedOptionId) ?? options[0];
 	if (!selectedOption) {
 		return <></>;
@@ -59,8 +57,8 @@ export function OpenWorkspaceButton({
 			>
 				Open
 			</Button>
-			<RadixPopover.Root open={isPopoverOpen} onOpenChange={setIsPopoverOpen}>
-				<RadixPopover.Trigger asChild>
+			<RadixDropdownMenu.Root>
+				<RadixDropdownMenu.Trigger asChild>
 					<Button
 						size="sm"
 						variant="default"
@@ -70,9 +68,9 @@ export function OpenWorkspaceButton({
 						className="rounded-l-none border-l-0 kb-navbar-btn"
 						style={{ width: 24, paddingLeft: 0, paddingRight: 0 }}
 					/>
-				</RadixPopover.Trigger>
-				<RadixPopover.Portal>
-					<RadixPopover.Content
+				</RadixDropdownMenu.Trigger>
+				<RadixDropdownMenu.Portal>
+					<RadixDropdownMenu.Content
 						className="z-50 rounded-lg border border-border bg-surface-2 p-1 shadow-xl"
 						style={{ animation: "kb-tooltip-show 100ms ease" }}
 						sideOffset={5}
@@ -82,28 +80,26 @@ export function OpenWorkspaceButton({
 							{options.map((option) => {
 								const isActive = option.id === selectedOptionId;
 								return (
-									<button
-										type="button"
+									<RadixDropdownMenu.Item
 										key={option.id}
 										className={cn(
-											"flex w-full items-center gap-2 px-2.5 py-1.5 text-[13px] text-text-primary rounded-md hover:bg-surface-3 text-left cursor-pointer",
+											"flex w-full items-center gap-2 px-2.5 py-1.5 text-[13px] text-text-primary rounded-md hover:bg-surface-3 focus:bg-surface-3 focus:outline-none text-left cursor-pointer",
 											isActive && "bg-surface-3",
 										)}
-										onClick={() => {
+										onSelect={() => {
 											onSelectOption(option.id);
-											setIsPopoverOpen(false);
 										}}
 									>
 										<OpenTargetIcon option={option} />
 										<span className="flex-1">{option.label}</span>
 										{isActive ? <Check size={14} className="text-text-secondary" /> : null}
-									</button>
+									</RadixDropdownMenu.Item>
 								);
 							})}
 						</div>
-					</RadixPopover.Content>
-				</RadixPopover.Portal>
-			</RadixPopover.Root>
+					</RadixDropdownMenu.Content>
+				</RadixDropdownMenu.Portal>
+			</RadixDropdownMenu.Root>
 		</div>
 	);
 }

@@ -266,6 +266,17 @@ export type RuntimeProjectSummary = {
 		review: number;
 		trash: number;
 	};
+	workspaces?: RuntimeProjectWorkspaceSummary[];
+};
+
+export type RuntimeProjectWorkspaceSummary = {
+	id: string;
+	title: string;
+	status?: string;
+	engine?: string;
+	name?: string;
+	path?: string;
+	branch?: string;
 };
 
 export type RuntimeProjectsResponse = {

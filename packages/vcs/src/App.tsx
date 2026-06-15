@@ -9,6 +9,7 @@ import type {
 	VcsDetectResponse,
 } from "@/runtime/types";
 import {
+	toRuntimeCurrentQueryState,
 	toRuntimeQueryState,
 	useAddProjectMutation,
 	useGetProjectsQuery,
@@ -144,6 +145,29 @@ export default function App(): React.ReactElement {
 		projectsQuery.refresh();
 	}
 
+	async function openWorkspaceProject(path: string): Promise<void> {
+		const existingProject =
+			projectsQuery.state.status === "ready"
+				? projectsQuery.state.data.projects.find((project) => project.path === path)
+				: null;
+		if (existingProject) {
+			selectProject(existingProject.id);
+			return;
+		}
+		try {
+			const added = await addProjectMutation({
+				workspaceId,
+				input: { path } satisfies RuntimeProjectAddRequest,
+			}).unwrap();
+			if (!added.ok || !added.project) {
+				throw new Error(added.error ?? "Could not open workspace as a project.");
+			}
+			handleAddProjectSuccess(added.project.id);
+		} catch (error) {
+			notifyError(error instanceof Error ? error.message : String(error));
+		}
+	}
+
 	async function addProject(): Promise<void> {
 		setPendingNativeGitInitPath(null);
 		if (!shouldUseNativeDirectoryPicker()) {
@@ -248,13 +272,13 @@ export default function App(): React.ReactElement {
 	const workspaceDiffResult = useGetVcsDiffQuery({ workspaceId: workspaceId ?? "" }, { skip: !hasWorkspace });
 	const workspaceStateResult = useGetVcsWorkspaceStateQuery({ workspaceId: workspaceId ?? "" }, { skip: !hasWorkspace });
 	const detectQuery = {
-		state: toRuntimeQueryState<VcsDetectResponse>(detectResult, "Failed to load VCS detection."),
+		state: toRuntimeCurrentQueryState<VcsDetectResponse>(detectResult, "Failed to load VCS detection."),
 	};
 	const workspaceDiffQuery = {
-		state: toRuntimeQueryState<VcsDiffResult>(workspaceDiffResult, "Failed to load workspace diff."),
+		state: toRuntimeCurrentQueryState<VcsDiffResult>(workspaceDiffResult, "Failed to load workspace diff."),
 	};
 	const workspaceStateQuery = {
-		state: toRuntimeQueryState<VcsWorkspaceState>(workspaceStateResult, "Failed to load workspace state."),
+		state: toRuntimeCurrentQueryState<VcsWorkspaceState>(workspaceStateResult, "Failed to load workspace state."),
 	};
 	const projectState = {
 		projectsState: visibleProjectsState,
@@ -265,6 +289,7 @@ export default function App(): React.ReactElement {
 		onProjectNavCollapsedChange: setProjectNavCollapsed,
 		onSelectProject: selectProject,
 		onAddProject: () => void addProject(),
+		onOpenWorkspaceProject: (path: string) => void openWorkspaceProject(path),
 		onRemoveProject: removeProject,
 		onClearOtherProjects: clearOtherProjects,
 		onOpenSettings: () => setSettingsOpen(true),
@@ -275,8 +300,22 @@ export default function App(): React.ReactElement {
 		},
 	};
 
-		let routedView: React.ReactElement;
-	switch (route.kind) {
+	let routedView: React.ReactElement;
+	if (hasWorkspace && workspaceStateQuery.state.status === "loading") {
+		routedView = (
+			<WorkspaceView
+				currentPath={currentPath}
+				projectState={projectState}
+				workspaceId={workspaceId}
+				state={workspaceStateQuery.state}
+				diffState={workspaceDiffQuery.state}
+				onWorkspaceStateRefresh={async () => {
+					await workspaceStateResult.refetch();
+				}}
+			/>
+		);
+	} else {
+		switch (route.kind) {
 		case "jj-board":
 			routedView = (
 				<WorkspaceView
@@ -324,6 +363,7 @@ export default function App(): React.ReactElement {
 				/>
 			);
 			break;
+		}
 	}
 
 	return (

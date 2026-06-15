@@ -116,6 +116,7 @@ type VcsWorkspaceOperationArg = WorkspaceQueryArg & {
 
 type CommitDiffQueryArg = WorkspaceQueryArg & {
 	commitHash: string;
+	baseCommitHash?: string;
 };
 
 type UpdateProjectConfigArg = WorkspaceQueryArg & {
@@ -170,6 +171,7 @@ type StopTaskSessionArg = WorkspaceQueryArg & {
 
 type RtkResult<T> = {
 	data?: T;
+	currentData?: T;
 	isLoading: boolean;
 	isFetching: boolean;
 	isError: boolean;
@@ -279,6 +281,16 @@ export function patchWorkspaceStateFromOperationResult(draft: VcsWorkspaceState,
 export function toRuntimeQueryState<T>(result: RtkResult<T>, message: string): QueryState<T> {
 	if (result.data !== undefined) {
 		return { status: "ready", data: result.data };
+	}
+	if (result.isError) {
+		return { status: "error", message: errorMessage(result.error, message) };
+	}
+	return { status: "loading" };
+}
+
+export function toRuntimeCurrentQueryState<T>(result: RtkResult<T>, message: string): QueryState<T> {
+	if (result.currentData !== undefined) {
+		return { status: "ready", data: result.currentData };
 	}
 	if (result.isError) {
 		return { status: "error", message: errorMessage(result.error, message) };
@@ -716,12 +728,12 @@ export const vcsApi = createApi({
 			},
 		}),
 		getRepositoryCommitDiff: builder.query<RuntimeGitCommitDiffResponse, CommitDiffQueryArg>({
-			queryFn: async ({ workspaceId, commitHash }, { signal }) => {
+			queryFn: async ({ workspaceId, commitHash, baseCommitHash }, { signal }) => {
 				try {
 					return {
 						data: await fetchTrpcQuery<RuntimeGitCommitDiffResponse>(
 							"workspace.getRepositoryCommitDiff",
-							{ commitHash },
+							{ commitHash, baseCommitHash },
 							workspaceId,
 							{ signal },
 						),
@@ -733,7 +745,7 @@ export const vcsApi = createApi({
 			providesTags: (_result, _error, arg) => [
 				"Diff",
 				"CommitChanges",
-				{ type: "CommitChanges", id: arg.commitHash },
+				{ type: "CommitChanges", id: arg.baseCommitHash ? `${arg.baseCommitHash}..${arg.commitHash}` : arg.commitHash },
 			],
 			onCacheEntryAdded: ({ workspaceId }, { dispatch, cacheDataLoaded, cacheEntryRemoved }) =>
 				subscribeToWorkspaceEvents(workspaceId, dispatch, cacheDataLoaded, cacheEntryRemoved),
