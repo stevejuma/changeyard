@@ -52,6 +52,7 @@ export interface VcsJjBookmark {
 	commitId: string;
 	synced: boolean;
 	tracked: boolean;
+	trackedRemoteNames?: string[];
 }
 
 export interface VcsJjChange {
@@ -61,6 +62,7 @@ export interface VcsJjChange {
 	authorName: string | null;
 	authorEmail: string | null;
 	authorAvatarUrl: string | null;
+	timestamp: string | null;
 	parentChangeIds: string[];
 	bookmarks: string[];
 	remoteBookmarks: string[];
@@ -75,9 +77,11 @@ export interface VcsJjStackChange {
 	changeId: string;
 	commitId: string;
 	title: string;
+	description: string;
 	authorName: string | null;
 	authorEmail: string | null;
 	authorAvatarUrl: string | null;
+	timestamp: string | null;
 	bookmarks: string[];
 	remoteBookmarks: string[];
 	trackedRemoteBookmarks?: string[];

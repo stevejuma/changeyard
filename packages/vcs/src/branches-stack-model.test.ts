@@ -11,6 +11,7 @@ import {
 	normalizeAppliedStackIds,
 	selectActiveAppliedStackIds,
 	selectAppliedWorkspaceStacks,
+	stackChangeMatchesSelection,
 	selectStackChangeGroupsForBranchDetail,
 	selectStackChangeGroupsForSelection,
 	unapplyWorkspaceStackId,
@@ -24,9 +25,11 @@ function change(changeId: string, bookmarks: string[] = []): BranchesStack["chan
 		changeId,
 		commitId: `${changeId}commit`,
 		title: `${changeId} title`,
+		description: `${changeId} title`,
 		authorName: null,
 		authorEmail: null,
 		authorAvatarUrl: null,
+		timestamp: null,
 		bookmarks,
 		remoteBookmarks: [],
 		isCurrent: false,
@@ -297,6 +300,14 @@ test("selectActiveAppliedStackIds prefers edit mode snapshot over configured and
 	assert.deepEqual(selectActiveAppliedStackIds(["configured"], ["provider"], ["editing"]), ["editing"]);
 	assert.deepEqual(selectActiveAppliedStackIds(["configured"], ["provider"], []), ["configured"]);
 	assert.deepEqual(selectActiveAppliedStackIds([], ["provider"], null), ["provider"]);
+});
+
+test("stackChangeMatchesSelection accepts stable change ids and rewritten commit ids", () => {
+	const candidate = change("change123456", ["feature/top"]);
+	assert.equal(stackChangeMatchesSelection(candidate, "change123456"), true);
+	assert.equal(stackChangeMatchesSelection(candidate, "change123"), true);
+	assert.equal(stackChangeMatchesSelection(candidate, "change123456commit"), true);
+	assert.equal(stackChangeMatchesSelection(candidate, "other123456"), false);
 });
 
 test("groupStackChangesByHead slices root-to-tip changes into newest-to-oldest head groups", () => {

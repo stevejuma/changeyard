@@ -76,6 +76,7 @@ export type VcsJjStateResponse = VcsDetectResponse & {
 		authorName: string | null;
 		authorEmail: string | null;
 		authorAvatarUrl: string | null;
+		timestamp: string | null;
 		parentChangeIds: string[];
 		bookmarks: string[];
 		remoteBookmarks: string[];
@@ -103,9 +104,11 @@ export type VcsJjStateResponse = VcsDetectResponse & {
 			changeId: string;
 			commitId: string;
 			title: string;
+			description: string;
 			authorName: string | null;
 			authorEmail: string | null;
 			authorAvatarUrl: string | null;
+			timestamp: string | null;
 			bookmarks: string[];
 			remoteBookmarks: string[];
 			trackedRemoteBookmarks?: string[];

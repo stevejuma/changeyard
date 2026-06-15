@@ -285,6 +285,9 @@ export default function App(): React.ReactElement {
 					workspaceId={workspaceId}
 					state={workspaceStateQuery.state}
 					diffState={workspaceDiffQuery.state}
+					onWorkspaceStateRefresh={async () => {
+						await workspaceStateResult.refetch();
+					}}
 				/>
 			);
 			break;
@@ -315,6 +318,9 @@ export default function App(): React.ReactElement {
 					workspaceId={workspaceId}
 					state={workspaceStateQuery.state}
 					diffState={workspaceDiffQuery.state}
+					onWorkspaceStateRefresh={async () => {
+						await workspaceStateResult.refetch();
+					}}
 				/>
 			);
 			break;

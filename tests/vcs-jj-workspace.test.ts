@@ -20,6 +20,33 @@ function createStateRunner(calls: string[] = []): VcsCommandRunner {
 	return async ({ command, args }) => {
 		const joined = `${command} ${args.join(" ")}`;
 		calls.push(joined);
+		if (
+			joined.startsWith("jj bookmark list --all-remotes --ignore-working-copy --at-op=@ --revisions all() ~ ::main@origin --template ") ||
+			joined.startsWith("jj bookmark list --all-remotes --ignore-working-copy --at-op=@ --revisions all() ~ ::trunk() --template ")
+		) {
+			return ok([
+				"feature/api\t\tapi222\t22222222\t1\t0",
+				"feature/api\tgit\tapi222\t22222222\t1\t1",
+				"feature/api\torigin\tapi222\t22222222\t1\t1",
+			].join("\n"));
+		}
+		if (joined.startsWith('jj log --ignore-working-copy --at-op=@ --revisions (::"feature/api")')) {
+			return ok([
+				"root111\t11111111\tMain\tAlice\talice@example.com\t2026-01-01T10:00:00Z\t\tmain\tmain@origin\t0",
+				[
+					"api222",
+					"22222222",
+					JSON.stringify("API change\n\nDetailed PR body\n- keeps markdown"),
+					"Bob",
+					"bob@example.com",
+					"2026-01-01T11:00:00Z",
+					"root111",
+					"feature/api",
+					"feature/api@origin",
+					"1",
+				].join("\t"),
+			].join("\n"));
+		}
 		switch (joined) {
 			case "jj --version":
 				return ok("jj 0.39.0");
@@ -46,12 +73,6 @@ function createStateRunner(calls: string[] = []): VcsCommandRunner {
 			case 'jj bookmark list --ignore-working-copy --at-op=@ --revisions all() ~ ::main@origin --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
 			case 'jj bookmark list --ignore-working-copy --at-op=@ --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
 				return ok("feature/api\tapi222\t22222222\t1\t1");
-			case 'jj log --ignore-working-copy --at-op=@ --revisions (::"feature/api") ~ ::main@origin --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
-			case 'jj log --ignore-working-copy --at-op=@ --revisions (::"feature/api") ~ ::trunk() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"':
-				return ok([
-					"root111\t11111111\tMain\tAlice\talice@example.com\t\tmain\tmain@origin\t0",
-					"api222\t22222222\tAPI change\tBob\tbob@example.com\troot111\tfeature/api\tfeature/api@origin\t1",
-				].join("\n"));
 			case "jj diff --ignore-working-copy --summary -r @":
 				return ok("M src/api.ts\nA src/new.ts");
 			case "jj diff --ignore-working-copy --git --color=never -- src/api.ts":
@@ -97,14 +118,27 @@ function createMultiStackStateRunner(calls: string[] = []): VcsCommandRunner {
 	return async ({ command, args }) => {
 		const joined = `${command} ${args.join(" ")}`;
 		calls.push(joined);
-		if (joined.startsWith("jj log --ignore-working-copy --at-op=@ --revisions (::(")) {
-			return ok([
-				"root111\t11111111\tMain\tAlice\talice@example.com\t\tmain\tmain@origin\t0",
-				"api222\t22222222\tAPI change\tBob\tbob@example.com\troot111\tfeature/api\tfeature/api@origin\t1",
-				"ui333\t33333333\tUI change\tBea\tbea@example.com\troot111\tfeature/ui\tfeature/ui@origin\t0",
-			].join("\n"));
-		}
-		switch (joined) {
+			if (joined.startsWith("jj log --ignore-working-copy --at-op=@ --revisions (::(")) {
+				return ok([
+					"root111\t11111111\tMain\tAlice\talice@example.com\t2026-01-01T10:00:00Z\t\tmain\tmain@origin\t0",
+					"api222\t22222222\tAPI change\tBob\tbob@example.com\t2026-01-01T11:00:00Z\troot111\tfeature/api\tfeature/api@origin\t1",
+					"ui333\t33333333\tUI change\tBea\tbea@example.com\t2026-01-01T12:00:00Z\troot111\tfeature/ui\tfeature/ui@origin\t0",
+				].join("\n"));
+			}
+			if (
+				joined.startsWith("jj bookmark list --all-remotes --ignore-working-copy --at-op=@ --revisions all() ~ ::main@origin --template ") ||
+				joined.startsWith("jj bookmark list --all-remotes --ignore-working-copy --at-op=@ --revisions all() ~ ::trunk() --template ")
+			) {
+				return ok([
+					"feature/api\t\tapi222\t22222222\t1\t0",
+					"feature/api\tgit\tapi222\t22222222\t1\t1",
+					"feature/api\torigin\tapi222\t22222222\t1\t1",
+					"feature/ui\t\tui333\t33333333\t1\t0",
+					"feature/ui\tgit\tui333\t33333333\t1\t1",
+					"feature/ui\torigin\tui333\t33333333\t1\t1",
+				].join("\n"));
+			}
+			switch (joined) {
 			case "jj --version":
 				return ok("jj 0.39.0");
 			case "jj workspace root":
@@ -158,6 +192,9 @@ test("loadJjWorkspaceState maps JJ stacks and working copy into neutral state", 
 	assert.equal(state.stacks[0]?.isApplied, true);
 	assert.deepEqual(state.stacks[0]?.commits.map((commit) => commit.commitId), ["root111", "api222"]);
 	assert.deepEqual(state.stacks[0]?.commits[1]?.parentCommitIds, ["root111"]);
+	assert.equal(state.stacks[0]?.commits[1]?.timestamp, "2026-01-01T11:00:00Z");
+	assert.equal(state.stacks[0]?.commits[1]?.title, "API change");
+	assert.equal(state.stacks[0]?.commits[1]?.description, "Detailed PR body\n- keeps markdown");
 	assert.equal(state.workingCopy.summary.modified, 1);
 	assert.equal(state.workingCopy.summary.added, 1);
 	assert.ok(calls.includes("jj diff --ignore-working-copy --summary -r @"));
@@ -168,14 +205,18 @@ test("loadJjWorkspaceState marks untracked remote JJ commits as immutable", asyn
 	const state = await loadJjWorkspaceState(
 		"/repo",
 		async (input) => {
-			const joined = `${input.command} ${input.args.join(" ")}`;
-			if (joined.includes('bookmark list --ignore-working-copy --at-op=@ --revisions all() ~ ::')) {
-				return ok("feature/api\tapi222\t22222222\t1\t0");
-			}
+				const joined = `${input.command} ${input.args.join(" ")}`;
+				if (joined.includes('bookmark list --all-remotes --ignore-working-copy --at-op=@ --revisions all() ~ ::')) {
+					return ok([
+						"feature/api\t\tapi222\t22222222\t1\t0",
+						"feature/api\tgit\tapi222\t22222222\t1\t1",
+						"feature/api\torigin\tapi222\t22222222\t0\t0",
+					].join("\n"));
+				}
 			if (joined.includes('jj log --ignore-working-copy --at-op=@ --revisions (::"feature/api")')) {
 				return ok([
-					"root111\t11111111\tMain\tAlice\talice@example.com\t\t\t\t0",
-					"api222\t22222222\tAPI change\tBob\tbob@example.com\troot111\tfeature/api\tfeature/api@git|feature/api@origin\t1",
+					"root111\t11111111\tMain\tAlice\talice@example.com\t2026-01-01T10:00:00Z\t\t\t\t0",
+					"api222\t22222222\tAPI change\tBob\tbob@example.com\t2026-01-01T11:00:00Z\troot111\tfeature/api\tfeature/api@git|feature/api@origin\t1",
 				].join("\n"));
 			}
 			return await baseRunner(input);
@@ -817,7 +858,10 @@ test("applyJjWorkspaceOperation creates a selected working-copy file commit at t
 			const joined = `${input.command} ${input.args.join(" ")}`;
 			calls.push(joined);
 			if (joined === "jj split -r @ --insert-after api222 -m New API -- src/api.ts") {
-				return ok("Created selected commit after api222");
+				return ok("Created new commit selected123");
+			}
+			if (joined === "jj bookmark set feature/api -r selected123") {
+				return ok("Moved bookmark");
 			}
 			calls.pop();
 			return await baseRunner(input);
@@ -827,9 +871,240 @@ test("applyJjWorkspaceOperation creates a selected working-copy file commit at t
 	assert.equal(result.ok, true);
 	assert.equal(result.operation.kind, "create_commit");
 	assert.deepEqual(result.affectedStackIds, ["feature/api"]);
-	assert.deepEqual(result.affectedCommitIds, ["api222"]);
+	assert.deepEqual(result.affectedCommitIds, ["selected123", "api222"]);
 	assert.deepEqual(result.affectedPaths, ["src/api.ts"]);
-	assert.equal(calls.at(-1), "jj split -r @ --insert-after api222 -m New API -- src/api.ts");
+	assert.ok(calls.includes("jj split -r @ --insert-after api222 -m New API -- src/api.ts"));
+	assert.equal(calls.at(-1), "jj bookmark set feature/api -r selected123");
+});
+
+test("applyJjWorkspaceOperation creates an empty commit at the top of the stack", async () => {
+	const calls: string[] = [];
+	const baseRunner = createStateRunner(calls);
+	const result = await applyJjWorkspaceOperation(
+		"/repo",
+		{ operation: { kind: "create_commit", stackId: "feature/api", message: "Empty API commit" } },
+		async (input) => {
+			const joined = `${input.command} ${input.args.join(" ")}`;
+			calls.push(joined);
+			if (joined === "jj new --no-edit --insert-after api222 -m Empty API commit") {
+				return ok("Created new commit empty123");
+			}
+			if (joined === "jj bookmark set feature/api -r empty123") {
+				return ok("Moved bookmark");
+			}
+			calls.pop();
+			return await baseRunner(input);
+		},
+	);
+
+	assert.equal(result.ok, true);
+	assert.equal(result.operation.kind, "create_commit");
+	assert.deepEqual(result.affectedStackIds, ["feature/api"]);
+	assert.deepEqual(result.affectedCommitIds, ["empty123", "api222"]);
+	assert.deepEqual(calls.slice(-2), [
+		"jj new --no-edit --insert-after api222 -m Empty API commit",
+		"jj bookmark set feature/api -r empty123",
+	]);
+});
+
+test("previewJjWorkspaceOperation previews deleting a commit", async () => {
+	const preview = await previewJjWorkspaceOperation(
+		"/repo",
+		{ operation: { kind: "abandon_commit", commitId: "api222" } },
+		createStateRunner(),
+	);
+
+	assert.equal(preview.valid, true);
+	assert.equal(preview.operation.kind, "abandon_commit");
+	assert.equal(preview.title, "Delete commit");
+	assert.match(preview.summary, /Abandon api222 and rebase descendants/i);
+	assert.deepEqual(preview.affectedCommitIds, ["api222"]);
+});
+
+test("applyJjWorkspaceOperation abandons non-head commits normally", async () => {
+	const calls: string[] = [];
+	const baseRunner = createStateRunner(calls);
+	const result = await applyJjWorkspaceOperation(
+		"/repo",
+		{ operation: { kind: "abandon_commit", commitId: "root111" } },
+		async (input) => {
+			const joined = `${input.command} ${input.args.join(" ")}`;
+			calls.push(joined);
+			if (joined === "jj abandon root111") {
+				return ok("Abandoned");
+			}
+			calls.pop();
+			return await baseRunner(input);
+		},
+	);
+
+	assert.equal(result.ok, true);
+	assert.equal(result.operation.kind, "abandon_commit");
+	assert.deepEqual(result.affectedStackIds, []);
+	assert.deepEqual(result.affectedCommitIds, ["root111"]);
+	assert.equal(calls.at(-1), "jj abandon root111");
+});
+
+test("applyJjWorkspaceOperation moves stack bookmark before abandoning a stack head", async () => {
+	const calls: string[] = [];
+	const baseRunner = createStateRunner(calls);
+	const result = await applyJjWorkspaceOperation(
+		"/repo",
+		{ operation: { kind: "abandon_commit", commitId: "api222" } },
+		async (input) => {
+			const joined = `${input.command} ${input.args.join(" ")}`;
+			calls.push(joined);
+			if (joined === "jj bookmark set --allow-backwards feature/api -r root111") {
+				return ok("Moved bookmark");
+			}
+			if (joined === "jj abandon api222") {
+				return ok("Abandoned");
+			}
+			calls.pop();
+			return await baseRunner(input);
+		},
+	);
+
+	assert.equal(result.ok, true);
+	assert.equal(result.operation.kind, "abandon_commit");
+	assert.deepEqual(result.affectedStackIds, ["feature/api"]);
+	assert.deepEqual(result.affectedCommitIds, ["api222", "root111"]);
+	assert.deepEqual(calls.slice(-2), [
+		"jj bookmark set --allow-backwards feature/api -r root111",
+		"jj abandon api222",
+	]);
+});
+
+test("applyJjWorkspaceOperation retains bookmarks when abandoning a one-commit stack head", async () => {
+	const calls: string[] = [];
+	const baseRunner = createStateRunner(calls);
+	const result = await applyJjWorkspaceOperation(
+		"/repo",
+		{ operation: { kind: "abandon_commit", commitId: "api222" } },
+		async (input) => {
+			const joined = `${input.command} ${input.args.join(" ")}`;
+			calls.push(joined);
+			if (joined.startsWith('jj log --ignore-working-copy --at-op=@ --revisions (::"feature/api")')) {
+				return ok("api222\t22222222\tAPI change\tBob\tbob@example.com\t2026-01-01T11:00:00Z\t\tfeature/api\tfeature/api@origin\t1");
+			}
+			if (joined === "jj abandon --retain-bookmarks api222") {
+				return ok("Abandoned");
+			}
+			calls.pop();
+			return await baseRunner(input);
+		},
+	);
+
+	assert.equal(result.ok, true);
+	assert.equal(result.operation.kind, "abandon_commit");
+	assert.deepEqual(result.affectedStackIds, ["feature/api"]);
+	assert.deepEqual(result.affectedCommitIds, ["api222"]);
+	assert.equal(calls.at(-1), "jj abandon --retain-bookmarks api222");
+});
+
+test("applyJjWorkspaceOperation creates an empty commit relative to a target commit", async () => {
+	const calls: string[] = [];
+	const baseRunner = createStateRunner(calls);
+	const result = await applyJjWorkspaceOperation(
+		"/repo",
+		{ operation: { kind: "add_empty_commit", targetCommitId: "api222", placement: "before", message: "Prep API commit" } },
+		async (input) => {
+			const joined = `${input.command} ${input.args.join(" ")}`;
+			calls.push(joined);
+			if (joined === "jj new --insert-before api222 --no-edit -m Prep API commit") {
+				return ok("Created new commit prep123");
+			}
+			calls.pop();
+			return await baseRunner(input);
+		},
+	);
+
+	assert.equal(result.ok, true);
+	assert.equal(result.operation.kind, "add_empty_commit");
+	assert.equal(calls.at(-1), "jj new --insert-before api222 --no-edit -m Prep API commit");
+});
+
+test("applyJjWorkspaceOperation creates a bookmark at the target commit", async () => {
+	const calls: string[] = [];
+	const baseRunner = createStateRunner(calls);
+	const result = await applyJjWorkspaceOperation(
+		"/repo",
+		{ operation: { kind: "create_bookmark", targetCommitId: "api222", bookmarkName: "feature/new-api" } },
+		async (input) => {
+			const joined = `${input.command} ${input.args.join(" ")}`;
+			calls.push(joined);
+			if (joined === "jj bookmark create feature/new-api -r api222") {
+				return ok("Created 1 bookmarks");
+			}
+			calls.pop();
+			return await baseRunner(input);
+		},
+	);
+
+	assert.equal(result.ok, true);
+	assert.equal(result.operation.kind, "create_bookmark");
+	assert.equal(calls.at(-1), "jj bookmark create feature/new-api -r api222");
+});
+
+test("applyJjWorkspaceOperation renames and deletes stack bookmarks", async () => {
+	const renameCalls: string[] = [];
+	const renameBaseRunner = createStateRunner(renameCalls);
+	const renameResult = await applyJjWorkspaceOperation(
+		"/repo",
+		{ operation: { kind: "rename_stack", stackId: "feature/api", name: "feature/api-v2" } },
+		async (input) => {
+			const joined = `${input.command} ${input.args.join(" ")}`;
+			renameCalls.push(joined);
+			if (joined === "jj bookmark rename feature/api feature/api-v2") {
+				return ok("Renamed");
+			}
+			renameCalls.pop();
+			return await renameBaseRunner(input);
+		},
+	);
+	assert.equal(renameResult.ok, true);
+	assert.equal(renameCalls.at(-1), "jj bookmark rename feature/api feature/api-v2");
+
+	const deleteCalls: string[] = [];
+	const deleteBaseRunner = createStateRunner(deleteCalls);
+	const deleteResult = await applyJjWorkspaceOperation(
+		"/repo",
+		{ operation: { kind: "delete_stack", stackId: "feature/api" } },
+		async (input) => {
+			const joined = `${input.command} ${input.args.join(" ")}`;
+			deleteCalls.push(joined);
+			if (joined === "jj bookmark delete feature/api") {
+				return ok("Deleted");
+			}
+			deleteCalls.pop();
+			return await deleteBaseRunner(input);
+		},
+	);
+	assert.equal(deleteResult.ok, true);
+	assert.equal(deleteCalls.at(-1), "jj bookmark delete feature/api");
+	assert.equal(deleteCalls.some((call) => call.includes("abandon")), false);
+});
+
+test("applyJjWorkspaceOperation squashes stack commits into the head", async () => {
+	const calls: string[] = [];
+	const baseRunner = createStateRunner(calls);
+	const result = await applyJjWorkspaceOperation(
+		"/repo",
+		{ operation: { kind: "squash_stack", stackId: "feature/api" } },
+		async (input) => {
+			const joined = `${input.command} ${input.args.join(" ")}`;
+			calls.push(joined);
+			if (joined === "jj squash --from root111 --into api222 --use-destination-message") {
+				return ok("Squashed");
+			}
+			calls.pop();
+			return await baseRunner(input);
+		},
+	);
+
+	assert.equal(result.ok, true);
+	assert.equal(result.operation.kind, "squash_stack");
+	assert.equal(calls.at(-1), "jj squash --from root111 --into api222 --use-destination-message");
 });
 
 test("previewJjWorkspaceOperation previews commit edit mode", async () => {

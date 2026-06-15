@@ -1418,12 +1418,19 @@ function stackIdsFromOperation(operation: NeutralOperation): string[] {
 			return [operation.stackId];
 		case "create_commit":
 			return [operation.stackId];
+		case "rename_stack":
+			return [operation.stackId, operation.name];
+		case "delete_stack":
+		case "squash_stack":
+			return [operation.stackId];
 		case "move_commit":
 			return [operation.targetStackId];
 		case "uncommit_changes":
 			return operation.targetStackId ? [operation.targetStackId] : [];
 		case "create_stack":
 		case "reword_commit":
+		case "add_empty_commit":
+		case "create_bookmark":
 		case "amend_commit":
 		case "split_commit":
 		case "squash_commits":
@@ -1464,6 +1471,9 @@ function commitIdsFromOperation(operation: NeutralOperation): string[] {
 		case "unapply_stack":
 		case "create_stack":
 		case "create_commit":
+		case "rename_stack":
+		case "delete_stack":
+		case "squash_stack":
 		case "restore_changes":
 		case "discard_changes":
 		case "begin_edit_commit":
@@ -1472,6 +1482,9 @@ function commitIdsFromOperation(operation: NeutralOperation): string[] {
 		case "undo":
 		case "redo":
 			return [];
+		case "add_empty_commit":
+		case "create_bookmark":
+			return [operation.targetCommitId];
 		case "checkout_commit":
 		case "abandon_commit":
 			return [operation.commitId];

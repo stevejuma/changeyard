@@ -306,6 +306,7 @@ export const runtimeVcsJjChangeSchema = z.object({
 	authorName: z.string().nullable(),
 	authorEmail: z.string().nullable(),
 	authorAvatarUrl: z.string().nullable(),
+	timestamp: z.string().nullable(),
 	parentChangeIds: z.array(z.string()),
 	bookmarks: z.array(z.string()),
 	remoteBookmarks: z.array(z.string()),
@@ -321,9 +322,11 @@ export const runtimeVcsJjStackChangeSchema = z.object({
 	changeId: z.string(),
 	commitId: z.string(),
 	title: z.string(),
+	description: z.string(),
 	authorName: z.string().nullable(),
 	authorEmail: z.string().nullable(),
 	authorAvatarUrl: z.string().nullable(),
+	timestamp: z.string().nullable(),
 	bookmarks: z.array(z.string()),
 	remoteBookmarks: z.array(z.string()),
 	trackedRemoteBookmarks: z.array(z.string()).optional(),
@@ -591,7 +594,31 @@ export const runtimeVcsWorkspaceCreateCommitOperationSchema = z.object({
 	kind: z.literal("create_commit"),
 	stackId: z.string(),
 	message: z.string(),
-	selection: runtimeVcsChangeSelectionSchema,
+	selection: runtimeVcsChangeSelectionSchema.nullish(),
+});
+export const runtimeVcsWorkspaceAddEmptyCommitOperationSchema = z.object({
+	kind: z.literal("add_empty_commit"),
+	targetCommitId: z.string(),
+	placement: z.enum(["before", "after"]),
+	message: z.string(),
+});
+export const runtimeVcsWorkspaceCreateBookmarkOperationSchema = z.object({
+	kind: z.literal("create_bookmark"),
+	targetCommitId: z.string(),
+	bookmarkName: z.string(),
+});
+export const runtimeVcsWorkspaceRenameStackOperationSchema = z.object({
+	kind: z.literal("rename_stack"),
+	stackId: z.string(),
+	name: z.string(),
+});
+export const runtimeVcsWorkspaceDeleteStackOperationSchema = z.object({
+	kind: z.literal("delete_stack"),
+	stackId: z.string(),
+});
+export const runtimeVcsWorkspaceSquashStackOperationSchema = z.object({
+	kind: z.literal("squash_stack"),
+	stackId: z.string(),
 });
 export const runtimeVcsWorkspaceBeginEditCommitOperationSchema = z.object({
 	kind: z.literal("begin_edit_commit"),
@@ -683,6 +710,11 @@ export const runtimeVcsWorkspaceOperationSchema = z.discriminatedUnion("kind", [
 	runtimeVcsWorkspaceUnapplyStackOperationSchema,
 	runtimeVcsWorkspaceCreateStackOperationSchema,
 	runtimeVcsWorkspaceCreateCommitOperationSchema,
+	runtimeVcsWorkspaceAddEmptyCommitOperationSchema,
+	runtimeVcsWorkspaceCreateBookmarkOperationSchema,
+	runtimeVcsWorkspaceRenameStackOperationSchema,
+	runtimeVcsWorkspaceDeleteStackOperationSchema,
+	runtimeVcsWorkspaceSquashStackOperationSchema,
 	runtimeVcsWorkspaceBeginEditCommitOperationSchema,
 	runtimeVcsWorkspaceSaveEditCommitOperationSchema,
 	runtimeVcsWorkspaceAbortEditCommitOperationSchema,

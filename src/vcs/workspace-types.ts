@@ -23,7 +23,12 @@ export type NeutralOperation =
 	| { kind: "apply_stack"; stackId: string }
 	| { kind: "unapply_stack"; stackId: string }
 	| { kind: "create_stack"; name: string; selection?: NeutralSelection }
-	| { kind: "create_commit"; stackId: string; message: string; selection: NeutralSelection }
+	| { kind: "create_commit"; stackId: string; message: string; selection?: NeutralSelection | null }
+	| { kind: "add_empty_commit"; targetCommitId: string; placement: "before" | "after"; message: string }
+	| { kind: "create_bookmark"; targetCommitId: string; bookmarkName: string }
+	| { kind: "rename_stack"; stackId: string; name: string }
+	| { kind: "delete_stack"; stackId: string }
+	| { kind: "squash_stack"; stackId: string }
 	| { kind: "begin_edit_commit"; targetCommitId: string; message: string }
 	| { kind: "save_edit_commit"; editCommitId: string; targetCommitId: string; returnToCommitId?: string }
 	| { kind: "abort_edit_commit"; editCommitId: string; returnToCommitId?: string }

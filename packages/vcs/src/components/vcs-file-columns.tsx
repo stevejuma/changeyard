@@ -1,5 +1,5 @@
 import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, FileText, Folder, FolderOpen, FolderTree, List, X } from "lucide-react";
-import type { DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent } from "react";
+import type { DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { useMemo } from "react";
 
 import { parsePatchToHunks, parsePatchToRows, ReadOnlyUnifiedDiff, type UnifiedDiffHunk } from "@/components/shared/diff-renderer";
@@ -379,6 +379,7 @@ export function VcsInlineFileSection({
 	onCollapsedChange,
 	className,
 	conflictPaths,
+	fillHeight = false,
 }: {
 	title?: string;
 	files: VcsFileChange[];
@@ -393,6 +394,7 @@ export function VcsInlineFileSection({
 	onCollapsedChange?: (collapsed: boolean) => void;
 	className?: string;
 	conflictPaths?: ReadonlySet<string>;
+	fillHeight?: boolean;
 }): React.ReactElement {
 	const filesByPath = useMemo(() => new Map(files.map((file) => [file.path, file])), [files]);
 	const tree = useMemo(() => buildFileTree(files.map((file) => file.path)), [files]);
@@ -417,7 +419,7 @@ export function VcsInlineFileSection({
 	);
 
 	return (
-		<div className={cn("mx-2 mb-2 rounded-lg border border-divider bg-surface-0", className)}>
+		<div className={cn("mx-2 mb-2 rounded-lg border border-divider bg-surface-0", fillHeight && "flex min-h-0 flex-col", className)}>
 				{onCollapsedChange ? (
 					<div
 						role="button"
@@ -443,7 +445,7 @@ export function VcsInlineFileSection({
 				) : (
 				<div className="flex w-full items-center gap-2 px-2 py-2 text-left">{headerContent}</div>
 			)}
-			{collapsed ? null : <div className="border-t border-divider">
+			{collapsed ? null : <div className={cn("border-t border-divider", fillHeight && "min-h-0 flex-1")}>
 				{isLoading ? (
 					<FileRowsSkeleton />
 				) : errorMessage ? (
@@ -451,7 +453,7 @@ export function VcsInlineFileSection({
 				) : files.length === 0 ? (
 					<div className="px-2 py-2 text-[12px] text-text-tertiary">No changed files.</div>
 				) : (
-					<div className="max-h-[250px] overflow-y-auto px-1 py-1">
+					<div className={cn("overflow-y-auto px-1 py-1", fillHeight ? "h-full" : "max-h-[250px]")}>
 						{viewMode === "tree"
 							? tree.map((node) => (
 									<FileTreeRow
@@ -545,6 +547,22 @@ function ReadOnlyDiff({
 	return <ReadOnlyUnifiedDiff rows={rows} path={file.path} />;
 }
 
+export function VcsFileDiffContent({
+	file,
+	onHunkDragStart,
+}: {
+	file: VcsFileChange | null;
+	onHunkDragStart?: (event: ReactDragEvent<HTMLDivElement>, hunk: VcsDiffHunkDragPayload) => void;
+}): React.ReactElement {
+	return file ? (
+		<div className="overflow-hidden rounded-md border border-border bg-surface-0">
+			<ReadOnlyDiff file={file} onHunkDragStart={onHunkDragStart} />
+		</div>
+	) : (
+		<EmptyState title="Select a file">Choose a changed file to inspect its diff.</EmptyState>
+	);
+}
+
 export function VcsFileDiffColumn({
 	file,
 	isLoading = false,
@@ -554,6 +572,7 @@ export function VcsFileDiffColumn({
 	onWidthChange,
 	onClose,
 	onHunkDragStart,
+	topContent,
 }: {
 	file: VcsFileChange | null;
 	isLoading?: boolean;
@@ -563,6 +582,7 @@ export function VcsFileDiffColumn({
 	onWidthChange?: (width: number) => void;
 	onClose: () => void;
 	onHunkDragStart?: (event: ReactDragEvent<HTMLDivElement>, hunk: VcsDiffHunkDragPayload) => void;
+	topContent?: ReactNode;
 }): React.ReactElement {
 	return (
 		<section
@@ -582,6 +602,7 @@ export function VcsFileDiffColumn({
 					}}
 				/>
 			) : null}
+			{topContent}
 			<header className="flex h-10 shrink-0 items-center gap-2 border-b border-divider px-3">
 				<FileText size={14} className="shrink-0 text-text-tertiary" />
 				<span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-text-primary" title={file?.path}>
@@ -605,9 +626,7 @@ export function VcsFileDiffColumn({
 						<div className="kb-skeleton h-24 w-full" />
 					</div>
 				) : file ? (
-					<div className="overflow-hidden rounded-md border border-border bg-surface-0">
-						<ReadOnlyDiff file={file} onHunkDragStart={onHunkDragStart} />
-					</div>
+					<VcsFileDiffContent file={file} onHunkDragStart={onHunkDragStart} />
 				) : (
 					<EmptyState title="Select a file">Choose a changed file to inspect its diff.</EmptyState>
 				)}

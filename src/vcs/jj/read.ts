@@ -19,6 +19,8 @@ export interface VcsJjChangesReadResult {
 	ok: boolean;
 }
 
+type ParsedJjBookmarkRow = VcsJjBookmark & { remoteName: string | null };
+
 function parseBooleanFlag(value: string): boolean {
 	return value.trim() === "1";
 }
@@ -28,6 +30,18 @@ function parseList(value: string): string[] {
 		.split(LIST_SEPARATOR)
 		.map((entry) => entry.trim())
 		.filter(Boolean);
+}
+
+function parseJsonTemplateString(value: string | undefined): string {
+	if (!value) {
+		return "";
+	}
+	try {
+		const parsed = JSON.parse(value);
+		return typeof parsed === "string" ? parsed : value;
+	} catch {
+		return value;
+	}
 }
 
 function gravatarUrlForEmail(email: string | null | undefined): string | null {
@@ -90,6 +104,7 @@ function mergeChanges(current: VcsJjChange | undefined, next: VcsJjChange): VcsJ
 		authorName: next.authorName ?? current?.authorName ?? null,
 		authorEmail: next.authorEmail ?? current?.authorEmail ?? null,
 		authorAvatarUrl: next.authorAvatarUrl ?? current?.authorAvatarUrl ?? null,
+		timestamp: next.timestamp ?? current?.timestamp ?? null,
 		bookmarks: mergeLists(current?.bookmarks, next.bookmarks),
 		remoteBookmarks: mergeLists(current?.remoteBookmarks, next.remoteBookmarks),
 		isCurrent: current?.isCurrent || next.isCurrent || false,
@@ -106,35 +121,69 @@ export async function readJjBookmarksWithBase(
 		args: [
 			"bookmark",
 			"list",
+			"--all-remotes",
 			"--ignore-working-copy",
 			"--at-op=@",
 			"--revisions",
 			createBookmarksRevset(baseRevset),
 			"--template",
-			'name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"',
+			'name ++ "\\t" ++ if(self.remote(), self.remote(), "") ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"',
 		],
 		cwd,
 	});
 	if (!result.ok) {
 		return { bookmarks: [], ok: false };
 	}
+	const groups = new Map<
+		string,
+		{
+			local: ParsedJjBookmarkRow | null;
+			synced: boolean;
+			trackedRemoteNames: Set<string>;
+		}
+	>();
+	for (const line of result.stdout.split("\n")) {
+		const trimmed = line.trim();
+		if (!trimmed) {
+			continue;
+		}
+		const [name, remoteName = "", changeId, commitId, syncedFlag, trackedFlag] = trimmed.split(BOOKMARK_LINE_SEPARATOR);
+		if (!name || !changeId || !commitId) {
+			continue;
+		}
+		const row: ParsedJjBookmarkRow = {
+			name,
+			remoteName: remoteName.trim() || null,
+			changeId,
+			commitId,
+			synced: parseBooleanFlag(syncedFlag ?? "0"),
+			tracked: parseBooleanFlag(trackedFlag ?? "0"),
+		};
+		const group = groups.get(name) ?? { local: null, synced: false, trackedRemoteNames: new Set<string>() };
+		group.synced ||= row.synced;
+		if (!row.remoteName) {
+			group.local = row;
+		} else if (row.remoteName !== "git" && row.tracked) {
+			group.trackedRemoteNames.add(row.remoteName);
+		}
+		groups.set(name, group);
+	}
 	return {
 		ok: true,
-		bookmarks: result.stdout
-			.split("\n")
-			.map((line) => line.trim())
-			.filter(Boolean)
-			.map((line) => {
-				const [name, changeId, commitId, syncedFlag, trackedFlag] = line.split(BOOKMARK_LINE_SEPARATOR);
+		bookmarks: [...groups.values()]
+			.filter((group) => group.local)
+			.map((group) => {
+				const local = group.local as ParsedJjBookmarkRow;
+				const trackedRemoteNames = [...group.trackedRemoteNames].sort((left, right) => left.localeCompare(right));
 				return {
-					name,
-					changeId,
-					commitId,
-					synced: parseBooleanFlag(syncedFlag ?? "0"),
-					tracked: parseBooleanFlag(trackedFlag ?? "0"),
+					name: local.name,
+					changeId: local.changeId,
+					commitId: local.commitId,
+					synced: group.synced,
+					tracked: trackedRemoteNames.length > 0 || local.tracked,
+					trackedRemoteNames,
 				};
-			})
-			.filter((bookmark) => bookmark.name && bookmark.changeId && bookmark.commitId),
+			}),
 	};
 }
 
@@ -148,11 +197,14 @@ function parseChangeRow(line: string): VcsJjChange | null {
 	const [changeId, commitId, description] = fields;
 	let authorName: string | undefined;
 	let authorEmail: string | undefined;
+	let timestamp: string | undefined;
 	let parents: string | undefined;
 	let bookmarks: string | undefined;
 	let remoteBookmarks: string | undefined;
 	let currentFlag: string | undefined;
-	if (fields.length >= 9) {
+	if (fields.length >= 10) {
+		[, , , authorName, authorEmail, timestamp, parents, bookmarks, remoteBookmarks, currentFlag] = fields;
+	} else if (fields.length >= 9) {
 		[, , , authorName, authorEmail, parents, bookmarks, remoteBookmarks, currentFlag] = fields;
 	} else {
 		[, , , parents, bookmarks, remoteBookmarks, currentFlag] = fields;
@@ -162,13 +214,15 @@ function parseChangeRow(line: string): VcsJjChange | null {
 	}
 	const normalizedAuthorName = authorName?.trim() || null;
 	const normalizedAuthorEmail = authorEmail?.trim() || null;
+	const normalizedDescription = parseJsonTemplateString(description);
 	return {
 		changeId,
 		commitId,
-		description: description || "(empty description)",
+		description: normalizedDescription || "(empty description)",
 		authorName: normalizedAuthorName,
 		authorEmail: normalizedAuthorEmail,
 		authorAvatarUrl: gravatarUrlForEmail(normalizedAuthorEmail),
+		timestamp: timestamp?.trim() || null,
 		parentChangeIds: parseList(parents ?? ""),
 		bookmarks: parseList(bookmarks ?? ""),
 		remoteBookmarks: parseList(remoteBookmarks ?? ""),
@@ -200,7 +254,7 @@ export async function readJjChangesForBookmarks(
 				createGraphRevset(baseRevset, batch),
 				"--no-graph",
 				"--template",
-				'change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"',
+				'change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.escape_json() ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ author.timestamp().format("%Y-%m-%dT%H:%M:%SZ") ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"',
 			],
 			cwd,
 		});

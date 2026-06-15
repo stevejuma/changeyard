@@ -145,6 +145,10 @@ export function selectActiveAppliedStackIds(
 	return normalizeAppliedStackIds(providerStackIds);
 }
 
+export function stackChangeMatchesSelection(change: BranchesStackChange, selectionId: string | null | undefined): boolean {
+	return matchesShortId(change.changeId, selectionId) || matchesShortId(change.commitId, selectionId);
+}
+
 export function createBranchSelectionFallbackStack(selection: StackSelection): BranchesStack | null {
 	const item = selection.item ?? null;
 	if (!item || !["current", "bookmark", "branch", "workspace"].includes(item.type) || !item.commitId) {
@@ -176,9 +180,11 @@ export function createBranchSelectionFallbackStack(selection: StackSelection): B
 			changeId,
 			commitId: item.commitId,
 			title,
+			description: title,
 			authorName: item.authorName ?? null,
 			authorEmail: item.authorEmail ?? null,
 			authorAvatarUrl: item.authorAvatarUrl ?? null,
+			timestamp: item.timestamp ?? null,
 			bookmarks,
 			remoteBookmarks: item.type === "workspace" && item.remoteName ? [`${item.target ?? item.name}@${item.remoteName}`] : [],
 			isCurrent: isCheckedOut,

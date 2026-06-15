@@ -17,6 +17,7 @@ function change(
 		authorName: null,
 		authorEmail: null,
 		authorAvatarUrl: null,
+		timestamp: null,
 		parentChangeIds,
 		bookmarks,
 		remoteBookmarks: [],

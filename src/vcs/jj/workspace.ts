@@ -133,7 +133,9 @@ function classifyRemoteBookmarksForChange(
 		const hasMatchingTrackedBookmark = bookmarks.some(
 			(bookmark) =>
 				bookmark.name === parsed.bookmarkName &&
-				bookmark.tracked &&
+				(bookmark.trackedRemoteNames?.length
+					? bookmark.trackedRemoteNames.includes(parsed.remoteName)
+					: bookmark.tracked) &&
 				(bookmark.changeId === change.changeId || bookmark.commitId === change.commitId),
 		);
 		if (hasMatchingTrackedBookmark) {
@@ -246,7 +248,7 @@ export async function loadJjWorkspaceState(
 			isApplied: appliedStackIds.includes(stack.id),
 			isCurrent: stack.isCheckedOut,
 			commits: stack.changes.map((change) => {
-				const description = normalizeDescription(change.title);
+				const description = normalizeDescription(change.description || change.title);
 				const remoteTracking = combineRemoteTrackingInfo(
 					classifyRemoteBookmarksForChange(change, state.bookmarks),
 					stackRemoteTracking,
@@ -259,7 +261,7 @@ export async function loadJjWorkspaceState(
 					authorName: change.authorName,
 					authorEmail: change.authorEmail,
 					authorAvatarUrl: change.authorAvatarUrl,
-					timestamp: null,
+					timestamp: change.timestamp,
 					parentCommitIds: changesById.get(change.changeId)?.parentChangeIds ?? [],
 					stackIds: [stack.id],
 					isHead: change.isHead,
@@ -363,6 +365,12 @@ export async function previewJjWorkspaceOperation(
 	}
 	if (input.operation.kind === "untrack_remote_bookmark") {
 		return previewJjUntrackRemoteBookmarkOperation(input.operation);
+	}
+	if (input.operation.kind === "abandon_commit") {
+		return previewJjAbandonCommitOperation(input.operation);
+	}
+	if (input.operation.kind === "rename_stack" || input.operation.kind === "delete_stack" || input.operation.kind === "squash_stack") {
+		return await previewJjStackOperation(cwd, runner, input.operation);
 	}
 	if (input.operation.kind === "apply_stack" || input.operation.kind === "unapply_stack") {
 		return await workspaceMembershipPreview(cwd, runner, input.operation);
@@ -550,6 +558,12 @@ export async function applyJjWorkspaceOperation(
 	if (input.operation.kind === "create_commit") {
 		return await applyJjCreateCommitOperation(cwd, runner, input.operation);
 	}
+	if (input.operation.kind === "abandon_commit") {
+		return await applyJjAbandonCommitOperation(cwd, runner, input.operation);
+	}
+	if (input.operation.kind === "rename_stack" || input.operation.kind === "delete_stack" || input.operation.kind === "squash_stack") {
+		return await applyJjStackOperation(cwd, runner, input.operation);
+	}
 	if (isJjHunkRestoreDiscardOperation(input.operation)) {
 		const validation = await validateJjWorkingCopyHunkOperation(cwd, runner, input.operation);
 		if (validation) {
@@ -627,6 +641,25 @@ async function translateOperation(
 		case "reword_commit":
 			return {
 				operation: { kind: "edit_message", changeId: operation.commitId, message: operation.message },
+				reason: "",
+			};
+		case "add_empty_commit":
+			return {
+				operation: {
+					kind: "create_change",
+					anchorChangeId: operation.targetCommitId,
+					placement: operation.placement,
+					message: operation.message,
+				},
+				reason: "",
+			};
+		case "create_bookmark":
+			return {
+				operation: {
+					kind: "create_bookmark",
+					changeId: operation.targetCommitId,
+					bookmarkName: operation.bookmarkName,
+				},
 				reason: "",
 			};
 		case "amend_commit": {
@@ -753,6 +786,11 @@ async function translateOperation(
 		case "unapply_stack":
 		case "create_stack":
 		case "create_commit":
+		case "add_empty_commit":
+		case "create_bookmark":
+		case "rename_stack":
+		case "delete_stack":
+		case "squash_stack":
 		case "begin_edit_commit":
 		case "save_edit_commit":
 		case "abort_edit_commit":
@@ -785,8 +823,8 @@ function isJjHunkRestoreDiscardOperation(
 ): operation is JjWorkingCopyHunkRestoreDiscardOperation {
 	return (
 		(operation.kind === "restore_changes" || operation.kind === "discard_changes") &&
-		operation.selection.source === "working_copy" &&
-		Boolean(operation.selection.hunks?.length)
+		operation.selection?.source === "working_copy" &&
+		Boolean(operation.selection?.hunks?.length)
 	);
 }
 
@@ -795,8 +833,8 @@ function isJjSupportedWorkingCopyHunkCommitOperation(
 ): operation is JjWorkingCopyHunkCommitOperation {
 	return (
 		(operation.kind === "amend_commit" || operation.kind === "create_commit") &&
-		operation.selection.source === "working_copy" &&
-		Boolean(operation.selection.hunks?.length)
+		operation.selection?.source === "working_copy" &&
+		Boolean(operation.selection?.hunks?.length)
 	);
 }
 
@@ -810,8 +848,8 @@ function isJjCommittedHunkRewriteOperation(
 			operation.kind === "uncommit_changes" ||
 			operation.kind === "create_commit"
 		) &&
-		operation.selection.source === "commit" &&
-		Boolean(operation.selection.hunks?.length)
+		operation.selection?.source === "commit" &&
+		Boolean(operation.selection?.hunks?.length)
 	);
 }
 
@@ -820,9 +858,9 @@ function isJjCommittedPathMoveOperation(
 ): operation is Extract<NeutralOperation, { kind: "move_changes" | "uncommit_changes" }> {
 	return (
 		(operation.kind === "move_changes" || operation.kind === "uncommit_changes") &&
-		operation.selection.source === "commit" &&
-		Boolean(operation.selection.paths?.length) &&
-		!(operation.selection.hunks?.length)
+		operation.selection?.source === "commit" &&
+		Boolean(operation.selection?.paths?.length) &&
+		!(operation.selection?.hunks?.length)
 	);
 }
 
@@ -831,8 +869,8 @@ function isJjCommittedHunkDiscardOperation(
 ): operation is JjCommittedHunkDiscardOperation {
 	return (
 		(operation.kind === "restore_changes" || operation.kind === "discard_changes") &&
-		operation.selection.source === "commit" &&
-		Boolean(operation.selection.hunks?.length)
+		operation.selection?.source === "commit" &&
+		Boolean(operation.selection?.hunks?.length)
 	);
 }
 
@@ -1080,6 +1118,64 @@ async function resolveCreateCommitStackHeadChangeId(
 	return { ok: true, headChangeId };
 }
 
+async function resolveStackHeadChangeId(cwd: string, runner: VcsCommandRunner, stackId: string): Promise<string | null> {
+	const state = await loadJjWorkspaceState(cwd, runner);
+	const stack = state.stacks.find((candidate) => candidate.stackId === stackId);
+	return stack?.headCommitId ?? stack?.commits.at(-1)?.commitId ?? null;
+}
+
+async function finalizeJjCreateCommitApply(
+	cwd: string,
+	runner: VcsCommandRunner,
+	operation: Extract<NeutralOperation, { kind: "create_commit" }>,
+	targetHeadChangeId: string,
+	output: { stdout: string; stderr: string },
+): Promise<{ ok: true; affectedCommitIds: string[] } | { ok: false; message: string }> {
+	const createdChangeId =
+		parseCreatedJjChangeId(output.stdout) ??
+		parseCreatedJjChangeId(output.stderr) ??
+		(await resolveStackHeadChangeId(cwd, runner, operation.stackId));
+	if (createdChangeId && createdChangeId !== targetHeadChangeId) {
+		const bookmarkResult = await runner({
+			command: "jj",
+			args: ["bookmark", "set", operation.stackId, "-r", createdChangeId],
+			cwd,
+		});
+		if (!bookmarkResult.ok) {
+			return {
+				ok: false,
+				message: bookmarkResult.stderr.trim() || bookmarkResult.stdout.trim() || `Could not move bookmark ${operation.stackId}.`,
+			};
+		}
+	}
+	return {
+		ok: true,
+		affectedCommitIds: uniqueCommitIds([createdChangeId ?? targetHeadChangeId, targetHeadChangeId]),
+	};
+}
+
+function previewJjAbandonCommitOperation(operation: Extract<NeutralOperation, { kind: "abandon_commit" }>) {
+	return {
+		valid: true,
+		operation,
+		title: "Delete commit",
+		summary: `Abandon ${operation.commitId} and rebase descendants onto its parent.`,
+		risk: "high" as const,
+		disabledReason: null,
+		warnings: [
+			{
+				code: "jj_abandon_commit",
+				message: "This abandons the commit. If it is a stack head, Changeyard keeps the stack bookmark on the next lower commit when possible.",
+			},
+		],
+		conflicts: [],
+		affectedStackIds: [],
+		affectedCommitIds: [operation.commitId],
+		affectedPaths: [],
+		diagnostics: [],
+	};
+}
+
 async function previewJjCreateCommitOperation(
 	cwd: string,
 	runner: VcsCommandRunner,
@@ -1090,7 +1186,9 @@ async function previewJjCreateCommitOperation(
 		return unsupportedPreview(operation, "Enter a commit title before previewing.");
 	}
 	const validation =
-		operation.selection.source === "working_copy"
+		!operation.selection
+			? null
+			: operation.selection.source === "working_copy"
 			? validateJjWorkingCopySelection(operation.selection)
 			: validateJjCommittedCreateCommitSelection(operation.selection);
 	if (validation) {
@@ -1105,7 +1203,7 @@ async function previewJjCreateCommitOperation(
 		operation,
 		title: "Create commit",
 		summary: `Create new commit at top of ${operation.stackId}.`,
-		risk: operation.selection.hunks?.length ? "high" as const : "medium" as const,
+		risk: operation.selection?.hunks?.length ? "high" as const : "medium" as const,
 		disabledReason: null,
 		warnings: [],
 		conflicts: [],
@@ -1173,6 +1271,26 @@ async function applyJjCreateCommitOperation(
 	if (!message) {
 		return unsupportedApply(operation, "Enter a commit title before previewing.");
 	}
+	if (!operation.selection) {
+		const applyResult = await runner({
+			command: "jj",
+			args: ["new", "--no-edit", "--insert-after", target.headChangeId, "-m", message],
+			cwd,
+		});
+		if (!applyResult.ok) {
+			return failedApply(operation, applyResult.stderr.trim() || applyResult.stdout.trim() || "Could not create empty JJ commit.");
+		}
+		const finalized = await finalizeJjCreateCommitApply(cwd, runner, operation, target.headChangeId, applyResult);
+		if (!finalized.ok) {
+			return failedApply(operation, finalized.message);
+		}
+		return successfulApply(
+			operation,
+			"Created commit",
+			`Created empty commit at top of ${operation.stackId}.`,
+			finalized.affectedCommitIds,
+		);
+	}
 	const paths = operation.selection.paths ?? [];
 	if (isJjSupportedWorkingCopyHunkCommitOperation(operation)) {
 		return await applyJjWorkingCopyHunkCommitOperation(cwd, runner, operation);
@@ -1190,7 +1308,16 @@ async function applyJjCreateCommitOperation(
 		if (!applyResult.ok) {
 			return failedApply(operation, applyResult.stderr.trim() || applyResult.stdout.trim() || "Could not create commit from selected JJ hunks.");
 		}
-		return successfulApply(operation, "Created commit", `Created new commit at top of ${operation.stackId}.`, [target.headChangeId]);
+		const finalized = await finalizeJjCreateCommitApply(cwd, runner, operation, target.headChangeId, applyResult);
+		if (!finalized.ok) {
+			return failedApply(operation, finalized.message);
+		}
+		return successfulApply(
+			operation,
+			"Created commit",
+			`Created new commit at top of ${operation.stackId}.`,
+			finalized.affectedCommitIds,
+		);
 	}
 	if (operation.selection.source === "commit") {
 		if (!operation.selection.commitId || paths.length === 0) {
@@ -1204,7 +1331,16 @@ async function applyJjCreateCommitOperation(
 		if (!applyResult.ok) {
 			return failedApply(operation, applyResult.stderr.trim() || applyResult.stdout.trim() || "Could not create JJ commit.");
 		}
-		return successfulApply(operation, "Created commit", `Created new commit at top of ${operation.stackId}.`, [target.headChangeId]);
+		const finalized = await finalizeJjCreateCommitApply(cwd, runner, operation, target.headChangeId, applyResult);
+		if (!finalized.ok) {
+			return failedApply(operation, finalized.message);
+		}
+		return successfulApply(
+			operation,
+			"Created commit",
+			`Created new commit at top of ${operation.stackId}.`,
+			finalized.affectedCommitIds,
+		);
 	}
 	const applyResult = await runner({
 		command: "jj",
@@ -1214,7 +1350,189 @@ async function applyJjCreateCommitOperation(
 	if (!applyResult.ok) {
 		return failedApply(operation, applyResult.stderr.trim() || applyResult.stdout.trim() || "Could not create JJ commit.");
 	}
-	return successfulApply(operation, "Created commit", `Created new commit at top of ${operation.stackId}.`, [target.headChangeId]);
+	const finalized = await finalizeJjCreateCommitApply(cwd, runner, operation, target.headChangeId, applyResult);
+	if (!finalized.ok) {
+		return failedApply(operation, finalized.message);
+	}
+	return successfulApply(
+		operation,
+		"Created commit",
+		`Created new commit at top of ${operation.stackId}.`,
+		finalized.affectedCommitIds,
+	);
+}
+
+async function applyJjAbandonCommitOperation(
+	cwd: string,
+	runner: VcsCommandRunner,
+	operation: Extract<NeutralOperation, { kind: "abandon_commit" }>,
+) {
+	const state = await loadJjWorkspaceState(cwd, runner);
+	const headStacks = state.stacks.filter((stack) => stack.headCommitId === operation.commitId);
+	const affectedStackIds = headStacks.map((stack) => stack.stackId);
+	const replacementCommitIds: string[] = [];
+	for (const stack of headStacks) {
+		const targetIndex = stack.commits.findIndex((commit) => commit.commitId === operation.commitId);
+		const replacementCommitId = targetIndex > 0 ? stack.commits[targetIndex - 1]?.commitId ?? null : null;
+		if (!replacementCommitId) {
+			continue;
+		}
+		const bookmarkResult = await runner({
+			command: "jj",
+			args: ["bookmark", "set", "--allow-backwards", stack.stackId, "-r", replacementCommitId],
+			cwd,
+		});
+		if (!bookmarkResult.ok) {
+			return failedApply(
+				operation,
+				bookmarkResult.stderr.trim() || bookmarkResult.stdout.trim() || `Could not move bookmark ${stack.stackId}.`,
+			);
+		}
+		replacementCommitIds.push(replacementCommitId);
+	}
+	const abandonArgs =
+		headStacks.length > 0 && replacementCommitIds.length === 0
+			? ["abandon", "--retain-bookmarks", operation.commitId]
+			: ["abandon", operation.commitId];
+	const abandonResult = await runner({ command: "jj", args: abandonArgs, cwd });
+	if (!abandonResult.ok) {
+		return failedApply(operation, abandonResult.stderr.trim() || abandonResult.stdout.trim() || "Could not delete JJ commit.");
+	}
+	return {
+		ok: true,
+		operation,
+		title: "Deleted commit",
+		summary:
+			replacementCommitIds.length > 0
+				? `Abandoned ${operation.commitId} and moved ${affectedStackIds.join(", ")} to ${replacementCommitIds.join(", ")}.`
+				: `Abandoned ${operation.commitId}. Descendants were rebased onto its parent.`,
+		affectedStackIds,
+		affectedCommitIds: [operation.commitId, ...replacementCommitIds],
+		affectedPaths: [],
+		recovery: null,
+		diagnostics: [],
+	};
+}
+
+async function previewJjStackOperation(
+	cwd: string,
+	runner: VcsCommandRunner,
+	operation: Extract<NeutralOperation, { kind: "rename_stack" | "delete_stack" | "squash_stack" }>,
+) {
+	const state = await loadJjWorkspaceState(cwd, runner);
+	const stack = state.stacks.find((candidate) => candidate.stackId === operation.stackId);
+	if (!stack) {
+		return unsupportedPreview(operation, `Could not find stack ${operation.stackId}.`);
+	}
+	if (operation.kind === "rename_stack") {
+		return {
+			valid: true,
+			operation,
+			title: "Rename stack",
+			summary: `Rename ${operation.stackId} to ${operation.name}.`,
+			risk: "low" as const,
+			disabledReason: null,
+			warnings: [],
+			conflicts: [],
+			affectedStackIds: [operation.stackId, operation.name],
+			affectedCommitIds: [],
+			affectedPaths: [],
+			diagnostics: [],
+		};
+	}
+	if (operation.kind === "delete_stack") {
+		return {
+			valid: true,
+			operation,
+			title: "Delete stack",
+			summary: `Delete bookmark ${operation.stackId}. Commits are left intact.`,
+			risk: "medium" as const,
+			disabledReason: null,
+			warnings: [
+				{
+					code: "jj_bookmark_delete_only",
+					message: "This deletes the bookmark only; it does not abandon commits.",
+				},
+			],
+			conflicts: [],
+			affectedStackIds: [operation.stackId],
+			affectedCommitIds: [],
+			affectedPaths: [],
+			diagnostics: [],
+		};
+	}
+	const headChangeId = stack.headCommitId ?? stack.commits.at(0)?.commitId ?? null;
+	const sourceCommitIds = stack.commits.map((commit) => commit.commitId).filter((commitId) => commitId !== headChangeId);
+	if (!headChangeId || sourceCommitIds.length === 0) {
+		return unsupportedPreview(operation, `${operation.stackId} needs at least two commits to squash.`);
+	}
+	return {
+		valid: true,
+		operation,
+		title: "Squash stack",
+		summary: `Squash ${sourceCommitIds.length} commit(s) into ${headChangeId}.`,
+		risk: "high" as const,
+		disabledReason: null,
+		warnings: [
+			{
+				code: "jj_squash_stack",
+				message: "This rewrites every visible commit in the stack into the stack head.",
+			},
+		],
+		conflicts: [],
+		affectedStackIds: [operation.stackId],
+		affectedCommitIds: [headChangeId, ...sourceCommitIds],
+		affectedPaths: [],
+		diagnostics: [],
+	};
+}
+
+async function applyJjStackOperation(
+	cwd: string,
+	runner: VcsCommandRunner,
+	operation: Extract<NeutralOperation, { kind: "rename_stack" | "delete_stack" | "squash_stack" }>,
+) {
+	const preview = await previewJjStackOperation(cwd, runner, operation);
+	if (!preview.valid) {
+		return unsupportedApply(operation, preview.summary);
+	}
+	if (operation.kind === "rename_stack") {
+		const result = await runner({ command: "jj", args: ["bookmark", "rename", operation.stackId, operation.name], cwd });
+		if (!result.ok) {
+			return failedApply(operation, result.stderr.trim() || result.stdout.trim() || `Could not rename ${operation.stackId}.`);
+		}
+		return successfulApply(operation, "Renamed stack", `Renamed ${operation.stackId} to ${operation.name}.`, []);
+	}
+	if (operation.kind === "delete_stack") {
+		const result = await runner({ command: "jj", args: ["bookmark", "delete", operation.stackId], cwd });
+		if (!result.ok) {
+			return failedApply(operation, result.stderr.trim() || result.stdout.trim() || `Could not delete ${operation.stackId}.`);
+		}
+		return successfulApply(operation, "Deleted stack", `Deleted bookmark ${operation.stackId}.`, []);
+	}
+	const sourceCommitIds = preview.affectedCommitIds.slice(1);
+	const targetCommitId = preview.affectedCommitIds[0];
+	if (!targetCommitId || sourceCommitIds.length === 0) {
+		return unsupportedApply(operation, `${operation.stackId} needs at least two commits to squash.`);
+	}
+	const result = await runner({
+		command: "jj",
+		args: [
+			"squash",
+			...sourceCommitIds.flatMap((commitId) => ["--from", commitId]),
+			"--into",
+			targetCommitId,
+			"--use-destination-message",
+		],
+		cwd,
+	});
+	if (!result.ok) {
+		return failedApply(operation, result.stderr.trim() || result.stdout.trim() || `Could not squash ${operation.stackId}.`);
+	}
+	return successfulApply(operation, "Squashed stack", `Squashed ${sourceCommitIds.length} commit(s) into ${targetCommitId}.`, [
+		targetCommitId,
+		...sourceCommitIds,
+	]);
 }
 
 async function applyJjCommittedPathMoveOperation(
@@ -1294,6 +1612,13 @@ async function applyJjWorkingCopyHunkCommitOperation(
 		operation.kind === "amend_commit"
 			? `Moved selected working-copy changes into ${operation.commitId}.`
 			: `Created new commit at top of ${operation.stackId}.`;
+	if (operation.kind === "create_commit") {
+		const finalized = await finalizeJjCreateCommitApply(cwd, runner, operation, target.headChangeId, applyResult);
+		if (!finalized.ok) {
+			return failedApply(operation, finalized.message);
+		}
+		return successfulApply(operation, title, summary, finalized.affectedCommitIds);
+	}
 	return successfulApply(operation, title, summary, [target.headChangeId]);
 }
 
@@ -1466,6 +1791,10 @@ async function discardJjCommittedHunksWithTemporaryChange(
 function parseCreatedJjChangeId(output: string): string | null {
 	const match = /^Created new commit\s+([A-Za-z0-9._/-]+)/m.exec(output);
 	return match?.[1] ?? null;
+}
+
+function uniqueCommitIds(commitIds: string[]): string[] {
+	return [...new Set(commitIds.filter(Boolean))];
 }
 
 async function applyJjCommittedHunkOperationWithEditor(
@@ -2376,12 +2705,19 @@ function stackIdsFromOperation(operation: NeutralOperation): string[] {
 			return [operation.stackId];
 		case "create_commit":
 			return [operation.stackId];
+		case "rename_stack":
+			return [operation.stackId, operation.name];
+		case "delete_stack":
+		case "squash_stack":
+			return [operation.stackId];
 		case "move_commit":
 			return [operation.targetStackId];
 		case "uncommit_changes":
 			return operation.targetStackId ? [operation.targetStackId] : [];
 		case "create_stack":
 		case "begin_edit_commit":
+		case "add_empty_commit":
+		case "create_bookmark":
 		case "save_edit_commit":
 		case "abort_edit_commit":
 		case "track_remote_bookmark":
@@ -2412,6 +2748,9 @@ function commitIdsFromOperation(operation: NeutralOperation): string[] {
 		case "track_remote_bookmark":
 		case "untrack_remote_bookmark":
 			return [];
+		case "add_empty_commit":
+		case "create_bookmark":
+			return [operation.targetCommitId];
 		case "checkout_commit":
 		case "abandon_commit":
 			return [operation.commitId];
@@ -2437,6 +2776,9 @@ function commitIdsFromOperation(operation: NeutralOperation): string[] {
 		case "unapply_stack":
 		case "create_stack":
 		case "create_commit":
+		case "rename_stack":
+		case "delete_stack":
+		case "squash_stack":
 		case "undo":
 		case "redo":
 			return [];

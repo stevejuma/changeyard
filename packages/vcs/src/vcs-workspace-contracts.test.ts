@@ -39,6 +39,45 @@ test("validateVcsWorkspaceOperation accepts a supported neutral operation", () =
 	);
 });
 
+test("validateVcsWorkspaceOperation accepts an empty create commit without a selection", () => {
+	assert.deepEqual(
+		validateVcsWorkspaceOperation(
+			{
+				kind: "create_commit",
+				stackId: "feature/workspace",
+				message: "Add empty commit",
+			},
+			fullCapabilities,
+		),
+		{ valid: true, reason: null },
+	);
+	assert.deepEqual(
+		validateVcsWorkspaceOperation(
+			{
+				kind: "create_commit",
+				stackId: "feature/workspace",
+				message: "",
+				selection: null,
+			},
+			fullCapabilities,
+		),
+		{ valid: false, reason: "Enter a commit message." },
+	);
+});
+
+test("validateVcsWorkspaceOperation accepts stack menu operations", () => {
+	const operations: VcsWorkspaceOperation[] = [
+		{ kind: "add_empty_commit", targetCommitId: "change-1", placement: "after", message: "Empty commit" },
+		{ kind: "create_bookmark", targetCommitId: "change-1", bookmarkName: "feature/new" },
+		{ kind: "rename_stack", stackId: "feature/old", name: "feature/new" },
+		{ kind: "delete_stack", stackId: "feature/old" },
+		{ kind: "squash_stack", stackId: "feature/old" },
+	];
+	for (const operation of operations) {
+		assert.deepEqual(validateVcsWorkspaceOperation(operation, fullCapabilities), { valid: true, reason: null });
+	}
+});
+
 test("validateVcsWorkspaceOperation rejects missing operation fields", () => {
 	assert.deepEqual(
 		validateVcsWorkspaceOperation(

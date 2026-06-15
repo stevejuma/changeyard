@@ -1,22 +1,25 @@
 import * as RadixDropdownMenu from "@radix-ui/react-dropdown-menu";
-import { AlertTriangle, Check, FileText, Folder, FolderTree, GitBranch, Info, List, LockKeyhole, MoreHorizontal, PanelLeft, Pencil, PencilLine, Play, RotateCcw, Sparkles, Upload, X } from "lucide-react";
-import { Fragment, useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent } from "react";
+import { AlertTriangle, ArrowDown, ArrowUp, Check, ChevronDown, Copy, FileText, Folder, FolderTree, GitBranch, GitCommitHorizontal, Info, Layers, List, LockKeyhole, Maximize2, MoreHorizontal, PanelLeft, Pencil, PencilLine, Play, Plus, RotateCcw, Sparkles, Trash2, Type, Unlink, Upload, WrapText, X } from "lucide-react";
+import { Fragment, useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent } from "react";
 
 import {
 	applyWorkspaceStackId,
 	groupStackChangesByHead,
 	selectActiveAppliedStackIds,
 	selectAppliedWorkspaceStacks,
+	stackChangeMatchesSelection,
 	unapplyWorkspaceStackId,
 	type BranchesStack,
 	type BranchesStackChange,
 	type StackChangeGroup,
 } from "@/branches-stack-model";
 import { Avatar } from "@/components/ui/avatar";
+import { showAppToast } from "@/components/app-toaster";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { CopyValueButton } from "@/components/ui/copy-value-button";
 import { Dialog, DialogBody, DialogFooter, DialogHeader } from "@/components/ui/dialog";
+import { MarkdownMessageEditor, MarkdownMessagePreview, type MarkdownMessageEditorMode } from "@/components/ui/markdown-message-editor";
 import { Spinner } from "@/components/ui/spinner";
 import { FileStatusGlyph, StatusChip } from "@/components/ui/status-chip";
 import {
@@ -24,6 +27,7 @@ import {
 	getFirstFilePath,
 	VcsCollapsedColumn,
 	VcsColumn,
+	VcsFileDiffContent,
 	VcsFileDiffColumn,
 	VcsInlineFileSection,
 	type VcsDiffHunkDragPayload,
@@ -48,6 +52,7 @@ import {
 	useUpdateProjectConfigMutation,
 } from "@/runtime/vcs-api";
 import { buildFileTree, type FileTreeNode } from "@/utils/file-tree";
+import { copyTextToClipboard } from "@/utils/clipboard";
 import {
 	readVcsBooleanPreference,
 	readVcsFileViewMode,
@@ -90,6 +95,7 @@ const WORKSPACE_COLUMN_LIMITS = {
 } as const;
 const WORKSPACE_TRAILING_SPACER_WIDTH = WORKSPACE_COLUMN_LIMITS.diff.fallback;
 const EMPTY_CONFLICT_PATHS = new Set<string>();
+const SUMMARY_EDIT_HEIGHT = "190px";
 
 function stackColumnWidthKey(stackId: string): string {
 	return `changeyard.vcs.workspace.stack.${stackId}.width`;
@@ -104,6 +110,97 @@ function toFileChanges(diffState: QueryState<RuntimeGitCommitDiffResponse>): Vcs
 		return [];
 	}
 	return diffState.data.files;
+}
+
+function formatRelativeTime(timestamp: string | null | undefined): string | null {
+	if (!timestamp) {
+		return null;
+	}
+	const date = new Date(timestamp);
+	if (Number.isNaN(date.getTime())) {
+		return null;
+	}
+	const deltaSeconds = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
+	if (deltaSeconds < 60) {
+		return "just now";
+	}
+	const deltaMinutes = Math.floor(deltaSeconds / 60);
+	if (deltaMinutes < 60) {
+		return `${deltaMinutes} min${deltaMinutes === 1 ? "" : "s"} ago`;
+	}
+	const deltaHours = Math.floor(deltaMinutes / 60);
+	if (deltaHours < 24) {
+		return `${deltaHours} hour${deltaHours === 1 ? "" : "s"} ago`;
+	}
+	const deltaDays = Math.floor(deltaHours / 24);
+	if (deltaDays < 30) {
+		return `${deltaDays} day${deltaDays === 1 ? "" : "s"} ago`;
+	}
+	return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: date.getFullYear() === new Date().getFullYear() ? undefined : "numeric" });
+}
+
+function commitMessageFromParts(title: string, body: string): string {
+	const trimmedTitle = title.trim();
+	const trimmedBody = body.trim();
+	return trimmedBody ? `${trimmedTitle}\n\n${trimmedBody}` : trimmedTitle;
+}
+
+function workspaceGraphRefreshMessage(operation: VcsWorkspaceOperation): string {
+	switch (operation.kind) {
+		case "create_commit":
+			return "Creating commit and refreshing the stack...";
+		case "add_empty_commit":
+			return "Adding commit and refreshing the stack...";
+		case "abandon_commit":
+			return "Deleting commit and refreshing the stack...";
+		case "delete_stack":
+			return "Deleting stack and refreshing the workspace...";
+		case "squash_stack":
+			return "Squashing stack and refreshing the workspace...";
+		case "move_commit":
+			return "Moving commit and refreshing the workspace...";
+		case "squash_commits":
+			return "Squashing commits and refreshing the workspace...";
+		default:
+			return "Refreshing workspace...";
+	}
+}
+
+function workspaceGraphRefreshStackIds(operation: VcsWorkspaceOperation | null, stacks: BranchesStack[]): Set<string> {
+	const stackIds = new Set<string>();
+	if (!operation) {
+		return stackIds;
+	}
+	const addStackContainingCommit = (commitId: string): void => {
+		const stack = stacks.find((candidate) => candidate.changes.some((change) => stackChangeMatchesSelection(change, commitId)));
+		if (stack) {
+			stackIds.add(stack.id);
+		}
+	};
+	switch (operation.kind) {
+		case "create_commit":
+		case "delete_stack":
+		case "squash_stack":
+			stackIds.add(operation.stackId);
+			break;
+		case "add_empty_commit":
+			addStackContainingCommit(operation.targetCommitId);
+			break;
+		case "abandon_commit":
+			addStackContainingCommit(operation.commitId);
+			break;
+		case "move_commit":
+			stackIds.add(operation.targetStackId);
+			addStackContainingCommit(operation.commitId);
+			break;
+		case "squash_commits":
+			addStackContainingCommit(operation.sourceCommitId);
+			addStackContainingCommit(operation.targetCommitId);
+			break;
+		default:
+			break;
+	}
+	return stackIds;
 }
 
 function writeDragPayload(event: ReactDragEvent<HTMLElement>, payload: VcsWorkspaceDragPayload): void {
@@ -146,6 +243,69 @@ type StackRemoteBookmarkActionInfo = {
 	remoteName?: string;
 	remoteBookmark: string;
 };
+
+type CommitSummaryEditState = {
+	commitId: string;
+	title: string;
+	body: string;
+	mode: MarkdownMessageEditorMode;
+};
+
+type FloatingCommitSummaryMode = "description" | "diff";
+
+type FloatingSummaryGeometry = {
+	left: number;
+	top: number;
+	width: number;
+	height: number;
+};
+
+type FloatingSummaryInteraction = {
+	kind: "drag" | "resize";
+	pointerId: number;
+	startX: number;
+	startY: number;
+	startGeometry: FloatingSummaryGeometry;
+};
+
+const FLOATING_SUMMARY_MIN_WIDTH = 480;
+const FLOATING_SUMMARY_MIN_HEIGHT = 220;
+const FLOATING_SUMMARY_MARGIN = 16;
+
+function getViewportSize(): { width: number; height: number } {
+	if (typeof window === "undefined") {
+		return { width: 1280, height: 720 };
+	}
+	return { width: window.innerWidth, height: window.innerHeight };
+}
+
+function createDefaultFloatingSummaryGeometry(): FloatingSummaryGeometry {
+	const viewport = getViewportSize();
+	const width = Math.min(Math.max(Math.round(viewport.width * 0.58), 620), Math.max(FLOATING_SUMMARY_MIN_WIDTH, viewport.width - FLOATING_SUMMARY_MARGIN * 2));
+	const height = Math.min(Math.max(Math.round(viewport.height * 0.34), 300), Math.max(FLOATING_SUMMARY_MIN_HEIGHT, viewport.height - FLOATING_SUMMARY_MARGIN * 2));
+	return clampFloatingSummaryGeometry({
+		left: Math.max(FLOATING_SUMMARY_MARGIN, Math.round((viewport.width - width) / 2)),
+		top: Math.max(FLOATING_SUMMARY_MARGIN, 72),
+		width,
+		height,
+	});
+}
+
+function clampFloatingSummaryGeometry(geometry: FloatingSummaryGeometry): FloatingSummaryGeometry {
+	const viewport = getViewportSize();
+	const maxWidth = Math.max(FLOATING_SUMMARY_MIN_WIDTH, viewport.width - FLOATING_SUMMARY_MARGIN * 2);
+	const maxHeight = Math.max(FLOATING_SUMMARY_MIN_HEIGHT, viewport.height - FLOATING_SUMMARY_MARGIN * 2);
+	const width = Math.min(Math.max(geometry.width, FLOATING_SUMMARY_MIN_WIDTH), maxWidth);
+	const height = Math.min(Math.max(geometry.height, FLOATING_SUMMARY_MIN_HEIGHT), maxHeight);
+	const maxLeft = Math.max(FLOATING_SUMMARY_MARGIN, viewport.width - width - FLOATING_SUMMARY_MARGIN);
+	const maxTop = Math.max(FLOATING_SUMMARY_MARGIN, viewport.height - height - FLOATING_SUMMARY_MARGIN);
+	return {
+		left: Math.min(Math.max(geometry.left, FLOATING_SUMMARY_MARGIN), maxLeft),
+		top: Math.min(Math.max(geometry.top, FLOATING_SUMMARY_MARGIN), maxTop),
+		width,
+		height,
+	};
+}
 
 function workspaceDropTargetKey(target: VcsWorkspaceDropTarget): string {
 	switch (target.kind) {
@@ -200,6 +360,12 @@ type StackCommitComposerState = {
 	body: string;
 	error: string | null;
 };
+
+type WorkspaceActionDialogState =
+	| { kind: "empty_commit"; targetCommitId: string; placement: "before" | "after"; title: string; body: string }
+	| { kind: "create_bookmark"; targetCommitId: string; bookmarkName: string }
+	| { kind: "rename_stack"; stackId: string; name: string }
+	| { kind: "confirm"; title: string; description: string; operation: VcsWorkspaceOperation };
 
 function firstSelectionPath(selection: { paths?: string[]; hunks?: Array<{ path: string }> }): string | null {
 	return selection.paths?.find((path) => path.trim()) ?? selection.hunks?.find((hunk) => hunk.path.trim())?.path ?? null;
@@ -386,9 +552,11 @@ function toWorkspaceBoardStacks(data: VcsWorkspaceState): BranchesStack[] {
 				changeId: commit.commitId,
 				commitId: commitHash,
 				title: commit.title,
+				description: commit.description,
 				authorName: commit.authorName,
 				authorEmail: commit.authorEmail,
 				authorAvatarUrl: commit.authorAvatarUrl,
+				timestamp: commit.timestamp,
 				bookmarks: metadataBookmarks,
 				remoteBookmarks,
 				trackedRemoteBookmarks: metadataStringArray(commit.metadata?.trackedRemoteBookmarks),
@@ -426,12 +594,14 @@ export function WorkspaceView({
 	currentPath,
 	projectState,
 	workspaceId,
+	onWorkspaceStateRefresh,
 }: {
 	state: QueryState<VcsWorkspaceState>;
 	diffState: QueryState<VcsDiffResult>;
 	currentPath: string;
 	projectState: VcsShellProjectState;
 	workspaceId: string | null;
+	onWorkspaceStateRefresh: () => Promise<void>;
 	}): React.ReactElement {
 		const projectConfigResult = useGetProjectConfigQuery({ workspaceId: workspaceId ?? "" }, { skip: !workspaceId });
 		const [updateProjectConfig] = useUpdateProjectConfigMutation();
@@ -476,6 +646,7 @@ export function WorkspaceView({
 											input,
 										}).unwrap()
 									}
+									onWorkspaceStateRefresh={onWorkspaceStateRefresh}
 									workspaceId={workspaceId}
 								/>
 							)}
@@ -549,12 +720,14 @@ function WorkspaceReady({
 	diffState,
 	projectConfig,
 	updateProjectConfig,
+	onWorkspaceStateRefresh,
 	workspaceId,
 }: {
 	data: VcsWorkspaceState;
 	diffState: QueryState<VcsDiffResult>;
 	projectConfig: RuntimeProjectConfigResponse;
 	updateProjectConfig: (input: RuntimeProjectConfigUpdateRequest) => Promise<RuntimeProjectConfigResponse>;
+	onWorkspaceStateRefresh: () => Promise<void>;
 	workspaceId: string;
 }): React.ReactElement {
 	const [applyVcsOperation] = useApplyVcsOperationMutation();
@@ -597,11 +770,22 @@ function WorkspaceReady({
 	const [stackColumnWidths, setStackColumnWidths] = useState<Record<string, number>>({});
 	const [pendingOperation, setPendingOperation] = useState<VcsWorkspaceOperation | null>(null);
 	const [commitEdit, setCommitEdit] = useState<{ commitId: string; title: string } | null>(null);
+	const [commitSummaryEdit, setCommitSummaryEdit] = useState<CommitSummaryEditState | null>(null);
+	const [isCommitSummaryCollapsed, setCommitSummaryCollapsed] = useState(false);
+	const [isCommitSummaryFloating, setCommitSummaryFloating] = useState(false);
+	const [isCommitSummaryWrapEnabled, setCommitSummaryWrapEnabled] = useState(true);
+	const [floatingCommitSummaryMode, setFloatingCommitSummaryMode] = useState<FloatingCommitSummaryMode>("description");
+	const [floatingCommitSummaryFilePath, setFloatingCommitSummaryFilePath] = useState<string | null>(null);
+	const [commitSummaryFloatingGeometry, setCommitSummaryFloatingGeometry] = useState<FloatingSummaryGeometry>(() =>
+		createDefaultFloatingSummaryGeometry(),
+	);
 	const [commitEditMode, setCommitEditMode] = useState<CommitEditModeState | null>(null);
 	const [immutableCommitPrompt, setImmutableCommitPrompt] = useState<ImmutableCommitPromptState | null>(null);
 	const [stackCommitComposer, setStackCommitComposer] = useState<StackCommitComposerState | null>(null);
+	const [workspaceActionDialog, setWorkspaceActionDialog] = useState<WorkspaceActionDialogState | null>(null);
 	const [operationApplyError, setOperationApplyError] = useState<string | null>(null);
 	const [isApplyingPreviewedOperation, setApplyingPreviewedOperation] = useState(false);
+	const [pendingGraphRefresh, setPendingGraphRefresh] = useState<VcsWorkspaceOperation | null>(null);
 	const [activeDragPayload, setActiveDragPayload] = useState<VcsWorkspaceDragPayload | null>(null);
 	const [activeDropTarget, setActiveDropTarget] = useState<{ key: string; state: WorkspaceDropTargetState } | null>(null);
 	const [unstagedColumnWidth, setUnstagedColumnWidth] = useState(() =>
@@ -639,31 +823,67 @@ function WorkspaceReady({
 			),
 		[commitEditMode?.appliedStackIdsSnapshot, data.appliedStackIds, projectConfig.vcsAppliedStacks],
 	);
-	const appliedStacks = useMemo(
-		() => selectAppliedWorkspaceStacks(stacks, appliedStackIds),
-		[stacks, appliedStackIds],
-	);
-	const selectedStackId = useMemo(() => {
-		if (!selectedCommitHash) {
-			return null;
-		}
-		return appliedStacks.find((stack) => stack.changes.some((change) => change.commitId === selectedCommitHash))?.id ?? null;
+		const appliedStacks = useMemo(
+			() => selectAppliedWorkspaceStacks(stacks, appliedStackIds),
+			[stacks, appliedStackIds],
+		);
+		const pendingGraphRefreshStackIds = useMemo(
+			() => workspaceGraphRefreshStackIds(pendingGraphRefresh, stacks),
+			[pendingGraphRefresh, stacks],
+		);
+		const selectedStackId = useMemo(() => {
+			if (!selectedCommitHash) {
+				return null;
+			}
+		return appliedStacks.find((stack) => stack.changes.some((change) => stackChangeMatchesSelection(change, selectedCommitHash)))?.id ?? null;
 	}, [appliedStacks, selectedCommitHash]);
 	const selectedCommitChangeId = useMemo(() => {
 		if (!selectedCommitHash) {
 			return null;
 		}
 		for (const stack of appliedStacks) {
-			const change = stack.changes.find((candidate) => candidate.commitId === selectedCommitHash);
+			const change = stack.changes.find((candidate) => stackChangeMatchesSelection(candidate, selectedCommitHash));
 			if (change) {
 				return change.changeId;
 			}
 		}
 		return null;
 	}, [appliedStacks, selectedCommitHash]);
+	const selectedWorkspaceCommit = useMemo(() => {
+		if (!selectedCommitHash) {
+			return null;
+		}
+		for (const stack of data.stacks) {
+			const commit = stack.commits.find((candidate) => {
+				const commitHash = metadataString(candidate.metadata?.commitHash) ?? candidate.displayId ?? candidate.commitId;
+				return commitHash === selectedCommitHash || candidate.commitId === selectedCommitHash;
+			});
+			if (commit) {
+				return commit;
+			}
+		}
+		return null;
+	}, [data.stacks, selectedCommitHash]);
+	const selectedStackChange = useMemo(() => {
+		if (!selectedCommitHash) {
+			return null;
+		}
+		for (const stack of appliedStacks) {
+			const change = stack.changes.find((candidate) => stackChangeMatchesSelection(candidate, selectedCommitHash));
+			if (change) {
+				return change;
+			}
+		}
+		return null;
+	}, [appliedStacks, selectedCommitHash]);
+	const selectedCommitDiffHash = selectedStackChange?.commitId ?? (
+		selectedWorkspaceCommit
+			? metadataString(selectedWorkspaceCommit.metadata?.commitHash) ?? selectedWorkspaceCommit.displayId ?? selectedWorkspaceCommit.commitId
+			: selectedCommitHash
+	);
 	const commitDiffResult = useGetRepositoryCommitDiffQuery(
-		{ workspaceId: workspaceId ?? "", commitHash: selectedCommitHash ?? "" },
-		{ skip: !workspaceId || !selectedCommitHash },
+		{ workspaceId: workspaceId ?? "", commitHash: selectedCommitDiffHash ?? "" },
+		{ skip: !workspaceId || !selectedCommitDiffHash },
 	);
 	const commitDiffQuery = {
 		state: toRuntimeQueryState<RuntimeGitCommitDiffResponse>(commitDiffResult, "Failed to load commit diff."),
@@ -671,6 +891,8 @@ function WorkspaceReady({
 	};
 	const files = toFileChanges(commitDiffQuery.state);
 	const selectedFile = findFileByPath(files, selectedFilePath);
+	const floatingCommitSummaryFile = findFileByPath(files, floatingCommitSummaryFilePath) ?? selectedFile;
+	const floatingCommitSummarySelectedFilePath = floatingCommitSummaryFile?.path ?? null;
 	const unstagedDiffFiles = useMemo(() => toWorkingCopyDiffFiles(diffState), [diffState]);
 	const workingCopyFiles = useMemo(() => data.workingCopy.files.map(toUiFileChange), [data.workingCopy.files]);
 	const workingCopyConflictPaths = useMemo(
@@ -720,6 +942,15 @@ function WorkspaceReady({
 		setSelectedFilePath(readVcsQueryParam(location.search, "file"));
 		setSelectedUnstagedFilePath(readVcsQueryParam(location.search, "workingCopyFile") ?? readVcsQueryParam(location.search, "unstagedFile"));
 	}, [location.search]);
+
+	useEffect(() => {
+		setCommitSummaryEdit(null);
+		setCommitSummaryFloating(false);
+		setCommitSummaryCollapsed(false);
+		setFloatingCommitSummaryMode("description");
+		setFloatingCommitSummaryFilePath(null);
+		setCommitSummaryFloatingGeometry(createDefaultFloatingSummaryGeometry());
+	}, [selectedCommitHash]);
 
 	useEffect(() => {
 		if (isFileSectionCollapsed || commitDiffQuery.state.status !== "ready" || !commitDiffQuery.state.data.ok) {
@@ -805,6 +1036,9 @@ function WorkspaceReady({
 			case "squash_commits":
 				candidateIds.push(operation.sourceCommitId, operation.targetCommitId);
 				break;
+			case "add_empty_commit":
+				candidateIds.push(operation.targetCommitId);
+				break;
 			case "move_changes":
 				if (operation.selection.commitId) {
 					candidateIds.push(operation.selection.commitId);
@@ -818,16 +1052,28 @@ function WorkspaceReady({
 					candidateIds.push(operation.selection.commitId);
 				}
 				break;
+			case "squash_stack": {
+				const stack = stacks.find((candidate) => candidate.id === operation.stackId);
+				const immutableChange = stack?.changes.find((change) => getImmutableRemoteBookmarkInfo(change));
+				if (immutableChange) {
+					return immutableChange;
+				}
+				break;
+			}
 			case "create_commit":
-				if (operation.selection.source === "commit" && operation.selection.commitId) {
+				if (operation.selection?.source === "commit" && operation.selection.commitId) {
 					candidateIds.push(operation.selection.commitId);
 				}
 				break;
 			case "apply_stack":
 			case "unapply_stack":
+			case "create_bookmark":
+			case "rename_stack":
+			case "delete_stack":
 			case "save_edit_commit":
 			case "abort_edit_commit":
 			case "track_remote_bookmark":
+			case "untrack_remote_bookmark":
 			case "checkout_commit":
 			case "undo":
 			case "redo":
@@ -852,6 +1098,10 @@ function WorkspaceReady({
 				return "uncommit changes from this commit";
 			case "squash_commits":
 				return "squash commits";
+			case "add_empty_commit":
+				return "add an empty commit";
+			case "squash_stack":
+				return "squash this stack";
 			case "move_commit":
 				return "move this commit";
 			case "abandon_commit":
@@ -895,6 +1145,49 @@ function WorkspaceReady({
 		});
 	}
 
+	function openCommitSummaryEdit(): void {
+		if (!selectedWorkspaceCommit || !selectedStackChange) {
+			return;
+		}
+		const immutableInfo = getImmutableRemoteBookmarkInfo(selectedStackChange);
+		if (immutableInfo) {
+			setImmutableCommitPrompt({
+				...immutableInfo,
+				change: selectedStackChange,
+				actionLabel: "reword this commit",
+			});
+			return;
+		}
+		setCommitSummaryCollapsed(false);
+		setCommitSummaryEdit({
+			commitId: selectedWorkspaceCommit.commitId,
+			title: selectedWorkspaceCommit.title,
+			body: selectedWorkspaceCommit.description,
+			mode: "source",
+		});
+	}
+
+	function updateCommitSummaryEdit(patch: Partial<Pick<CommitSummaryEditState, "title" | "body" | "mode">>): void {
+		setCommitSummaryEdit((current) => (current ? { ...current, ...patch } : current));
+	}
+
+	function previewCommitSummaryEdit(): void {
+		if (!commitSummaryEdit) {
+			return;
+		}
+		const title = commitSummaryEdit.title.trim();
+		if (!title) {
+			return;
+		}
+		const message = commitMessageFromParts(title, commitSummaryEdit.body);
+		setCommitSummaryEdit(null);
+		openWorkspaceOperationPreview({
+			kind: "reword_commit",
+			commitId: commitSummaryEdit.commitId,
+			message,
+		});
+	}
+
 	function previewUncommitCommit(change: BranchesStackChange): void {
 		const immutableInfo = getImmutableRemoteBookmarkInfo(change);
 		if (immutableInfo) {
@@ -905,7 +1198,7 @@ function WorkspaceReady({
 			});
 			return;
 		}
-		if (selectedCommitHash !== change.commitId || files.length === 0) {
+		if (!stackChangeMatchesSelection(change, selectedCommitHash) || files.length === 0) {
 			selectStackChange(change);
 			setFileSectionCollapsed(false);
 			return;
@@ -915,8 +1208,24 @@ function WorkspaceReady({
 			selection: {
 				source: "commit",
 				commitId: change.changeId,
-				paths: files.map((file) => file.path),
+			paths: files.map((file) => file.path),
 			},
+		});
+	}
+
+	function previewDeleteCommit(change: BranchesStackChange): void {
+		const immutableInfo = getImmutableRemoteBookmarkInfo(change);
+		if (immutableInfo) {
+			setImmutableCommitPrompt({
+				...immutableInfo,
+				change,
+				actionLabel: "delete this commit",
+			});
+			return;
+		}
+		openWorkspaceOperationPreview({
+			kind: "abandon_commit",
+			commitId: change.changeId,
 		});
 	}
 
@@ -930,7 +1239,7 @@ function WorkspaceReady({
 			});
 			return;
 		}
-		const targetFiles = selectedCommitHash === change.commitId ? files : [];
+		const targetFiles = stackChangeMatchesSelection(change, selectedCommitHash) ? files : [];
 		const returnToCommitId = data.headId ?? change.changeId;
 		const appliedStackIdsSnapshot = appliedStackIds;
 		selectStackChange(change);
@@ -1079,19 +1388,70 @@ function WorkspaceReady({
 			updateStackCommitComposer({ error: "Commit title is required." });
 			return;
 		}
-		if (!stackCommitComposer.selection) {
-			updateStackCommitComposer({ error: "Drop working-copy changes onto this stack before creating a commit." });
-			return;
-		}
 		const body = stackCommitComposer.body.trim();
 		const message = body ? `${title}\n\n${body}` : title;
 		openWorkspaceOperationPreview({
 			kind: "create_commit",
 			stackId: stackCommitComposer.stackId,
 			message,
-			selection: stackCommitComposer.selection,
+			selection: stackCommitComposer.selection ?? null,
 		});
 		closeStackCommitComposer();
+	}
+
+	function openEmptyCommitDialog(targetCommitId: string, placement: "before" | "after"): void {
+		setWorkspaceActionDialog({ kind: "empty_commit", targetCommitId, placement, title: "", body: "" });
+	}
+
+	function openCreateBookmarkDialog(targetCommitId: string): void {
+		setWorkspaceActionDialog({ kind: "create_bookmark", targetCommitId, bookmarkName: "" });
+	}
+
+	function openRenameStackDialog(stackId: string): void {
+		setWorkspaceActionDialog({ kind: "rename_stack", stackId, name: stackId });
+	}
+
+	function previewWorkspaceActionDialog(): void {
+		const dialog = workspaceActionDialog;
+		if (!dialog) {
+			return;
+		}
+		if (dialog.kind === "empty_commit") {
+			const title = dialog.title.trim();
+			if (!title) {
+				return;
+			}
+			const body = dialog.body.trim();
+			openWorkspaceOperationPreview({
+				kind: "add_empty_commit",
+				targetCommitId: dialog.targetCommitId,
+				placement: dialog.placement,
+				message: body ? `${title}\n\n${body}` : title,
+			});
+		} else if (dialog.kind === "create_bookmark") {
+			const bookmarkName = dialog.bookmarkName.trim();
+			if (!bookmarkName) {
+				return;
+			}
+			openWorkspaceOperationPreview({
+				kind: "create_bookmark",
+				targetCommitId: dialog.targetCommitId,
+				bookmarkName,
+			});
+		} else if (dialog.kind === "rename_stack") {
+			const name = dialog.name.trim();
+			if (!name) {
+				return;
+			}
+			openWorkspaceOperationPreview({
+				kind: "rename_stack",
+				stackId: dialog.stackId,
+				name,
+			});
+		} else {
+			openWorkspaceOperationPreview(dialog.operation);
+		}
+		setWorkspaceActionDialog(null);
 	}
 
 	function closeWorkspaceOperationPreview(): void {
@@ -1158,15 +1518,30 @@ function WorkspaceReady({
 		return data.capabilities.supportsCommitRewrite && !getImmutableRemoteBookmarkInfo(change) && (data.provider !== "git" || change.isCurrent);
 	}
 
-	function focusCommittedFile(commitId: string, path: string): void {
+	function focusCommittedSelection(commitId: string, path: string | null, options: { autoSelectFile?: boolean } = {}): void {
 		setSelectedCommitHash(commitId);
 		setSelectedFilePath(path);
 		setSelectedUnstagedFilePath(null);
-		setHasUserClearedFile(false);
+		setHasUserClearedFile(options.autoSelectFile === false);
 		setFileSectionCollapsed(false);
 		writeQueryParam("commit", commitId);
 		writeQueryParam("file", path);
 		writeWorkingCopyFileQueryParam(null);
+	}
+
+	function focusCommittedFile(commitId: string, path: string): void {
+		focusCommittedSelection(commitId, path);
+	}
+
+	function clearCommittedSelection(): void {
+		setSelectedCommitHash(null);
+		setSelectedFilePath(null);
+		setHasUserClearedFile(true);
+		setFileSectionCollapsed(false);
+		setCommitSummaryEdit(null);
+		setCommitSummaryFloating(false);
+		writeQueryParam("commit", null);
+		writeQueryParam("file", null);
 	}
 
 	function focusWorkingCopyFile(path: string): void {
@@ -1182,6 +1557,24 @@ function WorkspaceReady({
 
 	function preserveSelectionAfterWorkspaceOperation(operation: VcsWorkspaceOperation, affectedCommitIds: string[]): void {
 		switch (operation.kind) {
+			case "create_commit":
+				if (!operation.selection && affectedCommitIds[0]) {
+					focusCommittedSelection(affectedCommitIds[0], null);
+				}
+				return;
+			case "reword_commit":
+				focusCommittedSelection(operation.commitId, selectedFilePath);
+				return;
+			case "abandon_commit":
+				if (selectedStackChange && stackChangeMatchesSelection(selectedStackChange, operation.commitId)) {
+					const replacementCommitId = affectedCommitIds.find((commitId) => commitId !== operation.commitId) ?? null;
+					if (replacementCommitId) {
+						focusCommittedSelection(replacementCommitId, null, { autoSelectFile: false });
+					} else {
+						clearCommittedSelection();
+					}
+				}
+				return;
 			case "amend_commit": {
 				const path = firstSelectionPath(operation.selection);
 				if (path) {
@@ -1208,6 +1601,21 @@ function WorkspaceReady({
 		}
 	}
 
+	function workspaceOperationMutatesStackGraph(operation: VcsWorkspaceOperation): boolean {
+		switch (operation.kind) {
+			case "create_commit":
+			case "add_empty_commit":
+			case "abandon_commit":
+			case "delete_stack":
+			case "squash_stack":
+			case "move_commit":
+			case "squash_commits":
+				return true;
+			default:
+				return false;
+		}
+	}
+
 	async function applyPendingWorkspaceOperation(): Promise<void> {
 		if (!pendingOperation) {
 			return;
@@ -1218,6 +1626,11 @@ function WorkspaceReady({
 		}
 		setApplyingPreviewedOperation(true);
 		setOperationApplyError(null);
+		const graphMutation = workspaceOperationMutatesStackGraph(pendingOperation);
+		if (graphMutation) {
+			setPendingGraphRefresh(pendingOperation);
+			closeWorkspaceOperationPreview();
+		}
 		try {
 			const result = await applyPreviewedVcsOperation({
 				workspaceId,
@@ -1230,15 +1643,35 @@ function WorkspaceReady({
 				await updateProjectConfig({
 					vcsAppliedStacks: applyWorkspaceStackId(appliedStackIds, pendingOperation.stackId),
 				});
-			} else if (pendingOperation.kind === "unapply_stack") {
-				await updateProjectConfig({
-					vcsAppliedStacks: unapplyWorkspaceStackId(appliedStackIds, pendingOperation.stackId),
-				});
+				} else if (pendingOperation.kind === "unapply_stack") {
+					await updateProjectConfig({
+						vcsAppliedStacks: unapplyWorkspaceStackId(appliedStackIds, pendingOperation.stackId),
+					});
+				}
+				if (!graphMutation) {
+					preserveSelectionAfterWorkspaceOperation(pendingOperation, result.affectedCommitIds);
+					closeWorkspaceOperationPreview();
+				}
+				if (graphMutation) {
+					const affectedCommitIds = result.affectedCommitIds;
+					void onWorkspaceStateRefresh()
+						.then(() => {
+							preserveSelectionAfterWorkspaceOperation(pendingOperation, affectedCommitIds);
+						})
+						.catch((error: unknown) => {
+							console.error("Failed to refresh workspace state after graph mutation.", error);
+						})
+					.finally(() => {
+						setPendingGraphRefresh((current) => (current === pendingOperation ? null : current));
+					});
 			}
-			preserveSelectionAfterWorkspaceOperation(pendingOperation, result.affectedCommitIds);
-			closeWorkspaceOperationPreview();
 		} catch (error) {
-			setOperationApplyError(error instanceof Error ? error.message : "Workspace operation failed.");
+			const message = error instanceof Error ? error.message : "Workspace operation failed.";
+			if (graphMutation) {
+				setPendingGraphRefresh((current) => (current === pendingOperation ? null : current));
+				showAppToast({ intent: "danger", icon: "warning-sign", message, timeout: 7000 });
+			}
+			setOperationApplyError(message);
 		} finally {
 			setApplyingPreviewedOperation(false);
 		}
@@ -1306,7 +1739,7 @@ function WorkspaceReady({
 	}
 
 	function selectStackChange(change: BranchesStackChange): void {
-		if (selectedCommitHash === change.commitId) {
+		if (stackChangeMatchesSelection(change, selectedCommitHash)) {
 			setSelectedCommitHash(null);
 			setSelectedFilePath(null);
 			setHasUserClearedFile(true);
@@ -1315,13 +1748,13 @@ function WorkspaceReady({
 			writeQueryParam("file", null);
 			return;
 		}
-		setSelectedCommitHash(change.commitId);
+		setSelectedCommitHash(change.changeId);
 		setSelectedFilePath(null);
 		setSelectedUnstagedFilePath(null);
 		setSelectedComposerDiffStackId(null);
 		setHasUserClearedFile(false);
 		setFileSectionCollapsed(false);
-		writeQueryParam("commit", change.commitId);
+		writeQueryParam("commit", change.changeId);
 		writeQueryParam("file", null);
 		writeWorkingCopyFileQueryParam(null);
 	}
@@ -1361,11 +1794,12 @@ function WorkspaceReady({
 	function selectComposerStagedFile(stackId: string, path: string): void {
 		const selection = stackCommitComposer?.stackId === stackId ? stackCommitComposer.selection : null;
 		if (selection?.source === "commit") {
-			const sourceCommitHash = commitHashForChangeId(appliedStacks, selection.commitId ?? null);
-			if (!sourceCommitHash) {
+			const sourceChangeId = selection.commitId;
+			const sourceCommitHash = commitHashForChangeId(appliedStacks, sourceChangeId ?? null);
+			if (!sourceChangeId || !sourceCommitHash) {
 				return;
 			}
-			if (selectedCommitHash === sourceCommitHash && selectedFilePath === path && selectedComposerDiffStackId === stackId) {
+			if ((selectedCommitHash === sourceCommitHash || selectedCommitHash === sourceChangeId) && selectedFilePath === path && selectedComposerDiffStackId === stackId) {
 				setSelectedCommitHash(null);
 				setSelectedFilePath(null);
 				setSelectedComposerDiffStackId(null);
@@ -1373,12 +1807,12 @@ function WorkspaceReady({
 				writeQueryParam("file", null);
 				return;
 			}
-			setSelectedCommitHash(sourceCommitHash);
+			setSelectedCommitHash(sourceChangeId);
 			setSelectedFilePath(path);
 			setSelectedUnstagedFilePath(null);
 			setSelectedComposerDiffStackId(stackId);
 			setHasUserClearedFile(false);
-			writeQueryParam("commit", sourceCommitHash);
+			writeQueryParam("commit", sourceChangeId);
 			writeQueryParam("file", path);
 			writeWorkingCopyFileQueryParam(null);
 			return;
@@ -1453,6 +1887,24 @@ function WorkspaceReady({
 		writeQueryParam("file", null);
 	}
 
+	function closeSelectedCommitColumn(): void {
+		setSelectedCommitHash(null);
+		setSelectedFilePath(null);
+		setCommitSummaryEdit(null);
+		setCommitSummaryFloating(false);
+		setHasUserClearedFile(true);
+		writeQueryParam("commit", null);
+		writeQueryParam("file", null);
+	}
+
+	function changeCommitSummaryFloating(floating: boolean): void {
+		if (floating) {
+			setCommitSummaryFloatingGeometry(createDefaultFloatingSummaryGeometry());
+			setFloatingCommitSummaryFilePath(selectedFilePath);
+		}
+		setCommitSummaryFloating(floating);
+	}
+
 	function closeUnstagedDiff(): void {
 		setSelectedUnstagedFilePath(null);
 		setSelectedComposerDiffStackId(null);
@@ -1490,15 +1942,87 @@ function WorkspaceReady({
 		setStackColumnWidths((current) => ({ ...current, [stackId]: normalized }));
 	}
 
-	const diffColumn = selectedFile ? (
+	const selectedCommitSummary =
+		selectedWorkspaceCommit && selectedStackChange ? (
+			<CommitSummaryPanel
+				commit={selectedWorkspaceCommit}
+				change={selectedStackChange}
+				edit={commitSummaryEdit}
+				isCollapsed={isCommitSummaryCollapsed}
+				isFloating={isCommitSummaryFloating}
+				floatingMode={floatingCommitSummaryMode}
+				wrapText={isCommitSummaryWrapEnabled}
+				files={files}
+				selectedFile={isCommitSummaryFloating ? floatingCommitSummaryFile : selectedFile}
+				selectedFilePath={isCommitSummaryFloating ? floatingCommitSummarySelectedFilePath : selectedFilePath}
+				isFilesLoading={commitDiffQuery.state.status === "loading"}
+				fileViewMode={fileViewMode}
+				canRewrite={canEditWorkspaceCommit(selectedStackChange)}
+				canUncommit={files.length > 0}
+				onCollapsedChange={setCommitSummaryCollapsed}
+				onFloatingChange={changeCommitSummaryFloating}
+				onFloatingModeChange={setFloatingCommitSummaryMode}
+				onWrapTextChange={setCommitSummaryWrapEnabled}
+				onFileViewModeChange={changeFileViewMode}
+				onSelectFile={(path) => {
+					if (isCommitSummaryFloating) {
+						setFloatingCommitSummaryFilePath((current) => (current === path ? null : path));
+						setFloatingCommitSummaryMode("diff");
+					} else {
+						selectFile(path);
+					}
+				}}
+				onClose={closeSelectedCommitColumn}
+				onStartEdit={openCommitSummaryEdit}
+				onEditChange={updateCommitSummaryEdit}
+				onCancelEdit={() => setCommitSummaryEdit(null)}
+				onPreviewEdit={previewCommitSummaryEdit}
+				onUncommit={previewUncommitCommit}
+				onReword={() => openCommitSummaryEdit()}
+				onDelete={previewDeleteCommit}
+				onBeginEditCommit={beginCommitEditMode}
+				onAddEmptyCommit={openEmptyCommitDialog}
+				onCreateBookmark={openCreateBookmarkDialog}
+				onHunkDragStart={(event, hunk) => startCommittedHunkDrag(event, hunk, selectedCommitChangeId)}
+				createBookmarkBelowTargetCommitId={selectedStackChange.changeId}
+			/>
+		) : null;
+	const diffColumnTopContent = selectedCommitSummary ? (
+		isCommitSummaryFloating ? (
+			<div className="shrink-0 border-b border-divider bg-surface-1 px-3 py-3 text-center">
+				<button
+					type="button"
+					className="text-sm font-medium text-text-secondary underline decoration-dotted underline-offset-4 hover:text-text-primary"
+					onClick={() => setCommitSummaryFloating(false)}
+				>
+					Exit floating mode
+				</button>
+			</div>
+		) : (
+			selectedCommitSummary
+		)
+	) : null;
+	const floatingCommitSummary =
+		isCommitSummaryFloating && selectedCommitSummary ? (
+			<FloatingCommitSummaryWindow
+				geometry={commitSummaryFloatingGeometry}
+				isCollapsed={isCommitSummaryCollapsed}
+				onGeometryChange={setCommitSummaryFloatingGeometry}
+			>
+				{selectedCommitSummary}
+			</FloatingCommitSummaryWindow>
+		) : null;
+	const diffColumn = selectedCommitHash ? (
 		<VcsFileDiffColumn
 			file={selectedFile}
+			isLoading={commitDiffQuery.state.status === "loading"}
 			width={diffColumnWidth}
 			minWidth={WORKSPACE_COLUMN_LIMITS.diff.min}
 			maxWidth={WORKSPACE_COLUMN_LIMITS.diff.max}
 			onWidthChange={changeDiffColumnWidth}
-			onClose={closeDiff}
+			onClose={closeSelectedCommitColumn}
 			onHunkDragStart={(event, hunk) => startCommittedHunkDrag(event, hunk, selectedCommitChangeId)}
+			topContent={diffColumnTopContent}
 		/>
 	) : null;
 	const unstagedDiffColumn = selectedUnstagedFilePath ? (
@@ -1516,8 +2040,9 @@ function WorkspaceReady({
 	const showTrailingSpacer = appliedStacks.length > 0 || Boolean(selectedFile) || Boolean(selectedUnstagedFilePath);
 	return (
 		<>
-		<div className="h-full min-h-0 overflow-x-auto overflow-y-hidden bg-surface-0 p-3" onDragEnd={clearDragState}>
-			<div className="flex h-full min-h-0 min-w-full gap-3">
+		{floatingCommitSummary}
+			<div className="relative h-full min-h-0 overflow-x-auto overflow-y-hidden bg-surface-0 p-3" onDragEnd={clearDragState}>
+				<div className="flex h-full min-h-0 min-w-full gap-3">
 				{isUnstagedCollapsed ? (
 					<VcsCollapsedColumn
 						label="Working Copy"
@@ -1564,10 +2089,11 @@ function WorkspaceReady({
 								/>
 							) : (
 								<WorkspaceStackLane
-									stack={stack}
-									width={getStackColumnWidth(stack.id)}
-									isUpdating={updatingStackId === stack.id}
-									onCollapse={() => setStackCollapsed(stack.id, true)}
+										stack={stack}
+										width={getStackColumnWidth(stack.id)}
+										isUpdating={updatingStackId === stack.id}
+										graphRefreshOperation={pendingGraphRefreshStackIds.has(stack.id) ? pendingGraphRefresh : null}
+										onCollapse={() => setStackCollapsed(stack.id, true)}
 									onWidthChange={(width) => changeStackColumnWidth(stack.id, width)}
 									onUnapply={() => void unapplyStack(stack.id)}
 									selectedCommitHash={selectedCommitHash}
@@ -1584,7 +2110,27 @@ function WorkspaceReady({
 									onSelectStackChange={selectStackChange}
 									onEditCommit={openCommitEdit}
 									onUncommitCommit={previewUncommitCommit}
+									onDeleteCommit={previewDeleteCommit}
 									onBeginEditCommit={(change) => void beginCommitEditMode(change)}
+									onAddEmptyCommit={openEmptyCommitDialog}
+									onCreateBookmark={openCreateBookmarkDialog}
+									onRenameStack={openRenameStackDialog}
+									onDeleteStack={(stackId) =>
+										setWorkspaceActionDialog({
+											kind: "confirm",
+											title: "Delete stack",
+											description: `Delete bookmark ${stackId}. Commits are left intact.`,
+											operation: { kind: "delete_stack", stackId },
+										})
+									}
+									onSquashStack={(stackId) =>
+										setWorkspaceActionDialog({
+											kind: "confirm",
+											title: "Squash all commits",
+											description: `Squash every visible commit in ${stackId} into the stack head.`,
+											operation: { kind: "squash_stack", stackId },
+										})
+									}
 									onSelectFile={selectFile}
 									composer={stackCommitComposer?.stackId === stack.id ? stackCommitComposer : null}
 									stagedFiles={stackCommitComposer?.stackId === stack.id ? stagedComposerFiles : []}
@@ -1643,9 +2189,9 @@ function WorkspaceReady({
 						className="h-full shrink-0"
 						style={{ width: WORKSPACE_TRAILING_SPACER_WIDTH, minWidth: WORKSPACE_TRAILING_SPACER_WIDTH }}
 					/>
-				) : null}
+					) : null}
+				</div>
 			</div>
-		</div>
 		<WorkspaceOperationPreviewDialog
 			operation={pendingOperation}
 			previewState={previewState}
@@ -1659,6 +2205,12 @@ function WorkspaceReady({
 			onChangeTitle={(title) => setCommitEdit((current) => (current ? { ...current, title } : current))}
 			onPreview={previewCommitEdit}
 			onClose={() => setCommitEdit(null)}
+		/>
+		<WorkspaceActionDialog
+			dialog={workspaceActionDialog}
+			onChange={setWorkspaceActionDialog}
+			onPreview={previewWorkspaceActionDialog}
+			onClose={() => setWorkspaceActionDialog(null)}
 		/>
 		<ImmutableCommitDialog
 			prompt={immutableCommitPrompt}
@@ -2035,10 +2587,25 @@ function EmptyWorkspaceLanes({
 	);
 }
 
+function WorkspaceGraphRefreshOverlay({ operation }: { operation: VcsWorkspaceOperation | null }): React.ReactElement | null {
+	if (!operation) {
+		return null;
+	}
+	return (
+		<div className="absolute inset-0 z-30 flex items-start justify-center bg-surface-0/25 p-6 backdrop-blur-[1px]">
+			<div className="mt-3 flex max-w-md items-center gap-2 rounded-md border border-border-bright bg-surface-1/95 px-3 py-2 text-sm text-text-secondary shadow-lg">
+				<Spinner size={14} className="text-accent" />
+				<span>{workspaceGraphRefreshMessage(operation)}</span>
+			</div>
+		</div>
+	);
+}
+
 function WorkspaceStackLane({
 	stack,
 	width,
 	isUpdating,
+	graphRefreshOperation,
 	onCollapse,
 	onWidthChange,
 	onUnapply,
@@ -2056,7 +2623,13 @@ function WorkspaceStackLane({
 	onSelectStackChange,
 	onEditCommit,
 	onUncommitCommit,
+	onDeleteCommit,
 	onBeginEditCommit,
+	onAddEmptyCommit,
+	onCreateBookmark,
+	onRenameStack,
+	onDeleteStack,
+	onSquashStack,
 	onSelectFile,
 	composer,
 	stagedFiles,
@@ -2087,6 +2660,7 @@ function WorkspaceStackLane({
 	stack: BranchesStack;
 	width: number;
 	isUpdating: boolean;
+	graphRefreshOperation: VcsWorkspaceOperation | null;
 	onCollapse: () => void;
 	onWidthChange: (width: number) => void;
 	onUnapply: () => void;
@@ -2104,7 +2678,13 @@ function WorkspaceStackLane({
 	onSelectStackChange: (change: BranchesStackChange) => void;
 	onEditCommit: (change: BranchesStackChange) => void;
 	onUncommitCommit: (change: BranchesStackChange) => void;
+	onDeleteCommit: (change: BranchesStackChange) => void;
 	onBeginEditCommit: (change: BranchesStackChange) => void;
+	onAddEmptyCommit: (targetCommitId: string, placement: "before" | "after") => void;
+	onCreateBookmark: (targetCommitId: string) => void;
+	onRenameStack: (stackId: string) => void;
+	onDeleteStack: (stackId: string) => void;
+	onSquashStack: (stackId: string) => void;
 	onSelectFile: (path: string) => void;
 	composer: StackCommitComposerState | null;
 	stagedFiles: VcsFileChange[];
@@ -2164,10 +2744,10 @@ function WorkspaceStackLane({
 				data-testid="vcs-workspace-stack-drop-target"
 				data-stack-id={stack.id}
 				data-drop-target-state={stackDropTargetState}
-				className={cn(
-					"min-h-0 flex-1 overflow-y-auto bg-[radial-gradient(circle,_rgba(125,125,125,0.18)_1px,_transparent_1px)] [background-size:10px_10px] p-3 transition-shadow",
-					workspaceDropTargetClassName(stackDropTargetState),
-				)}
+					className={cn(
+						"relative min-h-0 flex-1 overflow-y-auto bg-[radial-gradient(circle,_rgba(125,125,125,0.18)_1px,_transparent_1px)] [background-size:10px_10px] p-3 transition-shadow",
+						workspaceDropTargetClassName(stackDropTargetState),
+					)}
 				onDragOver={onDragOverStack}
 				onDragLeave={onDragLeaveStack}
 				onDrop={onDropStack}
@@ -2207,10 +2787,16 @@ function WorkspaceStackLane({
 							canEditCommit={canEditCommit}
 							onFileViewModeChange={onFileViewModeChange}
 							onFileSectionCollapsedChange={onFileSectionCollapsedChange}
-							onSelectStackChange={onSelectStackChange}
-							onEditCommit={onEditCommit}
-							onUncommitCommit={onUncommitCommit}
-							onBeginEditCommit={onBeginEditCommit}
+								onSelectStackChange={onSelectStackChange}
+								onEditCommit={onEditCommit}
+								onUncommitCommit={onUncommitCommit}
+								onDeleteCommit={onDeleteCommit}
+								onBeginEditCommit={onBeginEditCommit}
+							onAddEmptyCommit={onAddEmptyCommit}
+							onCreateBookmark={onCreateBookmark}
+							onRenameStack={onRenameStack}
+							onDeleteStack={onDeleteStack}
+							onSquashStack={onSquashStack}
 							onSelectFile={onSelectFile}
 							onFileDragStart={onFileDragStart}
 							onCommitDragStart={onCommitDragStart}
@@ -2224,10 +2810,11 @@ function WorkspaceStackLane({
 							getStackHeaderDropTargetState={getStackHeaderDropTargetState}
 							getCommitDropTargetState={getCommitDropTargetState}
 						/>
-					))}
+						))}
+					</div>
+					<WorkspaceGraphRefreshOverlay operation={graphRefreshOperation} />
 				</div>
-			</div>
-		</VcsColumn>
+			</VcsColumn>
 	);
 }
 
@@ -2264,7 +2851,6 @@ function StackStartCommitPanel({
 	onFileViewModeChange: (mode: VcsFileViewMode) => void;
 	onSelectStagedFile: (path: string) => void;
 }): React.ReactElement {
-	const hasSelection = Boolean(composer?.selection);
 	const title = composer?.title ?? "";
 	const body = composer?.body ?? "";
 	const hasStagedFiles = stagedFiles.length > 0;
@@ -2342,7 +2928,7 @@ function StackStartCommitPanel({
 							<Button variant="default" onClick={onCancel}>
 								Cancel
 							</Button>
-							<Button variant="primary" icon={<Play size={14} />} disabled={!title.trim() || !hasSelection} onClick={onPreview}>
+							<Button variant="primary" icon={<Play size={14} />} disabled={!title.trim()} onClick={onPreview}>
 								Create commit
 							</Button>
 						</div>
@@ -2393,6 +2979,432 @@ function commitHashForChangeId(stacks: BranchesStack[], changeId: string | null)
 	return null;
 }
 
+function isInteractiveFloatingTarget(target: EventTarget | null): boolean {
+	return target instanceof Element && Boolean(target.closest("button, input, textarea, select, a, [role='menuitem'], [role='dialog']"));
+}
+
+function FloatingCommitSummaryWindow({
+	children,
+	geometry,
+	isCollapsed,
+	onGeometryChange,
+}: {
+	children: React.ReactNode;
+	geometry: FloatingSummaryGeometry;
+	isCollapsed: boolean;
+	onGeometryChange: (geometry: FloatingSummaryGeometry) => void;
+}): React.ReactElement {
+	const interactionRef = useRef<FloatingSummaryInteraction | null>(null);
+	const renderedHeight = isCollapsed ? 45 : geometry.height;
+
+	useEffect(() => {
+		function handleResize(): void {
+			onGeometryChange(clampFloatingSummaryGeometry(geometry));
+		}
+		window.addEventListener("resize", handleResize);
+		return () => window.removeEventListener("resize", handleResize);
+	}, [geometry, onGeometryChange]);
+
+	function updateGeometry(clientX: number, clientY: number): void {
+		const interaction = interactionRef.current;
+		if (!interaction) {
+			return;
+		}
+		const deltaX = clientX - interaction.startX;
+		const deltaY = clientY - interaction.startY;
+		if (interaction.kind === "drag") {
+			onGeometryChange(
+				clampFloatingSummaryGeometry({
+					...interaction.startGeometry,
+					left: interaction.startGeometry.left + deltaX,
+					top: interaction.startGeometry.top + deltaY,
+				}),
+			);
+			return;
+		}
+		onGeometryChange(
+			clampFloatingSummaryGeometry({
+				...interaction.startGeometry,
+				width: interaction.startGeometry.width + deltaX,
+				height: interaction.startGeometry.height + deltaY,
+			}),
+		);
+	}
+
+	function trackNativePointer(): void {
+		window.addEventListener("pointermove", handleNativePointerMove);
+		window.addEventListener("pointerup", handleNativePointerUp);
+		window.addEventListener("pointercancel", handleNativePointerUp);
+	}
+
+	function handleNativePointerMove(event: PointerEvent): void {
+		const interaction = interactionRef.current;
+		if (!interaction || interaction.pointerId !== event.pointerId) {
+			return;
+		}
+		event.preventDefault();
+		updateGeometry(event.clientX, event.clientY);
+	}
+
+	function handleNativePointerUp(event: PointerEvent): void {
+		const interaction = interactionRef.current;
+		if (!interaction || interaction.pointerId !== event.pointerId) {
+			return;
+		}
+		interactionRef.current = null;
+		window.removeEventListener("pointermove", handleNativePointerMove);
+		window.removeEventListener("pointerup", handleNativePointerUp);
+		window.removeEventListener("pointercancel", handleNativePointerUp);
+	}
+
+	function beginDrag(event: ReactPointerEvent<HTMLDivElement>): void {
+		if (event.button !== 0 || isInteractiveFloatingTarget(event.target)) {
+			return;
+		}
+		event.preventDefault();
+		event.currentTarget.setPointerCapture(event.pointerId);
+		interactionRef.current = {
+			kind: "drag",
+			pointerId: event.pointerId,
+			startX: event.clientX,
+			startY: event.clientY,
+			startGeometry: geometry,
+		};
+		trackNativePointer();
+	}
+
+	function beginResize(event: ReactPointerEvent<HTMLDivElement>): void {
+		if (event.button !== 0) {
+			return;
+		}
+		event.preventDefault();
+		event.stopPropagation();
+		event.currentTarget.setPointerCapture(event.pointerId);
+		interactionRef.current = {
+			kind: "resize",
+			pointerId: event.pointerId,
+			startX: event.clientX,
+			startY: event.clientY,
+			startGeometry: geometry,
+		};
+		trackNativePointer();
+	}
+
+	function moveWindow(event: ReactPointerEvent<HTMLDivElement>): void {
+		const interaction = interactionRef.current;
+		if (!interaction || interaction.pointerId !== event.pointerId) {
+			return;
+		}
+		updateGeometry(event.clientX, event.clientY);
+	}
+
+	function endInteraction(event: ReactPointerEvent<HTMLDivElement>): void {
+		const interaction = interactionRef.current;
+		if (!interaction || interaction.pointerId !== event.pointerId) {
+			return;
+		}
+		interactionRef.current = null;
+		if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+			event.currentTarget.releasePointerCapture(event.pointerId);
+		}
+	}
+
+	return (
+		<div
+			className="fixed z-40 overflow-hidden rounded-lg border border-border bg-surface-1 shadow-2xl"
+			style={{
+				left: geometry.left,
+				top: geometry.top,
+				width: geometry.width,
+				height: renderedHeight,
+				touchAction: "none",
+			}}
+			onPointerDown={beginDrag}
+			onPointerMove={moveWindow}
+			onPointerUp={endInteraction}
+			onPointerCancel={endInteraction}
+		>
+			<div className="flex h-full min-h-0 flex-col overflow-hidden">{children}</div>
+			{isCollapsed ? null : (
+				<div
+					data-testid="vcs-floating-summary-resize"
+					className="absolute bottom-0 right-0 z-10 h-6 w-6 cursor-nwse-resize rounded-tl-md border-l border-t border-divider bg-surface-2/90 before:absolute before:bottom-1.5 before:right-1.5 before:h-2.5 before:w-2.5 before:border-b before:border-r before:border-text-tertiary/70 before:content-['']"
+					aria-hidden="true"
+					onPointerDown={beginResize}
+					onPointerMove={moveWindow}
+					onPointerUp={endInteraction}
+					onPointerCancel={endInteraction}
+				/>
+			)}
+		</div>
+	);
+}
+
+function CommitSummaryPanel({
+	commit,
+	change,
+	edit,
+	isCollapsed,
+	isFloating,
+	floatingMode,
+	wrapText,
+	files,
+	selectedFile,
+	selectedFilePath,
+	isFilesLoading,
+	fileViewMode,
+	canRewrite,
+	canUncommit,
+	onCollapsedChange,
+	onFloatingChange,
+	onFloatingModeChange,
+	onWrapTextChange,
+	onFileViewModeChange,
+	onSelectFile,
+	onClose,
+	onStartEdit,
+	onEditChange,
+	onCancelEdit,
+	onPreviewEdit,
+	onUncommit,
+	onReword,
+	onDelete,
+	onBeginEditCommit,
+	onAddEmptyCommit,
+	onCreateBookmark,
+	onHunkDragStart,
+	createBookmarkBelowTargetCommitId,
+}: {
+	commit: VcsWorkspaceState["stacks"][number]["commits"][number];
+	change: BranchesStackChange;
+	edit: CommitSummaryEditState | null;
+	isCollapsed: boolean;
+	isFloating: boolean;
+	floatingMode: FloatingCommitSummaryMode;
+	wrapText: boolean;
+	files: VcsFileChange[];
+	selectedFile: VcsFileChange | null;
+	selectedFilePath: string | null;
+	isFilesLoading: boolean;
+	fileViewMode: VcsFileViewMode;
+	canRewrite: boolean;
+	canUncommit: boolean;
+	onCollapsedChange: (collapsed: boolean) => void;
+	onFloatingChange: (floating: boolean) => void;
+	onFloatingModeChange: (mode: FloatingCommitSummaryMode) => void;
+	onWrapTextChange: (wrapText: boolean) => void;
+	onFileViewModeChange: (mode: VcsFileViewMode) => void;
+	onSelectFile: (path: string) => void;
+	onClose: () => void;
+	onStartEdit: () => void;
+	onEditChange: (patch: Partial<Pick<CommitSummaryEditState, "title" | "body" | "mode">>) => void;
+	onCancelEdit: () => void;
+	onPreviewEdit: () => void;
+	onUncommit: (change: BranchesStackChange) => void;
+	onReword: (change: BranchesStackChange) => void;
+	onDelete: (change: BranchesStackChange) => void;
+	onBeginEditCommit: (change: BranchesStackChange) => void;
+	onAddEmptyCommit: (targetCommitId: string, placement: "before" | "after") => void;
+	onCreateBookmark: (targetCommitId: string) => void;
+	onHunkDragStart?: (event: ReactDragEvent<HTMLDivElement>, hunk: VcsDiffHunkDragPayload) => void;
+	createBookmarkBelowTargetCommitId: string;
+}): React.ReactElement {
+	const authorName = commit.authorName?.trim() || null;
+	const relativeTime = formatRelativeTime(commit.timestamp);
+	const fullHash = metadataString(commit.metadata?.commitHash) ?? commit.displayId ?? commit.commitId;
+	const shortHash = fullHash.slice(0, 8);
+	const immutableInfo = getImmutableRemoteBookmarkInfo(change);
+	const canOpenRewrite = canRewrite || Boolean(immutableInfo);
+	const title = edit?.title ?? commit.title;
+	const body = edit?.body ?? commit.description;
+	const hasBody = body.trim().length > 0;
+	const titleCount = edit ? edit.title.length : commit.title.length;
+	const descriptionDetails = (
+		<div className="grid gap-2 text-sm text-text-secondary">
+			<div className="flex flex-wrap items-center gap-2">
+				<span>Author:</span>
+				<Avatar
+					src={commit.authorAvatarUrl}
+					name={authorName}
+					email={commit.authorEmail}
+					initials={authorInitials(authorName)}
+					className="h-6 w-6"
+				/>
+				{authorName ? <span>{authorName}</span> : null}
+				{relativeTime ? (
+					<>
+						<span className="text-text-tertiary">·</span>
+						<span>{relativeTime}</span>
+					</>
+				) : null}
+				<span className="text-text-tertiary">·</span>
+				<CopyValueButton displayValue={shortHash} copyValue={fullHash} />
+			</div>
+			{hasBody ? (
+				<MarkdownMessagePreview
+					value={body}
+					wrapText={wrapText}
+					className="rounded-md border border-divider bg-surface-0 px-3 py-2 text-[13px] text-text-primary"
+				/>
+			) : null}
+		</div>
+	);
+	const editContent = edit ? (
+		<div className="grid gap-3">
+			<label className="grid gap-1">
+				<div className="flex items-center justify-between gap-2 text-[11px] text-text-tertiary">
+					<span>Commit title</span>
+					<span>{titleCount}</span>
+				</div>
+				<input
+					className="h-10 rounded-md border border-border bg-surface-0 px-3 text-sm font-semibold text-text-primary outline-none focus:border-accent"
+					value={edit.title}
+					onChange={(event) => onEditChange({ title: event.target.value })}
+				/>
+			</label>
+			<MarkdownMessageEditor
+				value={edit.body}
+				onChange={(body) => onEditChange({ body })}
+				mode={edit.mode}
+				onModeChange={(mode) => onEditChange({ mode })}
+				wrapText={wrapText}
+				height={SUMMARY_EDIT_HEIGHT}
+			/>
+			<div className="flex gap-2">
+				<Button variant="default" fill onClick={onCancelEdit}>
+					Cancel
+				</Button>
+				<Button variant="primary" fill icon={<Check size={14} />} disabled={!edit.title.trim()} onClick={onPreviewEdit}>
+					Save changes
+				</Button>
+			</div>
+		</div>
+	) : null;
+
+	return (
+		<section
+			data-testid="vcs-commit-summary-panel"
+			className={cn(
+				"overflow-hidden border-b border-divider bg-surface-1",
+				isFloating ? "flex h-full min-h-0 flex-col" : "shrink-0",
+			)}
+		>
+			<header className="flex min-h-11 items-center gap-2 px-3 py-2">
+				<Button
+					variant="ghost"
+					size="sm"
+					icon={<ChevronDown size={15} className={cn("transition-transform", isCollapsed && "-rotate-90")} />}
+					aria-label={isCollapsed ? "Expand commit summary" : "Collapse commit summary"}
+					title={isCollapsed ? "Expand commit summary" : "Collapse commit summary"}
+					onClick={() => onCollapsedChange(!isCollapsed)}
+				/>
+				<div className={cn("min-w-0 flex-1 truncate text-sm font-semibold text-text-primary", !wrapText && "whitespace-nowrap")}>
+					{title || "Untitled commit"}
+				</div>
+				<Button
+					variant="ghost"
+					size="sm"
+					icon={<Pencil size={14} />}
+					aria-label="Edit commit message"
+					title={canOpenRewrite ? "Edit commit message" : "This commit cannot be rewritten from this workspace."}
+					disabled={!canOpenRewrite}
+					onClick={onStartEdit}
+				/>
+				<CommitActionMenu
+					change={change}
+					canRewrite={canRewrite}
+					canUncommit={canUncommit}
+					immutableInfo={immutableInfo}
+					onUncommit={onUncommit}
+					onReword={onReword}
+					onEdit={onBeginEditCommit}
+					onDelete={onDelete}
+					onAddEmptyCommit={onAddEmptyCommit}
+					onCreateBookmark={onCreateBookmark}
+					createBookmarkBelowTargetCommitId={createBookmarkBelowTargetCommitId}
+				/>
+				<div className="h-6 w-px bg-divider" />
+				{isFloating ? (
+					<div className="inline-flex shrink-0 rounded-md border border-border bg-surface-0 p-0.5">
+						<button
+							type="button"
+							className={cn(
+								"rounded px-2 py-1 text-[11px] font-medium transition-colors",
+								floatingMode === "description"
+									? "bg-accent text-accent-foreground"
+									: "text-text-secondary hover:bg-surface-2 hover:text-text-primary",
+							)}
+							onClick={() => onFloatingModeChange("description")}
+						>
+							Description
+						</button>
+						<button
+							type="button"
+							className={cn(
+								"rounded px-2 py-1 text-[11px] font-medium transition-colors",
+								floatingMode === "diff"
+									? "bg-accent text-accent-foreground"
+									: "text-text-secondary hover:bg-surface-2 hover:text-text-primary",
+							)}
+							onClick={() => onFloatingModeChange("diff")}
+						>
+							Diff
+						</button>
+					</div>
+				) : null}
+				<Button
+					variant={wrapText ? "default" : "ghost"}
+					size="sm"
+					icon={<WrapText size={14} />}
+					aria-label={wrapText ? "Disable text wrapping" : "Enable text wrapping"}
+					title={wrapText ? "Disable text wrapping" : "Enable text wrapping"}
+					onClick={() => onWrapTextChange(!wrapText)}
+				/>
+				<Button
+					variant={isFloating ? "default" : "ghost"}
+					size="sm"
+					icon={<Maximize2 size={14} />}
+					aria-label={isFloating ? "Exit floating mode" : "Use floating mode"}
+					title={isFloating ? "Exit floating mode" : "Use floating mode"}
+					onClick={() => onFloatingChange(!isFloating)}
+				/>
+				<Button variant="ghost" size="sm" icon={<X size={15} />} aria-label="Close commit column" title="Close commit column" onClick={onClose} />
+			</header>
+			{isCollapsed ? null : (
+				<div className={cn("border-t border-divider px-3 py-3", isFloating && "min-h-0 flex-1")}>
+					{isFloating ? (
+						<div className="grid h-full min-h-0 gap-3 md:grid-cols-[minmax(220px,0.42fr)_minmax(0,1fr)]">
+							<VcsInlineFileSection
+								files={files}
+								selectedPath={selectedFilePath}
+								isLoading={isFilesLoading}
+								viewMode={fileViewMode}
+								onViewModeChange={onFileViewModeChange}
+								onSelectPath={onSelectFile}
+								className="mx-0 mb-0 h-full min-h-0"
+								fillHeight
+							/>
+							<div className="h-full min-h-0 overflow-auto rounded-lg border border-divider bg-surface-0 p-2">
+								{editContent ? (
+									editContent
+								) : floatingMode === "diff" ? (
+									<VcsFileDiffContent file={selectedFile} onHunkDragStart={onHunkDragStart} />
+								) : (
+									descriptionDetails
+								)}
+							</div>
+						</div>
+					) : editContent ? (
+						editContent
+					) : (
+						descriptionDetails
+					)}
+				</div>
+			)}
+		</section>
+	);
+}
+
 function WorkspaceStackCard({
 	stackId,
 	group,
@@ -2408,10 +3420,16 @@ function WorkspaceStackCard({
 	canEditCommit,
 	onFileViewModeChange,
 	onFileSectionCollapsedChange,
-	onSelectStackChange,
-	onEditCommit,
-	onUncommitCommit,
-	onBeginEditCommit,
+		onSelectStackChange,
+		onEditCommit,
+		onUncommitCommit,
+		onDeleteCommit,
+		onBeginEditCommit,
+	onAddEmptyCommit,
+	onCreateBookmark,
+	onRenameStack,
+	onDeleteStack,
+	onSquashStack,
 	onSelectFile,
 	onFileDragStart,
 	onCommitDragStart,
@@ -2440,9 +3458,15 @@ function WorkspaceStackCard({
 	onFileViewModeChange: (mode: VcsFileViewMode) => void;
 	onFileSectionCollapsedChange: (collapsed: boolean) => void;
 	onSelectStackChange: (change: BranchesStackChange) => void;
-	onEditCommit: (change: BranchesStackChange) => void;
-	onUncommitCommit: (change: BranchesStackChange) => void;
-	onBeginEditCommit: (change: BranchesStackChange) => void;
+		onEditCommit: (change: BranchesStackChange) => void;
+		onUncommitCommit: (change: BranchesStackChange) => void;
+		onDeleteCommit: (change: BranchesStackChange) => void;
+		onBeginEditCommit: (change: BranchesStackChange) => void;
+	onAddEmptyCommit: (targetCommitId: string, placement: "before" | "after") => void;
+	onCreateBookmark: (targetCommitId: string) => void;
+	onRenameStack: (stackId: string) => void;
+	onDeleteStack: (stackId: string) => void;
+	onSquashStack: (stackId: string) => void;
 	onSelectFile: (path: string) => void;
 	onFileDragStart: (event: ReactDragEvent<HTMLButtonElement>, file: VcsFileChange, change: BranchesStackChange) => void;
 	onCommitDragStart: (event: ReactDragEvent<HTMLDivElement>, change: BranchesStackChange) => void;
@@ -2489,7 +3513,16 @@ function WorkspaceStackCard({
 				</Button>
 				<Button variant="ghost" size="sm" icon={<Sparkles size={13} />} aria-label="Stack actions" title="Stack actions" />
 				<StackActionMenu
+					stackId={stackId}
+					headCommitId={group.head.changeId}
+					baseCommitId={group.changes.at(-1)?.changeId ?? group.head.changeId}
 					remoteBookmarkActions={remoteBookmarkActions}
+					onAddEmptyCommit={onAddEmptyCommit}
+					onCreateBookmark={onCreateBookmark}
+					onRenameStack={onRenameStack}
+					onDeleteStack={onDeleteStack}
+					onSquashStack={onSquashStack}
+					onUnapply={() => onPreviewOperation({ kind: "unapply_stack", stackId })}
 					onPreviewOperation={onPreviewOperation}
 				/>
 			</div>
@@ -2497,9 +3530,10 @@ function WorkspaceStackCard({
 				{group.changes.length === 0 ? (
 					<div className="px-3 py-4 text-sm text-text-secondary">No visible changes were returned for this stack head.</div>
 				) : (
-					group.changes.map((change) => {
+					group.changes.map((change, changeIndex) => {
 						const dropTargetKey = workspaceCommitDropTargetInstanceKey(group.head.bookmarkName, groupIndex, change);
-						const selected = selectedCommitHash === change.commitId;
+						const selected = stackChangeMatchesSelection(change, selectedCommitHash);
+						const bookmarkBelowTargetCommitId = group.changes[changeIndex + 1]?.changeId ?? change.changeId;
 						return (
 							<WorkspaceStackChangeRow
 								key={`${group.head.bookmarkName}-${groupIndex}-${change.changeId}`}
@@ -2520,7 +3554,11 @@ function WorkspaceStackCard({
 								onSelectStackChange={onSelectStackChange}
 								onEditCommit={onEditCommit}
 								onUncommitCommit={onUncommitCommit}
+								onDeleteCommit={onDeleteCommit}
 								onBeginEditCommit={onBeginEditCommit}
+								onAddEmptyCommit={onAddEmptyCommit}
+								onCreateBookmark={onCreateBookmark}
+								createBookmarkBelowTargetCommitId={bookmarkBelowTargetCommitId}
 								onSelectFile={onSelectFile}
 								onFileDragStart={onFileDragStart}
 								onCommitDragStart={onCommitDragStart}
@@ -2538,13 +3576,31 @@ function WorkspaceStackCard({
 }
 
 function StackActionMenu({
+	stackId,
+	headCommitId,
+	baseCommitId,
 	remoteBookmarkActions,
+	onAddEmptyCommit,
+	onCreateBookmark,
+	onRenameStack,
+	onDeleteStack,
+	onSquashStack,
+	onUnapply,
 	onPreviewOperation,
 }: {
+	stackId: string;
+	headCommitId: string;
+	baseCommitId: string;
 	remoteBookmarkActions: {
 		tracked: StackRemoteBookmarkActionInfo | null;
 		untracked: StackRemoteBookmarkActionInfo | null;
 	};
+	onAddEmptyCommit: (targetCommitId: string, placement: "before" | "after") => void;
+	onCreateBookmark: (targetCommitId: string) => void;
+	onRenameStack: (stackId: string) => void;
+	onDeleteStack: (stackId: string) => void;
+	onSquashStack: (stackId: string) => void;
+	onUnapply: () => void;
 	onPreviewOperation: (operation: VcsWorkspaceOperation) => void;
 }): React.ReactElement {
 	const trackInfo = remoteBookmarkActions.untracked;
@@ -2567,49 +3623,48 @@ function StackActionMenu({
 					sideOffset={6}
 					className="z-[80] min-w-56 overflow-hidden rounded-md border border-border bg-surface-1 p-1 text-sm text-text-primary shadow-xl"
 				>
-					<RadixDropdownMenu.Item
+					<CopyDropdownItem icon={<Copy size={14} />} label="Copy branch name" value={stackId} />
+					<RadixDropdownMenu.Separator className="my-1 h-px bg-divider" />
+					<MenuSub label="Create branch" icon={<GitBranch size={14} />}>
+						<MenuItem icon={<ArrowUp size={14} />} label="Create branch above" onSelect={() => onCreateBookmark(headCommitId)} />
+						<MenuItem icon={<ArrowDown size={14} />} label="Create branch below" onSelect={() => onCreateBookmark(baseCommitId)} />
+					</MenuSub>
+					<MenuItem icon={<GitCommitHorizontal size={14} />} label="Add empty commit" onSelect={() => onAddEmptyCommit(headCommitId, "after")} />
+					<MenuItem icon={<Layers size={14} />} label="Squash all commits" onSelect={() => onSquashStack(stackId)} />
+					<RadixDropdownMenu.Separator className="my-1 h-px bg-divider" />
+					<MenuItem icon={<Type size={14} />} label="Rename" onSelect={() => onRenameStack(stackId)} />
+					<MenuItem icon={<Trash2 size={14} />} label="Delete" onSelect={() => onDeleteStack(stackId)} />
+					<RadixDropdownMenu.Separator className="my-1 h-px bg-divider" />
+					<MenuItem icon={<Unlink size={14} />} label="Unapply Stack" onSelect={onUnapply} />
+					<RadixDropdownMenu.Separator className="my-1 h-px bg-divider" />
+					<MenuItem
+						icon={<LockKeyhole size={14} className="text-status-orange" />}
+						label="Track remote bookmark"
 						disabled={!trackInfo}
-						className="flex cursor-pointer select-none items-center gap-2 rounded px-2 py-1.5 outline-none data-[disabled]:pointer-events-none data-[disabled]:cursor-not-allowed data-[disabled]:opacity-45 data-[highlighted]:bg-surface-3"
 						onSelect={() => {
-							if (!trackInfo) {
-								return;
+							if (trackInfo) {
+								onPreviewOperation({
+									kind: "track_remote_bookmark",
+									bookmarkName: trackInfo.bookmarkName,
+									remoteName: trackInfo.remoteName,
+								});
 							}
-							onPreviewOperation({
-								kind: "track_remote_bookmark",
-								bookmarkName: trackInfo.bookmarkName,
-								remoteName: trackInfo.remoteName,
-							});
 						}}
-					>
-						<LockKeyhole size={14} className="text-status-orange" />
-						<span className="min-w-0 flex-1">Track remote bookmark</span>
-					</RadixDropdownMenu.Item>
-					<RadixDropdownMenu.Item
+					/>
+					<MenuItem
+						icon={<LockKeyhole size={14} />}
+						label="Untrack remote bookmark"
 						disabled={!untrackInfo}
-						className="flex cursor-pointer select-none items-center gap-2 rounded px-2 py-1.5 outline-none data-[disabled]:pointer-events-none data-[disabled]:cursor-not-allowed data-[disabled]:opacity-45 data-[highlighted]:bg-surface-3"
 						onSelect={() => {
-							if (!untrackInfo) {
-								return;
+							if (untrackInfo) {
+								onPreviewOperation({
+									kind: "untrack_remote_bookmark",
+									bookmarkName: untrackInfo.bookmarkName,
+									remoteName: untrackInfo.remoteName,
+								});
 							}
-							onPreviewOperation({
-								kind: "untrack_remote_bookmark",
-								bookmarkName: untrackInfo.bookmarkName,
-								remoteName: untrackInfo.remoteName,
-							});
 						}}
-					>
-						<LockKeyhole size={14} className="text-text-tertiary" />
-						<span className="min-w-0 flex-1">Untrack remote bookmark</span>
-					</RadixDropdownMenu.Item>
-					{trackInfo || untrackInfo ? (
-						<div className="border-t border-divider px-2 py-1.5 text-xs text-text-tertiary">
-							{(trackInfo ?? untrackInfo)?.remoteBookmark}
-						</div>
-					) : (
-						<div className="border-t border-divider px-2 py-1.5 text-xs text-text-tertiary">
-							No remote bookmark is available for this stack.
-						</div>
-					)}
+					/>
 				</RadixDropdownMenu.Content>
 			</RadixDropdownMenu.Portal>
 		</RadixDropdownMenu.Root>
@@ -2634,7 +3689,11 @@ function WorkspaceStackChangeRow({
 	onSelectStackChange,
 	onEditCommit,
 	onUncommitCommit,
+	onDeleteCommit,
 	onBeginEditCommit,
+	onAddEmptyCommit,
+	onCreateBookmark,
+	createBookmarkBelowTargetCommitId,
 	onSelectFile,
 	onFileDragStart,
 	onCommitDragStart,
@@ -2657,10 +3716,14 @@ function WorkspaceStackChangeRow({
 	canUncommitCommit: boolean;
 	onFileViewModeChange: (mode: VcsFileViewMode) => void;
 	onFileSectionCollapsedChange: (collapsed: boolean) => void;
-	onSelectStackChange: (change: BranchesStackChange) => void;
-	onEditCommit: (change: BranchesStackChange) => void;
-	onUncommitCommit: (change: BranchesStackChange) => void;
-	onBeginEditCommit: (change: BranchesStackChange) => void;
+		onSelectStackChange: (change: BranchesStackChange) => void;
+		onEditCommit: (change: BranchesStackChange) => void;
+		onUncommitCommit: (change: BranchesStackChange) => void;
+		onDeleteCommit: (change: BranchesStackChange) => void;
+		onBeginEditCommit: (change: BranchesStackChange) => void;
+	onAddEmptyCommit: (targetCommitId: string, placement: "before" | "after") => void;
+	onCreateBookmark: (targetCommitId: string) => void;
+	createBookmarkBelowTargetCommitId: string;
 	onSelectFile: (path: string) => void;
 	onFileDragStart: (event: ReactDragEvent<HTMLButtonElement>, file: VcsFileChange, change: BranchesStackChange) => void;
 	onCommitDragStart: (event: ReactDragEvent<HTMLDivElement>, change: BranchesStackChange) => void;
@@ -2741,6 +3804,10 @@ function WorkspaceStackChangeRow({
 					onUncommit={onUncommitCommit}
 					onReword={onEditCommit}
 					onEdit={onBeginEditCommit}
+					onDelete={onDeleteCommit}
+					onAddEmptyCommit={onAddEmptyCommit}
+					onCreateBookmark={onCreateBookmark}
+					createBookmarkBelowTargetCommitId={createBookmarkBelowTargetCommitId}
 				/>
 			</div>
 			{selected ? (
@@ -2771,6 +3838,10 @@ function CommitActionMenu({
 	onUncommit,
 	onReword,
 	onEdit,
+	onDelete,
+	onAddEmptyCommit,
+	onCreateBookmark,
+	createBookmarkBelowTargetCommitId,
 }: {
 	change: BranchesStackChange;
 	canRewrite: boolean;
@@ -2779,83 +3850,79 @@ function CommitActionMenu({
 	onUncommit: (change: BranchesStackChange) => void;
 	onReword: (change: BranchesStackChange) => void;
 	onEdit: (change: BranchesStackChange) => void;
+	onDelete: (change: BranchesStackChange) => void;
+	onAddEmptyCommit: (targetCommitId: string, placement: "before" | "after") => void;
+	onCreateBookmark: (targetCommitId: string) => void;
+	createBookmarkBelowTargetCommitId: string;
 }): React.ReactElement {
 	const canChooseRewriteAction = canRewrite || Boolean(immutableInfo);
 	const disabledReason = canRewrite ? undefined : immutableInfo?.reason ?? "This commit cannot be rewritten from this workspace.";
-	const triggerRef = useRef<HTMLButtonElement | null>(null);
-	const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
-	function closeMenu(): void {
-		setMenuPosition(null);
-	}
-	function toggleMenu(event: React.MouseEvent<HTMLButtonElement>): void {
-		event.stopPropagation();
-		const rect = event.currentTarget.getBoundingClientRect();
-		setMenuPosition((current) =>
-			current
-				? null
-				: {
-						top: rect.bottom + 4,
-						left: Math.max(8, rect.right - 220),
-					},
-		);
-	}
 	return (
-		<>
-			<Button
-				ref={triggerRef}
-				variant="ghost"
-				size="sm"
-				icon={<MoreHorizontal size={14} />}
-				aria-label={`Commit actions ${change.title}`}
-				title="Commit actions"
-				onClick={toggleMenu}
-			/>
-			{menuPosition ? (
-				<>
-					<button type="button" aria-label="Close commit actions" className="fixed inset-0 z-40 cursor-default bg-transparent" onClick={closeMenu} />
-					<div
-						role="menu"
-						className="fixed z-50 min-w-[220px] rounded-md border border-border-bright bg-surface-1 p-1 shadow-xl"
-						style={{ top: menuPosition.top, left: menuPosition.left }}
-					>
-						<CommitActionMenuItem
-							icon={<RotateCcw size={16} />}
-							label="Uncommit"
-							disabled={!canChooseRewriteAction || (!canUncommit && !immutableInfo)}
-							title={!canUncommit && !immutableInfo ? "Select this commit and load its changed files before uncommitting." : disabledReason}
-							onSelect={() => {
-								closeMenu();
-								onUncommit(change);
-							}}
-						/>
-						<CommitActionMenuItem
-							icon={<PencilLine size={16} />}
-							label="Reword commit"
-							disabled={!canChooseRewriteAction}
-							title={disabledReason}
-							onSelect={() => {
-								closeMenu();
-								onReword(change);
-							}}
-						/>
-						<CommitActionMenuItem
-							icon={<GitBranch size={16} />}
-							label="Edit commit"
-							disabled={!canChooseRewriteAction}
-							title={disabledReason}
-							onSelect={() => {
-								closeMenu();
-								onEdit(change);
-							}}
-						/>
-					</div>
-				</>
-			) : null}
-		</>
+		<RadixDropdownMenu.Root>
+			<RadixDropdownMenu.Trigger asChild>
+				<Button
+					variant="ghost"
+					size="sm"
+					icon={<MoreHorizontal size={14} />}
+					aria-label={`Commit actions ${change.title}`}
+					title="Commit actions"
+				/>
+			</RadixDropdownMenu.Trigger>
+			<RadixDropdownMenu.Portal>
+				<RadixDropdownMenu.Content
+					align="end"
+					sideOffset={6}
+					className="z-[80] min-w-56 overflow-hidden rounded-md border border-border bg-surface-1 p-1 text-sm text-text-primary shadow-xl"
+				>
+					<MenuItem
+						icon={<RotateCcw size={14} />}
+						label="Uncommit"
+						disabled={!canChooseRewriteAction || (!canUncommit && !immutableInfo)}
+						title={!canUncommit && !immutableInfo ? "Select this commit and load its changed files before uncommitting." : disabledReason}
+						onSelect={() => onUncommit(change)}
+					/>
+					<MenuItem
+						icon={<PencilLine size={14} />}
+						label="Reword commit"
+						disabled={!canChooseRewriteAction}
+						title={disabledReason}
+						onSelect={() => onReword(change)}
+					/>
+					<MenuItem
+						icon={<GitBranch size={14} />}
+						label="Edit commit"
+						disabled={!canChooseRewriteAction}
+						title={disabledReason}
+						onSelect={() => onEdit(change)}
+					/>
+					<MenuItem
+						icon={<Trash2 size={14} />}
+						label="Delete commit"
+						disabled={!canChooseRewriteAction}
+						title={disabledReason}
+						onSelect={() => onDelete(change)}
+					/>
+					<RadixDropdownMenu.Separator className="my-1 h-px bg-divider" />
+					<MenuSub label="Copy" icon={<Copy size={14} />}>
+						<CopyDropdownItem icon={<Copy size={14} />} label="Copy change id" value={change.changeId} />
+						<CopyDropdownItem icon={<Copy size={14} />} label="Copy commit hash" value={change.commitId} />
+						<CopyDropdownItem icon={<Copy size={14} />} label="Copy commit message" value={change.title} />
+					</MenuSub>
+					<MenuSub label="Add empty commit" icon={<GitCommitHorizontal size={14} />}>
+						<MenuItem icon={<ArrowUp size={14} />} label="Add empty commit above" onSelect={() => onAddEmptyCommit(change.changeId, "after")} />
+						<MenuItem icon={<ArrowDown size={14} />} label="Add empty commit below" onSelect={() => onAddEmptyCommit(change.changeId, "before")} />
+					</MenuSub>
+					<MenuSub label="Create branch" icon={<GitBranch size={14} />}>
+						<MenuItem icon={<ArrowUp size={14} />} label="Create branch above" onSelect={() => onCreateBookmark(change.changeId)} />
+						<MenuItem icon={<ArrowDown size={14} />} label="Create branch below" onSelect={() => onCreateBookmark(createBookmarkBelowTargetCommitId)} />
+					</MenuSub>
+				</RadixDropdownMenu.Content>
+			</RadixDropdownMenu.Portal>
+		</RadixDropdownMenu.Root>
 	);
 }
 
-function CommitActionMenuItem({
+function MenuItem({
 	icon,
 	label,
 	disabled,
@@ -2869,17 +3936,150 @@ function CommitActionMenuItem({
 	onSelect: () => void;
 }): React.ReactElement {
 	return (
-		<button
-			type="button"
-			role="menuitem"
+		<RadixDropdownMenu.Item
 			disabled={disabled}
 			title={title}
-			className="flex w-full cursor-pointer items-center gap-3 rounded-sm px-2 py-2 text-left text-[13px] text-text-primary outline-none hover:bg-surface-3 disabled:cursor-not-allowed disabled:opacity-45"
-			onClick={onSelect}
+			className="flex cursor-pointer select-none items-center gap-2 rounded px-2 py-1.5 outline-none data-[disabled]:pointer-events-none data-[disabled]:cursor-not-allowed data-[disabled]:opacity-45 data-[highlighted]:bg-surface-3"
+			onSelect={onSelect}
 		>
 			<span className="shrink-0 text-text-tertiary">{icon}</span>
-			<span>{label}</span>
-		</button>
+			<span className="min-w-0 flex-1">{label}</span>
+		</RadixDropdownMenu.Item>
+	);
+}
+
+function MenuSub({ icon, label, children }: { icon: React.ReactNode; label: string; children: React.ReactNode }): React.ReactElement {
+	return (
+		<RadixDropdownMenu.Sub>
+			<RadixDropdownMenu.SubTrigger className="flex cursor-pointer select-none items-center gap-2 rounded px-2 py-1.5 outline-none data-[state=open]:bg-surface-3 data-[highlighted]:bg-surface-3">
+				<span className="shrink-0 text-text-tertiary">{icon}</span>
+				<span className="min-w-0 flex-1">{label}</span>
+				<ArrowDown size={12} className="-rotate-90 text-text-tertiary" />
+			</RadixDropdownMenu.SubTrigger>
+			<RadixDropdownMenu.Portal>
+				<RadixDropdownMenu.SubContent
+					sideOffset={4}
+					alignOffset={-4}
+					className="z-[90] min-w-52 overflow-hidden rounded-md border border-border bg-surface-1 p-1 text-sm text-text-primary shadow-xl"
+				>
+					{children}
+				</RadixDropdownMenu.SubContent>
+			</RadixDropdownMenu.Portal>
+		</RadixDropdownMenu.Sub>
+	);
+}
+
+function CopyDropdownItem({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }): React.ReactElement {
+	const [copied, setCopied] = useState(false);
+	return (
+		<RadixDropdownMenu.Item
+			className="flex cursor-pointer select-none items-center gap-2 rounded px-2 py-1.5 outline-none data-[highlighted]:bg-surface-3"
+			onSelect={(event) => {
+				event.preventDefault();
+				void copyTextToClipboard(value).then((success) => {
+					if (success) {
+						setCopied(true);
+						window.setTimeout(() => setCopied(false), 1_200);
+					}
+				});
+			}}
+		>
+			<span className="shrink-0 text-text-tertiary">{copied ? <Check size={14} className="text-status-green" /> : icon}</span>
+			<span className="min-w-0 flex-1">{label}</span>
+		</RadixDropdownMenu.Item>
+	);
+}
+
+function WorkspaceActionDialog({
+	dialog,
+	onChange,
+	onPreview,
+	onClose,
+}: {
+	dialog: WorkspaceActionDialogState | null;
+	onChange: (dialog: WorkspaceActionDialogState | null) => void;
+	onPreview: () => void;
+	onClose: () => void;
+}): React.ReactElement {
+	const disabled =
+		!dialog ||
+		(dialog.kind === "empty_commit" && !dialog.title.trim()) ||
+		(dialog.kind === "create_bookmark" && !dialog.bookmarkName.trim()) ||
+		(dialog.kind === "rename_stack" && !dialog.name.trim());
+	const title =
+		dialog?.kind === "empty_commit"
+			? "Add Empty Commit"
+			: dialog?.kind === "create_bookmark"
+				? "Create Branch"
+				: dialog?.kind === "rename_stack"
+					? "Rename Stack"
+					: dialog?.title ?? "";
+	return (
+		<Dialog
+			open={dialog !== null}
+			onOpenChange={(open) => {
+				if (!open) {
+					onClose();
+				}
+			}}
+			contentClassName="max-w-lg"
+		>
+			<DialogHeader title={title} icon={<GitCommitHorizontal size={16} />} />
+			<DialogBody>
+				{dialog?.kind === "empty_commit" ? (
+					<div className="grid gap-3">
+						<label className="grid gap-2 text-sm text-text-secondary">
+							<span className="font-medium text-text-primary">Commit title</span>
+							<input
+								className="h-10 rounded-md border border-border bg-surface-0 px-3 text-sm text-text-primary outline-none focus:border-accent"
+								value={dialog.title}
+								onChange={(event) => onChange({ ...dialog, title: event.target.value })}
+								autoFocus
+							/>
+						</label>
+						<label className="grid gap-2 text-sm text-text-secondary">
+							<span className="font-medium text-text-primary">Commit message</span>
+							<textarea
+								className="min-h-24 resize-y rounded-md border border-border bg-surface-0 px-3 py-2 font-mono text-[13px] text-text-primary outline-none focus:border-accent"
+								value={dialog.body}
+								onChange={(event) => onChange({ ...dialog, body: event.target.value })}
+							/>
+						</label>
+					</div>
+				) : null}
+				{dialog?.kind === "create_bookmark" ? (
+					<label className="grid gap-2 text-sm text-text-secondary">
+						<span className="font-medium text-text-primary">Branch name</span>
+						<input
+							className="h-10 rounded-md border border-border bg-surface-0 px-3 text-sm text-text-primary outline-none focus:border-accent"
+							value={dialog.bookmarkName}
+							onChange={(event) => onChange({ ...dialog, bookmarkName: event.target.value })}
+							autoFocus
+						/>
+					</label>
+				) : null}
+				{dialog?.kind === "rename_stack" ? (
+					<label className="grid gap-2 text-sm text-text-secondary">
+						<span className="font-medium text-text-primary">Stack name</span>
+						<input
+							className="h-10 rounded-md border border-border bg-surface-0 px-3 text-sm text-text-primary outline-none focus:border-accent"
+							value={dialog.name}
+							onChange={(event) => onChange({ ...dialog, name: event.target.value })}
+							autoFocus
+						/>
+					</label>
+				) : null}
+				{dialog?.kind === "confirm" ? <p className="text-sm leading-6 text-text-secondary">{dialog.description}</p> : null}
+			</DialogBody>
+			<DialogFooter>
+				<Button variant="ghost" onClick={onClose}>
+					Cancel
+				</Button>
+				<Button variant="primary" icon={<Play size={14} />} disabled={disabled} onClick={onPreview}>
+					Preview changes
+				</Button>
+			</DialogFooter>
+		</Dialog>
 	);
 }
 
@@ -3001,11 +4201,7 @@ function CommitMessageEditDialog({
 			<DialogBody>
 				<label className="grid gap-2 text-sm text-text-secondary">
 					<span className="font-medium text-text-primary">Commit message</span>
-					<textarea
-						className="min-h-28 resize-y rounded-md border border-border bg-surface-0 px-3 py-2 font-mono text-[13px] text-text-primary outline-none focus:border-accent"
-						value={message}
-						onChange={(event) => onChangeTitle(event.target.value)}
-					/>
+					<MarkdownMessageEditor value={message} onChange={onChangeTitle} />
 				</label>
 			</DialogBody>
 			<DialogFooter>

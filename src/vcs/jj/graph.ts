@@ -141,25 +141,29 @@ function findNearestAncestorBookmark(
 
 function createStackHead(bookmark: VcsJjBookmark, changesById: ReadonlyMap<string, VcsJjChange>): VcsJjStackHead {
 	const change = changesById.get(bookmark.changeId);
+	const title = change?.description.split("\n")[0]?.trim();
 	return {
 		id: bookmark.name,
 		bookmarkName: bookmark.name,
 		changeId: bookmark.changeId,
 		commitId: bookmark.commitId,
-		title: change?.description || "(empty description)",
+		title: title || "(empty description)",
 		isCheckedOut: change?.isCurrent ?? false,
 	};
 }
 
 function createStackChange(change: VcsJjChange, headChangeIds: ReadonlySet<string>): VcsJjStackChange {
+	const title = change.description.split("\n")[0]?.trim();
 	return {
 		id: change.changeId,
 		changeId: change.changeId,
 		commitId: change.commitId,
-		title: change.description || "(empty description)",
+		title: title || "(empty description)",
+		description: change.description,
 		authorName: change.authorName,
 		authorEmail: change.authorEmail,
 		authorAvatarUrl: change.authorAvatarUrl,
+		timestamp: change.timestamp,
 		bookmarks: change.bookmarks,
 		remoteBookmarks: change.remoteBookmarks,
 		isCurrent: change.isCurrent,

@@ -120,7 +120,12 @@ export type VcsWorkspaceOperation =
 	| { kind: "apply_stack"; stackId: string }
 	| { kind: "unapply_stack"; stackId: string }
 	| { kind: "create_stack"; name: string; selection?: VcsChangeSelection }
-	| { kind: "create_commit"; stackId: string; message: string; selection: VcsChangeSelection }
+	| { kind: "create_commit"; stackId: string; message: string; selection?: VcsChangeSelection | null }
+	| { kind: "add_empty_commit"; targetCommitId: string; placement: "before" | "after"; message: string }
+	| { kind: "create_bookmark"; targetCommitId: string; bookmarkName: string }
+	| { kind: "rename_stack"; stackId: string; name: string }
+	| { kind: "delete_stack"; stackId: string }
+	| { kind: "squash_stack"; stackId: string }
 	| { kind: "begin_edit_commit"; targetCommitId: string; message: string }
 	| { kind: "save_edit_commit"; editCommitId: string; targetCommitId: string; returnToCommitId?: string }
 	| { kind: "abort_edit_commit"; editCommitId: string; returnToCommitId?: string }
@@ -283,7 +288,7 @@ export function disabledReasonForVcsWorkspaceOperation(
 
 	switch (operation.kind) {
 		case "create_commit":
-			if (operation.selection.source === "working_copy") {
+			if (!operation.selection || operation.selection.source === "working_copy") {
 				return capabilities.supportsWorkingCopyCommit
 					? null
 					: "This provider does not support committing selected working-copy changes.";
@@ -291,6 +296,11 @@ export function disabledReasonForVcsWorkspaceOperation(
 			return capabilities.supportsMoveChangesAcrossCommits
 				? null
 				: "This provider does not support moving selected changes into a new commit.";
+		case "add_empty_commit":
+		case "create_bookmark":
+		case "rename_stack":
+		case "delete_stack":
+		case "squash_stack":
 		case "begin_edit_commit":
 		case "save_edit_commit":
 		case "abort_edit_commit":
@@ -339,12 +349,12 @@ function capabilitySupportsHunkSelectionForOperation(
 	return (
 		capabilities.supportsWorkingCopyCommit &&
 		operation.kind === "create_commit" &&
-		operation.selection.source === "working_copy"
+		operation.selection?.source === "working_copy"
 	) || (
 		capabilities.supportsCommittedHunkSelection &&
 		capabilities.supportsMoveChangesAcrossCommits &&
 		operation.kind === "create_commit" &&
-		operation.selection.source === "commit"
+		operation.selection?.source === "commit"
 	) || (
 		capabilities.supportsCommitRewrite &&
 		operation.kind === "amend_commit" &&
@@ -376,11 +386,34 @@ function validateOperationFields(operation: VcsWorkspaceOperation): VcsWorkspace
 				? firstInvalid(requireNonEmpty(operation.name, "Enter a stack name."), validateSelection(operation.selection))
 				: requireNonEmpty(operation.name, "Enter a stack name.");
 		case "create_commit":
+			return operation.selection
+				? firstInvalid(
+						requireNonEmpty(operation.stackId, "Choose a target stack."),
+						requireNonEmpty(operation.message, "Enter a commit message."),
+						validateSelection(operation.selection),
+					)
+				: firstInvalid(
+						requireNonEmpty(operation.stackId, "Choose a target stack."),
+						requireNonEmpty(operation.message, "Enter a commit message."),
+					);
+		case "add_empty_commit":
 			return firstInvalid(
-				requireNonEmpty(operation.stackId, "Choose a target stack."),
+				requireNonEmpty(operation.targetCommitId, "Choose a target commit."),
 				requireNonEmpty(operation.message, "Enter a commit message."),
-				validateSelection(operation.selection),
 			);
+		case "create_bookmark":
+			return firstInvalid(
+				requireNonEmpty(operation.targetCommitId, "Choose a target commit."),
+				requireNonEmpty(operation.bookmarkName, "Enter a branch name."),
+			);
+		case "rename_stack":
+			return firstInvalid(
+				requireNonEmpty(operation.stackId, "Choose a stack."),
+				requireNonEmpty(operation.name, "Enter a stack name."),
+			);
+		case "delete_stack":
+		case "squash_stack":
+			return requireNonEmpty(operation.stackId, "Choose a stack.");
 		case "begin_edit_commit":
 			return firstInvalid(
 				requireNonEmpty(operation.targetCommitId, "Choose a commit to edit."),
@@ -467,6 +500,7 @@ function operationUsesHunkSelection(operation: VcsWorkspaceOperation): boolean {
 		case "create_stack":
 			return Boolean(operation.selection?.hunks?.length);
 		case "create_commit":
+			return Boolean(operation.selection?.hunks?.length);
 		case "amend_commit":
 		case "split_commit":
 		case "move_changes":
@@ -476,6 +510,11 @@ function operationUsesHunkSelection(operation: VcsWorkspaceOperation): boolean {
 			return Boolean(operation.selection.hunks?.length);
 		case "apply_stack":
 		case "unapply_stack":
+		case "add_empty_commit":
+		case "create_bookmark":
+		case "rename_stack":
+		case "delete_stack":
+		case "squash_stack":
 		case "begin_edit_commit":
 		case "save_edit_commit":
 		case "abort_edit_commit":
