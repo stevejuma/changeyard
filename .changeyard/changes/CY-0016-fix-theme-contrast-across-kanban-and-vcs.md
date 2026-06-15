@@ -147,16 +147,16 @@ No provider impact. Work should be implemented in the verified Changeyard worksp
 
 ## 2. Implementation
 
-- [ ] Update theme token palettes and metadata.
-- [ ] Replace off-contract component styles.
-- [ ] Add theme contract tests.
+- [x] Update theme token palettes and metadata.
+- [x] Replace off-contract component styles.
+- [x] Add theme contract tests.
 
 ## 3. Verification
 
-- [ ] Run theme contract test.
-- [ ] Run Kanban typecheck and targeted tests.
-- [ ] Run VCS typecheck and tests.
-- [ ] Run browser visual QA for requested routes/themes.
+- [x] Run theme contract test.
+- [x] Run Kanban typecheck and targeted tests.
+- [x] Run VCS typecheck and tests.
+- [x] Run browser visual QA for requested routes/themes.
 <!-- cy:tasks:end -->
 
 <!-- cy:verification:start -->
@@ -176,15 +176,24 @@ Visual QA in `light`, `overcast`, `solarized-light`, `latte`, and `high-contrast
 
 ## Result
 
-_Not run yet._
+- Passed: `PATH="$PWD/packages/kanban/web-ui/node_modules/.bin:$PWD/packages/vcs/node_modules/.bin:$PATH" pnpm run build:cli && node --test dist/tests/theme-contract.test.js`.
+  - Note: the exact command without the `PATH` prefix picked up a global TypeScript 6.0.3 binary in this isolated workspace because root `node_modules/.bin/tsc` is absent after a fresh workspace install. The main checkout's existing dependency layout runs the exact command successfully with TypeScript 5.9.3.
+- Passed: `pnpm --filter @changeyard/kanban run web:typecheck`.
+- Passed: `pnpm --dir packages/kanban/web-ui run test -- src/components/runtime-settings-dialog.test.tsx src/terminal/terminal-options.test.ts src/components/ui/status-chip.test.tsx`.
+- Passed: `pnpm --filter @changeyard/vcs run typecheck`.
+- Passed: `pnpm --filter @changeyard/vcs run test`.
+- Passed browser visual QA with `KANBAN_WEB_UI_PORT=3834 pnpm run ui:dev`.
+  - Verified `light`, `overcast`, `solarized-light`, `latte`, and `high-contrast-light` through Settings on `/`, `/kanban`, `/vcs/jj`, `/vcs/jj/branches`, and `/vcs/jj/history`.
+  - Focused VCS workspace pass confirmed selected file rows, file status glyphs, diff hunk borders, added/removed diff rows, and the dot-grid background resolve to theme-token colors.
+  - Console still reports an existing VCS React DOM nesting warning for `button` inside `button` in `WorkspaceStackChangeRow` / `CopyValueButton`; this is unrelated to the theme contrast work.
 <!-- cy:verification:end -->
 
 # Acceptance Criteria
-- [ ] Kanban and VCS light themes have readable hover, border, selected, status, and diff states.
-- [ ] Theme metadata swatches match the CSS palettes.
-- [ ] No app source references undefined `--color-*` variables.
-- [ ] Root theme contract tests cover token parity and light-theme contrast.
-- [ ] Targeted Kanban and VCS verification commands pass or any unrelated blockers are documented.
+- [x] Kanban and VCS light themes have readable hover, border, selected, status, and diff states.
+- [x] Theme metadata swatches match the CSS palettes.
+- [x] No app source references undefined `--color-*` variables.
+- [x] Root theme contract tests cover token parity and light-theme contrast.
+- [x] Targeted Kanban and VCS verification commands pass or any unrelated blockers are documented.
 
 # Agent Plan
 
@@ -196,4 +205,8 @@ _Not run yet._
 
 # Completion Notes
 
-Summarize what changed, what checks ran, and what risks remain.
+- Updated Kanban and VCS theme CSS with stronger light-theme surfaces, borders, text, accents, and per-light-theme status colors.
+- Aligned Kanban and VCS theme metadata with the CSS palette; VCS theme definitions now include accent foreground fields.
+- Replaced off-contract styling for dashboard muted text, status glyphs, selected rows, diff/warning backgrounds, and VCS dot-grid backgrounds with theme tokens or token-based `color-mix()`.
+- Added `tests/theme-contract.test.ts` to enforce Kanban/VCS token parity, undefined variable detection, WCAG contrast thresholds, and light-theme surface/border separation.
+- Automated verification and browser visual QA passed as documented above. Remaining unrelated issue: VCS commit rows emit a React DOM nesting warning for nested buttons.
