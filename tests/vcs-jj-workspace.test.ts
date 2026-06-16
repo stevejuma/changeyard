@@ -101,7 +101,7 @@ function createConflictStateRunner(calls: string[] = []): VcsCommandRunner {
 		const joined = `${input.command} ${input.args.join(" ")}`;
 		if (
 			joined ===
-			'jj log --ignore-working-copy --at-op=@ --revisions conflicts() --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\n"'
+			'jj log --ignore-working-copy --at-op=@ --revisions conflicts() & (::@ | ::"feature/api") --no-graph --template change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\n"'
 		) {
 			calls.push(joined);
 			return ok("api222\t22222222\tAPI change\n");

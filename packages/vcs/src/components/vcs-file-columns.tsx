@@ -1,10 +1,11 @@
-import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, FileText, Folder, FolderOpen, FolderTree, List, X } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, Folder, FolderOpen, FolderTree, List, X } from "lucide-react";
 import type { DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import { parsePatchToHunks, parsePatchToRows, ReadOnlyUnifiedDiff, type UnifiedDiffHunk } from "@/components/shared/diff-renderer";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
+import { FileTypeIcon } from "@/components/ui/file-type-icon";
 import { FileStatusGlyph } from "@/components/ui/status-chip";
 import { EmptyState } from "@/components/vcs-panels";
 import { buildFileTree, type FileTreeNode } from "@/utils/file-tree";
@@ -189,6 +190,8 @@ function FileTreeRow({
 	onSelectPath,
 	filesByPath,
 	conflictPaths,
+	collapsedDirectoryPaths,
+	onToggleDirectory,
 	onFileDragStart,
 }: {
 	node: FileTreeNode;
@@ -197,11 +200,14 @@ function FileTreeRow({
 	onSelectPath: (path: string) => void;
 	filesByPath: Map<string, VcsFileChange>;
 	conflictPaths?: ReadonlySet<string>;
+	collapsedDirectoryPaths: ReadonlySet<string>;
+	onToggleDirectory: (path: string) => void;
 	onFileDragStart?: (event: ReactDragEvent<HTMLButtonElement>, file: VcsFileChange) => void;
 }): React.ReactElement {
 	const isDirectory = node.type === "directory";
 	const isSelected = !isDirectory && node.path === selectedPath;
 	const file = filesByPath.get(node.path);
+	const isCollapsed = isDirectory && collapsedDirectoryPaths.has(node.path);
 	const hasConflict = isDirectory
 		? Array.from(conflictPaths ?? []).some((path) => path === node.path || path.startsWith(`${node.path}/`))
 		: Boolean(conflictPaths?.has(node.path));
@@ -214,10 +220,13 @@ function FileTreeRow({
 				type="button"
 				data-testid={isDirectory ? "vcs-directory-row" : "vcs-file-row"}
 				data-file-path={isDirectory ? undefined : node.path}
+				data-directory-path={isDirectory ? node.path : undefined}
+				aria-expanded={isDirectory ? !isCollapsed : undefined}
 				draggable={Boolean(file && onFileDragStart)}
 				className={cn(
 					"kb-file-tree-row",
 					isDirectory && "kb-file-tree-row-directory",
+					isDirectory && "cursor-pointer hover:bg-surface-2 hover:text-text-primary",
 					isSelected && "kb-file-tree-row-selected",
 					hasConflict && "kb-file-tree-row-conflict",
 					hasConflict && isSelected && "ring-1 ring-status-red/60",
@@ -229,12 +238,24 @@ function FileTreeRow({
 				}}
 				style={{ paddingLeft: depth * 12 + 8 }}
 				onClick={() => {
-					if (!isDirectory) {
+					if (isDirectory) {
+						onToggleDirectory(node.path);
+					} else {
 						onSelectPath(node.path);
 					}
 				}}
 			>
-				{isDirectory ? <Folder size={14} /> : <FileText size={14} className={hasConflict ? "text-status-orange" : undefined} />}
+				{isDirectory ? (
+					<>
+						{isCollapsed ? <ChevronRight size={12} className="shrink-0" /> : <ChevronDown size={12} className="shrink-0" />}
+						{isCollapsed ? <Folder size={14} /> : <FolderOpen size={14} />}
+					</>
+				) : (
+					<>
+						<span className="w-3 shrink-0" />
+						<FileTypeIcon path={node.path} />
+					</>
+				)}
 				<span className="truncate">{node.name}</span>
 				{file ? (
 					<span className="ml-auto flex gap-1 font-mono text-[10px]">
@@ -244,7 +265,7 @@ function FileTreeRow({
 				) : null}
 				{hasConflict ? <AlertTriangle size={16} className="ml-auto shrink-0 text-status-red" /> : null}
 			</button>
-			{node.children.length > 0 ? (
+			{node.children.length > 0 && !isCollapsed ? (
 				<div>
 					{node.children.map((child) => (
 						<FileTreeRow
@@ -255,6 +276,8 @@ function FileTreeRow({
 							onSelectPath={onSelectPath}
 							filesByPath={filesByPath}
 							conflictPaths={conflictPaths}
+							collapsedDirectoryPaths={collapsedDirectoryPaths}
+							onToggleDirectory={onToggleDirectory}
 							onFileDragStart={onFileDragStart}
 						/>
 					))}
@@ -296,7 +319,7 @@ function FileListRow({
 			onDragStart={(event) => onFileDragStart?.(event, file)}
 			onClick={() => onSelectPath(file.path)}
 		>
-			<FileText size={14} className={hasConflict ? "text-status-orange" : undefined} />
+			<FileTypeIcon path={file.path} />
 			<FileStatusGlyph status={file.status} />
 			<span className="min-w-0 flex-1 truncate">{file.path}</span>
 			<span className="flex shrink-0 gap-1 font-mono text-[10px]">
@@ -398,9 +421,21 @@ export function VcsInlineFileSection({
 }): React.ReactElement {
 	const filesByPath = useMemo(() => new Map(files.map((file) => [file.path, file])), [files]);
 	const tree = useMemo(() => buildFileTree(files.map((file) => file.path)), [files]);
+	const [collapsedDirectoryPaths, setCollapsedDirectoryPaths] = useState<Set<string>>(() => new Set());
 	const additions = files.reduce((sum, file) => sum + (file.additions ?? 0), 0);
 	const deletions = files.reduce((sum, file) => sum + (file.deletions ?? 0), 0);
 	const conflictCount = conflictPaths ? files.filter((file) => conflictPaths.has(file.path)).length : 0;
+	function toggleDirectory(path: string): void {
+		setCollapsedDirectoryPaths((current) => {
+			const next = new Set(current);
+			if (next.has(path)) {
+				next.delete(path);
+			} else {
+				next.add(path);
+			}
+			return next;
+		});
+	}
 	const headerContent = (
 		<>
 			{collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
@@ -464,6 +499,8 @@ export function VcsInlineFileSection({
 										onSelectPath={onSelectPath}
 										filesByPath={filesByPath}
 										conflictPaths={conflictPaths}
+										collapsedDirectoryPaths={collapsedDirectoryPaths}
+										onToggleDirectory={toggleDirectory}
 										onFileDragStart={onFileDragStart}
 									/>
 								))
@@ -604,7 +641,7 @@ export function VcsFileDiffColumn({
 			) : null}
 			{topContent}
 			<header className="flex h-10 shrink-0 items-center gap-2 border-b border-divider px-3">
-				<FileText size={14} className="shrink-0 text-text-tertiary" />
+				{file ? <FileTypeIcon path={file.path} title={file.path} /> : <FileTypeIcon path="diff" />}
 				<span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-text-primary" title={file?.path}>
 					{file?.path ?? (isLoading ? "Loading diff" : "Diff")}
 				</span>

@@ -161,7 +161,7 @@ export function FileStatusGlyph({ status, className }: { status: string; classNa
 
 	return (
 		<span
-			className={cn("grid h-5 w-5 shrink-0 place-items-center rounded-full text-[10px] font-semibold", tone, className)}
+			className={cn("kb-file-status-glyph grid h-5 w-5 shrink-0 place-items-center rounded-full text-[10px] font-semibold", tone, className)}
 			title={meta.label}
 			aria-label={meta.label}
 		>

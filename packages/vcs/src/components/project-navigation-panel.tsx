@@ -1,7 +1,6 @@
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import * as Collapsible from "@radix-ui/react-collapsible";
 import { ChevronLeft, ChevronRight, Ellipsis, Plus } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { ClineIcon } from "@/components/ui/cline-icon";
@@ -38,10 +37,6 @@ function formatProjectPath(path: string): string {
 	return home && path.startsWith(home) ? path.replace(home, "~") : path;
 }
 
-function workspaceCountLabel(count: number): string {
-	return count === 1 ? "1 workspace/worktree" : `${count} workspaces/worktrees`;
-}
-
 function workspaceDisplayName(workspace: RuntimeProjectWorkspaceSummary): string {
 	return workspace.name ?? workspace.branch ?? workspace.title;
 }
@@ -72,8 +67,9 @@ export function VcsProjectNavigationPanel({
 	isCollapsed,
 	onCollapsedChange,
 	onSelectProject,
+	activeWorkspacePath,
+	onSelectProjectWorkspace,
 	onAddProject,
-	onOpenWorkspaceProject,
 	onRemoveProject,
 	onClearOtherProjects,
 }: {
@@ -83,8 +79,9 @@ export function VcsProjectNavigationPanel({
 	isCollapsed: boolean;
 	onCollapsedChange: (collapsed: boolean) => void;
 	onSelectProject: (projectId: string) => void;
+	activeWorkspacePath: string | null;
+	onSelectProjectWorkspace: (projectId: string, workspacePath: string) => void;
 	onAddProject: () => void;
-	onOpenWorkspaceProject: (path: string) => void;
 	onRemoveProject: (projectId: string) => Promise<boolean>;
 	onClearOtherProjects: () => Promise<boolean>;
 }): React.ReactElement {
@@ -225,9 +222,10 @@ export function VcsProjectNavigationPanel({
 										key={project.id}
 										project={project}
 										isCurrent={project.id === currentProjectId}
+										activeWorkspacePath={activeWorkspacePath}
 										removingProjectId={removingProjectId}
 										onSelect={onSelectProject}
-										onOpenWorkspaceProject={onOpenWorkspaceProject}
+										onSelectWorkspace={onSelectProjectWorkspace}
 										onRemove={(projectId) => {
 											const found = projectsState.data.projects.find((item) => item.id === projectId);
 										if (!found) {
@@ -396,24 +394,36 @@ function ProjectRowSkeleton(): React.ReactElement {
 function ProjectRow({
 	project,
 	isCurrent,
+	activeWorkspacePath,
 	removingProjectId,
 	onSelect,
-	onOpenWorkspaceProject,
+	onSelectWorkspace,
 	onRemove,
 }: {
 	project: RuntimeProjectSummary;
 	isCurrent: boolean;
+	activeWorkspacePath: string | null;
 	removingProjectId: string | null;
 	onSelect: (id: string) => void;
-	onOpenWorkspaceProject: (path: string) => void;
+	onSelectWorkspace: (id: string, workspacePath: string) => void;
 	onRemove: (id: string) => void;
 }): React.ReactElement {
 	const displayPath = formatProjectPath(project.path);
 	const isRemovingProject = removingProjectId === project.id;
 	const hasAnyProjectRemoval = removingProjectId !== null;
 	const [isMenuOpen, setIsMenuOpen] = useState(false);
-	const [isWorkspacesOpen, setWorkspacesOpen] = useState(true);
-	const workspaces = project.workspaces ?? [];
+	const [isWorkspacesOpen, setWorkspacesOpen] = useState(isCurrent);
+	const workspaces = (project.workspaces ?? []).filter((workspace) => workspace.name !== "default");
+	const hasWorkspaces = workspaces.length > 0;
+	const wasCurrentRef = useRef(isCurrent);
+	const showWorkspaceToggle = hasWorkspaces;
+	const hasActiveWorkspace = Boolean(isCurrent && activeWorkspacePath && workspaces.some((workspace) => resolveWorkspaceProjectPath(project.path, workspace) === activeWorkspacePath));
+	useEffect(() => {
+		if (isCurrent && !wasCurrentRef.current && hasWorkspaces) {
+			setWorkspacesOpen(true);
+		}
+		wasCurrentRef.current = isCurrent;
+	}, [hasWorkspaces, isCurrent]);
 	const taskCountBadges: TaskCountBadge[] = [
 		{
 			id: "backlog",
@@ -450,14 +460,28 @@ function ProjectRow({
 			<div
 				role="button"
 				tabIndex={0}
-				onClick={() => onSelect(project.id)}
+				onClick={() => {
+					if (isCurrent && hasWorkspaces) {
+						setWorkspacesOpen((open) => !open);
+						return;
+					}
+					onSelect(project.id);
+				}}
 				onKeyDown={(event) => {
 					if (event.key === "Enter" || event.key === " ") {
 						event.preventDefault();
-						onSelect(project.id);
+						if (isCurrent && hasWorkspaces) {
+							setWorkspacesOpen((open) => !open);
+						} else {
+							onSelect(project.id);
+						}
 					}
 				}}
-				className={cn("kb-project-row cursor-pointer rounded-md", isCurrent && "kb-project-row-selected")}
+				className={cn(
+					"kb-project-row cursor-pointer rounded-md",
+					isCurrent && !hasActiveWorkspace && "kb-project-row-selected",
+					isCurrent && hasActiveWorkspace && "vcs-project-row-parent-active",
+				)}
 				style={{
 					display: "flex",
 					alignItems: "center",
@@ -467,30 +491,37 @@ function ProjectRow({
 			>
 				<div className="min-w-0 flex-1">
 					<div className="flex min-w-0 items-center gap-2">
+						{showWorkspaceToggle ? (
+							<button
+								type="button"
+								aria-label={isWorkspacesOpen ? "Collapse workspaces" : "Expand workspaces"}
+								title={isWorkspacesOpen ? "Collapse workspaces" : "Expand workspaces"}
+								className={cn(
+									"vcs-project-row-chevron",
+									isWorkspacesOpen && "is-open",
+									isCurrent && !hasActiveWorkspace && "is-selected",
+								)}
+								onClick={(event) => {
+									event.stopPropagation();
+									setWorkspacesOpen((open) => !open);
+								}}
+							>
+								<ChevronRight size={12} />
+							</button>
+						) : null}
 						<div
 							className={cn(
 								"min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-sm font-medium",
-								isCurrent ? "text-accent-fg" : "text-text-primary",
+								isCurrent && !hasActiveWorkspace ? "text-accent-fg" : "text-text-primary",
 							)}
 						>
 							{project.name}
 						</div>
-						{workspaces.length > 0 ? (
-							<span
-								className={cn(
-									"shrink-0 rounded-full px-1.5 py-px text-[10px] font-semibold tabular-nums",
-									isCurrent ? "bg-accent-fg/20 text-accent-fg" : "bg-surface-3 text-text-secondary",
-								)}
-								title={workspaceCountLabel(workspaces.length)}
-							>
-								{workspaces.length}
-							</span>
-						) : null}
 					</div>
 					<div
 						className={cn(
 							"overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[10px]",
-							isCurrent ? "text-accent-fg/60" : "text-text-secondary",
+							isCurrent && !hasActiveWorkspace ? "text-accent-fg/60" : "text-text-secondary",
 						)}
 					>
 						{displayPath}
@@ -502,7 +533,7 @@ function ProjectRow({
 									key={badge.id}
 									className={cn(
 										"inline-flex items-center gap-1 rounded-full px-1.5 py-px text-[10px] font-medium",
-										isCurrent ? "bg-accent-fg/20 text-accent-fg" : badge.toneClassName,
+										isCurrent && !hasActiveWorkspace ? "bg-accent-fg/20 text-accent-fg" : badge.toneClassName,
 									)}
 									title={badge.title}
 								>
@@ -523,7 +554,7 @@ function ProjectRow({
 								icon={isRemovingProject ? <Spinner size={12} /> : <Ellipsis size={14} />}
 								disabled={hasAnyProjectRemoval && !isRemovingProject}
 								className={
-									isCurrent
+									isCurrent && !hasActiveWorkspace
 										? "text-accent-fg hover:bg-accent-fg/20 hover:text-accent-fg active:bg-accent-fg/30"
 										: undefined
 								}
@@ -552,41 +583,31 @@ function ProjectRow({
 					</DropdownMenu.Root>
 				</div>
 			</div>
-			{isCurrent && workspaces.length > 0 ? (
-				<Collapsible.Root open={isWorkspacesOpen} onOpenChange={setWorkspacesOpen} className="vcs-project-workspaces">
-					<Collapsible.Trigger asChild>
-						<button type="button" className="vcs-project-workspaces-trigger">
-							<ChevronRight size={12} className={cn("vcs-project-workspaces-chevron", isWorkspacesOpen && "is-open")} />
-							<span className="vcs-project-workspaces-label truncate">Workspaces</span>
-							<span className="vcs-project-workspaces-count">{workspaces.length}</span>
-						</button>
-					</Collapsible.Trigger>
-					<Collapsible.Content className="vcs-project-workspaces-content">
-						<div className="vcs-project-workspace-list">
-							{workspaces.map((workspace) => {
-								const detail = workspaceDetail(workspace);
-								const projectPath = resolveWorkspaceProjectPath(project.path, workspace);
-								return (
-									<button
-										type="button"
-										key={workspace.id}
-										className="vcs-project-workspace-item"
-										disabled={!projectPath}
-										onClick={() => {
-											if (projectPath) {
-												onOpenWorkspaceProject(projectPath);
-											}
-										}}
-										title={detail ? `${workspace.title} · ${detail}` : workspace.title}
-									>
-										<div className="vcs-project-workspace-name">{workspaceDisplayName(workspace)}</div>
-										{detail ? <div className="vcs-project-workspace-detail">{detail}</div> : null}
-									</button>
-								);
-							})}
-						</div>
-					</Collapsible.Content>
-				</Collapsible.Root>
+			{hasWorkspaces && isWorkspacesOpen ? (
+				<div className="vcs-project-workspace-list">
+					{workspaces.map((workspace) => {
+						const detail = workspaceDetail(workspace);
+						const projectPath = resolveWorkspaceProjectPath(project.path, workspace);
+						const isActiveWorkspace = Boolean(projectPath && projectPath === activeWorkspacePath);
+						return (
+							<button
+								type="button"
+								key={workspace.id}
+								className={cn("vcs-project-workspace-item", isActiveWorkspace && "is-active")}
+								disabled={!projectPath}
+								onClick={() => {
+									if (projectPath) {
+										onSelectWorkspace(project.id, projectPath);
+									}
+								}}
+								title={detail ? `${workspace.title} · ${detail}` : workspace.title}
+							>
+								<div className="vcs-project-workspace-name">{workspaceDisplayName(workspace)}</div>
+								{detail ? <div className="vcs-project-workspace-detail">{detail}</div> : null}
+							</button>
+						);
+					})}
+				</div>
 			) : null}
 		</div>
 		);

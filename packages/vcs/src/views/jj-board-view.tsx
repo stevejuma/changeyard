@@ -1,5 +1,5 @@
 import * as RadixDropdownMenu from "@radix-ui/react-dropdown-menu";
-import { AlertTriangle, ArrowDown, ArrowUp, Check, ChevronDown, Copy, FileText, Folder, FolderTree, GitBranch, GitCommitHorizontal, Info, Layers, List, LockKeyhole, Maximize2, MoreHorizontal, Pencil, PencilLine, Play, Plus, RotateCcw, Sparkles, Trash2, Type, Unlink, Upload, WrapText, X } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, Copy, Folder, FolderOpen, FolderTree, GitBranch, GitCommitHorizontal, Info, Layers, List, LockKeyhole, Maximize2, MoreHorizontal, Pencil, PencilLine, Play, Plus, RotateCcw, Sparkles, Trash2, Type, Unlink, Upload, WrapText, X } from "lucide-react";
 import { Fragment, useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent } from "react";
 
 import {
@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { CopyValueButton } from "@/components/ui/copy-value-button";
 import { Dialog, DialogBody, DialogFooter, DialogHeader } from "@/components/ui/dialog";
+import { FileTypeIcon } from "@/components/ui/file-type-icon";
 import { MarkdownMessageEditor, MarkdownMessagePreview, type MarkdownMessageEditorMode } from "@/components/ui/markdown-message-editor";
 import { Spinner } from "@/components/ui/spinner";
 import { FileStatusGlyph, StatusChip } from "@/components/ui/status-chip";
@@ -541,6 +542,11 @@ function toUiFileChange(file: VcsWorkspaceState["workingCopy"]["files"][number])
 	};
 }
 
+function workspaceBoardHeadBookmarkName(stackName: string, commit: VcsWorkspaceState["stacks"][number]["commits"][number]): string {
+	const bookmarks = Array.isArray(commit.metadata?.bookmarks) ? metadataStringArray(commit.metadata.bookmarks) : [];
+	return bookmarks.find((bookmark) => bookmark === stackName) ?? bookmarks[0] ?? stackName;
+}
+
 function toWorkspaceBoardStacks(data: VcsWorkspaceState): BranchesStack[] {
 	return data.stacks.map((stack, index) => {
 		const changes = stack.commits.map((commit) => {
@@ -571,7 +577,7 @@ function toWorkspaceBoardStacks(data: VcsWorkspaceState): BranchesStack[] {
 		const fallbackHead = stack.commits.at(-1) ?? null;
 		const heads = (headCommits.length > 0 ? headCommits : fallbackHead ? [fallbackHead] : []).map((commit) => ({
 			id: `${stack.stackId}:${commit.commitId}`,
-			bookmarkName: stack.name,
+			bookmarkName: workspaceBoardHeadBookmarkName(stack.name, commit),
 			changeId: commit.commitId,
 			commitId: metadataString(commit.metadata?.commitHash) ?? commit.displayId ?? commit.commitId,
 			title: commit.title,
@@ -604,7 +610,8 @@ export function WorkspaceView({
 	workspaceId: string | null;
 	onWorkspaceStateRefresh: () => Promise<void>;
 	}): React.ReactElement {
-		const projectConfigResult = useGetProjectConfigQuery({ workspaceId: workspaceId ?? "" }, { skip: !workspaceId });
+		const activeWorkspacePath = projectState.activeWorkspacePath;
+			const projectConfigResult = useGetProjectConfigQuery({ workspaceId: workspaceId ?? "" }, { skip: !workspaceId });
 		const [updateProjectConfig] = useUpdateProjectConfigMutation();
 		const projectConfigQuery = {
 		state: toRuntimeQueryState<RuntimeProjectConfigResponse>(projectConfigResult, "Failed to load project configuration."),
@@ -647,9 +654,10 @@ export function WorkspaceView({
 											input,
 										}).unwrap()
 									}
-									onWorkspaceStateRefresh={onWorkspaceStateRefresh}
-									workspaceId={workspaceId}
-								/>
+										onWorkspaceStateRefresh={onWorkspaceStateRefresh}
+										workspaceId={workspaceId}
+										workspacePath={activeWorkspacePath}
+									/>
 							)}
 						</QueryGate>
 					)}
@@ -723,6 +731,7 @@ function WorkspaceReady({
 	updateProjectConfig,
 	onWorkspaceStateRefresh,
 	workspaceId,
+	workspacePath,
 }: {
 	data: VcsWorkspaceState;
 	diffState: QueryState<VcsDiffResult>;
@@ -730,6 +739,7 @@ function WorkspaceReady({
 	updateProjectConfig: (input: RuntimeProjectConfigUpdateRequest) => Promise<RuntimeProjectConfigResponse>;
 	onWorkspaceStateRefresh: () => Promise<void>;
 	workspaceId: string;
+	workspacePath: string | null;
 }): React.ReactElement {
 	const [applyVcsOperation] = useApplyVcsOperationMutation();
 	const [previewVcsOperation, previewResult] = useLazyPreviewVcsOperationQuery();
@@ -891,7 +901,7 @@ function WorkspaceReady({
 			: selectedCommitHash);
 	const selectedCommitDiffBaseHash = selectedHeaderStack?.base;
 	const commitDiffResult = useGetRepositoryCommitDiffQuery(
-		{ workspaceId: workspaceId ?? "", commitHash: selectedCommitDiffHash ?? "", baseCommitHash: selectedCommitDiffBaseHash },
+		{ workspaceId: workspaceId ?? "", workspacePath, commitHash: selectedCommitDiffHash ?? "", baseCommitHash: selectedCommitDiffBaseHash },
 		{ skip: !workspaceId || !selectedCommitDiffHash },
 	);
 	const commitDiffQuery = {
@@ -1022,6 +1032,7 @@ function WorkspaceReady({
 		try {
 			const operationResult = await applyVcsOperation({
 				workspaceId,
+				workspacePath,
 				input: {
 					operation,
 				},
@@ -1050,7 +1061,7 @@ function WorkspaceReady({
 		}
 		setPendingOperation(operation);
 		setOperationApplyError(null);
-		void previewVcsOperation({ workspaceId, input: { operation } });
+		void previewVcsOperation({ workspaceId, workspacePath, input: { operation } });
 	}
 
 	function immutableChangeForOperation(operation: VcsWorkspaceOperation): BranchesStackChange | null {
@@ -1289,6 +1300,7 @@ function WorkspaceReady({
 		try {
 			const result = await applyVcsOperation({
 				workspaceId,
+				workspacePath,
 				input: {
 					operation: {
 						kind: "begin_edit_commit",
@@ -1331,6 +1343,7 @@ function WorkspaceReady({
 		try {
 			const result = await applyVcsOperation({
 				workspaceId,
+				workspacePath,
 				input: {
 					operation: {
 						kind: "save_edit_commit",
@@ -1367,6 +1380,7 @@ function WorkspaceReady({
 		try {
 			const result = await applyVcsOperation({
 				workspaceId,
+				workspacePath,
 				input: {
 					operation: {
 						kind: "abort_edit_commit",
@@ -1698,11 +1712,12 @@ function WorkspaceReady({
 			setPendingGraphRefresh(pendingOperation);
 			closeWorkspaceOperationPreview();
 		}
-		try {
-			const result = await applyPreviewedVcsOperation({
-				workspaceId,
-				input: { operation: pendingOperation, operationContext: operationContextFor(pendingOperation) },
-			}).unwrap();
+			try {
+				const result = await applyPreviewedVcsOperation({
+					workspaceId,
+					workspacePath,
+					input: { operation: pendingOperation, operationContext: operationContextFor(pendingOperation) },
+				}).unwrap();
 			if (!result.ok) {
 				throw new Error(result.summary || "Workspace operation failed.");
 			}
@@ -2527,6 +2542,18 @@ function UnstagedFileList({
 }): React.ReactElement {
 	const filesByPath = useMemo(() => new Map(files.map((file) => [file.path, file])), [files]);
 	const tree = useMemo(() => buildFileTree(files.map((file) => file.path)), [files]);
+	const [collapsedDirectoryPaths, setCollapsedDirectoryPaths] = useState<Set<string>>(() => new Set());
+	function toggleDirectory(path: string): void {
+		setCollapsedDirectoryPaths((current) => {
+			const next = new Set(current);
+			if (next.has(path)) {
+				next.delete(path);
+			} else {
+				next.add(path);
+			}
+			return next;
+		});
+	}
 	return (
 		<div className="px-1 py-1">
 			{viewMode === "tree"
@@ -2539,6 +2566,8 @@ function UnstagedFileList({
 							conflictPaths={conflictPaths}
 							onSelectPath={onSelectPath}
 							filesByPath={filesByPath}
+							collapsedDirectoryPaths={collapsedDirectoryPaths}
+							onToggleDirectory={toggleDirectory}
 							onFileDragStart={onFileDragStart}
 						/>
 					))
@@ -2563,6 +2592,8 @@ function UnstagedFileTreeRow({
 	conflictPaths,
 	onSelectPath,
 	filesByPath,
+	collapsedDirectoryPaths,
+	onToggleDirectory,
 	onFileDragStart,
 }: {
 	node: FileTreeNode;
@@ -2571,11 +2602,14 @@ function UnstagedFileTreeRow({
 	conflictPaths: ReadonlySet<string>;
 	onSelectPath: (path: string) => void;
 	filesByPath: Map<string, VcsFileChange>;
+	collapsedDirectoryPaths: ReadonlySet<string>;
+	onToggleDirectory: (path: string) => void;
 	onFileDragStart: (event: ReactDragEvent<HTMLButtonElement>, file: VcsFileChange) => void;
 }): React.ReactElement {
 	const isDirectory = node.type === "directory";
 	const file = filesByPath.get(node.path);
 	const selected = !isDirectory && node.path === selectedPath;
+	const isCollapsed = isDirectory && collapsedDirectoryPaths.has(node.path);
 	const hasConflict = isDirectory
 		? Array.from(conflictPaths).some((path) => path === node.path || path.startsWith(`${node.path}/`))
 		: conflictPaths.has(node.path);
@@ -2583,13 +2617,15 @@ function UnstagedFileTreeRow({
 		<div>
 			<button
 				type="button"
-				disabled={isDirectory}
 				data-testid={isDirectory ? "vcs-working-copy-directory-row" : "vcs-working-copy-file-row"}
 				data-file-path={isDirectory ? undefined : node.path}
+				data-directory-path={isDirectory ? node.path : undefined}
+				aria-expanded={isDirectory ? !isCollapsed : undefined}
 				draggable={!isDirectory && Boolean(file)}
 				className={cn(
 					"kb-file-tree-row",
 					isDirectory && "kb-file-tree-row-directory",
+					isDirectory && "cursor-pointer hover:bg-surface-2 hover:text-text-primary",
 					!isDirectory && "cursor-pointer hover:bg-surface-2",
 					selected && "kb-file-tree-row-selected",
 					hasConflict && "kb-file-tree-row-conflict",
@@ -2602,17 +2638,29 @@ function UnstagedFileTreeRow({
 					}
 				}}
 				onClick={() => {
-					if (!isDirectory) {
+					if (isDirectory) {
+						onToggleDirectory(node.path);
+					} else {
 						onSelectPath(node.path);
 					}
 				}}
 			>
-				{isDirectory ? <Folder size={14} /> : <FileText size={14} className={hasConflict ? "text-status-orange" : undefined} />}
+				{isDirectory ? (
+					<>
+						{isCollapsed ? <ChevronRight size={12} className="shrink-0" /> : <ChevronDown size={12} className="shrink-0" />}
+						{isCollapsed ? <Folder size={14} /> : <FolderOpen size={14} />}
+					</>
+				) : (
+					<>
+						<span className="w-3 shrink-0" />
+						<FileTypeIcon path={node.path} />
+					</>
+				)}
 				{file ? <FileStatusGlyph status={file.status} /> : null}
 				<span className="min-w-0 flex-1 truncate">{node.name}</span>
 				{hasConflict ? <AlertTriangle size={16} className="ml-auto shrink-0 text-status-red" /> : null}
 			</button>
-			{node.children.length > 0 ? (
+			{node.children.length > 0 && !isCollapsed ? (
 				<div>
 					{node.children.map((child) => (
 						<UnstagedFileTreeRow
@@ -2623,6 +2671,8 @@ function UnstagedFileTreeRow({
 							conflictPaths={conflictPaths}
 							onSelectPath={onSelectPath}
 							filesByPath={filesByPath}
+							collapsedDirectoryPaths={collapsedDirectoryPaths}
+							onToggleDirectory={onToggleDirectory}
 							onFileDragStart={onFileDragStart}
 						/>
 					))}
@@ -2660,7 +2710,7 @@ function UnstagedFileRow({
 			onDragStart={(event) => onFileDragStart(event, file)}
 			onClick={() => onSelectPath(file.path)}
 		>
-			<FileText size={14} className={hasConflict ? "text-status-orange" : undefined} />
+			<FileTypeIcon path={file.path} />
 			<FileStatusGlyph status={file.status} />
 			<span className="min-w-0 flex-1 truncate">{file.path}</span>
 			{hasConflict ? <AlertTriangle size={16} className="ml-auto shrink-0 text-status-red" /> : null}
@@ -3914,7 +3964,7 @@ function WorkspaceStackChangeRow({
 			className={cn(
 				"overflow-hidden border-b border-divider bg-surface-0 transition-shadow last:border-b-0",
 				change.isCurrent && "border-l-4 border-l-accent",
-				hasConflict && "border-status-red/35 bg-status-red/10",
+				hasConflict && "kb-vcs-conflict-commit-card",
 				selected && "bg-surface-2",
 				selected && SELECTED_CHANGE_MARKER_CLASS,
 			)}
@@ -3923,7 +3973,13 @@ function WorkspaceStackChangeRow({
 			onDragLeave={(event) => onDragLeaveCommit(event, change, dropTargetKey)}
 			onDrop={(event) => onDropCommit(event, change)}
 		>
-			<div className={cn("flex min-w-0 items-center gap-1 px-3 py-3 transition-colors hover:bg-surface-2", workspaceCommitDropTargetClassName(dropTargetState))}>
+			<div
+				className={cn(
+					"flex min-w-0 items-center gap-1 px-3 py-3 transition-colors hover:bg-surface-2",
+					hasConflict && "kb-vcs-conflict-commit-row",
+					workspaceCommitDropTargetClassName(dropTargetState),
+				)}
+			>
 				<button
 					type="button"
 					className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left"
@@ -3949,16 +4005,21 @@ function WorkspaceStackChangeRow({
 						className="h-5 w-5 shrink-0"
 					/>
 					<div className="min-w-0 flex-1">
-						<div className="truncate text-sm font-medium text-text-primary">{change.title}</div>
+						<div className={cn("truncate text-sm font-medium text-text-primary", hasConflict && "text-status-red")}>{change.title}</div>
 						<div className="mt-1 flex min-w-0 items-center gap-2">
 							<CopyValueButton displayValue={change.commitId.slice(0, 8)} copyValue={change.commitId} />
-							<span className="text-text-tertiary">·</span>
+							<span className={cn("text-text-tertiary", hasConflict && "text-status-red/70")}>·</span>
 							<CopyValueButton label="Commit" displayValue={change.changeId} copyValue={change.changeId} />
 						</div>
 					</div>
-					{hasConflict ? <StatusChip label="conflict" tone="red" icon={<AlertTriangle size={11} />} /> : null}
-					{change.isHead ? <StatusChip label="head" tone="green" /> : null}
 				</button>
+				{hasConflict ? (
+					<AlertTriangle
+						size={16}
+						className="shrink-0 text-status-red"
+						aria-label="Commit has conflicts"
+					/>
+				) : null}
 				<CommitActionMenu
 					change={change}
 					canRewrite={canEditCommit(change)}

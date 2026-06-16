@@ -219,6 +219,7 @@ export interface VcsOperationRecovery {
 
 export interface VcsDiffInput {
 	projectId: string;
+	workspacePath?: string | null;
 	selection?: VcsChangeSelection;
 	commitId?: string;
 	stackId?: string;
@@ -234,6 +235,7 @@ export interface VcsDiffResult {
 
 export interface VcsWorkspaceStateInput {
 	projectId: string;
+	workspacePath?: string | null;
 	targetRef?: string | null;
 	appliedStackIds?: string[];
 }
@@ -249,6 +251,7 @@ export interface VcsWorkspaceOperationContext {
 
 export interface VcsWorkspaceOperationInput {
 	projectId: string;
+	workspacePath?: string | null;
 	operation: VcsWorkspaceOperation;
 	operationContext?: VcsWorkspaceOperationContext;
 }

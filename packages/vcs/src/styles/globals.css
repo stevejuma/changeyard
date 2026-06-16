@@ -679,64 +679,49 @@ body.kb-dependency-link-mode {
 	min-width: 0;
 }
 
-.vcs-project-workspaces {
-	margin: 2px 0 5px;
-	padding-left: 18px;
+.vcs-project-row-parent-active {
+	background: color-mix(in srgb, var(--color-accent) 10%, transparent);
 }
 
-.vcs-project-workspaces-trigger {
-	display: flex;
-	width: 100%;
-	align-items: center;
-	gap: 4px;
+.vcs-project-row-chevron {
+	display: inline-grid;
+	width: 16px;
+	height: 16px;
+	flex: 0 0 auto;
+	place-items: center;
 	border: 0;
+	border-radius: var(--radius-sm);
 	background: transparent;
-	color: var(--color-text-secondary);
-	cursor: pointer;
-	font-size: 11px;
-	font-weight: 500;
-	line-height: 16px;
-	padding: 2px 4px;
-	text-align: left;
-}
-
-.vcs-project-workspaces-trigger:hover {
-	color: var(--color-text-primary);
-}
-
-.vcs-project-workspaces-label {
-	text-transform: uppercase;
-	letter-spacing: 0;
-}
-
-.vcs-project-workspaces-chevron {
 	color: var(--color-text-tertiary);
+	cursor: pointer;
+	padding: 0;
 	transform: rotate(0deg);
 	transition: transform 120ms ease;
 }
 
-.vcs-project-workspaces-chevron.is-open {
+.vcs-project-row-chevron:hover {
+	background: var(--color-surface-3);
+	color: var(--color-text-primary);
+}
+
+.vcs-project-row-chevron.is-open {
 	transform: rotate(90deg);
 }
 
-.vcs-project-workspaces-count {
-	margin-left: auto;
-	border-radius: 999px;
-	background: var(--color-surface-3);
-	color: var(--color-text-secondary);
-	font-size: 10px;
-	font-weight: 600;
-	line-height: 14px;
-	min-width: 18px;
-	padding: 0 5px;
-	text-align: center;
+.vcs-project-row-chevron.is-selected {
+	color: var(--color-accent-fg);
+}
+
+.vcs-project-row-chevron.is-selected:hover {
+	background: color-mix(in srgb, var(--color-accent-fg) 20%, transparent);
+	color: var(--color-accent-fg);
 }
 
 .vcs-project-workspace-list {
 	display: grid;
 	gap: 3px;
-	margin-left: 5px;
-	padding-left: 9px;
+	margin: 3px 0 6px 12px;
+	padding-left: 8px;
 	border-left: 1px solid var(--color-border);
 }
 
@@ -745,7 +730,7 @@ body.kb-dependency-link-mode {
 	width: 100%;
 	border: 0;
 	border-radius: 4px;
-	background: var(--color-surface-2);
+	background: transparent;
 	color: inherit;
 	cursor: pointer;
 	font: inherit;
@@ -754,7 +739,13 @@ body.kb-dependency-link-mode {
 }
 
 .vcs-project-workspace-item:hover {
-	background: var(--color-surface-3);
+	background: var(--color-surface-2);
+}
+
+.vcs-project-workspace-item.is-active,
+.vcs-project-workspace-item.is-active:hover {
+	background: var(--color-accent);
+	color: var(--color-accent-fg);
 }
 
 .vcs-project-workspace-item:disabled {
@@ -780,6 +771,14 @@ body.kb-dependency-link-mode {
 	line-height: 14px;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+
+.vcs-project-workspace-item.is-active .vcs-project-workspace-name {
+	color: var(--color-accent-fg);
+}
+
+.vcs-project-workspace-item.is-active .vcs-project-workspace-detail {
+	color: color-mix(in srgb, var(--color-accent-fg) 68%, transparent);
 }
 
 .kb-project-count-tag {
@@ -809,8 +808,41 @@ body.kb-dependency-link-mode {
 }
 
 .kb-file-tree-row-directory {
-	cursor: default;
+	cursor: pointer;
 	color: var(--color-text-tertiary);
+}
+
+.kb-file-type-icon {
+	display: grid;
+	width: 16px;
+	height: 16px;
+	flex-shrink: 0;
+	place-items: center;
+	overflow: hidden;
+	border-radius: var(--radius-sm);
+}
+
+.kb-file-tree-row-selected .kb-file-type-icon {
+	background: color-mix(in srgb, var(--color-accent-fg) 92%, var(--color-accent) 8%);
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent-fg) 48%, transparent);
+}
+
+.kb-file-tree-row-conflict.kb-file-tree-row-selected .kb-file-type-icon {
+	background: var(--color-surface-0);
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-status-red) 42%, transparent);
+}
+
+.kb-file-tree-row-selected .kb-file-type-icon .text-text-tertiary {
+	color: var(--color-text-secondary);
+}
+
+.kb-file-tree-row-selected .kb-file-status-glyph {
+	background: var(--color-surface-0);
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent-fg) 48%, transparent);
+}
+
+.kb-file-tree-row-conflict.kb-file-tree-row-selected .kb-file-status-glyph {
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-status-red) 42%, transparent);
 }
 
 .kb-file-tree-row-selected {
@@ -840,6 +872,16 @@ body.kb-dependency-link-mode {
 	background: color-mix(in srgb, var(--color-status-red) 28%, var(--color-surface-1));
 	color: var(--color-text-primary);
 	box-shadow: inset 2px 0 0 var(--color-status-red);
+}
+
+.kb-vcs-conflict-commit-card {
+	border-color: color-mix(in srgb, var(--color-status-red) 40%, transparent);
+	background: color-mix(in srgb, var(--color-status-red) 10%, transparent);
+	color: var(--color-status-red);
+}
+
+.kb-vcs-conflict-commit-row:hover {
+	background: color-mix(in srgb, var(--color-status-red) 15%, transparent);
 }
 
 /* -- Diff rows -- */

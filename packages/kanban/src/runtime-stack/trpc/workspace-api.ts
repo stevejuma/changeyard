@@ -204,13 +204,14 @@ function isMissingTaskWorktreeError(error: unknown): boolean {
 async function resolveScopedRepositoryCwd(
 	workspaceScope: { workspacePath: string },
 	taskScope: { taskId: string; baseRef: string } | null,
+	workspacePath?: string | null,
 ): Promise<string> {
-	let cwd = workspaceScope.workspacePath;
+	let cwd = workspacePath?.trim() || workspaceScope.workspacePath;
 	if (!taskScope) {
 		return cwd;
 	}
 	cwd = await resolveTaskCwd({
-		cwd: workspaceScope.workspacePath,
+		cwd,
 		taskId: taskScope.taskId,
 		baseRef: taskScope.baseRef,
 		ensure: false,
@@ -228,10 +229,11 @@ async function getWorkspaceApiRepositoryLog(
 		cursor?: string | null;
 		pageSize?: number | null;
 		taskScope?: { taskId: string; baseRef: string } | null;
+		workspacePath?: string | null;
 	},
 ) {
 	const taskScope = normalizeOptionalTaskWorkspaceScopeInput(input.taskScope ?? null);
-	const logCwd = await resolveScopedRepositoryCwd(workspaceScope, taskScope);
+	const logCwd = await resolveScopedRepositoryCwd(workspaceScope, taskScope, input.workspacePath);
 	return await getGitLog({
 		cwd: logCwd,
 		ref: input.ref ?? null,
@@ -254,10 +256,10 @@ async function getWorkspaceApiRepositoryRefs(
 
 async function getWorkspaceApiRepositoryCommitDiff(
 	workspaceScope: { workspacePath: string },
-	input: { commitHash: string; baseCommitHash?: string; taskScope?: { taskId: string; baseRef: string } | null },
+	input: { commitHash: string; baseCommitHash?: string; taskScope?: { taskId: string; baseRef: string } | null; workspacePath?: string | null },
 ) {
 	const taskScope = normalizeOptionalTaskWorkspaceScopeInput(input.taskScope ?? null);
-	const diffCwd = await resolveScopedRepositoryCwd(workspaceScope, taskScope);
+	const diffCwd = await resolveScopedRepositoryCwd(workspaceScope, taskScope, input.workspacePath);
 	return await getCommitDiff({
 		cwd: diffCwd,
 		commitHash: input.commitHash,

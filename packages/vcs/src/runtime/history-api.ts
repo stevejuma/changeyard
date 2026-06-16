@@ -15,11 +15,13 @@ export function useRtkPaginatedJjOperations({
 	message,
 	enabled,
 	workspaceId,
+	workspacePath,
 	pageSize = 50,
 }: {
 	message: string;
 	enabled: boolean;
 	workspaceId?: string | null;
+	workspacePath?: string | null;
 	pageSize?: number;
 }): {
 	state: QueryState<VcsJjOperationsResponse>;
@@ -30,7 +32,7 @@ export function useRtkPaginatedJjOperations({
 	} {
 	const [cursor, setCursor] = useState<string | null>(null);
 	const result = useGetJjOperationsQuery(
-		{ workspaceId: workspaceId ?? "", cursor, pageSize },
+		{ workspaceId: workspaceId ?? "", workspacePath, cursor, pageSize },
 		{ skip: !enabled || !workspaceId },
 	);
 	const state = toRuntimeQueryState<VcsJjOperationsResponse>(result, message);
@@ -64,12 +66,14 @@ export function useRtkPaginatedJjOperationDiff({
 	message,
 	enabled,
 	workspaceId,
+	workspacePath,
 	pageSize = 50,
 }: {
 	operationId: string | null;
 	message: string;
 	enabled: boolean;
 	workspaceId?: string | null;
+	workspacePath?: string | null;
 	pageSize?: number;
 }): {
 	state: QueryState<VcsJjOperationDiffResponse>;
@@ -83,6 +87,7 @@ export function useRtkPaginatedJjOperationDiff({
 	const result = useGetJjOperationDiffQuery(
 		{
 			workspaceId: workspaceId ?? "",
+			workspacePath,
 			operationId: operationId ?? "",
 			cursor,
 			pageSize,

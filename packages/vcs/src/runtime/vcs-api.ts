@@ -102,19 +102,23 @@ type WorkspaceQueryArg = {
 	workspaceId: string;
 };
 
-type VcsWorkspaceStateQueryArg = WorkspaceQueryArg & {
+type ActiveWorkspaceQueryArg = WorkspaceQueryArg & {
+	workspacePath?: string | null;
+};
+
+type VcsWorkspaceStateQueryArg = ActiveWorkspaceQueryArg & {
 	input?: Omit<VcsWorkspaceStateInput, "projectId">;
 };
 
-type VcsDiffQueryArg = WorkspaceQueryArg & {
+type VcsDiffQueryArg = ActiveWorkspaceQueryArg & {
 	input?: Omit<VcsDiffInput, "projectId">;
 };
 
-type VcsWorkspaceOperationArg = WorkspaceQueryArg & {
+type VcsWorkspaceOperationArg = ActiveWorkspaceQueryArg & {
 	input: Omit<VcsWorkspaceOperationInput, "projectId">;
 };
 
-type CommitDiffQueryArg = WorkspaceQueryArg & {
+type CommitDiffQueryArg = ActiveWorkspaceQueryArg & {
 	commitHash: string;
 	baseCommitHash?: string;
 };
@@ -123,24 +127,37 @@ type UpdateProjectConfigArg = WorkspaceQueryArg & {
 	input: RuntimeProjectConfigUpdateRequest;
 };
 
-type JjOperationsQueryArg = WorkspaceQueryArg & {
+type JjOperationsQueryArg = ActiveWorkspaceQueryArg & {
 	cursor?: string | null;
 	pageSize: number;
 };
 
-type JjOperationDiffQueryArg = WorkspaceQueryArg & {
+type JjOperationDiffQueryArg = ActiveWorkspaceQueryArg & {
 	operationId: string;
 	cursor?: string | null;
 	pageSize: number;
 };
 
-type JjOperationRevertArg = WorkspaceQueryArg & {
+type JjOperationRevertArg = ActiveWorkspaceQueryArg & {
 	operationId: string;
 };
 
-type RepositoryLogQueryArg = WorkspaceQueryArg & {
+type RepositoryLogQueryArg = ActiveWorkspaceQueryArg & {
 	input: RuntimeGitLogRequest;
 };
+
+function withActiveWorkspaceInput<T extends Record<string, unknown>>(
+	input: T,
+	workspacePath: string | null | undefined,
+): T & { workspacePath?: string } {
+	if (!workspacePath) {
+		return input;
+	}
+	return {
+		...input,
+		workspacePath,
+	};
+}
 
 type PickProjectDirectoryArg = {
 	workspaceId?: string | null;
@@ -489,12 +506,10 @@ export const vcsApi = createApi({
 				}
 			},
 		}),
-		getVcsDetect: builder.query<VcsDetectResponse, WorkspaceQueryArg>({
-			queryFn: async ({ workspaceId }, { signal }) => {
+		getVcsDetect: builder.query<VcsDetectResponse, ActiveWorkspaceQueryArg>({
+			queryFn: async ({ workspaceId, workspacePath }, { signal }) => {
 				try {
-					return {
-						data: await fetchTrpcQuery<VcsDetectResponse>("vcs.detect", undefined, workspaceId, { signal }),
-					};
+					return { data: await fetchTrpcQuery<VcsDetectResponse>("vcs.detect", withActiveWorkspaceInput({}, workspacePath), workspaceId, { signal }) };
 				} catch (error) {
 					return { error };
 				}
@@ -546,10 +561,10 @@ export const vcsApi = createApi({
 				"DivergentBookmarks",
 			],
 		}),
-		getJjState: builder.query<VcsJjStateResponse, WorkspaceQueryArg>({
-			queryFn: async ({ workspaceId }, { signal }) => {
+		getJjState: builder.query<VcsJjStateResponse, ActiveWorkspaceQueryArg>({
+			queryFn: async ({ workspaceId, workspacePath }, { signal }) => {
 				try {
-					return { data: await fetchTrpcQuery<VcsJjStateResponse>("vcs.jjState", undefined, workspaceId, { signal }) };
+					return { data: await fetchTrpcQuery<VcsJjStateResponse>("vcs.jjState", withActiveWorkspaceInput({}, workspacePath), workspaceId, { signal }) };
 				} catch (error) {
 					return { error };
 				}
@@ -558,10 +573,10 @@ export const vcsApi = createApi({
 			onCacheEntryAdded: ({ workspaceId }, { dispatch, cacheDataLoaded, cacheEntryRemoved }) =>
 				subscribeToWorkspaceEvents(workspaceId, dispatch, cacheDataLoaded, cacheEntryRemoved),
 		}),
-		getJjDiff: builder.query<VcsJjDiffResponse, WorkspaceQueryArg>({
-			queryFn: async ({ workspaceId }, { signal }) => {
+		getJjDiff: builder.query<VcsJjDiffResponse, ActiveWorkspaceQueryArg>({
+			queryFn: async ({ workspaceId, workspacePath }, { signal }) => {
 				try {
-					return { data: await fetchTrpcQuery<VcsJjDiffResponse>("vcs.jjDiff", undefined, workspaceId, { signal }) };
+					return { data: await fetchTrpcQuery<VcsJjDiffResponse>("vcs.jjDiff", withActiveWorkspaceInput({}, workspacePath), workspaceId, { signal }) };
 				} catch (error) {
 					return { error };
 				}
@@ -570,10 +585,10 @@ export const vcsApi = createApi({
 			onCacheEntryAdded: ({ workspaceId }, { dispatch, cacheDataLoaded, cacheEntryRemoved }) =>
 				subscribeToWorkspaceEvents(workspaceId, dispatch, cacheDataLoaded, cacheEntryRemoved),
 		}),
-		getJjInventory: builder.query<VcsJjInventoryResponse, WorkspaceQueryArg>({
-			queryFn: async ({ workspaceId }, { signal }) => {
+		getJjInventory: builder.query<VcsJjInventoryResponse, ActiveWorkspaceQueryArg>({
+			queryFn: async ({ workspaceId, workspacePath }, { signal }) => {
 				try {
-					return { data: await fetchTrpcQuery<VcsJjInventoryResponse>("vcs.jjInventory", undefined, workspaceId, { signal }) };
+					return { data: await fetchTrpcQuery<VcsJjInventoryResponse>("vcs.jjInventory", withActiveWorkspaceInput({}, workspacePath), workspaceId, { signal }) };
 				} catch (error) {
 					return { error };
 				}
@@ -582,10 +597,10 @@ export const vcsApi = createApi({
 			onCacheEntryAdded: ({ workspaceId }, { dispatch, cacheDataLoaded, cacheEntryRemoved }) =>
 				subscribeToWorkspaceEvents(workspaceId, dispatch, cacheDataLoaded, cacheEntryRemoved),
 		}),
-		getJjBranchesData: builder.query<VcsJjBranchesDataResponse, WorkspaceQueryArg>({
-			queryFn: async ({ workspaceId }, { signal }) => {
+		getJjBranchesData: builder.query<VcsJjBranchesDataResponse, ActiveWorkspaceQueryArg>({
+			queryFn: async ({ workspaceId, workspacePath }, { signal }) => {
 				try {
-					return { data: await fetchTrpcQuery<VcsJjBranchesDataResponse>("vcs.jjBranchesData", undefined, workspaceId, { signal }) };
+					return { data: await fetchTrpcQuery<VcsJjBranchesDataResponse>("vcs.jjBranchesData", withActiveWorkspaceInput({}, workspacePath), workspaceId, { signal }) };
 				} catch (error) {
 					return { error };
 				}
@@ -602,10 +617,10 @@ export const vcsApi = createApi({
 			onCacheEntryAdded: ({ workspaceId }, { dispatch, cacheDataLoaded, cacheEntryRemoved }) =>
 				subscribeToWorkspaceEvents(workspaceId, dispatch, cacheDataLoaded, cacheEntryRemoved),
 		}),
-		getVcsBranchesData: builder.query<VcsBranchesDataResponse, WorkspaceQueryArg>({
-			queryFn: async ({ workspaceId }, { signal }) => {
+		getVcsBranchesData: builder.query<VcsBranchesDataResponse, ActiveWorkspaceQueryArg>({
+			queryFn: async ({ workspaceId, workspacePath }, { signal }) => {
 				try {
-					return { data: await fetchTrpcQuery<VcsBranchesDataResponse>("vcs.branchesData", undefined, workspaceId, { signal }) };
+					return { data: await fetchTrpcQuery<VcsBranchesDataResponse>("vcs.branchesData", withActiveWorkspaceInput({}, workspacePath), workspaceId, { signal }) };
 				} catch (error) {
 					return { error };
 				}
@@ -623,12 +638,12 @@ export const vcsApi = createApi({
 				subscribeToWorkspaceEvents(workspaceId, dispatch, cacheDataLoaded, cacheEntryRemoved),
 		}),
 		getVcsWorkspaceState: builder.query<VcsWorkspaceState, VcsWorkspaceStateQueryArg>({
-			queryFn: async ({ workspaceId, input }, { signal }) => {
+			queryFn: async ({ workspaceId, workspacePath, input }, { signal }) => {
 				try {
 					return {
 						data: await fetchTrpcQuery<VcsWorkspaceState>(
 							"vcs.workspaceState",
-							input ?? {},
+							withActiveWorkspaceInput(input ?? {}, workspacePath),
 							workspaceId,
 							{ signal },
 						),
@@ -642,12 +657,12 @@ export const vcsApi = createApi({
 				subscribeToWorkspaceEvents(workspaceId, dispatch, cacheDataLoaded, cacheEntryRemoved),
 		}),
 		getVcsStacks: builder.query<{ stacks: VcsWorkspaceStack[] }, VcsWorkspaceStateQueryArg>({
-			queryFn: async ({ workspaceId, input }, { signal }) => {
+			queryFn: async ({ workspaceId, workspacePath, input }, { signal }) => {
 				try {
 					return {
 						data: await fetchTrpcQuery<{ stacks: VcsWorkspaceStack[] }>(
 							"vcs.workspaceStacks",
-							input ?? {},
+							withActiveWorkspaceInput(input ?? {}, workspacePath),
 							workspaceId,
 							{ signal },
 						),
@@ -661,10 +676,15 @@ export const vcsApi = createApi({
 				subscribeToWorkspaceEvents(workspaceId, dispatch, cacheDataLoaded, cacheEntryRemoved),
 		}),
 		getVcsDiff: builder.query<VcsDiffResult, VcsDiffQueryArg>({
-			queryFn: async ({ workspaceId, input }, { signal }) => {
+			queryFn: async ({ workspaceId, workspacePath, input }, { signal }) => {
 				try {
 					return {
-						data: await fetchTrpcQuery<VcsDiffResult>("vcs.diff", input ?? {}, workspaceId, { signal }),
+						data: await fetchTrpcQuery<VcsDiffResult>(
+							"vcs.diff",
+							withActiveWorkspaceInput(input ?? {}, workspacePath),
+							workspaceId,
+							{ signal },
+						),
 					};
 				} catch (error) {
 					return { error };
@@ -675,12 +695,12 @@ export const vcsApi = createApi({
 				subscribeToWorkspaceEvents(workspaceId, dispatch, cacheDataLoaded, cacheEntryRemoved),
 		}),
 		previewVcsOperation: builder.query<VcsOperationPreview, VcsWorkspaceOperationArg>({
-			queryFn: async ({ workspaceId, input }, { signal }) => {
+			queryFn: async ({ workspaceId, workspacePath, input }, { signal }) => {
 				try {
 					return {
 						data: await fetchTrpcQuery<VcsOperationPreview>(
 							"vcs.previewWorkspaceOperation",
-							input,
+							withActiveWorkspaceInput(input, workspacePath),
 							workspaceId,
 							{ signal },
 						),
@@ -692,12 +712,12 @@ export const vcsApi = createApi({
 			providesTags: ["Diff"],
 		}),
 		applyVcsOperation: builder.mutation<VcsOperationResult, VcsWorkspaceOperationArg>({
-			queryFn: async ({ workspaceId, input }) => {
+			queryFn: async ({ workspaceId, workspacePath, input }) => {
 				try {
 					return {
 						data: await postTrpcMutation<VcsOperationResult>(
 							"vcs.applyWorkspaceOperation",
-							input,
+							withActiveWorkspaceInput(input, workspacePath),
 							workspaceId,
 						),
 					};
@@ -711,7 +731,7 @@ export const vcsApi = createApi({
 					let patched = false;
 					if (data.ok && data.cacheUpdate && data.cacheUpdate !== "workspace") {
 						dispatch(
-							vcsApi.util.updateQueryData("getVcsWorkspaceState", { workspaceId: arg.workspaceId }, (draft) => {
+							vcsApi.util.updateQueryData("getVcsWorkspaceState", { workspaceId: arg.workspaceId, workspacePath: arg.workspacePath }, (draft) => {
 								patched = patchWorkspaceStateFromOperationResult(draft, data);
 							}),
 						);
@@ -728,12 +748,12 @@ export const vcsApi = createApi({
 			},
 		}),
 		getRepositoryCommitDiff: builder.query<RuntimeGitCommitDiffResponse, CommitDiffQueryArg>({
-			queryFn: async ({ workspaceId, commitHash, baseCommitHash }, { signal }) => {
+			queryFn: async ({ workspaceId, workspacePath, commitHash, baseCommitHash }, { signal }) => {
 				try {
 					return {
 						data: await fetchTrpcQuery<RuntimeGitCommitDiffResponse>(
 							"workspace.getRepositoryCommitDiff",
-							{ commitHash, baseCommitHash },
+							{ commitHash, baseCommitHash, workspacePath: workspacePath ?? undefined },
 							workspaceId,
 							{ signal },
 						),
@@ -753,7 +773,7 @@ export const vcsApi = createApi({
 		getRepositoryLog: builder.query<RuntimeGitLogResponse, RepositoryLogQueryArg>({
 			serializeQueryArgs: ({ endpointName, queryArgs }) => {
 				const { maxCount: _maxCount, skip: _skip, cursor: _cursor, pageSize: _pageSize, ...baseInput } = queryArgs.input;
-				return `${endpointName}:${queryArgs.workspaceId}:${JSON.stringify(baseInput)}`;
+				return `${endpointName}:${queryArgs.workspaceId}:${queryArgs.workspacePath ?? ""}:${JSON.stringify(baseInput)}`;
 			},
 			forceRefetch: ({ currentArg, previousArg }) =>
 				currentArg?.input.maxCount !== previousArg?.input.maxCount ||
@@ -773,12 +793,12 @@ export const vcsApi = createApi({
 					commits: [...currentCache.commits, ...nextCommits],
 				});
 			},
-			queryFn: async ({ workspaceId, input }, { signal }) => {
+			queryFn: async ({ workspaceId, workspacePath, input }, { signal }) => {
 				try {
 					return {
 						data: await fetchTrpcQuery<RuntimeGitLogResponse>(
 							"workspace.getRepositoryLog",
-							input,
+							withActiveWorkspaceInput(input, workspacePath),
 							workspaceId,
 							{ signal },
 						),
@@ -792,7 +812,7 @@ export const vcsApi = createApi({
 				subscribeToWorkspaceEvents(workspaceId, dispatch, cacheDataLoaded, cacheEntryRemoved),
 		}),
 		getJjOperations: builder.query<VcsJjOperationsResponse, JjOperationsQueryArg>({
-			serializeQueryArgs: ({ endpointName, queryArgs }) => `${endpointName}:${queryArgs.workspaceId}`,
+			serializeQueryArgs: ({ endpointName, queryArgs }) => `${endpointName}:${queryArgs.workspaceId}:${queryArgs.workspacePath ?? ""}`,
 			forceRefetch: ({ currentArg, previousArg }) =>
 				currentArg?.cursor !== previousArg?.cursor ||
 				currentArg?.pageSize !== previousArg?.pageSize,
@@ -808,11 +828,11 @@ export const vcsApi = createApi({
 					operations: [...currentCache.operations, ...nextOperations],
 				});
 			},
-			queryFn: async ({ workspaceId, cursor, pageSize }, { signal }) => {
+			queryFn: async ({ workspaceId, workspacePath, cursor, pageSize }, { signal }) => {
 				try {
 					const payload = await fetchTrpcQuery<VcsJjOperationsResponse>(
 						"vcs.jjOperations",
-						{ cursor: cursor ?? null, pageSize },
+						{ cursor: cursor ?? null, pageSize, workspacePath: workspacePath ?? undefined },
 						workspaceId,
 						{ signal },
 					);
@@ -834,7 +854,7 @@ export const vcsApi = createApi({
 				subscribeToWorkspaceEvents(workspaceId, dispatch, cacheDataLoaded, cacheEntryRemoved),
 		}),
 		getJjOperationDiff: builder.query<VcsJjOperationDiffResponse, JjOperationDiffQueryArg>({
-			serializeQueryArgs: ({ endpointName, queryArgs }) => `${endpointName}:${queryArgs.workspaceId}:${queryArgs.operationId}`,
+			serializeQueryArgs: ({ endpointName, queryArgs }) => `${endpointName}:${queryArgs.workspaceId}:${queryArgs.workspacePath ?? ""}:${queryArgs.operationId}`,
 			forceRefetch: ({ currentArg, previousArg }) =>
 				currentArg?.cursor !== previousArg?.cursor ||
 				currentArg?.pageSize !== previousArg?.pageSize,
@@ -853,12 +873,12 @@ export const vcsApi = createApi({
 					commits: [...currentCache.commits, ...nextCommits],
 				});
 			},
-			queryFn: async ({ workspaceId, operationId, cursor, pageSize }, { signal }) => {
+			queryFn: async ({ workspaceId, workspacePath, operationId, cursor, pageSize }, { signal }) => {
 				try {
 					return {
 						data: await fetchTrpcQuery<VcsJjOperationDiffResponse>(
 							"vcs.jjOperationDiff",
-							{ operationId, cursor: cursor ?? null, pageSize },
+							{ operationId, cursor: cursor ?? null, pageSize, workspacePath: workspacePath ?? undefined },
 							workspaceId,
 							{ signal },
 						),
@@ -874,13 +894,13 @@ export const vcsApi = createApi({
 			onCacheEntryAdded: ({ workspaceId }, { dispatch, cacheDataLoaded, cacheEntryRemoved }) =>
 				subscribeToWorkspaceEvents(workspaceId, dispatch, cacheDataLoaded, cacheEntryRemoved),
 		}),
-		createJjOperationSnapshot: builder.mutation<VcsJjOperationActionResponse, WorkspaceQueryArg>({
-			queryFn: async ({ workspaceId }) => {
+		createJjOperationSnapshot: builder.mutation<VcsJjOperationActionResponse, ActiveWorkspaceQueryArg>({
+			queryFn: async ({ workspaceId, workspacePath }) => {
 				try {
 					return {
 						data: await postTrpcMutation<VcsJjOperationActionResponse>(
 							"vcs.createJjOperationSnapshot",
-							{},
+							withActiveWorkspaceInput({}, workspacePath),
 							workspaceId,
 						),
 					};
@@ -891,12 +911,12 @@ export const vcsApi = createApi({
 			invalidatesTags: VCS_WORKSPACE_OPERATION_INVALIDATION_TAGS,
 		}),
 		revertJjOperation: builder.mutation<VcsJjOperationActionResponse, JjOperationRevertArg>({
-			queryFn: async ({ workspaceId, operationId }) => {
+			queryFn: async ({ workspaceId, workspacePath, operationId }) => {
 				try {
 					return {
 						data: await postTrpcMutation<VcsJjOperationActionResponse>(
 							"vcs.revertJjOperation",
-							{ operationId },
+							{ operationId, workspacePath: workspacePath ?? undefined },
 							workspaceId,
 						),
 					};

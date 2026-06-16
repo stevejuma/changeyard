@@ -528,7 +528,12 @@ export const runtimeVcsWorkspaceConflictSchema = z.object({
 });
 export type RuntimeVcsWorkspaceConflict = z.infer<typeof runtimeVcsWorkspaceConflictSchema>;
 
-export const runtimeVcsWorkspaceStateRequestSchema = z.object({
+export const runtimeVcsActiveWorkspaceRequestSchema = z.object({
+	workspacePath: z.string().min(1).optional(),
+});
+export type RuntimeVcsActiveWorkspaceRequest = z.infer<typeof runtimeVcsActiveWorkspaceRequestSchema>;
+
+export const runtimeVcsWorkspaceStateRequestSchema = runtimeVcsActiveWorkspaceRequestSchema.extend({
 	targetRef: z.string().nullable().optional(),
 	appliedStackIds: z.array(z.string()).optional(),
 });
@@ -737,7 +742,7 @@ export const runtimeVcsWorkspaceOperationSchema = z.discriminatedUnion("kind", [
 ]);
 export type RuntimeVcsWorkspaceOperation = z.infer<typeof runtimeVcsWorkspaceOperationSchema>;
 
-export const runtimeVcsDiffRequestSchema = z.object({
+export const runtimeVcsDiffRequestSchema = runtimeVcsActiveWorkspaceRequestSchema.extend({
 	selection: runtimeVcsChangeSelectionSchema.optional(),
 	commitId: z.string().optional(),
 	stackId: z.string().optional(),
@@ -769,7 +774,7 @@ export const runtimeVcsWorkspaceOperationContextSchema = z.object({
 });
 export type RuntimeVcsWorkspaceOperationContext = z.infer<typeof runtimeVcsWorkspaceOperationContextSchema>;
 
-export const runtimeVcsWorkspaceOperationRequestSchema = z.object({
+export const runtimeVcsWorkspaceOperationRequestSchema = runtimeVcsActiveWorkspaceRequestSchema.extend({
 	operation: runtimeVcsWorkspaceOperationSchema,
 	operationContext: runtimeVcsWorkspaceOperationContextSchema.optional(),
 });
@@ -839,7 +844,7 @@ export const runtimeVcsOperationResultSchema = z.object({
 });
 export type RuntimeVcsOperationResultResponse = z.infer<typeof runtimeVcsOperationResultSchema>;
 
-export const runtimeVcsJjOperationsRequestSchema = z.object({
+export const runtimeVcsJjOperationsRequestSchema = runtimeVcsActiveWorkspaceRequestSchema.extend({
 	limit: z.number().int().positive().max(1000).nullable().optional(),
 	cursor: z.string().nullable().optional(),
 	pageSize: z.number().int().positive().max(500).nullable().optional(),
@@ -2578,6 +2583,7 @@ export const runtimeGitRefSchema = z.object({
 export type RuntimeGitRef = z.infer<typeof runtimeGitRefSchema>;
 
 export const runtimeGitLogRequestSchema = z.object({
+	workspacePath: z.string().min(1).optional(),
 	ref: z.string().nullable().optional(),
 	refs: z.array(z.string()).optional(),
 	maxCount: z.number().int().positive().optional(),
@@ -2609,6 +2615,7 @@ export const runtimeGitCommitDiffFileSchema = z.object({
 export type RuntimeGitCommitDiffFile = z.infer<typeof runtimeGitCommitDiffFileSchema>;
 
 export const runtimeGitCommitDiffRequestSchema = z.object({
+	workspacePath: z.string().min(1).optional(),
 	commitHash: z.string(),
 	baseCommitHash: z.string().optional(),
 	taskScope: runtimeTaskWorkspaceInfoRequestSchema.nullable().optional(),

@@ -113,12 +113,13 @@ export type VcsShellProjectState = {
 	projectsState: QueryState<RuntimeProjectsResponse>;
 	currentProject: RuntimeProjectSummary | null;
 	currentProjectId: string | null;
+	activeWorkspacePath: string | null;
 	removingProjectId: string | null;
 	isProjectNavCollapsed: boolean;
 	onProjectNavCollapsedChange: (collapsed: boolean) => void;
 	onSelectProject: (projectId: string) => void;
+	onSelectProjectWorkspace: (projectId: string, workspacePath: string) => void;
 	onAddProject: () => void;
-	onOpenWorkspaceProject: (path: string) => void;
 	onRemoveProject: (projectId: string) => Promise<boolean>;
 	onClearOtherProjects: () => Promise<boolean>;
 	onOpenSettings: () => void;
@@ -494,6 +495,7 @@ function ActiveChangeGraphView({
 	status?: VcsRepositoryStatusState;
 }): React.ReactElement {
 	const activeCommit = status?.workspaceState.status === "ready" ? findActiveCommit(status.workspaceState.data) : null;
+	const workspacePath = status?.workspacePath ?? null;
 	const [selectedCommitHash, setSelectedCommitHash] = useState<string | null>(activeCommit?.commitHash ?? null);
 	const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
 	const [selectionWasCleared, setSelectionWasCleared] = useState(false);
@@ -523,6 +525,7 @@ function ActiveChangeGraphView({
 	const logResult = useGetRepositoryLogQuery(
 		{
 			workspaceId: workspaceId ?? "",
+			workspacePath,
 			input: {
 				ref: activeCommit?.changeId ?? null,
 				pageSize: ACTIVE_GRAPH_PAGE_SIZE,
@@ -539,7 +542,7 @@ function ActiveChangeGraphView({
 	const selectedCommit = commits.find((commit) => commit.hash === selectedCommitHash) ?? null;
 	const selectedCommitHashForDiff = selectedCommit?.hash ?? null;
 	const selectedCommitDiffResult = useGetRepositoryCommitDiffQuery(
-		{ workspaceId: workspaceId ?? "", commitHash: selectedCommitHashForDiff ?? "" },
+		{ workspaceId: workspaceId ?? "", workspacePath, commitHash: selectedCommitHashForDiff ?? "" },
 		{ skip: !workspaceId || !selectedCommitHashForDiff },
 	);
 	const selectedFiles = selectedCommit && selectedCommitDiffResult.data?.ok ? toFileChanges(selectedCommitDiffResult.data.files) : [];
@@ -639,7 +642,7 @@ function ActiveChangeGraphView({
 		}
 		setPendingOperation(operation);
 		setOperationApplyError(null);
-		void previewVcsOperation({ workspaceId, input: { operation } });
+		void previewVcsOperation({ workspaceId, workspacePath, input: { operation } });
 	}
 
 	function closeWorkspaceOperationPreview(): void {
@@ -660,6 +663,7 @@ function ActiveChangeGraphView({
 		try {
 			const result = await applyVcsOperation({
 				workspaceId,
+				workspacePath,
 				input: { operation: pendingOperation },
 			}).unwrap();
 			if (!result.ok) {
@@ -1283,7 +1287,7 @@ export function VcsShell({
 				{navItems.map((item) => {
 					const Icon = item.icon;
 					const active = isVcsNavItemActive(item.href, currentPath);
-					const href = withWorkspaceParam(item.href, projectState.currentProjectId);
+					const href = withWorkspaceParam(item.href, projectState.currentProjectId, projectState.activeWorkspacePath);
 					return (
 						<a
 							key={item.href}
@@ -1337,8 +1341,9 @@ export function VcsShell({
 				isCollapsed={projectState.isProjectNavCollapsed}
 				onCollapsedChange={projectState.onProjectNavCollapsedChange}
 				onSelectProject={projectState.onSelectProject}
+				activeWorkspacePath={projectState.activeWorkspacePath}
+				onSelectProjectWorkspace={projectState.onSelectProjectWorkspace}
 				onAddProject={projectState.onAddProject}
-				onOpenWorkspaceProject={projectState.onOpenWorkspaceProject}
 				onRemoveProject={projectState.onRemoveProject}
 				onClearOtherProjects={projectState.onClearOtherProjects}
 				/>
@@ -1381,7 +1386,7 @@ export function VcsShell({
 					{navItems.map((item) => {
 						const Icon = item.icon;
 						const active = isVcsNavItemActive(item.href, currentPath);
-						const href = withWorkspaceParam(item.href, projectState.currentProjectId);
+						const href = withWorkspaceParam(item.href, projectState.currentProjectId, projectState.activeWorkspacePath);
 						return (
 							<a
 								key={item.href}

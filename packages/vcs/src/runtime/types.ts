@@ -450,6 +450,7 @@ export type RuntimeGitCommit = {
 };
 
 export type RuntimeGitLogRequest = {
+	workspacePath?: string | null;
 	ref?: string | null;
 	refs?: string[];
 	maxCount?: number;

@@ -1,5 +1,6 @@
 import { appendFileSync } from "node:fs";
 import type {
+	RuntimeVcsActiveWorkspaceRequest,
 	RuntimeVcsApplyOperationRequest,
 	RuntimeVcsApplyOperationResponse,
 	RuntimeVcsDetectResponse,
@@ -387,10 +388,22 @@ function createUnavailableSubmitResponse(
 	};
 }
 
+function resolveVcsWorkspacePath(
+	workspaceScope: RuntimeTrpcWorkspaceScope | null,
+	input: RuntimeVcsActiveWorkspaceRequest | null | undefined,
+	deps: CreateVcsApiDependencies,
+): string | null {
+	const requestedPath = input?.workspacePath?.trim();
+	if (requestedPath) {
+		return requestedPath;
+	}
+	return workspaceScope?.workspacePath ?? deps.getActiveWorkspacePath() ?? deps.fallbackWorkspacePath;
+}
+
 export function createVcsApi(deps: CreateVcsApiDependencies): RuntimeTrpcContext["vcsApi"] {
 	return {
-		detect: async (workspaceScope: RuntimeTrpcWorkspaceScope | null) => {
-			const workspacePath = workspaceScope?.workspacePath ?? deps.getActiveWorkspacePath() ?? deps.fallbackWorkspacePath;
+		detect: async (workspaceScope: RuntimeTrpcWorkspaceScope | null, input?: RuntimeVcsActiveWorkspaceRequest) => {
+			const workspacePath = resolveVcsWorkspacePath(workspaceScope, input, deps);
 			if (!workspacePath) {
 				return createUnavailableResponse("No active workspace is available for VCS detection.");
 			}
@@ -399,8 +412,8 @@ export function createVcsApi(deps: CreateVcsApiDependencies): RuntimeTrpcContext
 			}
 			return await deps.changeyardApi.detectVcs(workspacePath);
 		},
-		jjDiff: async (workspaceScope: RuntimeTrpcWorkspaceScope | null) => {
-			const workspacePath = workspaceScope?.workspacePath ?? deps.getActiveWorkspacePath() ?? deps.fallbackWorkspacePath;
+		jjDiff: async (workspaceScope: RuntimeTrpcWorkspaceScope | null, input?: RuntimeVcsActiveWorkspaceRequest) => {
+			const workspacePath = resolveVcsWorkspacePath(workspaceScope, input, deps);
 			if (!workspacePath) {
 				return createUnavailableJjDiffResponse("No active workspace is available for JJ diff.");
 			}
@@ -409,8 +422,8 @@ export function createVcsApi(deps: CreateVcsApiDependencies): RuntimeTrpcContext
 			}
 			return await deps.changeyardApi.getJjDiff(workspacePath);
 		},
-		jjState: async (workspaceScope: RuntimeTrpcWorkspaceScope | null) => {
-			const workspacePath = workspaceScope?.workspacePath ?? deps.getActiveWorkspacePath() ?? deps.fallbackWorkspacePath;
+		jjState: async (workspaceScope: RuntimeTrpcWorkspaceScope | null, input?: RuntimeVcsActiveWorkspaceRequest) => {
+			const workspacePath = resolveVcsWorkspacePath(workspaceScope, input, deps);
 			if (!workspacePath) {
 				return createUnavailableJjStateResponse("No active workspace is available for JJ state.");
 			}
@@ -419,8 +432,8 @@ export function createVcsApi(deps: CreateVcsApiDependencies): RuntimeTrpcContext
 			}
 			return await deps.changeyardApi.getJjState(workspacePath);
 		},
-		jjInventory: async (workspaceScope: RuntimeTrpcWorkspaceScope | null) => {
-			const workspacePath = workspaceScope?.workspacePath ?? deps.getActiveWorkspacePath() ?? deps.fallbackWorkspacePath;
+		jjInventory: async (workspaceScope: RuntimeTrpcWorkspaceScope | null, input?: RuntimeVcsActiveWorkspaceRequest) => {
+			const workspacePath = resolveVcsWorkspacePath(workspaceScope, input, deps);
 			if (!workspacePath) {
 				return createUnavailableJjInventoryResponse("No active workspace is available for JJ inventory.");
 			}
@@ -429,9 +442,9 @@ export function createVcsApi(deps: CreateVcsApiDependencies): RuntimeTrpcContext
 			}
 			return await deps.changeyardApi.getJjInventory(workspacePath);
 		},
-		jjBranchesData: async (workspaceScope: RuntimeTrpcWorkspaceScope | null) => {
+		jjBranchesData: async (workspaceScope: RuntimeTrpcWorkspaceScope | null, input?: RuntimeVcsActiveWorkspaceRequest) => {
 			const startedAt = Date.now();
-			const workspacePath = workspaceScope?.workspacePath ?? deps.getActiveWorkspacePath() ?? deps.fallbackWorkspacePath;
+			const workspacePath = resolveVcsWorkspacePath(workspaceScope, input, deps);
 			try {
 				if (!workspacePath) {
 					return createUnavailableJjBranchesDataResponse("No active workspace is available for JJ branches data.");
@@ -444,9 +457,9 @@ export function createVcsApi(deps: CreateVcsApiDependencies): RuntimeTrpcContext
 				writeVcsTiming(`[vcs timing] vcs.jjBranchesData ${Date.now() - startedAt}ms`);
 			}
 		},
-		branchesData: async (workspaceScope: RuntimeTrpcWorkspaceScope | null) => {
+		branchesData: async (workspaceScope: RuntimeTrpcWorkspaceScope | null, input?: RuntimeVcsActiveWorkspaceRequest) => {
 			const startedAt = Date.now();
-			const workspacePath = workspaceScope?.workspacePath ?? deps.getActiveWorkspacePath() ?? deps.fallbackWorkspacePath;
+			const workspacePath = resolveVcsWorkspacePath(workspaceScope, input, deps);
 			try {
 				if (!workspacePath) {
 					return createUnavailableJjBranchesDataResponse("No active workspace is available for VCS branches data.");
@@ -464,7 +477,7 @@ export function createVcsApi(deps: CreateVcsApiDependencies): RuntimeTrpcContext
 			workspaceScope: RuntimeTrpcWorkspaceScope | null,
 			input?: RuntimeVcsJjOperationsRequest,
 		) => {
-			const workspacePath = workspaceScope?.workspacePath ?? deps.getActiveWorkspacePath() ?? deps.fallbackWorkspacePath;
+			const workspacePath = resolveVcsWorkspacePath(workspaceScope, input, deps);
 			if (!workspacePath) {
 				return createUnavailableJjOperationsResponse("No active workspace is available for JJ operation history.");
 			}
@@ -477,7 +490,7 @@ export function createVcsApi(deps: CreateVcsApiDependencies): RuntimeTrpcContext
 			workspaceScope: RuntimeTrpcWorkspaceScope | null,
 			input: RuntimeVcsJjOperationDiffRequest,
 		) => {
-			const workspacePath = workspaceScope?.workspacePath ?? deps.getActiveWorkspacePath() ?? deps.fallbackWorkspacePath;
+			const workspacePath = resolveVcsWorkspacePath(workspaceScope, input, deps);
 			if (!workspacePath) {
 				return createUnavailableJjOperationDiffResponse("No active workspace is available for JJ operation details.", input);
 			}
@@ -489,8 +502,11 @@ export function createVcsApi(deps: CreateVcsApiDependencies): RuntimeTrpcContext
 			}
 			return await deps.changeyardApi.getJjOperationDiff(workspacePath, input);
 		},
-		createJjOperationSnapshot: async (workspaceScope: RuntimeTrpcWorkspaceScope | null) => {
-			const workspacePath = workspaceScope?.workspacePath ?? deps.getActiveWorkspacePath() ?? deps.fallbackWorkspacePath;
+		createJjOperationSnapshot: async (
+			workspaceScope: RuntimeTrpcWorkspaceScope | null,
+			input?: RuntimeVcsActiveWorkspaceRequest,
+		) => {
+			const workspacePath = resolveVcsWorkspacePath(workspaceScope, input, deps);
 			if (!workspacePath) {
 				return createUnavailableJjOperationActionResponse("No active workspace is available for JJ operation snapshots.");
 			}
@@ -505,7 +521,7 @@ export function createVcsApi(deps: CreateVcsApiDependencies): RuntimeTrpcContext
 			workspaceScope: RuntimeTrpcWorkspaceScope | null,
 			input: RuntimeVcsJjOperationRevertRequest,
 		) => {
-			const workspacePath = workspaceScope?.workspacePath ?? deps.getActiveWorkspacePath() ?? deps.fallbackWorkspacePath;
+			const workspacePath = resolveVcsWorkspacePath(workspaceScope, input, deps);
 			if (!workspacePath) {
 				return createUnavailableJjOperationActionResponse("No active workspace is available for JJ operation revert.", input.operationId);
 			}
@@ -521,7 +537,7 @@ export function createVcsApi(deps: CreateVcsApiDependencies): RuntimeTrpcContext
 			workspaceScope: RuntimeTrpcWorkspaceScope | null,
 			input?: RuntimeVcsWorkspaceStateRequest,
 		) => {
-			const workspacePath = workspaceScope?.workspacePath ?? deps.getActiveWorkspacePath() ?? deps.fallbackWorkspacePath;
+			const workspacePath = resolveVcsWorkspacePath(workspaceScope, input, deps);
 			if (!workspacePath) {
 				return createUnavailableWorkspaceStateResponse("No active workspace is available for VCS workspace state.");
 			}
@@ -534,7 +550,7 @@ export function createVcsApi(deps: CreateVcsApiDependencies): RuntimeTrpcContext
 			workspaceScope: RuntimeTrpcWorkspaceScope | null,
 			input?: RuntimeVcsWorkspaceStateRequest,
 		) => {
-			const workspacePath = workspaceScope?.workspacePath ?? deps.getActiveWorkspacePath() ?? deps.fallbackWorkspacePath;
+			const workspacePath = resolveVcsWorkspacePath(workspaceScope, input, deps);
 			if (!workspacePath) {
 				return createUnavailableWorkspaceStacksResponse("No active workspace is available for VCS stacks.");
 			}
@@ -547,7 +563,7 @@ export function createVcsApi(deps: CreateVcsApiDependencies): RuntimeTrpcContext
 			workspaceScope: RuntimeTrpcWorkspaceScope | null,
 			input?: RuntimeVcsDiffRequest,
 		) => {
-			const workspacePath = workspaceScope?.workspacePath ?? deps.getActiveWorkspacePath() ?? deps.fallbackWorkspacePath;
+			const workspacePath = resolveVcsWorkspacePath(workspaceScope, input, deps);
 			if (!workspacePath) {
 				return createUnavailableDiffResponse("No active workspace is available for VCS diff.");
 			}
@@ -560,7 +576,7 @@ export function createVcsApi(deps: CreateVcsApiDependencies): RuntimeTrpcContext
 			workspaceScope: RuntimeTrpcWorkspaceScope | null,
 			input: RuntimeVcsWorkspaceOperationRequest,
 		) => {
-			const workspacePath = workspaceScope?.workspacePath ?? deps.getActiveWorkspacePath() ?? deps.fallbackWorkspacePath;
+			const workspacePath = resolveVcsWorkspacePath(workspaceScope, input, deps);
 			if (!workspacePath) {
 				return createUnavailableWorkspacePreviewResponse("No active workspace is available for VCS workspace previews.", input);
 			}
@@ -576,7 +592,7 @@ export function createVcsApi(deps: CreateVcsApiDependencies): RuntimeTrpcContext
 			workspaceScope: RuntimeTrpcWorkspaceScope | null,
 			input: RuntimeVcsWorkspaceOperationRequest,
 		) => {
-			const workspacePath = workspaceScope?.workspacePath ?? deps.getActiveWorkspacePath() ?? deps.fallbackWorkspacePath;
+			const workspacePath = resolveVcsWorkspacePath(workspaceScope, input, deps);
 			if (!workspacePath) {
 				return createUnavailableWorkspaceApplyResponse("No active workspace is available for VCS workspace operations.", input);
 			}

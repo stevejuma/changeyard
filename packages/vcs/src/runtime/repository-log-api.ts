@@ -12,12 +12,14 @@ export function useRtkPaginatedRepositoryLog({
 	message,
 	enabled,
 	workspaceId,
+	workspacePath,
 	pageSize = 50,
 }: {
 	input: Omit<RuntimeGitLogRequest, "maxCount" | "skip">;
 	message: string;
 	enabled: boolean;
 	workspaceId?: string | null;
+	workspacePath?: string | null;
 	pageSize?: number;
 }): {
 	state: QueryState<RuntimeGitLogResponse>;
@@ -40,6 +42,7 @@ export function useRtkPaginatedRepositoryLog({
 	const result = useGetRepositoryLogQuery(
 		{
 			workspaceId: workspaceId ?? "",
+			workspacePath,
 			input: {
 				...stableInput,
 				maxCount: pageSize,

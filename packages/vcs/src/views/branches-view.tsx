@@ -215,12 +215,14 @@ export function BranchesView({
 		setQueryParam(name, value, { replace: true });
 	}
 	const hasWorkspace = Boolean(workspaceId);
-	const branchesDataResult = useGetVcsBranchesDataQuery({ workspaceId: workspaceId ?? "" }, { skip: !hasWorkspace });
+	const activeWorkspacePath = projectState.activeWorkspacePath;
+	const activeWorkspaceQuery = { workspaceId: workspaceId ?? "", workspacePath: activeWorkspacePath };
+	const branchesDataResult = useGetVcsBranchesDataQuery(activeWorkspaceQuery, { skip: !hasWorkspace });
 	const branchesDataState = toRuntimeQueryState<VcsBranchesDataResponse>(
 		branchesDataResult,
 		"Failed to load branch data.",
 	);
-	const workspaceStateResult = useGetVcsWorkspaceStateQuery({ workspaceId: workspaceId ?? "" }, { skip: !hasWorkspace });
+	const workspaceStateResult = useGetVcsWorkspaceStateQuery(activeWorkspaceQuery, { skip: !hasWorkspace });
 	const workspaceState = toRuntimeQueryState<VcsWorkspaceState>(
 		workspaceStateResult,
 		"Failed to load workspace capabilities.",
@@ -271,7 +273,7 @@ export function BranchesView({
 	const [operationApplyError, setOperationApplyError] = useState<string | null>(null);
 	const [isApplyingPreviewedOperation, setApplyingPreviewedOperation] = useState(false);
 	const commitDiffResult = useGetRepositoryCommitDiffQuery(
-		{ workspaceId: workspaceId ?? "", commitHash: selectedCommitHash ?? "" },
+		{ workspaceId: workspaceId ?? "", workspacePath: activeWorkspacePath, commitHash: selectedCommitHash ?? "" },
 		{ skip: !workspaceId || !selectedCommitHash },
 	);
 	const commitDiffQuery = {
@@ -431,13 +433,14 @@ export function BranchesView({
 			setPendingOperation(operation);
 			setPendingAppliedStackIds(nextStackIds);
 			setOperationApplyError(null);
-			void previewVcsOperation({ workspaceId, input: { operation } });
+			void previewVcsOperation({ workspaceId, workspacePath: activeWorkspacePath, input: { operation } });
 			return;
 		}
 		setUpdatingAppliedStackId(stackId);
 		try {
 			const operationResult = await applyVcsOperation({
 				workspaceId,
+				workspacePath: activeWorkspacePath,
 				input: {
 					operation,
 				},
@@ -473,6 +476,7 @@ export function BranchesView({
 		try {
 			const operationResult = await applyVcsOperation({
 				workspaceId,
+				workspacePath: activeWorkspacePath,
 				input: { operation: pendingOperation },
 			}).unwrap();
 			if (!operationResult.ok) {

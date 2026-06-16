@@ -1,10 +1,15 @@
-export function withWorkspaceParam(path: string, workspaceId: string | null): string {
+export function withWorkspaceParam(path: string, workspaceId: string | null, workspacePath?: string | null): string {
 	const normalizedPath = path === "/vcs" ? "/vcs/" : path;
-	if (!workspaceId) {
+	if (!workspaceId && !workspacePath) {
 		return normalizedPath;
 	}
 	const params = new URLSearchParams();
-	params.set("workspaceId", workspaceId);
+	if (workspaceId) {
+		params.set("workspaceId", workspaceId);
+	}
+	if (workspacePath) {
+		params.set("workspacePath", workspacePath);
+	}
 	return `${normalizedPath}?${params.toString()}`;
 }
 

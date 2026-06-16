@@ -10,6 +10,7 @@ const execFile = promisify(execFileCallback);
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(currentDir, "../../..");
 const fixtureScript = resolve(repoRoot, "scripts/create-vcs-jj-fixture.ts");
+const scenarioFixtureScript = resolve(repoRoot, "scripts/create-vcs-jj-scenarios.ts");
 const gitFixtureScript = resolve(repoRoot, "scripts/create-vcs-git-fixture.ts");
 
 type FixtureMetadata = {
@@ -30,6 +31,15 @@ type ProjectAddResponse = {
 			error?: string;
 		};
 	};
+};
+
+type ScenarioManifest = {
+	repoPath: string;
+	scenarios: Array<{
+		name: string;
+		workspacePath: string;
+		suggestedAppliedStacks: string[];
+	}>;
 };
 
 function escapeRegExp(value: string): string {
@@ -67,6 +77,20 @@ async function createGitFixture(): Promise<{ tempDir: string; fixture: FixtureMe
 	return { tempDir, fixture };
 }
 
+async function createScenarioFixture(): Promise<{ tempDir: string; fixture: ScenarioManifest }> {
+	const tempDir = await mkdtemp(join(tmpdir(), "changeyard-vcs-scenarios-e2e-"));
+	const rootPath = join(tempDir, "vcs-jj-scenarios");
+	const result = await execFile("node", ["--import", "tsx", scenarioFixtureScript, rootPath, "--all", "--reset", "--json"], {
+		cwd: repoRoot,
+		encoding: "utf8",
+		maxBuffer: 20 * 1024 * 1024,
+	});
+	return {
+		tempDir,
+		fixture: JSON.parse(result.stdout) as ScenarioManifest,
+	};
+}
+
 async function addProject(request: APIRequestContext, repoPath: string): Promise<string> {
 	const response = await request.post("/api/trpc/projects.add", {
 		data: { path: repoPath },
@@ -86,6 +110,22 @@ async function removeProject(request: APIRequestContext, projectId: string): Pro
 	await request.post("/api/trpc/projects.remove", {
 		data: { projectId },
 	});
+}
+
+async function updateProjectConfig(request: APIRequestContext, workspaceId: string, input: Record<string, unknown>): Promise<void> {
+	const response = await request.post("/api/trpc/changes.updateProjectConfig", {
+		headers: { "x-kanban-workspace-id": workspaceId },
+		data: input,
+	});
+	expect(response.ok()).toBeTruthy();
+}
+
+async function applyWorkspaceOperation(request: APIRequestContext, workspaceId: string, operation: Record<string, unknown>): Promise<void> {
+	const response = await request.post("/api/trpc/vcs.applyWorkspaceOperation", {
+		headers: { "x-kanban-workspace-id": workspaceId },
+		data: { operation },
+	});
+	expect(response.ok()).toBeTruthy();
 }
 
 async function openBranches(page: Page, workspaceId: string): Promise<void> {
@@ -444,6 +484,67 @@ test.describe.serial("VCS JJ fixture", () => {
 		await expect(page.getByText("Operations history", { exact: true })).toBeVisible();
 		await expect(page.getByText("add deployment health summary", { exact: true })).toBeVisible();
 		await expect(page.getByText("allow due date range queries", { exact: true })).toBeVisible();
+	});
+});
+
+test.describe.serial("VCS JJ scenario fixture", () => {
+	let tempDir = "";
+	const addedProjectIds: string[] = [];
+	let fixture: ScenarioManifest;
+
+	test.beforeAll(async () => {
+		const created = await createScenarioFixture();
+		tempDir = created.tempDir;
+		fixture = created.fixture;
+	});
+
+	test.afterAll(async ({ request }) => {
+		for (const projectId of addedProjectIds.splice(0)) {
+			await removeProject(request, projectId);
+		}
+		if (tempDir) {
+			await rm(tempDir, { recursive: true, force: true });
+		}
+	});
+
+	function scenario(name: string): ScenarioManifest["scenarios"][number] {
+		const entry = fixture.scenarios.find((candidate) => candidate.name === name);
+		expect(entry).toBeTruthy();
+		return entry as ScenarioManifest["scenarios"][number];
+	}
+
+	test("renders workspace and commit conflict scenarios", async ({ page, request }) => {
+		const workspaceConflictId = await addProject(request, scenario("workspace-conflict").workspacePath);
+		addedProjectIds.push(workspaceConflictId);
+		await openWorkspace(page, workspaceConflictId);
+		await expect(page.getByText("Conflicted", { exact: true })).toBeVisible();
+		await expect(page.getByText(/src\/conflict\.rs/)).toBeVisible();
+
+		const commitConflict = scenario("commit-conflict");
+		const commitConflictId = await addProject(request, commitConflict.workspacePath);
+		addedProjectIds.push(commitConflictId);
+		await updateProjectConfig(request, commitConflictId, {
+			providerType: "noop",
+			vcsEngine: "jj",
+			vcsFallback: "jj",
+			vcsAppliedStacks: commitConflict.suggestedAppliedStacks,
+			projectDefaultBase: "main",
+		});
+		await openWorkspace(page, commitConflictId);
+		await expect(page.getByText("commit conflict merge", { exact: true })).toBeVisible();
+		await expect(page.getByText("Conflicted", { exact: true })).toBeVisible();
+	});
+
+	test("apply-stack-conflict scenario becomes conflicted after applying its suggested stack", async ({ page, request }) => {
+		const applyConflict = scenario("apply-stack-conflict");
+		const workspaceId = await addProject(request, applyConflict.workspacePath);
+		addedProjectIds.push(workspaceId);
+		await openWorkspace(page, workspaceId);
+		await expect(page.getByText("Conflicted", { exact: true })).toBeHidden();
+		await applyWorkspaceOperation(request, workspaceId, { kind: "apply_stack", stackId: "feature/apply-conflict" });
+		await openWorkspace(page, workspaceId);
+		await expect(page.getByText("Conflicted", { exact: true })).toBeVisible();
+		await expect(page.getByText(/src\/apply\.rs/)).toBeVisible();
 	});
 });
 

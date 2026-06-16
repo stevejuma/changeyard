@@ -5,6 +5,8 @@ import { notifyError, showAppToast } from "@/components/app-toaster";
 import { resolveVcsRoute } from "@/routes";
 import type {
 	RuntimeProjectAddRequest,
+	RuntimeProjectSummary,
+	RuntimeProjectWorkspaceSummary,
 	RuntimeProjectsResponse,
 	VcsDetectResponse,
 } from "@/runtime/types";
@@ -40,6 +42,37 @@ const DIRECTORY_PICKER_UNAVAILABLE_MARKERS = [
 	'command "osascript" is not available',
 ] as const;
 
+function resolveWorkspaceProjectPath(projectPath: string, workspace: RuntimeProjectWorkspaceSummary): string | null {
+	if (!workspace.path) {
+		return null;
+	}
+	if (/^(?:\/|[a-zA-Z]:[\\/])/.test(workspace.path)) {
+		return workspace.path;
+	}
+	const basePath = projectPath.replace(/[\\/]+$/, "");
+	const relativePath = workspace.path.replace(/^[.][\\/]/, "");
+	return `${basePath}/${relativePath}`;
+}
+
+function findProjectWorkspaceByPath(
+	project: RuntimeProjectSummary | null,
+	workspacePath: string | null,
+): { workspace: RuntimeProjectWorkspaceSummary; path: string } | null {
+	if (!project || !workspacePath) {
+		return null;
+	}
+	for (const workspace of project.workspaces ?? []) {
+		if (workspace.name === "default") {
+			continue;
+		}
+		const resolvedPath = resolveWorkspaceProjectPath(project.path, workspace);
+		if (resolvedPath === workspacePath) {
+			return { workspace, path: resolvedPath };
+		}
+	}
+	return null;
+}
+
 function isDirectoryPickerUnavailableError(message: string | null | undefined): boolean {
 	if (!message) {
 		return false;
@@ -56,6 +89,7 @@ export default function App(): React.ReactElement {
 	const currentPath = location.pathname;
 	const route = resolveVcsRoute(currentPath);
 	const urlWorkspaceId = readVcsQueryParam(location.search, "workspaceId");
+	const urlWorkspacePath = readVcsQueryParam(location.search, "workspacePath");
 	const [selectedProjectId, setSelectedProjectId] = useState<string | null>(() => urlWorkspaceId);
 	const [isProjectNavCollapsed, setProjectNavCollapsedState] = useState(() =>
 		readVcsBooleanPreference(VCS_LAYOUT_STORAGE_KEYS.projectNavCollapsed, false),
@@ -85,6 +119,12 @@ export default function App(): React.ReactElement {
 		}
 		return projectsQuery.state.data.projects.find((project) => project.id === workspaceId) ?? null;
 	}, [projectsQuery.state, workspaceId]);
+	const activeWorkspace = useMemo(
+		() => findProjectWorkspaceByPath(currentProject, urlWorkspacePath),
+		[currentProject, urlWorkspacePath],
+	);
+	const activeWorkspacePath = activeWorkspace?.path ?? null;
+	const effectiveWorkspacePath = activeWorkspacePath ?? currentProject?.path ?? null;
 	const visibleProjectsState = useMemo(() => {
 		if (projectsQuery.state.status !== "ready" || optimisticallyRemovedProjectIds.size === 0) {
 			return projectsQuery.state;
@@ -103,8 +143,33 @@ export default function App(): React.ReactElement {
 			return;
 		}
 		setSettingsOpen(true);
-		navigate(withWorkspaceParam("/vcs", workspaceId), { replace: true });
-	}, [navigate, route.kind, workspaceId]);
+		navigate(withWorkspaceParam("/vcs", workspaceId, activeWorkspacePath), { replace: true });
+	}, [activeWorkspacePath, navigate, route.kind, workspaceId]);
+
+	useEffect(() => {
+		if (!urlWorkspacePath || projectsQuery.state.status !== "ready" || !currentProject) {
+			return;
+		}
+		if (!findProjectWorkspaceByPath(currentProject, urlWorkspacePath)) {
+			setQueryParam("workspacePath", null, { replace: true });
+		}
+	}, [currentProject, projectsQuery.state.status, setQueryParam, urlWorkspacePath]);
+
+	function updateProjectLocation(projectId: string | null, workspacePath: string | null): void {
+		const params = new URLSearchParams(location.search);
+		if (projectId) {
+			params.set("workspaceId", projectId);
+		} else {
+			params.delete("workspaceId");
+		}
+		if (workspacePath) {
+			params.set("workspacePath", workspacePath);
+		} else {
+			params.delete("workspacePath");
+		}
+		const nextSearch = params.toString();
+		navigate(`${location.pathname}${nextSearch ? `?${nextSearch}` : ""}${location.hash}`, { replace: true });
+	}
 
 	useEffect(() => {
 		if (selectedProjectId || projectsQuery.state.status !== "ready") {
@@ -113,9 +178,9 @@ export default function App(): React.ReactElement {
 		const nextProjectId = projectsQuery.state.data.currentProjectId ?? projectsQuery.state.data.projects[0]?.id ?? null;
 		if (nextProjectId) {
 			setSelectedProjectId(nextProjectId);
-			setQueryParam("workspaceId", nextProjectId, { replace: true });
+			updateProjectLocation(nextProjectId, null);
 		}
-	}, [projectsQuery.state, selectedProjectId, setQueryParam]);
+	}, [projectsQuery.state, selectedProjectId]);
 
 	useEffect(() => {
 		if (projectsQuery.state.status !== "ready" || optimisticallyRemovedProjectIds.size === 0) {
@@ -132,7 +197,12 @@ export default function App(): React.ReactElement {
 
 	function selectProject(projectId: string): void {
 		setSelectedProjectId(projectId);
-		setQueryParam("workspaceId", projectId, { replace: true });
+		updateProjectLocation(projectId, null);
+	}
+
+	function selectProjectWorkspace(projectId: string, workspacePath: string): void {
+		setSelectedProjectId(projectId);
+		updateProjectLocation(projectId, workspacePath);
 	}
 
 	function setProjectNavCollapsed(collapsed: boolean): void {
@@ -143,29 +213,6 @@ export default function App(): React.ReactElement {
 		setPendingNativeGitInitPath(null);
 		selectProject(projectId);
 		projectsQuery.refresh();
-	}
-
-	async function openWorkspaceProject(path: string): Promise<void> {
-		const existingProject =
-			projectsQuery.state.status === "ready"
-				? projectsQuery.state.data.projects.find((project) => project.path === path)
-				: null;
-		if (existingProject) {
-			selectProject(existingProject.id);
-			return;
-		}
-		try {
-			const added = await addProjectMutation({
-				workspaceId,
-				input: { path } satisfies RuntimeProjectAddRequest,
-			}).unwrap();
-			if (!added.ok || !added.project) {
-				throw new Error(added.error ?? "Could not open workspace as a project.");
-			}
-			handleAddProjectSuccess(added.project.id);
-		} catch (error) {
-			notifyError(error instanceof Error ? error.message : String(error));
-		}
 	}
 
 	async function addProject(): Promise<void> {
@@ -223,7 +270,7 @@ export default function App(): React.ReactElement {
 			}
 			if (workspaceId === projectId) {
 				setSelectedProjectId(null);
-				setQueryParam("workspaceId", null, { replace: true });
+				updateProjectLocation(null, null);
 			}
 			projectsQuery.refresh();
 			return true;
@@ -244,7 +291,7 @@ export default function App(): React.ReactElement {
 			return false;
 		}
 		setSelectedProjectId(workspaceId);
-		setQueryParam("workspaceId", workspaceId, { replace: true });
+		updateProjectLocation(workspaceId, null);
 		const projectIdsToRemove = new Set(projectsToRemove.map((project) => project.id));
 		setOptimisticallyRemovedProjectIds(projectIdsToRemove);
 		try {
@@ -268,9 +315,10 @@ export default function App(): React.ReactElement {
 	}
 
 	const hasWorkspace = Boolean(workspaceId);
-	const detectResult = useGetVcsDetectQuery({ workspaceId: workspaceId ?? "" }, { skip: !hasWorkspace });
-	const workspaceDiffResult = useGetVcsDiffQuery({ workspaceId: workspaceId ?? "" }, { skip: !hasWorkspace });
-	const workspaceStateResult = useGetVcsWorkspaceStateQuery({ workspaceId: workspaceId ?? "" }, { skip: !hasWorkspace });
+	const activeWorkspaceQuery = { workspaceId: workspaceId ?? "", workspacePath: activeWorkspacePath };
+	const detectResult = useGetVcsDetectQuery(activeWorkspaceQuery, { skip: !hasWorkspace });
+	const workspaceDiffResult = useGetVcsDiffQuery(activeWorkspaceQuery, { skip: !hasWorkspace });
+	const workspaceStateResult = useGetVcsWorkspaceStateQuery(activeWorkspaceQuery, { skip: !hasWorkspace });
 	const detectQuery = {
 		state: toRuntimeCurrentQueryState<VcsDetectResponse>(detectResult, "Failed to load VCS detection."),
 	};
@@ -284,17 +332,18 @@ export default function App(): React.ReactElement {
 		projectsState: visibleProjectsState,
 		currentProject,
 		currentProjectId: workspaceId,
+		activeWorkspacePath,
 		removingProjectId,
 		isProjectNavCollapsed,
 		onProjectNavCollapsedChange: setProjectNavCollapsed,
 		onSelectProject: selectProject,
+		onSelectProjectWorkspace: selectProjectWorkspace,
 		onAddProject: () => void addProject(),
-		onOpenWorkspaceProject: (path: string) => void openWorkspaceProject(path),
 		onRemoveProject: removeProject,
 		onClearOtherProjects: clearOtherProjects,
 		onOpenSettings: () => setSettingsOpen(true),
 		repositoryStatus: {
-			workspacePath: currentProject?.path ?? null,
+			workspacePath: effectiveWorkspacePath,
 			workspaceState: workspaceStateQuery.state,
 			diffState: workspaceDiffQuery.state,
 		},

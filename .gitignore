@@ -17,3 +17,6 @@ dist/
 # Changeyard local guard hooks
 .changeyard/bin/
 .changeyard/guards/
+
+# Local VCS scenario fixtures
+vcs-jj-scenarios/

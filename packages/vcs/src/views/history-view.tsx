@@ -359,10 +359,12 @@ export function HistoryView({
 	function writeQueryParam(name: string, value: string | null): void {
 		setQueryParam(name, value, { replace: true });
 	}
+	const activeWorkspacePath = projectState.activeWorkspacePath;
 	const operationsQuery = useRtkPaginatedJjOperations({
 		message: "Failed to load JJ operation history.",
 		enabled: Boolean(workspaceId),
 		workspaceId,
+		workspacePath: activeWorkspacePath,
 		pageSize: 50,
 	});
 	const [createOperationSnapshot, createOperationSnapshotState] = useCreateJjOperationSnapshotMutation();
@@ -390,10 +392,11 @@ export function HistoryView({
 		message: "Failed to load operation details.",
 		enabled: Boolean(workspaceId && selectedOperationId),
 		workspaceId,
+		workspacePath: activeWorkspacePath,
 		pageSize: 50,
 	});
 	const commitDiffResult = useGetRepositoryCommitDiffQuery(
-		{ workspaceId: workspaceId ?? "", commitHash: selectedCommitHash ?? "" },
+		{ workspaceId: workspaceId ?? "", workspacePath: activeWorkspacePath, commitHash: selectedCommitHash ?? "" },
 		{ skip: !workspaceId || !selectedCommitHash },
 	);
 	const commitDiffQuery = {
@@ -560,7 +563,7 @@ export function HistoryView({
 			return;
 		}
 		try {
-			const result = await createOperationSnapshot({ workspaceId }).unwrap();
+			const result = await createOperationSnapshot({ workspaceId, workspacePath: activeWorkspacePath }).unwrap();
 			if (!result.ok) {
 				notifyError(result.summary || result.title, { key: `jj-snapshot:error:${result.summary || result.title}` });
 				return;
@@ -583,7 +586,7 @@ export function HistoryView({
 			return;
 		}
 		try {
-			const result = await revertOperation({ workspaceId, operationId: pendingRevertOperation.id }).unwrap();
+			const result = await revertOperation({ workspaceId, workspacePath: activeWorkspacePath, operationId: pendingRevertOperation.id }).unwrap();
 			if (!result.ok) {
 				notifyError(result.summary || result.title, { key: `jj-operation-revert:error:${pendingRevertOperation.id}` });
 				return;

@@ -13,6 +13,7 @@ import type {
 import { applyJjOperation } from "./apply.js";
 import { loadJjDiff } from "./diff.js";
 import { previewJjOperation } from "./preview.js";
+import { createJjSymbolRevset } from "./read.js";
 import { loadJjState, type LoadJjStateOptions } from "./state.js";
 import type { NeutralFileStatus, NeutralOperation, NeutralOperationContext, NeutralOperationRequest, NeutralSelection } from "../workspace-types.js";
 
@@ -252,7 +253,12 @@ function toWorkspaceStack(
 	};
 }
 
-async function readJjWorkspaceConflicts(cwd: string, runner: VcsCommandRunner) {
+function createWorkspaceConflictRevset(appliedStackIds: readonly string[]): string {
+	const scopedRevsets = ["::@", ...appliedStackIds.map((stackId) => `::${createJjSymbolRevset(stackId)}`)];
+	return `conflicts() & (${scopedRevsets.join(" | ")})`;
+}
+
+async function readJjWorkspaceConflicts(cwd: string, runner: VcsCommandRunner, revset: string) {
 	const result = await runner({
 		command: "jj",
 		args: [
@@ -260,7 +266,7 @@ async function readJjWorkspaceConflicts(cwd: string, runner: VcsCommandRunner) {
 			"--ignore-working-copy",
 			"--at-op=@",
 			"--revisions",
-			"conflicts()",
+			revset,
 			"--no-graph",
 			"--template",
 			'change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\n"',
@@ -310,11 +316,12 @@ export async function loadJjWorkspaceState(
 ) {
 	const state = await loadJjState(cwd, runner, options);
 	const repoCwd = state.repository.root ?? cwd;
+	const appliedStackIds = options.appliedStackIds ?? [];
+	const conflictRevset = createWorkspaceConflictRevset(appliedStackIds);
 	const [conflictChanges, conflictPaths] = await Promise.all([
-		readJjWorkspaceConflicts(repoCwd, runner),
+		readJjWorkspaceConflicts(repoCwd, runner, conflictRevset),
 		readJjWorkspaceConflictPaths(repoCwd, runner),
 	]);
-	const appliedStackIds = options.appliedStackIds ?? [];
 	const stacks = state.stacks.map((stack) => toWorkspaceStack(stack, state, appliedStackIds));
 	const stackIdsByCommitId = new Map<string, string[]>();
 	for (const stack of stacks) {
