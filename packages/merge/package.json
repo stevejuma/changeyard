@@ -20,6 +20,8 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json && mkdir -p dist && cp src/styles.css dist/styles.css",
+    "demo": "vite --config demo/vite.config.ts",
+    "demo:build": "tsc -p demo/tsconfig.json && vite build --config demo/vite.config.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --import tsx --test src/*.test.ts"
   },
@@ -29,7 +31,12 @@
   "devDependencies": {
     "@types/node": "^24.13.2",
     "@types/react": "^18.3.24",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^5.0.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "tsx": "^4.21.0",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "vite": "^6.4.2"
   }
 }

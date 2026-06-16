@@ -1,4 +1,12 @@
 .cy-merge-editor {
+	--cy-merge-added-bg: color-mix(in srgb, var(--color-status-green) 16%, var(--color-surface-0));
+	--cy-merge-removed-bg: color-mix(in srgb, var(--color-status-red) 10%, var(--color-surface-0));
+	--cy-merge-modified-bg: color-mix(in srgb, var(--color-status-cyan) 12%, var(--color-surface-0));
+	--cy-merge-modified-overlay: color-mix(in srgb, var(--color-status-cyan) 20%, transparent);
+	--cy-merge-conflict-bg: color-mix(in srgb, var(--color-status-orange) 13%, var(--color-surface-0));
+	--cy-merge-resolved-bg: color-mix(in srgb, var(--color-status-blue) 12%, var(--color-surface-0));
+	--cy-merge-connector-width: 40px;
+	--cy-merge-line-number-width: 48px;
 	display: flex;
 	min-height: 0;
 	flex-direction: column;
@@ -12,6 +20,7 @@
 .cy-merge-toolbar {
 	display: flex;
 	min-height: 40px;
+	flex-shrink: 0;
 	align-items: center;
 	gap: 12px;
 	border-bottom: 1px solid var(--color-border);
@@ -29,46 +38,62 @@
 	font-weight: 650;
 }
 
-.cy-merge-summary,
-.cy-merge-toolbar-actions,
-.cy-merge-block-actions {
+.cy-merge-navigation {
 	display: inline-flex;
-	flex-wrap: wrap;
 	align-items: center;
-	gap: 6px;
+	gap: 2px;
 }
 
-.cy-merge-summary {
+.cy-merge-navigation-counter {
+	padding: 0 6px;
 	color: var(--color-text-secondary);
 	font-size: 11px;
+	white-space: nowrap;
+	user-select: none;
 }
 
-.cy-merge-button {
+.cy-merge-header-button {
 	display: inline-flex;
-	min-height: 24px;
+	width: 24px;
+	height: 24px;
 	cursor: pointer;
 	align-items: center;
 	justify-content: center;
-	border: 1px solid var(--color-border);
-	border-radius: 6px;
-	background: var(--color-surface-2);
-	color: var(--color-text-primary);
-	padding: 0 8px;
-	font-size: 11px;
-	font-weight: 600;
+	border: 0;
+	border-radius: 4px;
+	background: transparent;
+	color: var(--color-text-secondary);
+	padding: 0;
 }
 
-.cy-merge-button:hover {
+.cy-merge-header-button:hover:not(:disabled) {
 	background: var(--color-surface-3);
+	color: var(--color-text-primary);
 }
 
-.cy-merge-button-danger {
-	border-color: color-mix(in srgb, var(--color-status-red) 45%, var(--color-border));
-	color: var(--color-status-red);
+.cy-merge-header-button:disabled {
+	cursor: default;
+	opacity: 0.45;
+}
+
+.cy-merge-header-button svg {
+	display: block;
+	width: 16px;
+	height: 16px;
+	fill: currentColor;
+}
+
+.cy-merge-accept-all-button svg {
+	fill: none;
+	stroke: currentColor;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+	stroke-width: 2;
 }
 
 .cy-merge-pane-labels {
 	display: grid;
+	flex-shrink: 0;
 	border-bottom: 1px solid var(--color-border);
 	background: var(--color-surface-1);
 	color: var(--color-text-secondary);
@@ -77,11 +102,14 @@
 }
 
 .cy-merge-pane-labels-three {
-	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+	grid-template-columns:
+		minmax(0, 1fr) var(--cy-merge-connector-width)
+		minmax(0, 1fr) var(--cy-merge-connector-width)
+		minmax(0, 1fr);
 }
 
 .cy-merge-pane-labels-two {
-	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+	grid-template-columns: minmax(0, 1fr) var(--cy-merge-connector-width) minmax(0, 1fr);
 }
 
 .cy-merge-pane-labels > div {
@@ -92,91 +120,448 @@
 	padding: 6px 10px;
 }
 
+.cy-merge-pane-label {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+}
+
+.cy-merge-pane-label > span {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
 .cy-merge-pane-labels > div:last-child {
 	border-right: 0;
 }
 
-.cy-merge-blocks {
+.cy-merge-main {
+	position: relative;
 	min-height: 0;
-	overflow: auto;
-}
-
-.cy-merge-block {
-	display: grid;
-	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
-	border-bottom: 1px solid var(--color-border);
-}
-
-.cy-merge-block-two-pane {
-	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-}
-
-.cy-merge-block-cell {
-	min-width: 0;
-	border-right: 1px solid var(--color-border);
+	flex: 1;
+	overflow-x: hidden;
+	overflow-y: auto;
 	background: var(--color-surface-0);
 }
 
-.cy-merge-block-cell:last-child {
+.cy-merge-views {
+	display: grid;
+	align-items: stretch;
+	min-height: 100%;
+}
+
+.cy-merge-views-three {
+	grid-template-columns:
+		minmax(0, 1fr) var(--cy-merge-connector-width)
+		minmax(0, 1fr) var(--cy-merge-connector-width)
+		minmax(0, 1fr);
+}
+
+.cy-merge-views-two {
+	grid-template-columns: minmax(0, 1fr) var(--cy-merge-connector-width) minmax(0, 1fr);
+}
+
+.cy-merge-view {
+	display: flex;
+	min-width: 0;
+	min-height: 100%;
+	background: var(--color-surface-0);
+}
+
+.cy-merge-view-inner {
+	min-width: 0;
+	flex: 1;
+	border-right: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+}
+
+.cy-merge-view-right .cy-merge-view-inner,
+.cy-merge-editor-two-pane .cy-merge-view-right .cy-merge-view-inner {
 	border-right: 0;
 }
 
-.cy-merge-block-conflict .cy-merge-block-cell-base {
-	background: color-mix(in srgb, var(--color-status-orange) 12%, var(--color-surface-0));
+.cy-merge-view-content {
+	position: relative;
+	min-height: 100%;
+	overflow-x: auto;
+	overflow-y: hidden;
+	overscroll-behavior-x: contain;
+	scrollbar-width: thin;
 }
 
-.cy-merge-block-conflict[data-resolved="false"] .cy-merge-block-cell {
-	box-shadow: inset 0 1px 0 color-mix(in srgb, var(--color-status-orange) 35%, transparent);
+.cy-merge-component-stack {
+	width: max-content;
+	min-width: 100%;
+	min-height: 100%;
 }
 
-.cy-merge-block-modified .cy-merge-block-cell-base,
-.cy-merge-block-added .cy-merge-block-cell-base {
-	background: color-mix(in srgb, var(--color-status-green) 8%, var(--color-surface-0));
+.cy-merge-component {
+	position: relative;
+	min-height: 20px;
+	width: 100%;
+	min-width: 100%;
 }
 
-.cy-merge-block-removed .cy-merge-block-cell-base {
-	background: color-mix(in srgb, var(--color-status-red) 8%, var(--color-surface-0));
+.cy-merge-component-placeholder {
+	height: 2px;
+	min-height: 2px;
 }
 
-.cy-merge-block-actions {
-	position: sticky;
-	top: 0;
-	z-index: 1;
-	border-bottom: 1px solid color-mix(in srgb, var(--color-status-orange) 40%, var(--color-border));
-	background: color-mix(in srgb, var(--color-status-orange) 18%, var(--color-surface-1));
-	padding: 6px;
+.cy-merge-component-added {
+	background: var(--cy-merge-added-bg);
+}
+
+.cy-merge-component-removed {
+	background: var(--cy-merge-removed-bg);
+}
+
+.cy-merge-component-modified {
+	background: var(--cy-merge-modified-bg);
+}
+
+.cy-merge-component-conflict {
+	background: var(--cy-merge-conflict-bg);
+}
+
+.cy-merge-component-resolved {
+	background: var(--cy-merge-resolved-bg);
+}
+
+.cy-merge-component-accepted {
+	background: var(--cy-merge-added-bg);
 }
 
 .cy-merge-line {
-	display: grid;
-	grid-template-columns: 42px minmax(0, 1fr);
+	display: block;
 	min-height: 20px;
 	font-family: var(--font-mono);
 	font-size: 12px;
 	line-height: 20px;
 }
 
-.cy-merge-line-number {
-	user-select: none;
-	border-right: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
-	color: var(--color-text-tertiary);
-	padding: 0 8px;
-	text-align: right;
-}
-
 .cy-merge-line-code {
-	overflow: hidden;
+	display: block;
 	white-space: pre;
 	padding: 0 8px;
 }
 
 .cy-merge-line-part-changed {
 	border-radius: 3px;
-	background: color-mix(in srgb, var(--color-status-blue) 22%, transparent);
+	background: var(--cy-merge-modified-overlay);
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-status-blue) 12%, transparent);
 }
 
-.cy-merge-line-empty {
-	min-height: 24px;
+.cy-merge-component.cy-merge-active-diff {
+	box-shadow:
+		inset 0 1px 0 color-mix(in srgb, var(--color-status-orange) 45%, transparent),
+		inset 0 -1px 0 color-mix(in srgb, var(--color-status-orange) 45%, transparent);
+}
+
+.cy-merge-side-panel {
+	position: relative;
+	width: var(--cy-merge-line-number-width);
+	flex: 0 0 var(--cy-merge-line-number-width);
+	background: color-mix(in srgb, var(--color-surface-1) 76%, var(--color-surface-0));
+	color: var(--color-text-tertiary);
+	font-family: var(--font-mono);
+	font-size: 12px;
+	line-height: 20px;
+	user-select: none;
+}
+
+.cy-merge-side-panel-left {
+	border-right: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+}
+
+.cy-merge-side-panel-right {
+	border-left: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+}
+
+.cy-merge-line-number {
+	position: relative;
+	min-height: 20px;
+}
+
+.cy-merge-line-number pre {
+	margin: 0;
+	color: inherit;
+	font: inherit;
+	line-height: inherit;
+}
+
+.cy-merge-line-number.cy-merge-active-diff pre {
+	color: var(--color-status-orange);
+	font-weight: 700;
+}
+
+.cy-merge-line-placeholder.cy-merge-active-diff {
+	box-shadow:
+		inset 0 1px 0 color-mix(in srgb, var(--color-status-orange) 45%, transparent),
+		inset 0 -1px 0 color-mix(in srgb, var(--color-status-orange) 45%, transparent);
+}
+
+.cy-merge-side-panel-left .cy-merge-line-number pre {
+	padding-left: 18px;
+	text-align: left;
+}
+
+.cy-merge-side-panel-right .cy-merge-line-number pre {
+	padding-right: 18px;
+	text-align: right;
+}
+
+.cy-merge-line-number-added,
+.cy-merge-line-placeholder-added {
+	background: var(--cy-merge-added-bg);
+}
+
+.cy-merge-line-number-removed,
+.cy-merge-line-placeholder-removed {
+	background: var(--cy-merge-removed-bg);
+}
+
+.cy-merge-line-number-modified,
+.cy-merge-line-placeholder-modified {
+	background: var(--cy-merge-modified-bg);
+}
+
+.cy-merge-line-number-conflict,
+.cy-merge-line-placeholder-conflict {
+	background: var(--cy-merge-conflict-bg);
+}
+
+.cy-merge-line-number-resolved,
+.cy-merge-line-placeholder-resolved {
+	background: var(--cy-merge-resolved-bg);
+}
+
+.cy-merge-line-placeholder {
+	position: relative;
+	height: 2px;
+	min-height: 2px;
+}
+
+.cy-merge-icon-button {
+	position: absolute;
+	z-index: 3;
+	top: 50%;
+	display: flex;
+	width: 24px;
+	height: 24px;
+	cursor: pointer;
+	align-items: center;
+	justify-content: center;
+	border: 0;
+	background: transparent;
+	color: var(--color-text-secondary);
+	line-height: 0;
+	padding: 0;
+	transform: translateY(-50%);
+}
+
+.cy-merge-side-panel-left .cy-merge-icon-button {
+	left: 0;
+}
+
+.cy-merge-side-panel-right .cy-merge-icon-button {
+	right: 0;
+}
+
+.cy-merge-icon-button:hover {
+	color: var(--color-text-primary);
+}
+
+.cy-merge-icon-button svg {
+	display: block;
+	width: 20px;
+	height: 20px;
+	fill: currentColor;
+	transform-origin: center;
+}
+
+.cy-merge-view-left .cy-merge-action-merge svg {
+	transform: scale(0.95);
+}
+
+.cy-merge-view-right .cy-merge-action-merge svg {
+	transform: scale(0.95) scaleX(-1);
+}
+
+.cy-merge-action-resolve svg {
+	transform: scale(0.72);
+}
+
+.cy-merge-action-delete {
+	color: var(--color-status-red);
+}
+
+.cy-merge-action-delete svg {
+	transform: scale(1.05);
+}
+
+.cy-merge-connector-lane {
+	position: relative;
+	isolation: isolate;
+	width: var(--cy-merge-connector-width);
+	min-height: 100%;
+	overflow: hidden;
+	border-right: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+	background: color-mix(in srgb, var(--color-surface-1) 76%, var(--color-surface-0));
+}
+
+.cy-merge-connector-lane svg {
+	position: absolute;
+	inset: 0;
+	display: block;
+	width: 100%;
+	min-height: 100%;
+}
+
+.cy-merge-connector-path-added {
+	fill: var(--cy-merge-added-bg);
+}
+
+.cy-merge-connector-path-removed {
+	fill: var(--cy-merge-removed-bg);
+}
+
+.cy-merge-connector-path-modified {
+	fill: var(--cy-merge-modified-bg);
+}
+
+.cy-merge-connector-path-conflict {
+	fill: var(--cy-merge-conflict-bg);
+}
+
+.cy-merge-connector-path-resolved {
+	fill: var(--cy-merge-resolved-bg);
+}
+
+.cy-merge-connector-path-unchanged {
+	fill: transparent;
+}
+
+.cy-merge-edit-textarea {
+	position: absolute;
+	z-index: 2;
+	inset: 0;
+	width: 100%;
+	min-height: var(--cy-merge-edit-min-height, 100%);
+	border: 0;
+	background: transparent;
+	color: var(--color-text-primary);
+	caret-color: var(--color-text-primary);
+	font-family: var(--font-mono);
+	font-size: 12px;
+	line-height: 20px;
+	outline: none;
+	overflow-x: auto;
+	overflow-y: hidden;
+	overscroll-behavior-x: contain;
+	padding: 0 8px;
+	resize: none;
+	scrollbar-width: none;
+	white-space: pre;
+}
+
+.cy-merge-edit-textarea::-webkit-scrollbar {
+	display: none;
+}
+
+.cy-merge-view[data-editable="true"] .cy-merge-edit-textarea {
+	color: transparent;
+}
+
+.cy-merge-token-comment {
+	color: var(--color-text-tertiary);
+}
+
+.cy-merge-token-string {
+	color: var(--color-status-orange);
+}
+
+.cy-merge-token-keyword {
+	color: var(--color-status-purple);
+	font-weight: 650;
+}
+
+.cy-merge-token-number,
+.cy-merge-token-constant {
+	color: var(--color-status-blue);
+}
+
+.cy-merge-token-operator,
+.cy-merge-token-punctuation {
+	color: color-mix(in srgb, var(--color-text-secondary) 86%, var(--color-text-primary));
+}
+
+.cy-merge-footer {
+	display: flex;
+	min-height: 32px;
+	flex-shrink: 0;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	border-top: 1px solid var(--color-border);
+	background: var(--color-surface-0);
+	color: var(--color-text-secondary);
+	padding: 0 10px;
+	font-family: var(--font-mono);
+	font-size: 11px;
+}
+
+.cy-merge-footer-stats,
+.cy-merge-footer-legend,
+.cy-merge-footer-counter {
+	display: inline-flex;
+	align-items: center;
+}
+
+.cy-merge-footer-stats,
+.cy-merge-footer-legend {
+	flex-wrap: wrap;
+	gap: 12px;
+}
+
+.cy-merge-footer-legend {
+	justify-content: flex-end;
+}
+
+.cy-merge-footer-counter {
+	gap: 6px;
+	white-space: nowrap;
+}
+
+.cy-merge-footer-counter > span {
+	width: 12px;
+	height: 12px;
+	border-radius: 3px;
+}
+
+.cy-merge-footer-counter-added > span {
+	background: var(--cy-merge-added-bg);
+}
+
+.cy-merge-footer-counter-removed > span {
+	background: var(--cy-merge-removed-bg);
+}
+
+.cy-merge-footer-counter-modified > span {
+	background: var(--cy-merge-modified-bg);
+}
+
+.cy-merge-footer-counter-conflict > span {
+	background: var(--cy-merge-conflict-bg);
+}
+
+.cy-merge-footer-counter-resolved > span {
+	background: var(--cy-merge-resolved-bg);
+}
+
+.cy-merge-footer-empty {
+	color: var(--color-text-tertiary);
 }
 
 @media (max-width: 860px) {
@@ -185,15 +570,35 @@
 		flex-direction: column;
 	}
 
-	.cy-merge-block,
-	.cy-merge-block-two-pane,
 	.cy-merge-pane-labels-three,
-	.cy-merge-pane-labels-two {
+	.cy-merge-pane-labels-two,
+	.cy-merge-views-three,
+	.cy-merge-views-two {
 		grid-template-columns: minmax(0, 1fr);
 	}
 
 	.cy-merge-pane-labels > div,
-	.cy-merge-block-cell {
+	.cy-merge-view-inner {
 		border-right: 0;
+	}
+
+	.cy-merge-pane-labels > div[aria-hidden="true"],
+	.cy-merge-connector-lane {
+		display: none;
+	}
+
+	.cy-merge-view {
+		border-bottom: 1px solid var(--color-border);
+	}
+
+	.cy-merge-footer {
+		align-items: flex-start;
+		flex-direction: column;
+		gap: 6px;
+		padding: 8px 10px;
+	}
+
+	.cy-merge-footer-legend {
+		justify-content: flex-start;
 	}
 }

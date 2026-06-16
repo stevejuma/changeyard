@@ -36,6 +36,7 @@ import {
 	writeVcsBooleanPreference,
 } from "@/utils/vcs-ui-preferences";
 import { readVcsQueryParam, useVcsRouter } from "@/utils/vcs-router";
+import "@changeyard/merge/styles.css";
 
 const DIRECTORY_PICKER_UNAVAILABLE_MARKERS = [
 	"could not open directory picker",

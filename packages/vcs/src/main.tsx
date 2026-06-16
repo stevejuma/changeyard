@@ -9,7 +9,6 @@ import { vcsStore } from "@/runtime/vcs-store";
 import { applyThemeToDocument, readStoredThemeId } from "@/utils/vcs-theme";
 import { VcsRouterProvider } from "@/utils/vcs-router";
 import "@uiw/react-markdown-preview/markdown.css";
-import "@changeyard/merge/styles.css";
 import "@/styles/globals.css";
 
 const root = document.getElementById("root");
