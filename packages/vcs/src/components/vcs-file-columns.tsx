@@ -610,6 +610,7 @@ export function VcsFileDiffColumn({
 	onClose,
 	onHunkDragStart,
 	topContent,
+	content,
 }: {
 	file: VcsFileChange | null;
 	isLoading?: boolean;
@@ -620,6 +621,7 @@ export function VcsFileDiffColumn({
 	onClose: () => void;
 	onHunkDragStart?: (event: ReactDragEvent<HTMLDivElement>, hunk: VcsDiffHunkDragPayload) => void;
 	topContent?: ReactNode;
+	content?: ReactNode;
 }): React.ReactElement {
 	return (
 		<section
@@ -662,6 +664,8 @@ export function VcsFileDiffColumn({
 						<div className="kb-skeleton h-32 w-full" />
 						<div className="kb-skeleton h-24 w-full" />
 					</div>
+				) : content ? (
+					content
 				) : file ? (
 					<VcsFileDiffContent file={file} onHunkDragStart={onHunkDragStart} />
 				) : (

@@ -33,6 +33,8 @@ import type {
 	RuntimeVcsDetectResponse,
 	RuntimeVcsApplyOperationRequest,
 	RuntimeVcsApplyOperationResponse,
+	RuntimeVcsConflictFileRequest,
+	RuntimeVcsConflictFileResponse,
 	RuntimeVcsDiffRequest,
 	RuntimeVcsDiffResponse,
 	RuntimeVcsJjDiffResponse,
@@ -52,6 +54,8 @@ import type {
 	RuntimeVcsSubmitStackPreviewRequest,
 	RuntimeVcsSubmitStackPreviewResponse,
 	RuntimeVcsSubmitStackResponse,
+	RuntimeVcsResolveConflictFileRequest,
+	RuntimeVcsResolveConflictFileResponse,
 	RuntimeVcsWorkspaceOperationRequest,
 	RuntimeVcsWorkspaceStacksResponse,
 	RuntimeVcsWorkspaceStateRequest,
@@ -190,6 +194,14 @@ export interface RuntimeChangeyardApiAdapter {
 		repoRoot: string,
 		input?: RuntimeVcsDiffRequest,
 	) => Promise<RuntimeVcsDiffResponse> | RuntimeVcsDiffResponse;
+	getVcsConflictFile?: (
+		repoRoot: string,
+		input: RuntimeVcsConflictFileRequest,
+	) => Promise<RuntimeVcsConflictFileResponse> | RuntimeVcsConflictFileResponse;
+	resolveVcsConflictFile?: (
+		repoRoot: string,
+		input: RuntimeVcsResolveConflictFileRequest,
+	) => Promise<RuntimeVcsResolveConflictFileResponse> | RuntimeVcsResolveConflictFileResponse;
 	previewVcsWorkspaceOperation?: (
 		repoRoot: string,
 		input: RuntimeVcsWorkspaceOperationRequest,

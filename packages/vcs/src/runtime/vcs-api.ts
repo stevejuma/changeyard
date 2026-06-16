@@ -35,6 +35,10 @@ import { subscribeToVcsProjectEvents } from "@/runtime/vcs-events";
 import type {
 	VcsDiffInput,
 	VcsDiffResult,
+	VcsConflictFileInput,
+	VcsConflictFileResult,
+	VcsResolveConflictFileInput,
+	VcsResolveConflictFileResult,
 	VcsOperationPreview,
 	VcsOperationResult,
 	VcsWorkspaceCommit,
@@ -56,6 +60,7 @@ export type VcsApiTag =
 	| "DivergentBookmarks"
 	| "Diff"
 	| "CommitChanges"
+	| "ConflictFile"
 	| "ProjectConfig"
 	| "VcsDetection"
 	| "OperationHistory"
@@ -74,6 +79,7 @@ export const VCS_WORKSPACE_OPERATION_INVALIDATION_TAGS = [
 	"DivergentBookmarks",
 	"Diff",
 	"CommitChanges",
+	"ConflictFile",
 	"OperationHistory",
 	"OperationDetails",
 	"RepositoryLog",
@@ -90,6 +96,7 @@ const VCS_API_TAGS = new Set<VcsApiTag>([
 	"DivergentBookmarks",
 	"Diff",
 	"CommitChanges",
+	"ConflictFile",
 	"ProjectConfig",
 	"VcsDetection",
 	"OperationHistory",
@@ -112,6 +119,14 @@ type VcsWorkspaceStateQueryArg = ActiveWorkspaceQueryArg & {
 
 type VcsDiffQueryArg = ActiveWorkspaceQueryArg & {
 	input?: Omit<VcsDiffInput, "projectId">;
+};
+
+type VcsConflictFileQueryArg = ActiveWorkspaceQueryArg & {
+	input: Omit<VcsConflictFileInput, "projectId">;
+};
+
+type VcsResolveConflictFileArg = ActiveWorkspaceQueryArg & {
+	input: Omit<VcsResolveConflictFileInput, "projectId">;
 };
 
 type VcsWorkspaceOperationArg = ActiveWorkspaceQueryArg & {
@@ -322,6 +337,7 @@ export function tagsForVcsEvent(kind: RuntimeVcsProjectEventKind): VcsApiTag[] {
 				"WorktreeChanges",
 				"Diff",
 				"CommitChanges",
+				"ConflictFile",
 				"Stacks",
 				"StackDetails",
 				"BranchListing",
@@ -333,7 +349,7 @@ export function tagsForVcsEvent(kind: RuntimeVcsProjectEventKind): VcsApiTag[] {
 				"RepositoryLog",
 			];
 		case "vcs/head":
-			return ["HeadSha", "Stacks", "StackDetails", "BranchDetails", "Diff", "CommitChanges", "VcsDetection"];
+			return ["HeadSha", "Stacks", "StackDetails", "BranchDetails", "Diff", "CommitChanges", "ConflictFile", "VcsDetection"];
 		case "vcs/activity":
 			return [
 				"Stacks",
@@ -343,6 +359,7 @@ export function tagsForVcsEvent(kind: RuntimeVcsProjectEventKind): VcsApiTag[] {
 				"BaseBranchData",
 				"DivergentBookmarks",
 				"HeadSha",
+				"ConflictFile",
 				"VcsDetection",
 				"OperationHistory",
 				"OperationDetails",
@@ -388,6 +405,7 @@ export const vcsApi = createApi({
 		"DivergentBookmarks",
 		"Diff",
 		"CommitChanges",
+		"ConflictFile",
 		"ProjectConfig",
 		"VcsDetection",
 		"OperationHistory",
@@ -694,6 +712,52 @@ export const vcsApi = createApi({
 			onCacheEntryAdded: ({ workspaceId }, { dispatch, cacheDataLoaded, cacheEntryRemoved }) =>
 				subscribeToWorkspaceEvents(workspaceId, dispatch, cacheDataLoaded, cacheEntryRemoved),
 		}),
+		getVcsConflictFile: builder.query<VcsConflictFileResult, VcsConflictFileQueryArg>({
+			queryFn: async ({ workspaceId, workspacePath, input }, { signal }) => {
+				try {
+					return {
+						data: await fetchTrpcQuery<VcsConflictFileResult>(
+							"vcs.conflictFile",
+							withActiveWorkspaceInput(input, workspacePath),
+							workspaceId,
+							{ signal },
+						),
+					};
+				} catch (error) {
+					return { error };
+				}
+			},
+			providesTags: (_result, _error, arg) => [
+				"ConflictFile",
+				{ type: "ConflictFile", id: `${arg.workspacePath ?? ""}:${arg.input.source ?? "workspace"}:${arg.input.revision ?? ""}:${arg.input.path}` },
+			],
+			onCacheEntryAdded: ({ workspaceId }, { dispatch, cacheDataLoaded, cacheEntryRemoved }) =>
+				subscribeToWorkspaceEvents(workspaceId, dispatch, cacheDataLoaded, cacheEntryRemoved),
+		}),
+		resolveVcsConflictFile: builder.mutation<VcsResolveConflictFileResult, VcsResolveConflictFileArg>({
+			queryFn: async ({ workspaceId, workspacePath, input }) => {
+				try {
+					return {
+						data: await postTrpcMutation<VcsResolveConflictFileResult>(
+							"vcs.resolveConflictFile",
+							withActiveWorkspaceInput(input, workspacePath),
+							workspaceId,
+						),
+					};
+				} catch (error) {
+					return { error };
+				}
+			},
+			invalidatesTags: (_result, _error, arg) => [
+				"Stacks",
+				"StackDetails",
+				"WorktreeChanges",
+				"Diff",
+				"CommitChanges",
+				"ConflictFile",
+				{ type: "ConflictFile", id: `${arg.workspacePath ?? ""}:workspace::${arg.input.path}` },
+			],
+		}),
 		previewVcsOperation: builder.query<VcsOperationPreview, VcsWorkspaceOperationArg>({
 			queryFn: async ({ workspaceId, workspacePath, input }, { signal }) => {
 				try {
@@ -948,6 +1012,8 @@ export const {
 	useGetVcsWorkspaceStateQuery,
 	useGetVcsStacksQuery,
 	useGetVcsDiffQuery,
+	useGetVcsConflictFileQuery,
+	useResolveVcsConflictFileMutation,
 	usePreviewVcsOperationQuery,
 	useLazyPreviewVcsOperationQuery,
 	useApplyVcsOperationMutation,

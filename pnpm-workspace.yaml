@@ -1,6 +1,7 @@
 packages:
   - packages/kanban
   - packages/kanban/web-ui
+  - packages/merge
   - packages/tui
   - packages/vcs
 

@@ -1,15 +1,17 @@
 import assert from "node:assert/strict";
 import { execFile as execFileCallback } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 import {
 	applyGitWorkspaceOperation,
+	loadGitConflictFile,
 	loadGitWorkspaceDiff,
 	loadGitWorkspaceState,
 	previewGitWorkspaceOperation,
+	resolveGitConflictFile,
 } from "../src/vcs/git/workspace.js";
 import type { VcsCommandRunner } from "../src/vcs/detect.js";
 import { runVcsCommand } from "../src/vcs/process.js";
@@ -247,6 +249,77 @@ test("loadGitWorkspaceState reports Git conflict mode from unmerged porcelain st
 	assert.equal(state.conflicts.length, 1);
 	assert.equal(state.conflicts[0]?.path, "src/api.ts");
 	assert.match(state.conflicts[0]?.message ?? "", /UU conflict/);
+});
+
+test("loadGitConflictFile reads Git index stages for a workspace conflict", async () => {
+	const calls: string[] = [];
+	const fallback = createGitRunner(calls);
+	const result = await loadGitConflictFile(
+		"/repo",
+		async (input) => {
+			const joined = `${input.command} ${input.args.join(" ")}`;
+			switch (joined) {
+				case "git show :1:src/api.ts":
+					calls.push(joined);
+					return ok("base\n");
+				case "git show :2:src/api.ts":
+					calls.push(joined);
+					return ok("ours\n");
+				case "git show :3:src/api.ts":
+					calls.push(joined);
+					return ok("theirs\n");
+				default:
+					return fallback(input);
+			}
+		},
+		{ path: "src/api.ts", source: "workspace" },
+	);
+
+	assert.equal(result.ok, true);
+	assert.equal(result.readOnly, false);
+	assert.equal(result.base, "base\n");
+	assert.equal(result.left, "ours\n");
+	assert.equal(result.right, "theirs\n");
+	assert.ok(calls.includes("git show :1:src/api.ts"));
+	assert.ok(calls.includes("git show :2:src/api.ts"));
+	assert.ok(calls.includes("git show :3:src/api.ts"));
+});
+
+test("resolveGitConflictFile writes resolved content and stages the file", async () => {
+	const tempDir = await mkdtemp(path.join(tmpdir(), "changeyard-vcs-git-resolve-"));
+	try {
+		const repoPath = path.join(tempDir, "repo");
+		await mkdir(path.join(repoPath, "src"), { recursive: true });
+		const calls: string[] = [];
+		const fallback = createGitRunner(calls);
+		const result = await resolveGitConflictFile(
+			repoPath,
+			async (input) => {
+				const joined = `${input.command} ${input.args.join(" ")}`;
+				switch (joined) {
+					case "git rev-parse --show-toplevel":
+						calls.push(joined);
+						return ok(repoPath);
+					case "git ls-files -u -- src/api.ts":
+						calls.push(joined);
+						return ok("100644 abc 1\tsrc/api.ts\n100644 def 2\tsrc/api.ts\n100644 ghi 3\tsrc/api.ts\n");
+					case "git add -- src/api.ts":
+						calls.push(joined);
+						return ok("");
+					default:
+						return fallback(input);
+				}
+			},
+			{ path: "src/api.ts", resolvedContent: "resolved\n" },
+		);
+
+		assert.equal(result.ok, true);
+		assert.equal(await readFile(path.join(repoPath, "src/api.ts"), "utf8"), "resolved\n");
+		assert.ok(calls.includes("git ls-files -u -- src/api.ts"));
+		assert.ok(calls.includes("git add -- src/api.ts"));
+	} finally {
+		await rm(tempDir, { recursive: true, force: true });
+	}
 });
 
 test("loadGitWorkspaceDiff returns neutral patch and file summary", async () => {

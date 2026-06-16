@@ -1,0 +1,199 @@
+.cy-merge-editor {
+	display: flex;
+	min-height: 0;
+	flex-direction: column;
+	overflow: hidden;
+	border: 1px solid var(--color-border);
+	border-radius: 8px;
+	background: var(--color-surface-0);
+	color: var(--color-text-primary);
+}
+
+.cy-merge-toolbar {
+	display: flex;
+	min-height: 40px;
+	align-items: center;
+	gap: 12px;
+	border-bottom: 1px solid var(--color-border);
+	background: var(--color-surface-1);
+	padding: 8px 10px;
+}
+
+.cy-merge-title {
+	min-width: 0;
+	flex: 1;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 12px;
+	font-weight: 650;
+}
+
+.cy-merge-summary,
+.cy-merge-toolbar-actions,
+.cy-merge-block-actions {
+	display: inline-flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px;
+}
+
+.cy-merge-summary {
+	color: var(--color-text-secondary);
+	font-size: 11px;
+}
+
+.cy-merge-button {
+	display: inline-flex;
+	min-height: 24px;
+	cursor: pointer;
+	align-items: center;
+	justify-content: center;
+	border: 1px solid var(--color-border);
+	border-radius: 6px;
+	background: var(--color-surface-2);
+	color: var(--color-text-primary);
+	padding: 0 8px;
+	font-size: 11px;
+	font-weight: 600;
+}
+
+.cy-merge-button:hover {
+	background: var(--color-surface-3);
+}
+
+.cy-merge-button-danger {
+	border-color: color-mix(in srgb, var(--color-status-red) 45%, var(--color-border));
+	color: var(--color-status-red);
+}
+
+.cy-merge-pane-labels {
+	display: grid;
+	border-bottom: 1px solid var(--color-border);
+	background: var(--color-surface-1);
+	color: var(--color-text-secondary);
+	font-size: 11px;
+	font-weight: 650;
+}
+
+.cy-merge-pane-labels-three {
+	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.cy-merge-pane-labels-two {
+	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.cy-merge-pane-labels > div {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	border-right: 1px solid var(--color-border);
+	padding: 6px 10px;
+}
+
+.cy-merge-pane-labels > div:last-child {
+	border-right: 0;
+}
+
+.cy-merge-blocks {
+	min-height: 0;
+	overflow: auto;
+}
+
+.cy-merge-block {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+	border-bottom: 1px solid var(--color-border);
+}
+
+.cy-merge-block-two-pane {
+	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.cy-merge-block-cell {
+	min-width: 0;
+	border-right: 1px solid var(--color-border);
+	background: var(--color-surface-0);
+}
+
+.cy-merge-block-cell:last-child {
+	border-right: 0;
+}
+
+.cy-merge-block-conflict .cy-merge-block-cell-base {
+	background: color-mix(in srgb, var(--color-status-orange) 12%, var(--color-surface-0));
+}
+
+.cy-merge-block-conflict[data-resolved="false"] .cy-merge-block-cell {
+	box-shadow: inset 0 1px 0 color-mix(in srgb, var(--color-status-orange) 35%, transparent);
+}
+
+.cy-merge-block-modified .cy-merge-block-cell-base,
+.cy-merge-block-added .cy-merge-block-cell-base {
+	background: color-mix(in srgb, var(--color-status-green) 8%, var(--color-surface-0));
+}
+
+.cy-merge-block-removed .cy-merge-block-cell-base {
+	background: color-mix(in srgb, var(--color-status-red) 8%, var(--color-surface-0));
+}
+
+.cy-merge-block-actions {
+	position: sticky;
+	top: 0;
+	z-index: 1;
+	border-bottom: 1px solid color-mix(in srgb, var(--color-status-orange) 40%, var(--color-border));
+	background: color-mix(in srgb, var(--color-status-orange) 18%, var(--color-surface-1));
+	padding: 6px;
+}
+
+.cy-merge-line {
+	display: grid;
+	grid-template-columns: 42px minmax(0, 1fr);
+	min-height: 20px;
+	font-family: var(--font-mono);
+	font-size: 12px;
+	line-height: 20px;
+}
+
+.cy-merge-line-number {
+	user-select: none;
+	border-right: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
+	color: var(--color-text-tertiary);
+	padding: 0 8px;
+	text-align: right;
+}
+
+.cy-merge-line-code {
+	overflow: hidden;
+	white-space: pre;
+	padding: 0 8px;
+}
+
+.cy-merge-line-part-changed {
+	border-radius: 3px;
+	background: color-mix(in srgb, var(--color-status-blue) 22%, transparent);
+}
+
+.cy-merge-line-empty {
+	min-height: 24px;
+}
+
+@media (max-width: 860px) {
+	.cy-merge-toolbar {
+		align-items: flex-start;
+		flex-direction: column;
+	}
+
+	.cy-merge-block,
+	.cy-merge-block-two-pane,
+	.cy-merge-pane-labels-three,
+	.cy-merge-pane-labels-two {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.cy-merge-pane-labels > div,
+	.cy-merge-block-cell {
+		border-right: 0;
+	}
+}

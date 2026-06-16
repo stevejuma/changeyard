@@ -3,6 +3,8 @@ import type {
 	RuntimeVcsActiveWorkspaceRequest,
 	RuntimeVcsApplyOperationRequest,
 	RuntimeVcsApplyOperationResponse,
+	RuntimeVcsConflictFileRequest,
+	RuntimeVcsConflictFileResponse,
 	RuntimeVcsDetectResponse,
 	RuntimeVcsDiffRequest,
 	RuntimeVcsDiffResponse,
@@ -18,6 +20,8 @@ import type {
 	RuntimeVcsJjStateResponse,
 	RuntimeVcsPreviewOperationRequest,
 	RuntimeVcsPreviewOperationResponse,
+	RuntimeVcsResolveConflictFileRequest,
+	RuntimeVcsResolveConflictFileResponse,
 	RuntimeVcsOperationPreviewResponse,
 	RuntimeVcsOperationResultResponse,
 	RuntimeVcsSubmitStackPreviewRequest,
@@ -175,6 +179,53 @@ function createUnavailableDiffResponse(reason: string): RuntimeVcsDiffResponse {
 		summary: "",
 		patch: "",
 		files: [],
+		diagnostics: [
+			{
+				level: "warning",
+				code: "workspace_missing",
+				message: reason,
+			},
+		],
+	};
+}
+
+function createUnavailableConflictFileResponse(
+	reason: string,
+	input?: Pick<RuntimeVcsConflictFileRequest, "path" | "source" | "revision">,
+): RuntimeVcsConflictFileResponse {
+	return {
+		ok: false,
+		provider: "git",
+		path: input?.path ?? "",
+		source: input?.source ?? "workspace",
+		revision: input?.revision ?? null,
+		readOnly: true,
+		left: "",
+		base: "",
+		right: "",
+		labels: {
+			left: "Left",
+			base: "Base",
+			right: "Right",
+		},
+		diagnostics: [
+			{
+				level: "warning",
+				code: "workspace_missing",
+				message: reason,
+			},
+		],
+	};
+}
+
+function createUnavailableResolveConflictFileResponse(
+	reason: string,
+	input: RuntimeVcsResolveConflictFileRequest,
+): RuntimeVcsResolveConflictFileResponse {
+	return {
+		ok: false,
+		path: input.path,
+		summary: reason,
 		diagnostics: [
 			{
 				level: "warning",
@@ -390,10 +441,13 @@ function createUnavailableSubmitResponse(
 
 function resolveVcsWorkspacePath(
 	workspaceScope: RuntimeTrpcWorkspaceScope | null,
-	input: RuntimeVcsActiveWorkspaceRequest | null | undefined,
+	input: unknown,
 	deps: CreateVcsApiDependencies,
 ): string | null {
-	const requestedPath = input?.workspacePath?.trim();
+	const requestedPath =
+		input && typeof input === "object" && "workspacePath" in input && typeof input.workspacePath === "string"
+			? input.workspacePath.trim()
+			: "";
 	if (requestedPath) {
 		return requestedPath;
 	}
@@ -571,6 +625,32 @@ export function createVcsApi(deps: CreateVcsApiDependencies): RuntimeTrpcContext
 				return createUnavailableDiffResponse("Provider-neutral VCS diff is not available in this runtime.");
 			}
 			return await deps.changeyardApi.getVcsDiff(workspacePath, input);
+		},
+		conflictFile: async (
+			workspaceScope: RuntimeTrpcWorkspaceScope | null,
+			input: RuntimeVcsConflictFileRequest,
+		) => {
+			const workspacePath = resolveVcsWorkspacePath(workspaceScope, input, deps);
+			if (!workspacePath) {
+				return createUnavailableConflictFileResponse("No active workspace is available for VCS conflict files.", input);
+			}
+			if (!deps.changeyardApi?.getVcsConflictFile) {
+				return createUnavailableConflictFileResponse("Provider-neutral VCS conflict files are not available in this runtime.", input);
+			}
+			return await deps.changeyardApi.getVcsConflictFile(workspacePath, input);
+		},
+		resolveConflictFile: async (
+			workspaceScope: RuntimeTrpcWorkspaceScope | null,
+			input: RuntimeVcsResolveConflictFileRequest,
+		) => {
+			const workspacePath = resolveVcsWorkspacePath(workspaceScope, input, deps);
+			if (!workspacePath) {
+				return createUnavailableResolveConflictFileResponse("No active workspace is available for VCS conflict resolution.", input);
+			}
+			if (!deps.changeyardApi?.resolveVcsConflictFile) {
+				return createUnavailableResolveConflictFileResponse("Provider-neutral VCS conflict resolution is not available in this runtime.", input);
+			}
+			return await deps.changeyardApi.resolveVcsConflictFile(workspacePath, input);
 		},
 		previewWorkspaceOperation: async (
 			workspaceScope: RuntimeTrpcWorkspaceScope | null,

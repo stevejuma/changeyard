@@ -2,10 +2,12 @@ import { detectVcsState } from "./detect.js";
 import { loadConfig } from "../config/loadConfig.js";
 import {
 	applyGitWorkspaceOperation,
+	loadGitConflictFile,
 	loadGitWorkspaceDiff,
 	loadGitWorkspaceStacks,
 	loadGitWorkspaceState,
 	previewGitWorkspaceOperation,
+	resolveGitConflictFile,
 } from "./git/workspace.js";
 import { applyJjOperation } from "./jj/apply.js";
 import { loadJjDiff } from "./jj/diff.js";
@@ -16,10 +18,12 @@ import { previewJjStackSubmit, submitJjStack } from "./jj/stack-submit.js";
 import { loadJjState, loadJjStateFromDetect } from "./jj/state.js";
 import {
 	applyJjWorkspaceOperation,
+	loadJjConflictFile,
 	loadJjWorkspaceDiff,
 	loadJjWorkspaceStacks,
 	loadJjWorkspaceState,
 	previewJjWorkspaceOperation,
+	resolveJjConflictFile,
 } from "./jj/workspace.js";
 import type { NeutralOperationRequest } from "./workspace-types.js";
 import { runVcsCommand } from "./process.js";
@@ -432,6 +436,67 @@ export async function getVcsDiff(repoRoot: string, _input?: unknown) {
 				level: "warning" as const,
 				code: "provider_engine_pending",
 				message: "Provider-neutral diff engines are not implemented yet.",
+			},
+		],
+	};
+}
+
+export async function getVcsConflictFile(
+	repoRoot: string,
+	input: { path: string; source?: "workspace" | "commit"; revision?: string | null; commitId?: string | null },
+) {
+	const detect = await detectVcsState(repoRoot, runVcsCommand);
+	if (detect.repository.kind === "jj") {
+		return await loadJjConflictFile(repoRoot, runVcsCommand, input);
+	}
+	if (detect.repository.kind === "git") {
+		return await loadGitConflictFile(repoRoot, runVcsCommand, input);
+	}
+	return {
+		ok: false,
+		provider: "git" as const,
+		path: input.path,
+		source: input.source ?? "workspace" as const,
+		revision: input.revision ?? null,
+		readOnly: true,
+		left: "",
+		base: "",
+		right: "",
+		labels: {
+			left: "Left",
+			base: "Base",
+			right: "Right",
+		},
+		diagnostics: [
+			{
+				level: "warning" as const,
+				code: "provider_engine_pending",
+				message: "Provider-neutral conflict files are not implemented for this repository.",
+			},
+		],
+	};
+}
+
+export async function resolveVcsConflictFile(
+	repoRoot: string,
+	input: { path: string; resolvedContent: string },
+) {
+	const detect = await detectVcsState(repoRoot, runVcsCommand);
+	if (detect.repository.kind === "jj") {
+		return await resolveJjConflictFile(repoRoot, runVcsCommand, input);
+	}
+	if (detect.repository.kind === "git") {
+		return await resolveGitConflictFile(repoRoot, runVcsCommand, input);
+	}
+	return {
+		ok: false,
+		path: input.path,
+		summary: "Provider-neutral conflict resolution is not implemented for this repository.",
+		diagnostics: [
+			{
+				level: "warning" as const,
+				code: "provider_engine_pending",
+				message: "Provider-neutral conflict resolution is not implemented for this repository.",
 			},
 		],
 	};

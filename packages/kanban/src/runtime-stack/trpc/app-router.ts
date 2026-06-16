@@ -89,6 +89,8 @@ import type {
 	RuntimeVcsActiveWorkspaceRequest,
 	RuntimeVcsApplyOperationRequest,
 	RuntimeVcsApplyOperationResponse,
+	RuntimeVcsConflictFileRequest,
+	RuntimeVcsConflictFileResponse,
 	RuntimeVcsDiffRequest,
 	RuntimeVcsDiffResponse,
 	RuntimeVcsJjDiffResponse,
@@ -103,6 +105,8 @@ import type {
 	RuntimeVcsJjStateResponse,
 	RuntimeVcsPreviewOperationRequest,
 	RuntimeVcsPreviewOperationResponse,
+	RuntimeVcsResolveConflictFileRequest,
+	RuntimeVcsResolveConflictFileResponse,
 	RuntimeVcsOperationPreviewResponse,
 	RuntimeVcsOperationResultResponse,
 	RuntimeVcsSubmitStackPreviewRequest,
@@ -235,6 +239,8 @@ import {
 	runtimeVcsActiveWorkspaceRequestSchema,
 	runtimeVcsApplyOperationRequestSchema,
 	runtimeVcsApplyOperationResponseSchema,
+	runtimeVcsConflictFileRequestSchema,
+	runtimeVcsConflictFileResponseSchema,
 	runtimeVcsDiffRequestSchema,
 	runtimeVcsDiffResultSchema,
 	runtimeVcsJjDiffResponseSchema,
@@ -249,6 +255,8 @@ import {
 	runtimeVcsJjStateResponseSchema,
 	runtimeVcsPreviewOperationRequestSchema,
 	runtimeVcsPreviewOperationResponseSchema,
+	runtimeVcsResolveConflictFileRequestSchema,
+	runtimeVcsResolveConflictFileResponseSchema,
 	runtimeVcsOperationPreviewSchema,
 	runtimeVcsOperationResultSchema,
 	runtimeVcsSubmitStackPreviewRequestSchema,
@@ -483,6 +491,14 @@ export interface RuntimeTrpcContext {
 			scope: RuntimeTrpcWorkspaceScope | null,
 			input?: RuntimeVcsDiffRequest,
 		) => Promise<RuntimeVcsDiffResponse>;
+		conflictFile: (
+			scope: RuntimeTrpcWorkspaceScope | null,
+			input: RuntimeVcsConflictFileRequest,
+		) => Promise<RuntimeVcsConflictFileResponse>;
+		resolveConflictFile: (
+			scope: RuntimeTrpcWorkspaceScope | null,
+			input: RuntimeVcsResolveConflictFileRequest,
+		) => Promise<RuntimeVcsResolveConflictFileResponse>;
 		previewWorkspaceOperation: (
 			scope: RuntimeTrpcWorkspaceScope | null,
 			input: RuntimeVcsWorkspaceOperationRequest,
@@ -848,6 +864,18 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeVcsDiffResultSchema)
 			.query(async ({ ctx, input }) => {
 				return await ctx.vcsApi.diff(ctx.workspaceScope, input);
+			}),
+		conflictFile: t.procedure
+			.input(runtimeVcsConflictFileRequestSchema)
+			.output(runtimeVcsConflictFileResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.vcsApi.conflictFile(ctx.workspaceScope, input);
+			}),
+		resolveConflictFile: t.procedure
+			.input(runtimeVcsResolveConflictFileRequestSchema)
+			.output(runtimeVcsResolveConflictFileResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.vcsApi.resolveConflictFile(ctx.workspaceScope, input);
 			}),
 		previewWorkspaceOperation: t.procedure
 			.input(runtimeVcsWorkspaceOperationRequestSchema)

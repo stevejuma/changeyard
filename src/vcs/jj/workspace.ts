@@ -1,6 +1,6 @@
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { detectVcsState, type VcsCommandRunner } from "../detect.js";
 import type {
 	VcsApplyOperationResult,
@@ -56,6 +56,105 @@ type JjPatchHunk = {
 
 function createDiagnostic(level: VcsDiagnostic["level"], code: string, message: string): VcsDiagnostic {
 	return { level, code, message };
+}
+
+function resolveRepoFilePath(repoCwd: string, path: string): string | null {
+	const absolutePath = resolve(repoCwd, path);
+	const relativePath = relative(repoCwd, absolutePath);
+	if (relativePath.startsWith("..") || isAbsolute(relativePath)) {
+		return null;
+	}
+	return absolutePath;
+}
+
+function splitConflictLines(content: string): { lines: string[]; trailingNewline: boolean } {
+	const trailingNewline = content.endsWith("\n");
+	const lines = content.length === 0 ? [] : content.split("\n");
+	if (trailingNewline) {
+		lines.pop();
+	}
+	return { lines, trailingNewline };
+}
+
+function joinConflictLines(lines: readonly string[], trailingNewline: boolean): string {
+	const body = lines.join("\n");
+	return trailingNewline && lines.length > 0 ? `${body}\n` : body;
+}
+
+export function parseJjConflictFile(content: string) {
+	const { lines, trailingNewline } = splitConflictLines(content);
+	const leftLines: string[] = [];
+	const baseLines: string[] = [];
+	const rightLines: string[] = [];
+	const diagnostics: VcsDiagnostic[] = [];
+	let index = 0;
+	let conflictCount = 0;
+
+	while (index < lines.length) {
+		const line = lines[index] ?? "";
+		if (!line.startsWith("<<<<<<< conflict ")) {
+			leftLines.push(line);
+			baseLines.push(line);
+			rightLines.push(line);
+			index += 1;
+			continue;
+		}
+		conflictCount += 1;
+		index += 1;
+		const conflictBaseLines: string[] = [];
+		const conflictLeftLines: string[] = [];
+		const conflictRightLines: string[] = [];
+		let inRightSide = false;
+		let ended = false;
+
+		while (index < lines.length) {
+			const conflictLine = lines[index] ?? "";
+			index += 1;
+			if (conflictLine.startsWith(">>>>>>> conflict ")) {
+				ended = true;
+				break;
+			}
+			if (/^\+{6,}\s/.test(conflictLine)) {
+				inRightSide = true;
+				continue;
+			}
+			if (conflictLine.startsWith("%%%%%%% ") || conflictLine.startsWith("\\")) {
+				continue;
+			}
+			if (inRightSide) {
+				conflictRightLines.push(conflictLine);
+				continue;
+			}
+			if (conflictLine.startsWith("-")) {
+				conflictBaseLines.push(conflictLine.slice(1));
+			} else if (conflictLine.startsWith("+")) {
+				conflictLeftLines.push(conflictLine.slice(1));
+			} else if (conflictLine.startsWith(" ")) {
+				const contextLine = conflictLine.slice(1);
+				conflictBaseLines.push(contextLine);
+				conflictLeftLines.push(contextLine);
+			} else {
+				conflictBaseLines.push(conflictLine);
+				conflictLeftLines.push(conflictLine);
+			}
+		}
+
+		if (!ended) {
+			diagnostics.push(createDiagnostic("warning", "jj_conflict_marker_unclosed", "A JJ conflict marker was not closed."));
+		}
+		leftLines.push(...conflictLeftLines);
+		baseLines.push(...conflictBaseLines);
+		rightLines.push(...conflictRightLines);
+	}
+
+	return {
+		ok: conflictCount > 0 && diagnostics.every((diagnostic) => diagnostic.level !== "error"),
+		conflictCount,
+		left: joinConflictLines(leftLines, trailingNewline),
+		base: joinConflictLines(baseLines, trailingNewline),
+		right: joinConflictLines(rightLines, trailingNewline),
+		diagnostics,
+	};
 }
 
 function workspaceCapabilities() {
@@ -293,10 +392,14 @@ async function readJjWorkspaceConflicts(cwd: string, runner: VcsCommandRunner, r
 		.filter((entry): entry is { changeId: string; commitId: string; title: string | null } => Boolean(entry));
 }
 
-async function readJjWorkspaceConflictPaths(cwd: string, runner: VcsCommandRunner): Promise<string[]> {
+async function readJjWorkspaceConflictPaths(cwd: string, runner: VcsCommandRunner, revision?: string | null): Promise<string[]> {
+	const args = ["resolve", "--list"];
+	if (revision) {
+		args.push("-r", revision);
+	}
 	const result = await runner({
 		command: "jj",
-		args: ["resolve", "--list"],
+		args,
 		cwd,
 	});
 	if (!result.ok) {
@@ -318,10 +421,14 @@ export async function loadJjWorkspaceState(
 	const repoCwd = state.repository.root ?? cwd;
 	const appliedStackIds = options.appliedStackIds ?? [];
 	const conflictRevset = createWorkspaceConflictRevset(appliedStackIds);
-	const [conflictChanges, conflictPaths] = await Promise.all([
+	const [conflictChanges, workspaceConflictPaths] = await Promise.all([
 		readJjWorkspaceConflicts(repoCwd, runner, conflictRevset),
 		readJjWorkspaceConflictPaths(repoCwd, runner),
 	]);
+	const conflictPathEntries = await Promise.all(
+		conflictChanges.map(async (conflict) => [conflict.changeId, await readJjWorkspaceConflictPaths(repoCwd, runner, conflict.changeId)] as const),
+	);
+	const conflictPathsByChangeId = new Map(conflictPathEntries);
 	const stacks = state.stacks.map((stack) => toWorkspaceStack(stack, state, appliedStackIds));
 	const stackIdsByCommitId = new Map<string, string[]>();
 	for (const stack of stacks) {
@@ -333,7 +440,8 @@ export async function loadJjWorkspaceState(
 		}
 	}
 	const conflicts = conflictChanges.flatMap((conflict) => {
-		const paths = conflictPaths.length > 0 ? conflictPaths : [null];
+		const pathsForChange = conflictPathsByChangeId.get(conflict.changeId) ?? [];
+		const paths = pathsForChange.length > 0 ? pathsForChange : workspaceConflictPaths.length > 0 ? workspaceConflictPaths : [null];
 		return paths.map((path) => ({
 			id: path ? `jj-conflict-${conflict.changeId}-${path}` : `jj-conflict-${conflict.changeId}`,
 			path,
@@ -345,7 +453,7 @@ export async function loadJjWorkspaceState(
 		}));
 	});
 	const workingCopyFilesByPath = new Map(state.unassignedChanges.map((change) => [change.path, toWorkspaceFile(change.path, change.status)]));
-	for (const path of conflictPaths) {
+	for (const path of workspaceConflictPaths) {
 		if (!workingCopyFilesByPath.has(path)) {
 			workingCopyFilesByPath.set(path, toWorkspaceFile(path, "modified"));
 		}
@@ -642,6 +750,116 @@ async function stackIdsContainingCommits(cwd: string, runner: VcsCommandRunner, 
 export async function loadJjWorkspaceDiff(cwd: string, runner: VcsCommandRunner) {
 	const diff = await loadJjDiff(cwd, runner);
 	return toNeutralDiff(diff);
+}
+
+export async function loadJjConflictFile(
+	cwd: string,
+	runner: VcsCommandRunner,
+	input: { path: string; source?: "workspace" | "commit"; revision?: string | null },
+) {
+	const detect = await detectVcsState(cwd, runner);
+	const repoCwd = detect.repository.root ?? cwd;
+	if (detect.repository.kind !== "jj") {
+		return {
+			ok: false,
+			provider: "jj" as const,
+			path: input.path,
+			source: input.source ?? "workspace" as const,
+			revision: input.revision ?? null,
+			readOnly: true,
+			left: "",
+			base: "",
+			right: "",
+			labels: { left: "Left", base: "Base", right: "Right" },
+			diagnostics: [createDiagnostic("warning", "jj_repo_required", "JJ conflict files are only available inside a JJ repository.")],
+		};
+	}
+	const source = input.source ?? (input.revision ? "commit" : "workspace");
+	const args = ["file", "show"];
+	if (input.revision) {
+		args.push("-r", input.revision);
+	}
+	args.push(input.path);
+	const result = await runner({ command: "jj", args, cwd: repoCwd });
+	if (!result.ok) {
+		return {
+			ok: false,
+			provider: "jj" as const,
+			path: input.path,
+			source,
+			revision: input.revision ?? null,
+			readOnly: true,
+			left: "",
+			base: "",
+			right: "",
+			labels: { left: "Left", base: "Base", right: "Right" },
+			diagnostics: [createDiagnostic("error", "jj_conflict_file_show_failed", result.stderr.trim() || `Could not load ${input.path}.`)],
+		};
+	}
+	const parsed = parseJjConflictFile(result.stdout);
+	const readOnly = source !== "workspace" || Boolean(input.revision);
+	return {
+		ok: parsed.ok,
+		provider: "jj" as const,
+		path: input.path,
+		source,
+		revision: input.revision ?? null,
+		readOnly,
+		left: parsed.left,
+		base: parsed.base,
+		right: parsed.right,
+		labels: {
+			left: readOnly ? "Left" : "Ours",
+			base: "Base",
+			right: readOnly ? "Right" : "Theirs",
+		},
+		diagnostics: [
+			...parsed.diagnostics,
+			...(parsed.conflictCount === 0 ? [createDiagnostic("warning", "jj_conflict_markers_missing", `${input.path} does not contain JJ conflict markers.`)] : []),
+		],
+	};
+}
+
+export async function resolveJjConflictFile(
+	cwd: string,
+	runner: VcsCommandRunner,
+	input: { path: string; resolvedContent: string },
+) {
+	const detect = await detectVcsState(cwd, runner);
+	const repoCwd = detect.repository.root ?? cwd;
+	if (detect.repository.kind !== "jj") {
+		return {
+			ok: false,
+			path: input.path,
+			summary: "JJ conflict resolution is only available inside a JJ repository.",
+			diagnostics: [createDiagnostic("warning", "jj_repo_required", "JJ conflict resolution is only available inside a JJ repository.")],
+		};
+	}
+	const absolutePath = resolveRepoFilePath(repoCwd, input.path);
+	if (!absolutePath) {
+		return {
+			ok: false,
+			path: input.path,
+			summary: "Conflict file path escapes the repository.",
+			diagnostics: [createDiagnostic("error", "jj_conflict_path_invalid", "Conflict file path escapes the repository.")],
+		};
+	}
+	await writeFile(absolutePath, input.resolvedContent, "utf8");
+	const unresolvedPaths = await readJjWorkspaceConflictPaths(repoCwd, runner);
+	if (unresolvedPaths.includes(input.path)) {
+		return {
+			ok: false,
+			path: input.path,
+			summary: `${input.path} is still reported by jj resolve --list.`,
+			diagnostics: [createDiagnostic("warning", "jj_conflict_still_unresolved", `${input.path} is still reported by jj resolve --list.`)],
+		};
+	}
+	return {
+		ok: true,
+		path: input.path,
+		summary: `Resolved ${input.path}.`,
+		diagnostics: [],
+	};
 }
 
 export async function previewJjWorkspaceOperation(

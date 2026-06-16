@@ -6,6 +6,7 @@
   "packageManager": "pnpm@10.32.1",
   "workspaces": [
     "packages/kanban",
+    "packages/merge",
     "packages/tui",
     "packages/vcs"
   ],
@@ -15,10 +16,11 @@
   },
   "scripts": {
     "build:cli": "tsc -p tsconfig.json && mkdir -p dist/src/templates dist/src/planning/templates/prompts && cp src/templates/*.md dist/src/templates/ && cp src/planning/templates/prompts/*.md dist/src/planning/templates/prompts/",
+    "build:merge": "pnpm --filter @changeyard/merge run build",
     "build:vcs": "pnpm --filter @changeyard/vcs run build",
     "build:kanban": "pnpm --filter @changeyard/kanban run build",
     "build:tui": "pnpm --filter @changeyard/tui run build",
-    "build": "pnpm run build:cli && pnpm run build:vcs && pnpm run build:kanban && pnpm run build:tui",
+    "build": "pnpm run build:cli && pnpm run build:merge && pnpm run build:vcs && pnpm run build:kanban && pnpm run build:tui",
     "cli": "node scripts/cy.mjs",
     "cy": "node scripts/cy.mjs",
     "cy:dev": "CHANGEYARD_DEV=1 node scripts/cy.mjs",
@@ -54,6 +56,8 @@
     "packages/kanban/dist",
     "packages/kanban/package.json",
     "packages/kanban/README.md",
+    "packages/merge/dist",
+    "packages/merge/package.json",
     "packages/tui/dist",
     "packages/tui/package.json",
     "README.md",

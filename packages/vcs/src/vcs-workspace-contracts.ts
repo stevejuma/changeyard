@@ -233,6 +233,49 @@ export interface VcsDiffResult {
 	diagnostics: VcsDiagnostic[];
 }
 
+export type VcsConflictFileSource = "workspace" | "commit";
+
+export interface VcsConflictFileInput {
+	projectId: string;
+	workspacePath?: string | null;
+	path: string;
+	source?: VcsConflictFileSource;
+	revision?: string | null;
+	commitId?: string | null;
+}
+
+export interface VcsConflictFileResult {
+	ok: boolean;
+	provider: VcsProviderKind;
+	path: string;
+	source: VcsConflictFileSource;
+	revision?: string | null;
+	readOnly: boolean;
+	left: string;
+	base: string;
+	right: string;
+	labels: {
+		left: string;
+		base: string;
+		right: string;
+	};
+	diagnostics: VcsDiagnostic[];
+}
+
+export interface VcsResolveConflictFileInput {
+	projectId: string;
+	workspacePath?: string | null;
+	path: string;
+	resolvedContent: string;
+}
+
+export interface VcsResolveConflictFileResult {
+	ok: boolean;
+	path: string;
+	summary: string;
+	diagnostics: VcsDiagnostic[];
+}
+
 export interface VcsWorkspaceStateInput {
 	projectId: string;
 	workspacePath?: string | null;
@@ -261,6 +304,8 @@ export interface VcsWorkspaceEngine {
 	getCapabilities(): VcsWorkspaceCapabilities;
 	getWorkspaceState(input: VcsWorkspaceStateInput): Promise<VcsWorkspaceState>;
 	getDiff(input: VcsDiffInput): Promise<VcsDiffResult>;
+	getConflictFile(input: VcsConflictFileInput): Promise<VcsConflictFileResult>;
+	resolveConflictFile(input: VcsResolveConflictFileInput): Promise<VcsResolveConflictFileResult>;
 	previewOperation(input: VcsWorkspaceOperationInput): Promise<VcsOperationPreview>;
 	applyOperation(input: VcsWorkspaceOperationInput): Promise<VcsOperationResult>;
 }

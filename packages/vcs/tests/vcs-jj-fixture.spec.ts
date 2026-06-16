@@ -571,6 +571,13 @@ test.describe.serial("VCS JJ scenario fixture", () => {
 		await openWorkspace(page, workspaceConflictId);
 		await expect(page.getByText("Conflicted", { exact: true })).toBeVisible();
 		await expect(page.getByText(/src\/conflict\.rs/)).toBeVisible();
+		await page.locator('[data-testid="vcs-working-copy-file-row"][data-file-path="src/conflict.rs"]').first().click();
+		await expect(page.getByTestId("cy-merge-editor")).toBeVisible();
+		await expect(page.getByTestId("cy-merge-conflict-block")).toBeVisible();
+		await page.getByRole("button", { name: "Accept Right" }).first().click();
+		await expect(page.getByText("All conflict blocks are marked resolved.")).toBeVisible();
+		await page.getByRole("button", { name: "Save" }).click();
+		await expect(page.getByText("Conflicted", { exact: true })).toBeHidden({ timeout: 10_000 });
 
 		const commitConflict = scenario("commit-conflict");
 		const commitConflictId = await addProject(request, commitConflict.workspacePath);
@@ -585,6 +592,14 @@ test.describe.serial("VCS JJ scenario fixture", () => {
 		await openWorkspace(page, commitConflictId);
 		await expect(page.getByText("commit conflict merge", { exact: true })).toBeVisible();
 		await expect(page.getByText("Conflicted", { exact: true })).toBeVisible();
+		const commitConflictCard = page.getByTestId("vcs-workspace-commit-card").filter({ hasText: "commit conflict merge" }).first();
+		await commitConflictCard.getByRole("button", { name: /commit conflict merge/ }).first().click();
+		const commitConflictFileRow = commitConflictCard.locator('[data-testid="vcs-file-row"][data-file-path="src/conflict.rs"]');
+		await expect(commitConflictFileRow).toBeVisible();
+		await commitConflictFileRow.click();
+		await expect(page.getByTestId("cy-merge-editor")).toBeVisible();
+		await expect(page.getByText("Check out or edit this conflicted commit before saving a resolution.")).toBeVisible();
+		await expect(page.getByRole("button", { name: "Save" })).toBeHidden();
 	});
 
 	test("apply-stack-conflict scenario becomes conflicted after applying its suggested stack", async ({ page, request }) => {

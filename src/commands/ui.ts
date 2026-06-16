@@ -21,7 +21,7 @@ import { listGlobalTemplateProfiles } from "../config/templateProfiles.js";
 import { runInit } from "./init.js";
 import { runUpdate } from "./update.js";
 import { doctorReport } from "./doctor.js";
-import { applyVcsOperation, applyVcsWorkspaceOperation, createJjSnapshot, detectVcs, getJjBranchesData, getJjDiff, getJjInventory, getJjOperationDiff, getJjOperations, getJjState, getVcsBranchesData, getVcsDiff, getVcsWorkspaceStacks, getVcsWorkspaceState, previewVcsOperation, previewVcsWorkspaceOperation, revertJjOperationById, submitVcsStack, submitVcsStackPreview } from "../vcs/adapter.js";
+import { applyVcsOperation, applyVcsWorkspaceOperation, createJjSnapshot, detectVcs, getJjBranchesData, getJjDiff, getJjInventory, getJjOperationDiff, getJjOperations, getJjState, getVcsBranchesData, getVcsConflictFile, getVcsDiff, getVcsWorkspaceStacks, getVcsWorkspaceState, previewVcsOperation, previewVcsWorkspaceOperation, resolveVcsConflictFile, revertJjOperationById, submitVcsStack, submitVcsStackPreview } from "../vcs/adapter.js";
 import type { VcsApplyOperationInput, VcsPreviewOperationInput, VcsSubmitStackPreviewInput } from "../vcs/types.js";
 import { installCliShutdownHandlers } from "./gracefulShutdown.js";
 import { DEFAULT_PLANNING_SECTION_ORDER, STRICT_PLANNING_SECTION_ORDER, type PlanningSectionId } from "../planning/types.js";
@@ -405,6 +405,12 @@ export function createChangeyardUiApi() {
     },
     getVcsDiff(repoRoot: string, input?: unknown) {
       return getVcsDiff(repoRoot, input);
+    },
+    getVcsConflictFile(repoRoot: string, input: Parameters<typeof getVcsConflictFile>[1]) {
+      return getVcsConflictFile(repoRoot, input);
+    },
+    resolveVcsConflictFile(repoRoot: string, input: Parameters<typeof resolveVcsConflictFile>[1]) {
+      return resolveVcsConflictFile(repoRoot, input);
     },
     previewVcsWorkspaceOperation(repoRoot: string, input: Parameters<typeof previewVcsWorkspaceOperation>[1]) {
       return previewVcsWorkspaceOperation(repoRoot, input);

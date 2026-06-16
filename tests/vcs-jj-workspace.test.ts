@@ -106,7 +106,7 @@ function createConflictStateRunner(calls: string[] = []): VcsCommandRunner {
 			calls.push(joined);
 			return ok("api222\t22222222\tAPI change\n");
 		}
-		if (joined === "jj resolve --list") {
+		if (joined === "jj resolve --list" || joined === "jj resolve --list -r api222") {
 			calls.push(joined);
 			return ok("src/api.ts    2-sided conflict\nsrc/config.ts    2-sided conflict");
 		}

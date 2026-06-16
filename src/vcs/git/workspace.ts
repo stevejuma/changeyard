@@ -1,3 +1,5 @@
+import { writeFile } from "node:fs/promises";
+import { isAbsolute, relative, resolve } from "node:path";
 import { detectVcsState, type VcsCommandRunner } from "../detect.js";
 import type { VcsDiagnostic } from "../types.js";
 import type { NeutralOperation, NeutralOperationRequest, NeutralSelection } from "../workspace-types.js";
@@ -37,6 +39,15 @@ export interface GitWorkspaceOptions {
 
 function createDiagnostic(level: VcsDiagnostic["level"], code: string, message: string): VcsDiagnostic {
 	return { level, code, message };
+}
+
+function resolveRepoFilePath(repoCwd: string, path: string): string | null {
+	const absolutePath = resolve(repoCwd, path);
+	const relativePath = relative(repoCwd, absolutePath);
+	if (relativePath.startsWith("..") || isAbsolute(relativePath)) {
+		return null;
+	}
+	return absolutePath;
 }
 
 function gitCapabilities() {
@@ -1553,5 +1564,127 @@ export async function loadGitWorkspaceDiff(cwd: string, runner: VcsCommandRunner
 			...(nameStatusResult.ok ? [] : [createDiagnostic("warning", "git_diff_summary_failed", "Could not load Git diff summary.")]),
 			...(patchResult.ok ? [] : [createDiagnostic("warning", "git_diff_patch_failed", "Could not load Git patch output.")]),
 		],
+	};
+}
+
+async function readGitConflictStage(cwd: string, runner: VcsCommandRunner, stage: 1 | 2 | 3, path: string) {
+	const result = await runner({
+		command: "git",
+		args: ["show", `:${stage}:${path}`],
+		cwd,
+	});
+	return result.ok ? result.stdout : null;
+}
+
+export async function loadGitConflictFile(
+	cwd: string,
+	runner: VcsCommandRunner,
+	input: { path: string; source?: "workspace" | "commit"; revision?: string | null },
+) {
+	const detect = await detectVcsState(cwd, runner);
+	const repoCwd = detect.repository.root ?? cwd;
+	if (detect.repository.kind !== "git") {
+		return {
+			ok: false,
+			provider: "git" as const,
+			path: input.path,
+			source: input.source ?? "workspace" as const,
+			revision: input.revision ?? null,
+			readOnly: true,
+			left: "",
+			base: "",
+			right: "",
+			labels: { left: "Ours", base: "Base", right: "Theirs" },
+			diagnostics: [createDiagnostic("warning", "git_repo_required", "Git conflict files are only available inside a Git repository.")],
+		};
+	}
+	if ((input.source ?? "workspace") !== "workspace" || input.revision) {
+		return {
+			ok: false,
+			provider: "git" as const,
+			path: input.path,
+			source: input.source ?? "commit" as const,
+			revision: input.revision ?? null,
+			readOnly: true,
+			left: "",
+			base: "",
+			right: "",
+			labels: { left: "Ours", base: "Base", right: "Theirs" },
+			diagnostics: [createDiagnostic("warning", "git_commit_conflict_read_unsupported", "Git commit conflict files are not available from index stages.")],
+		};
+	}
+	const [base, left, right] = await Promise.all([
+		readGitConflictStage(repoCwd, runner, 1, input.path),
+		readGitConflictStage(repoCwd, runner, 2, input.path),
+		readGitConflictStage(repoCwd, runner, 3, input.path),
+	]);
+	const diagnostics = [
+		...(base === null ? [createDiagnostic("warning", "git_conflict_base_missing", `Git stage 1 is missing for ${input.path}.`)] : []),
+		...(left === null ? [createDiagnostic("error", "git_conflict_ours_missing", `Git stage 2 is missing for ${input.path}.`)] : []),
+		...(right === null ? [createDiagnostic("error", "git_conflict_theirs_missing", `Git stage 3 is missing for ${input.path}.`)] : []),
+	];
+	return {
+		ok: left !== null && right !== null,
+		provider: "git" as const,
+		path: input.path,
+		source: "workspace" as const,
+		revision: null,
+		readOnly: false,
+		left: left ?? "",
+		base: base ?? "",
+		right: right ?? "",
+		labels: { left: "Ours", base: "Base", right: "Theirs" },
+		diagnostics,
+	};
+}
+
+export async function resolveGitConflictFile(
+	cwd: string,
+	runner: VcsCommandRunner,
+	input: { path: string; resolvedContent: string },
+) {
+	const detect = await detectVcsState(cwd, runner);
+	const repoCwd = detect.repository.root ?? cwd;
+	if (detect.repository.kind !== "git") {
+		return {
+			ok: false,
+			path: input.path,
+			summary: "Git conflict resolution is only available inside a Git repository.",
+			diagnostics: [createDiagnostic("warning", "git_repo_required", "Git conflict resolution is only available inside a Git repository.")],
+		};
+	}
+	const absolutePath = resolveRepoFilePath(repoCwd, input.path);
+	if (!absolutePath) {
+		return {
+			ok: false,
+			path: input.path,
+			summary: "Conflict file path escapes the repository.",
+			diagnostics: [createDiagnostic("error", "git_conflict_path_invalid", "Conflict file path escapes the repository.")],
+		};
+	}
+	const unmergedResult = await runner({ command: "git", args: ["ls-files", "-u", "--", input.path], cwd: repoCwd });
+	if (!unmergedResult.ok || !unmergedResult.stdout.trim()) {
+		return {
+			ok: false,
+			path: input.path,
+			summary: `${input.path} is not an unresolved Git conflict.`,
+			diagnostics: [createDiagnostic("warning", "git_conflict_not_unmerged", `${input.path} is not an unresolved Git conflict.`)],
+		};
+	}
+	await writeFile(absolutePath, input.resolvedContent, "utf8");
+	const addResult = await runner({ command: "git", args: ["add", "--", input.path], cwd: repoCwd });
+	if (!addResult.ok) {
+		return {
+			ok: false,
+			path: input.path,
+			summary: addResult.stderr.trim() || `Could not stage resolved ${input.path}.`,
+			diagnostics: [createDiagnostic("error", "git_conflict_add_failed", addResult.stderr.trim() || `Could not stage resolved ${input.path}.`)],
+		};
+	}
+	return {
+		ok: true,
+		path: input.path,
+		summary: `Resolved ${input.path}.`,
+		diagnostics: [],
 	};
 }

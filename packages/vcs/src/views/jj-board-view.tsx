@@ -23,6 +23,7 @@ import { FileTypeIcon } from "@/components/ui/file-type-icon";
 import { MarkdownMessageEditor, MarkdownMessagePreview, type MarkdownMessageEditorMode } from "@/components/ui/markdown-message-editor";
 import { Spinner } from "@/components/ui/spinner";
 import { FileStatusGlyph, StatusChip } from "@/components/ui/status-chip";
+import { VcsConflictMergeEditor } from "@/components/vcs-conflict-merge-editor";
 import {
 	findFileByPath,
 	getFirstFilePath,
@@ -542,6 +543,12 @@ function toUiFileChange(file: VcsWorkspaceState["workingCopy"]["files"][number])
 	};
 }
 
+function conflictPathsToFileChanges(paths: ReadonlySet<string>): VcsFileChange[] {
+	return Array.from(paths)
+		.sort((left, right) => left.localeCompare(right))
+		.map((path) => ({ path, status: "modified" }));
+}
+
 function workspaceBoardHeadBookmarkName(stackName: string, commit: VcsWorkspaceState["stacks"][number]["commits"][number]): string {
 	const bookmarks = Array.isArray(commit.metadata?.bookmarks) ? metadataStringArray(commit.metadata.bookmarks) : [];
 	return bookmarks.find((bookmark) => bookmark === stackName) ?? bookmarks[0] ?? stackName;
@@ -864,8 +871,18 @@ function WorkspaceReady({
 				return change.changeId;
 			}
 		}
+		for (const stack of data.stacks) {
+			const commit = stack.commits.find((candidate) => {
+				const commitHash = metadataString(candidate.metadata?.commitHash) ?? candidate.displayId ?? candidate.commitId;
+				const changeId = metadataString(candidate.metadata?.changeId) ?? candidate.commitId;
+				return commitHash === selectedCommitHash || changeId === selectedCommitHash || candidate.commitId === selectedCommitHash;
+			});
+			if (commit) {
+				return metadataString(commit.metadata?.changeId) ?? commit.commitId;
+			}
+		}
 		return null;
-	}, [appliedStacks, selectedCommitHash]);
+	}, [appliedStacks, data.stacks, selectedCommitHash]);
 	const selectedWorkspaceCommit = useMemo(() => {
 		if (!selectedCommitHash) {
 			return null;
@@ -910,9 +927,7 @@ function WorkspaceReady({
 	};
 	const files = toFileChanges(commitDiffQuery.state);
 	const selectedHeaderStackFiles = selectedStackHeaderId ? files : [];
-	const selectedFile = findFileByPath(files, selectedFilePath);
-	const floatingCommitSummaryFile = findFileByPath(files, floatingCommitSummaryFilePath) ?? selectedFile;
-	const floatingCommitSummarySelectedFilePath = floatingCommitSummaryFile?.path ?? null;
+	const selectedDiffFile = findFileByPath(files, selectedFilePath);
 	const unstagedDiffFiles = useMemo(() => toWorkingCopyDiffFiles(diffState), [diffState]);
 	const workingCopyFiles = useMemo(() => data.workingCopy.files.map(toUiFileChange), [data.workingCopy.files]);
 	const workingCopyConflictPaths = useMemo(
@@ -937,6 +952,24 @@ function WorkspaceReady({
 		}
 		return pathsByCommitId;
 	}, [data.conflicts]);
+	const selectedCommitConflictPaths = selectedCommitChangeId
+		? conflictPathsByCommitId.get(selectedCommitChangeId) ?? EMPTY_CONFLICT_PATHS
+		: EMPTY_CONFLICT_PATHS;
+	const selectedCommitConflictFiles = useMemo(
+		() => conflictPathsToFileChanges(selectedCommitConflictPaths),
+		[selectedCommitConflictPaths],
+	);
+	const selectedCommitFiles =
+		files.length > 0 || selectedCommitConflictFiles.length === 0 ? files : selectedCommitConflictFiles;
+	const selectedDisplayFilePath =
+		selectedFilePath ?? selectedCommitConflictFiles[0]?.path ?? null;
+	const selectedFile =
+		selectedDiffFile ??
+		(selectedDisplayFilePath && selectedCommitConflictPaths.has(selectedDisplayFilePath)
+			? ({ path: selectedDisplayFilePath, status: "modified" } satisfies VcsFileChange)
+			: null);
+	const floatingCommitSummaryFile = findFileByPath(files, floatingCommitSummaryFilePath) ?? selectedFile;
+	const floatingCommitSummarySelectedFilePath = floatingCommitSummaryFile?.path ?? null;
 	const stagedComposerFiles = useMemo(
 		() =>
 			filesForSelection(
@@ -955,6 +988,9 @@ function WorkspaceReady({
 		(selectedUnstagedFallbackFile
 			? { path: selectedUnstagedFallbackFile.path, status: selectedUnstagedFallbackFile.status }
 			: null);
+	const selectedCommitHasConflict =
+		Boolean(selectedFile?.path && selectedCommitChangeId && conflictPathsByCommitId.get(selectedCommitChangeId)?.has(selectedFile.path));
+	const selectedUnstagedHasConflict = Boolean(selectedUnstagedFile?.path && workingCopyConflictPaths.has(selectedUnstagedFile.path));
 	const previewState = toRuntimeQueryState<VcsOperationPreview>(previewResult, "Failed to preview workspace operation.");
 
 	useEffect(() => {
@@ -1004,7 +1040,13 @@ function WorkspaceReady({
 		}
 		const nextFiles = commitDiffQuery.state.data.files;
 		if (nextFiles.length === 0) {
-			if (selectedFilePath) {
+			const nextConflictFilePath = Array.from(selectedCommitConflictPaths).sort((left, right) => left.localeCompare(right))[0] ?? null;
+			if (nextConflictFilePath) {
+				if (selectedFilePath !== nextConflictFilePath) {
+					setSelectedFilePath(nextConflictFilePath);
+					writeQueryParam("file", nextConflictFilePath);
+				}
+			} else if (selectedFilePath) {
 				setSelectedFilePath(null);
 				writeQueryParam("file", null);
 			}
@@ -1016,7 +1058,19 @@ function WorkspaceReady({
 		const nextFilePath = getFirstFilePath(nextFiles);
 		setSelectedFilePath(nextFilePath);
 		writeQueryParam("file", nextFilePath);
-	}, [commitDiffQuery.state, hasUserClearedFile, isFileSectionCollapsed, selectedFilePath, selectedStackHeaderId]);
+	}, [commitDiffQuery.state, hasUserClearedFile, isFileSectionCollapsed, selectedCommitConflictPaths, selectedFilePath, selectedStackHeaderId]);
+
+	useEffect(() => {
+		if (selectedFilePath || hasUserClearedFile || selectedCommitConflictPaths.size === 0) {
+			return;
+		}
+		const nextFilePath = Array.from(selectedCommitConflictPaths).sort((left, right) => left.localeCompare(right))[0] ?? null;
+		if (!nextFilePath) {
+			return;
+		}
+		setSelectedFilePath(nextFilePath);
+		writeQueryParam("file", nextFilePath);
+	}, [hasUserClearedFile, selectedCommitConflictPaths, selectedFilePath]);
 
 	async function unapplyStack(stackId: string): Promise<void> {
 		const operation = {
@@ -2078,7 +2132,7 @@ function WorkspaceReady({
 				wrapText={isCommitSummaryWrapEnabled}
 				files={files}
 				selectedFile={isCommitSummaryFloating ? floatingCommitSummaryFile : selectedFile}
-				selectedFilePath={isCommitSummaryFloating ? floatingCommitSummarySelectedFilePath : selectedFilePath}
+				selectedFilePath={isCommitSummaryFloating ? floatingCommitSummarySelectedFilePath : selectedDisplayFilePath}
 				isFilesLoading={commitDiffQuery.state.status === "loading"}
 				fileViewMode={fileViewMode}
 				canRewrite={canEditWorkspaceCommit(selectedStackChange)}
@@ -2147,6 +2201,18 @@ function WorkspaceReady({
 			onClose={closeSelectedCommitColumn}
 			onHunkDragStart={(event, hunk) => startCommittedHunkDrag(event, hunk, selectedCommitChangeId)}
 			topContent={diffColumnTopContent}
+			content={
+				selectedFile && selectedCommitHasConflict && selectedCommitChangeId ? (
+					<VcsConflictMergeEditor
+						workspaceId={workspaceId}
+						workspacePath={workspacePath}
+						path={selectedFile.path}
+						source="commit"
+						revision={selectedCommitChangeId}
+						readOnlyReason="Check out or edit this conflicted commit before saving a resolution."
+					/>
+				) : undefined
+			}
 		/>
 	) : null;
 	const unstagedDiffColumn = selectedUnstagedFilePath ? (
@@ -2159,6 +2225,17 @@ function WorkspaceReady({
 			onWidthChange={changeDiffColumnWidth}
 			onClose={closeUnstagedDiff}
 			onHunkDragStart={startWorkingCopyHunkDrag}
+			content={
+				selectedUnstagedFile && selectedUnstagedHasConflict ? (
+					<VcsConflictMergeEditor
+						workspaceId={workspaceId}
+						workspacePath={workspacePath}
+						path={selectedUnstagedFile.path}
+						source="workspace"
+						onResolved={onWorkspaceStateRefresh}
+					/>
+				) : undefined
+			}
 		/>
 	) : null;
 	const showTrailingSpacer = appliedStacks.length > 0 || Boolean(selectedFile) || Boolean(selectedUnstagedFilePath);
@@ -2221,8 +2298,8 @@ function WorkspaceReady({
 									onWidthChange={(width) => changeStackColumnWidth(stack.id, width)}
 									onUnapply={() => void unapplyStack(stack.id)}
 										selectedCommitHash={selectedCommitHash}
-										selectedFilePath={selectedFilePath}
-										selectedFiles={files}
+										selectedFilePath={selectedDisplayFilePath}
+										selectedFiles={selectedCommitFiles}
 										selectedStackHeaderId={selectedStackHeaderId}
 										selectedStackFilePath={selectedStackFilePath}
 										selectedStackFiles={selectedHeaderStackFiles}

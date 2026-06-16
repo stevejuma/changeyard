@@ -758,6 +758,50 @@ export const runtimeVcsDiffResultSchema = z.object({
 });
 export type RuntimeVcsDiffResponse = z.infer<typeof runtimeVcsDiffResultSchema>;
 
+export const runtimeVcsConflictFileSourceSchema = z.enum(["workspace", "commit"]);
+export type RuntimeVcsConflictFileSource = z.infer<typeof runtimeVcsConflictFileSourceSchema>;
+
+export const runtimeVcsConflictFileRequestSchema = runtimeVcsActiveWorkspaceRequestSchema.extend({
+	path: z.string().min(1),
+	source: runtimeVcsConflictFileSourceSchema.optional(),
+	revision: z.string().nullable().optional(),
+	commitId: z.string().nullable().optional(),
+});
+export type RuntimeVcsConflictFileRequest = z.infer<typeof runtimeVcsConflictFileRequestSchema>;
+
+export const runtimeVcsConflictFileResponseSchema = z.object({
+	ok: z.boolean(),
+	provider: runtimeVcsProviderKindSchema,
+	path: z.string(),
+	source: runtimeVcsConflictFileSourceSchema,
+	revision: z.string().nullable().optional(),
+	readOnly: z.boolean(),
+	left: z.string(),
+	base: z.string(),
+	right: z.string(),
+	labels: z.object({
+		left: z.string(),
+		base: z.string(),
+		right: z.string(),
+	}),
+	diagnostics: z.array(runtimeVcsDiagnosticSchema),
+});
+export type RuntimeVcsConflictFileResponse = z.infer<typeof runtimeVcsConflictFileResponseSchema>;
+
+export const runtimeVcsResolveConflictFileRequestSchema = runtimeVcsActiveWorkspaceRequestSchema.extend({
+	path: z.string().min(1),
+	resolvedContent: z.string(),
+});
+export type RuntimeVcsResolveConflictFileRequest = z.infer<typeof runtimeVcsResolveConflictFileRequestSchema>;
+
+export const runtimeVcsResolveConflictFileResponseSchema = z.object({
+	ok: z.boolean(),
+	path: z.string(),
+	summary: z.string(),
+	diagnostics: z.array(runtimeVcsDiagnosticSchema),
+});
+export type RuntimeVcsResolveConflictFileResponse = z.infer<typeof runtimeVcsResolveConflictFileResponseSchema>;
+
 export const runtimeVcsOperationWarningSchema = z.object({
 	code: z.string(),
 	message: z.string(),
@@ -879,7 +923,7 @@ export const runtimeVcsJjOperationsResponseSchema = z.object({
 });
 export type RuntimeVcsJjOperationsResponse = z.infer<typeof runtimeVcsJjOperationsResponseSchema>;
 
-export const runtimeVcsJjOperationDiffRequestSchema = z.object({
+export const runtimeVcsJjOperationDiffRequestSchema = runtimeVcsActiveWorkspaceRequestSchema.extend({
 	operationId: z.string().min(1),
 	commitSkip: z.number().int().nonnegative().optional(),
 	commitLimit: z.number().int().positive().max(500).optional(),
@@ -930,7 +974,7 @@ export const runtimeVcsJjOperationActionResponseSchema = z.object({
 });
 export type RuntimeVcsJjOperationActionResponse = z.infer<typeof runtimeVcsJjOperationActionResponseSchema>;
 
-export const runtimeVcsJjOperationRevertRequestSchema = z.object({
+export const runtimeVcsJjOperationRevertRequestSchema = runtimeVcsActiveWorkspaceRequestSchema.extend({
 	operationId: z.string(),
 });
 export type RuntimeVcsJjOperationRevertRequest = z.infer<typeof runtimeVcsJjOperationRevertRequestSchema>;

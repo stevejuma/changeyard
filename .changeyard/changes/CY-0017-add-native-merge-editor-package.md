@@ -2,13 +2,13 @@
 id: CY-0017
 title: Add native merge editor package
 type: agent-task
-status: synced
+status: merged
 priority: medium
 labels:
   - agent-ready
 author: stevejuma
 createdAt: 2026-06-16T22:07:08.954Z
-updatedAt: 2026-06-16T22:08:22.944Z
+updatedAt: 2026-06-17T07:40:28.728Z
 base:
   vcs: unknown
   revision: main
@@ -24,10 +24,11 @@ remote:
   issueUrl: null
   pullRequestNumber: null
   pullRequestUrl: null
+  mergedLocally: true
 checks:
   profile: standard
-  lastRun: null
-  lastStatus: null
+  lastRun: 2026-06-16T22:53:04.085Z
+  lastStatus: passed
 planning:
   model: openspec-lite
   storage: inline
@@ -43,6 +44,7 @@ planning:
     strictClarifications: skipped
     strictChecklist: skipped
     strictAnalysis: skipped
+mergedAt: 2026-06-17T07:40:28.724Z
 ---
 
 # Summary
@@ -55,12 +57,12 @@ Changeyard already surfaces Git and JJ conflicts, but the app only shows conflic
 
 # Plan
 
-- [ ] Port the useful MergeWeave diff/merge model into a new `@changeyard/merge` package with attribution.
-- [ ] Add React wrapper components and token-based CSS under the same package.
-- [ ] Extend the VCS runtime contract and providers to load conflict file sides and resolve current workspace conflicts.
-- [ ] Render conflicted workspace files with the merge editor and save resolved center content.
-- [ ] Render historical conflicted commits read-only in the same merge editor surface.
-- [ ] Add package, backend, and targeted VCS UI tests.
+- [x] Port the useful MergeWeave diff/merge model into a new `@changeyard/merge` package with attribution.
+- [x] Add React wrapper components and token-based CSS under the same package.
+- [x] Extend the VCS runtime contract and providers to load conflict file sides and resolve current workspace conflicts.
+- [x] Render conflicted workspace files with the merge editor and save resolved center content.
+- [x] Render historical conflicted commits read-only in the same merge editor surface.
+- [x] Add package, backend, and targeted VCS UI tests.
 
 <!-- cy:proposal:start -->
 # Proposal
@@ -73,13 +75,13 @@ Provide a native Changeyard merge editor that can be used from the React VCS app
 
 ### In Scope
 
-- [ ] New `packages/merge` workspace package exposed as `@changeyard/merge`.
-- [ ] Pure merge/diff APIs, React components, package CSS, and tests.
-- [ ] VCS runtime endpoints for loading conflict file content and resolving current workspace conflicts.
-- [ ] Git workspace conflict read/save support.
-- [ ] JJ workspace and conflicted commit read support using JJ conflict marker parsing.
-- [ ] JJ current workspace conflict save support by writing resolved file content and verifying the conflict path disappears.
-- [ ] VCS UI integration for conflicted file rows and commit conflict rows.
+- [x] New `packages/merge` workspace package exposed as `@changeyard/merge`.
+- [x] Pure merge/diff APIs, React components, package CSS, and tests.
+- [x] VCS runtime endpoints for loading conflict file content and resolving current workspace conflicts.
+- [x] Git workspace conflict read/save support.
+- [x] JJ workspace and conflicted commit read support using JJ conflict marker parsing.
+- [x] JJ current workspace conflict save support by writing resolved file content and verifying the conflict path disappears.
+- [x] VCS UI integration for conflicted file rows and commit conflict rows.
 
 ### Out of Scope
 
@@ -153,22 +155,22 @@ Git and JJ workspace engines gain conflict-file methods. Git uses index stages f
 
 ## 1. Planning
 
-- [ ] Create and validate `CY-0017`.
-- [ ] Start and verify the isolated Changeyard workspace.
+- [x] Create and validate `CY-0017`.
+- [x] Start and verify the isolated Changeyard workspace.
 
 ## 2. Implementation
 
-- [ ] Add `packages/merge` package metadata, TypeScript config, exports, CSS, and tests.
-- [ ] Implement pure merge/diff model and React components.
-- [ ] Add VCS runtime contract, provider methods, RTK Query endpoints, and UI wiring.
-- [ ] Add attribution for adapted MergeWeave code.
+- [x] Add `packages/merge` package metadata, TypeScript config, exports, CSS, and tests.
+- [x] Implement pure merge/diff model and React components.
+- [x] Add VCS runtime contract, provider methods, RTK Query endpoints, and UI wiring.
+- [x] Add attribution for adapted MergeWeave code.
 
 ## 3. Verification
 
-- [ ] Run package tests and typecheck.
-- [ ] Run VCS backend tests and VCS typecheck.
-- [ ] Run targeted Playwright conflict coverage.
-- [ ] Run full build before completion.
+- [x] Run package tests and typecheck.
+- [x] Run VCS backend tests and VCS typecheck.
+- [x] Run targeted Playwright conflict coverage.
+- [x] Run full build before completion.
 <!-- cy:tasks:end -->
 
 <!-- cy:verification:start -->
@@ -191,19 +193,29 @@ Git and JJ workspace engines gain conflict-file methods. Git uses index stages f
 
 ## Result
 
-_Not run yet._
+Passed:
+
+- `pnpm --filter @changeyard/merge run typecheck`
+- `pnpm --filter @changeyard/merge run test`
+- `pnpm --filter @changeyard/vcs run typecheck`
+- `pnpm --filter @changeyard/vcs run test`
+- `node --test dist/tests/vcs-git-workspace.test.js dist/tests/vcs-jj-workspace.test.js dist/tests/vcs-jj-conflict-parser.test.js`
+- `pnpm --filter @changeyard/vcs exec playwright test tests/vcs-jj-fixture.spec.ts --grep "renders workspace and commit conflict scenarios"`
+- `pnpm run build`
+
+The broader `pnpm --filter @changeyard/vcs run e2e -- --grep "conflict"` form was covered with the targeted JJ conflict fixture spec above, because the conflict coverage added in this change lives in that scenario test.
 <!-- cy:verification:end -->
 
 # Acceptance Criteria
-- [ ] `packages/merge` exists, builds, and exports pure APIs, React APIs, and CSS as planned.
-- [ ] Merge package tests cover one-way diff, three-way diff, overlays, whitespace/case options, merge actions, resolved state, and serialization.
-- [ ] VCS runtime can load conflict file sides for Git and JJ.
-- [ ] VCS runtime can save current workspace conflict resolutions for Git and JJ.
-- [ ] VCS UI opens conflicted workspace files in the merge editor with save controls.
-- [ ] VCS UI opens historical conflicted commits in read-only merge mode.
-- [ ] No Svelte dependency or Svelte custom element is introduced into Changeyard.
-- [ ] MergeWeave attribution is recorded.
-- [ ] Validation commands from the Verification section have been run or documented with blockers.
+- [x] `packages/merge` exists, builds, and exports pure APIs, React APIs, and CSS as planned.
+- [x] Merge package tests cover one-way diff, three-way diff, overlays, whitespace/case options, merge actions, resolved state, and serialization.
+- [x] VCS runtime can load conflict file sides for Git and JJ.
+- [x] VCS runtime can save current workspace conflict resolutions for Git and JJ.
+- [x] VCS UI opens conflicted workspace files in the merge editor with save controls.
+- [x] VCS UI opens historical conflicted commits in read-only merge mode.
+- [x] No Svelte dependency or Svelte custom element is introduced into Changeyard.
+- [x] MergeWeave attribution is recorded.
+- [x] Validation commands from the Verification section have been run or documented with blockers.
 
 # Agent Plan
 
@@ -211,4 +223,8 @@ Follow the Changeyard gate sequence first. After `cy verify CY-0017` passes in t
 
 # Completion Notes
 
-Summarize what changed, what checks ran, and what risks remain.
+Implemented a new `@changeyard/merge` workspace package with framework-free merge assembly/actions, React two-pane and three-pane editors, Changeyard-token CSS, tests, and MergeWeave MIT attribution. Extended VCS contracts, tRPC, RTK Query, Git/JJ provider methods, and the VCS UI so current workspace conflicts can be loaded, resolved, and saved, while conflicted historical commits open the same editor read-only.
+
+Validation passed with the package checks, VCS typecheck/tests, compiled Git/JJ conflict provider tests, the targeted JJ Playwright conflict scenario, and `pnpm run build`.
+
+Remaining risk: JJ conflict parsing intentionally targets the fixture-backed marker shape in this change and reports diagnostics for unsupported conflict marker shapes rather than attempting an unsafe parse.
