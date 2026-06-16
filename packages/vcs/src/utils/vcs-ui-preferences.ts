@@ -20,6 +20,8 @@ export const VCS_LAYOUT_STORAGE_KEYS = {
 
 export const VCS_LAYOUT_STORAGE_KEY_VALUES = Object.values(VCS_LAYOUT_STORAGE_KEYS);
 
+export const VCS_F_MODE_ENABLED_STORAGE_KEY = "changeyard.vcs.f-mode.enabled";
+
 export function clampNumber(value: number, min: number, max: number): number {
 	return Math.max(min, Math.min(max, Math.round(value)));
 }

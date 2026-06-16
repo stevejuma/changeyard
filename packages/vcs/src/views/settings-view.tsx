@@ -447,11 +447,13 @@ function SettingsDialogContent({
 	draftThemeId,
 	draftTargetBranch,
 	draftNotificationsEnabled,
+	draftFModeEnabled,
 	notificationPermission,
 	onFileViewModeChange,
 	onThemeChange,
 	onTargetBranchChange,
 	onNotificationsEnabledChange,
+	onFModeEnabledChange,
 	onRequestNotificationPermission,
 	onResetLayout,
 }: {
@@ -465,11 +467,13 @@ function SettingsDialogContent({
 	draftThemeId: ThemeId;
 	draftTargetBranch: string | null;
 	draftNotificationsEnabled: boolean;
+	draftFModeEnabled: boolean;
 	notificationPermission: BrowserNotificationPermission;
 	onFileViewModeChange: (mode: VcsFileViewMode) => void;
 	onThemeChange: (themeId: ThemeId) => void;
 	onTargetBranchChange: (targetBranch: string) => void;
 	onNotificationsEnabledChange: (enabled: boolean) => void;
+	onFModeEnabledChange: (enabled: boolean) => void;
 	onRequestNotificationPermission: () => void;
 	onResetLayout: () => void;
 }): React.ReactElement {
@@ -663,6 +667,17 @@ function SettingsDialogContent({
 						action={<FileViewModeControl value={draftFileViewMode} onChange={onFileViewModeChange} />}
 					/>
 					<SettingsRow
+						label="F Mode Navigation"
+						value={draftFModeEnabled ? "Enabled" : "Disabled"}
+						action={
+							<SwitchControl
+								checked={draftFModeEnabled}
+								onChange={onFModeEnabledChange}
+								label="Enable F Mode Navigation"
+							/>
+						}
+					/>
+					<SettingsRow
 						label="Layout"
 						value="Column widths and console height"
 						action={
@@ -731,12 +746,16 @@ export function SettingsDialog({
 	workspaceId,
 	open,
 	onOpenChange,
+	fModeEnabled,
+	onFModeEnabledChange,
 }: {
 	state: QueryState<VcsDetectResponse>;
 	projectState: VcsShellProjectState;
 	workspaceId: string | null;
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
+	fModeEnabled: boolean;
+	onFModeEnabledChange: (enabled: boolean) => void;
 }): React.ReactElement {
 	const [fileViewMode, setFileViewMode] = useState<VcsFileViewMode>(() => readVcsFileViewMode());
 	const [draftFileViewMode, setDraftFileViewMode] = useState<VcsFileViewMode>(() => readVcsFileViewMode());
@@ -746,6 +765,7 @@ export function SettingsDialog({
 	const [draftTargetBranch, setDraftTargetBranch] = useState<string | null>(null);
 	const [notificationsEnabled, setNotificationsEnabled] = useState(() => readBooleanStorage(VCS_NOTIFICATIONS_ENABLED_KEY, false));
 	const [draftNotificationsEnabled, setDraftNotificationsEnabled] = useState(() => readBooleanStorage(VCS_NOTIFICATIONS_ENABLED_KEY, false));
+	const [draftFModeEnabled, setDraftFModeEnabled] = useState(fModeEnabled);
 	const [notificationPermission, setNotificationPermission] = useState<BrowserNotificationPermission>(() => getBrowserNotificationPermission());
 	const projectConfigResult = useGetProjectConfigQuery({ workspaceId: workspaceId ?? "" }, { skip: !workspaceId || !open });
 	const inventoryResult = useGetJjInventoryQuery({ workspaceId: workspaceId ?? "" }, { skip: !workspaceId || !open });
@@ -761,12 +781,15 @@ export function SettingsDialog({
 			draftFileViewMode !== fileViewMode ||
 			draftThemeId !== initialThemeId ||
 			draftTargetBranch !== targetBranch ||
-			draftNotificationsEnabled !== notificationsEnabled,
+			draftNotificationsEnabled !== notificationsEnabled ||
+			draftFModeEnabled !== fModeEnabled,
 		[
+			draftFModeEnabled,
 			draftFileViewMode,
 			draftNotificationsEnabled,
 			draftTargetBranch,
 			draftThemeId,
+			fModeEnabled,
 			fileViewMode,
 			initialThemeId,
 			notificationsEnabled,
@@ -783,6 +806,12 @@ export function SettingsDialog({
 		setDraftTargetBranch(nextTargetBranch);
 	}, [projectConfigQuery.state]);
 
+	useEffect(() => {
+		if (open) {
+			setDraftFModeEnabled(fModeEnabled);
+		}
+	}, [fModeEnabled, open]);
+
 	function closeSettings(): void {
 		onOpenChange(false);
 	}
@@ -793,6 +822,7 @@ export function SettingsDialog({
 		previewThemeId(initialThemeId);
 		setDraftTargetBranch(targetBranch);
 		setDraftNotificationsEnabled(notificationsEnabled);
+		setDraftFModeEnabled(fModeEnabled);
 		closeSettings();
 	}
 
@@ -822,6 +852,9 @@ export function SettingsDialog({
 		}
 		setNotificationsEnabled(draftNotificationsEnabled);
 		writeBooleanStorage(VCS_NOTIFICATIONS_ENABLED_KEY, draftNotificationsEnabled);
+		if (draftFModeEnabled !== fModeEnabled) {
+			onFModeEnabledChange(draftFModeEnabled);
+		}
 		if (draftNotificationsEnabled && !notificationsEnabled && notificationPermission === "default") {
 			const nextPermission = await requestBrowserNotificationPermission();
 			setNotificationPermission(nextPermission);
@@ -857,11 +890,13 @@ export function SettingsDialog({
 				draftThemeId={draftThemeId}
 				draftTargetBranch={draftTargetBranch}
 				draftNotificationsEnabled={draftNotificationsEnabled}
+				draftFModeEnabled={draftFModeEnabled}
 				notificationPermission={notificationPermission}
 				onFileViewModeChange={setDraftFileViewMode}
 				onThemeChange={setDraftThemeId}
 				onTargetBranchChange={setDraftTargetBranch}
 				onNotificationsEnabledChange={setDraftNotificationsEnabled}
+				onFModeEnabledChange={setDraftFModeEnabled}
 				onRequestNotificationPermission={requestNotifications}
 				onResetLayout={resetLayout}
 			/>

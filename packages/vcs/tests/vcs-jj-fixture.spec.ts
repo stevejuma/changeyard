@@ -479,6 +479,58 @@ test.describe.serial("VCS JJ fixture", () => {
 		await expect(page.getByRole("combobox", { name: "Workspace target branch" })).toContainText("origin/main");
 	});
 
+	test("Settings persists F Mode Navigation and F Mode activates visible controls", async ({ page }) => {
+		await openSettings(page, workspaceId);
+		const settingsDialog = page.getByRole("dialog", { name: "Settings" });
+		const fModeSwitch = settingsDialog.getByRole("switch", { name: "Enable F Mode Navigation" });
+		await expect(fModeSwitch).toHaveAttribute("aria-checked", "false");
+		await expect(settingsDialog.getByText("F Mode Navigation", { exact: true })).toBeVisible();
+		await expect(settingsDialog.getByText("Disabled", { exact: true })).toBeVisible();
+
+		await fModeSwitch.click();
+		await expect(fModeSwitch).toHaveAttribute("aria-checked", "true");
+		await expect(settingsDialog.getByText("Enabled", { exact: true })).toBeVisible();
+		await settingsDialog.getByRole("button", { name: "Save" }).click();
+		await expect(settingsDialog).toBeHidden();
+
+		await page.reload();
+		await openSettings(page, workspaceId);
+		const reloadedSettingsDialog = page.getByRole("dialog", { name: "Settings" });
+		await expect(reloadedSettingsDialog.getByRole("switch", { name: "Enable F Mode Navigation" })).toHaveAttribute(
+			"aria-checked",
+			"true",
+		);
+		await reloadedSettingsDialog.getByRole("button", { name: "Cancel" }).click();
+		await expect(reloadedSettingsDialog).toBeHidden();
+
+		await openWorkspace(page, workspaceId);
+		await page.keyboard.press("f");
+		await expect(page.getByTestId("vcs-fmode-overlay").first()).toBeVisible();
+		const branchesLink = page.getByRole("link", { name: "Branches" }).first();
+		const branchesShortcut = await branchesLink.getAttribute("data-vcs-fmode-shortcut");
+		expect(branchesShortcut).toMatch(/^[A-Z]{2}$/);
+		if (!branchesShortcut) {
+			throw new Error("Branches link did not receive an F Mode shortcut.");
+		}
+		await page.keyboard.press(branchesShortcut[0]);
+		await page.keyboard.press(branchesShortcut[1]);
+		await expect(page.getByText("Current workspace target", { exact: true })).toBeVisible();
+		await expect(page).toHaveURL(new RegExp(`/vcs/jj/branches\\?workspaceId=${escapeRegExp(workspaceId)}`));
+		await expect(page.getByTestId("vcs-fmode-overlay")).toHaveCount(0);
+
+		await openSettings(page, workspaceId);
+		const disableDialog = page.getByRole("dialog", { name: "Settings" });
+		const enabledSwitch = disableDialog.getByRole("switch", { name: "Enable F Mode Navigation" });
+		await enabledSwitch.click();
+		await expect(enabledSwitch).toHaveAttribute("aria-checked", "false");
+		await disableDialog.getByRole("button", { name: "Save" }).click();
+		await expect(disableDialog).toBeHidden();
+
+		await openWorkspace(page, workspaceId);
+		await page.keyboard.press("f");
+		await expect(page.getByTestId("vcs-fmode-overlay")).toHaveCount(0);
+	});
+
 	test("History renders operation log and commit graph for the fixture", async ({ page }) => {
 		await page.goto(`/vcs/jj/history?workspaceId=${encodeURIComponent(workspaceId)}`);
 		await expect(page.getByText("Operations history", { exact: true })).toBeVisible();

@@ -1439,6 +1439,28 @@ body.kb-dependency-link-mode {
 	border-radius: var(--radius-sm);
 }
 
+/* -- F Mode Navigation -- */
+
+.vcs-fmode-overlay {
+	position: fixed;
+	z-index: 70;
+	min-width: 20px;
+	height: 16px;
+	padding: 1px 4px 0;
+	border: 1px solid color-mix(in srgb, var(--color-accent) 72%, var(--color-border-bright));
+	border-radius: var(--radius-sm);
+	background: color-mix(in srgb, var(--color-accent) 86%, var(--color-surface-0));
+	color: var(--color-accent-fg);
+	font-family: var(--font-mono);
+	font-size: 10px;
+	font-weight: 700;
+	line-height: 13px;
+	text-align: center;
+	box-shadow: 0 2px 8px rgb(0 0 0 / 38%);
+	pointer-events: none;
+	user-select: none;
+}
+
 /* -- Chat markdown -- */
 
 .kb-markdown > * {

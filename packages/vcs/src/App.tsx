@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { AddProjectDialog } from "@/components/add-project-dialog";
 import { notifyError, showAppToast } from "@/components/app-toaster";
+import { FModeNavigation } from "@/components/f-mode-navigation";
 import { resolveVcsRoute } from "@/routes";
 import type {
 	RuntimeProjectAddRequest,
@@ -29,6 +30,7 @@ import { SettingsDialog } from "@/views/settings-view";
 import { shouldUseNativeDirectoryPicker } from "@/utils/localhost-detection";
 import { withWorkspaceParam } from "@/utils/vcs-navigation";
 import {
+	VCS_F_MODE_ENABLED_STORAGE_KEY,
 	readVcsBooleanPreference,
 	VCS_LAYOUT_STORAGE_KEYS,
 	writeVcsBooleanPreference,
@@ -93,6 +95,9 @@ export default function App(): React.ReactElement {
 	const [selectedProjectId, setSelectedProjectId] = useState<string | null>(() => urlWorkspaceId);
 	const [isProjectNavCollapsed, setProjectNavCollapsedState] = useState(() =>
 		readVcsBooleanPreference(VCS_LAYOUT_STORAGE_KEYS.projectNavCollapsed, false),
+	);
+	const [fModeEnabled, setFModeEnabledState] = useState(() =>
+		readVcsBooleanPreference(VCS_F_MODE_ENABLED_STORAGE_KEY, false),
 	);
 	const [removingProjectId, setRemovingProjectId] = useState<string | null>(null);
 	const [optimisticallyRemovedProjectIds, setOptimisticallyRemovedProjectIds] = useState<Set<string>>(() => new Set());
@@ -207,6 +212,10 @@ export default function App(): React.ReactElement {
 
 	function setProjectNavCollapsed(collapsed: boolean): void {
 		setProjectNavCollapsedState(writeVcsBooleanPreference(VCS_LAYOUT_STORAGE_KEYS.projectNavCollapsed, collapsed));
+	}
+
+	function setFModeEnabled(enabled: boolean): void {
+		setFModeEnabledState(writeVcsBooleanPreference(VCS_F_MODE_ENABLED_STORAGE_KEY, enabled));
 	}
 
 	function handleAddProjectSuccess(projectId: string): void {
@@ -417,6 +426,7 @@ export default function App(): React.ReactElement {
 
 	return (
 		<>
+			<FModeNavigation enabled={fModeEnabled} />
 			{routedView}
 			<AddProjectDialog
 				open={isAddProjectDialogOpen}
@@ -436,6 +446,8 @@ export default function App(): React.ReactElement {
 				projectState={projectState}
 				workspaceId={workspaceId}
 				state={detectQuery.state}
+				fModeEnabled={fModeEnabled}
+				onFModeEnabledChange={setFModeEnabled}
 			/>
 		</>
 	);
