@@ -1,4 +1,5 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defaultConfig } from "../config/defaults.js";
@@ -10,6 +11,7 @@ import { resolveSelectedAgentTools, shouldInstallAgentTool } from "./available-t
 import { generateCommandsForTool } from "./command-generation/generator.js";
 import { getCommandAdapter } from "./command-generation/registry.js";
 import { buildScaffoldVcsConfig, detectScaffoldVcsEngine } from "./detect-vcs.js";
+import { generateHooksForTool, hookExcludePatternsForTool } from "./hook-generation.js";
 import {
   CANONICAL_SKILL_RELATIVE_PATH,
   generateChangeyardSkillContent,
@@ -94,19 +96,72 @@ function writeScaffoldFile(
   mode: ScaffoldMode,
   dryRun: boolean,
   result: ScaffoldResult,
-): void {
-  const label = relativePath(repoRoot, targetPath);
+  displayPath?: string,
+): boolean {
+  const label = displayPath ?? relativePath(repoRoot, targetPath);
   if (existsSync(targetPath) && mode === "init") {
     result.skipped.push(label);
-    return;
+    return false;
   }
   if (dryRun) {
     result.installed.push(label);
-    return;
+    return true;
   }
   mkdirSync(path.dirname(targetPath), { recursive: true });
   writeFileSync(targetPath, content);
   result.installed.push(label);
+  return true;
+}
+
+function writeScaffoldFileWithMode(
+  repoRoot: string,
+  targetPath: string,
+  content: string,
+  mode: ScaffoldMode,
+  dryRun: boolean,
+  result: ScaffoldResult,
+  executable: boolean,
+  displayPath?: string,
+): void {
+  const installed = writeScaffoldFile(repoRoot, targetPath, content, mode, dryRun, result, displayPath);
+  if (installed && !dryRun && executable) {
+    chmodSync(targetPath, 0o755);
+  }
+}
+
+function removeFromWorktreeVcsExclude(repoRoot: string, patterns: string[]): void {
+  if (patterns.length === 0) {
+    return;
+  }
+  try {
+    const result = spawnSync("git", ["rev-parse", "--git-path", "info/exclude"], {
+      cwd: repoRoot,
+      encoding: "utf8",
+    });
+    if (result.status !== 0) {
+      return;
+    }
+    const rawPath = result.stdout.trim();
+    if (!rawPath) {
+      return;
+    }
+    const excludePath = path.isAbsolute(rawPath) ? rawPath : path.join(repoRoot, rawPath);
+    if (!existsSync(excludePath)) {
+      return;
+    }
+    const patternSet = new Set(patterns);
+    const current = readFileSync(excludePath, "utf8");
+    const next = current
+      .split(/\r?\n/)
+      .filter((line) => !patternSet.has(line.trim()))
+      .join("\n")
+      .replace(/\n*$/u, "\n");
+    if (next !== current) {
+      writeFileSync(excludePath, next);
+    }
+  } catch {
+    // Local VCS exclude cleanup is best-effort. Scaffold files are still written.
+  }
 }
 
 function scaffoldChangeyardStorage(repoRoot: string, mode: ScaffoldMode, dryRun: boolean, result: ScaffoldResult): void {
@@ -208,7 +263,23 @@ function installAgentArtifacts(
 
     for (const command of generateCommandsForTool(adapter)) {
       const commandPath = command.global ? command.path : path.join(repoRoot, command.path);
-      writeScaffoldFile(repoRoot, commandPath, command.fileContent, mode, dryRun, result);
+      writeScaffoldFile(repoRoot, commandPath, command.fileContent, mode, dryRun, result, command.displayPath);
+    }
+
+    const generatedHooks = generateHooksForTool(tool.value);
+    for (const hook of generatedHooks) {
+      writeScaffoldFileWithMode(
+        repoRoot,
+        path.join(repoRoot, hook.path),
+        hook.fileContent,
+        mode,
+        dryRun,
+        result,
+        hook.executable === true,
+      );
+    }
+    if (!dryRun && generatedHooks.length > 0) {
+      removeFromWorktreeVcsExclude(repoRoot, hookExcludePatternsForTool(tool.value));
     }
   }
 }

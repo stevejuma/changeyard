@@ -1667,7 +1667,21 @@ async function ensureCursorKanbanHooks(
 	const cursorDir = join(cwd, ".cursor");
 	const hooksDir = join(cursorDir, "hooks");
 	const hooksFilePath = join(cursorDir, "hooks.json");
-	const previousConfig = await readCursorHooksFile(hooksFilePath);
+	let previousHooksFileContent: string | null = null;
+	try {
+		previousHooksFileContent = await readFile(hooksFilePath, "utf8");
+	} catch {
+		previousHooksFileContent = null;
+	}
+	let previousConfig: CursorHooksFile;
+	try {
+		previousConfig = previousHooksFileContent
+			? JSON.parse(previousHooksFileContent) as CursorHooksFile
+			: await readCursorHooksFile(hooksFilePath);
+	} catch {
+		previousHooksFileContent = null;
+		previousConfig = { version: 1, hooks: {} };
+	}
 	const hookScripts = {
 		stop: join(hooksDir, `${KANBAN_CURSOR_HOOK_SCRIPT_PREFIX}stop`),
 		beforeSubmitPrompt: join(hooksDir, `${KANBAN_CURSOR_HOOK_SCRIPT_PREFIX}before-submit-prompt`),
@@ -1675,6 +1689,14 @@ async function ensureCursorKanbanHooks(
 		postToolUse: join(hooksDir, `${KANBAN_CURSOR_HOOK_SCRIPT_PREFIX}post-tool-use`),
 		subagentStop: join(hooksDir, `${KANBAN_CURSOR_HOOK_SCRIPT_PREFIX}subagent-stop`),
 	} as const;
+	const previousHookScripts = new Map<string, string | null>();
+	for (const scriptPath of Object.values(hookScripts)) {
+		try {
+			previousHookScripts.set(scriptPath, await readFile(scriptPath, "utf8"));
+		} catch {
+			previousHookScripts.set(scriptPath, null);
+		}
+	}
 	const executable = process.platform !== "win32";
 
 	await ensureTextFile(hookScripts.stop, buildCursorHookScriptContent("to_review"), executable);
@@ -1707,28 +1729,37 @@ async function ensureCursorKanbanHooks(
 		hooksFilePath,
 		cleanup: async () => {
 			try {
-				const current = await readCursorHooksFile(hooksFilePath);
-				const restoredHooks: Record<string, Array<{ command?: string; type?: string }>> = {};
-				for (const [eventName, entries] of Object.entries(current.hooks ?? {})) {
-					const filtered = entries.filter((entry) => !isKanbanCursorHookEntry(entry));
-					if (filtered.length > 0) {
-						restoredHooks[eventName] = filtered;
-					}
-				}
-				if (Object.keys(restoredHooks).length === 0) {
-					await unlink(hooksFilePath);
+				if (previousHooksFileContent !== null) {
+					await ensureTextFile(hooksFilePath, previousHooksFileContent);
 				} else {
-					await ensureTextFile(
-						hooksFilePath,
-						`${JSON.stringify({ version: current.version ?? 1, hooks: restoredHooks }, null, 2)}\n`,
-					);
+					const current = await readCursorHooksFile(hooksFilePath);
+					const restoredHooks: Record<string, Array<{ command?: string; type?: string }>> = {};
+					for (const [eventName, entries] of Object.entries(current.hooks ?? {})) {
+						const filtered = entries.filter((entry) => !isKanbanCursorHookEntry(entry));
+						if (filtered.length > 0) {
+							restoredHooks[eventName] = filtered;
+						}
+					}
+					if (Object.keys(restoredHooks).length === 0) {
+						await unlink(hooksFilePath);
+					} else {
+						await ensureTextFile(
+							hooksFilePath,
+							`${JSON.stringify({ version: current.version ?? 1, hooks: restoredHooks }, null, 2)}\n`,
+						);
+					}
 				}
 			} catch {
 				// Best-effort cleanup only.
 			}
 			for (const scriptPath of Object.values(hookScripts)) {
 				try {
-					await unlink(scriptPath);
+					const previousScript = previousHookScripts.get(scriptPath) ?? null;
+					if (previousScript !== null) {
+						await ensureTextFile(scriptPath, previousScript, executable);
+					} else {
+						await unlink(scriptPath);
+					}
 				} catch {
 					// Best-effort cleanup only.
 				}
@@ -1768,6 +1799,14 @@ const copilotAdapter: AgentSessionAdapter = {
 
 		const hooks = resolveHookContext(input);
 		const hooksFilePath = hooks ? join(input.cwd, ".github", "hooks", "kanban.json") : null;
+		let previousHooksFileContent: string | null = null;
+		if (hooksFilePath) {
+			try {
+				previousHooksFileContent = await readFile(hooksFilePath, "utf8");
+			} catch {
+				previousHooksFileContent = null;
+			}
+		}
 		const trustPromise = addCopilotTrustedFolder(input.cwd);
 		if (hooks && hooksFilePath) {
 			const hookMetadata = { source: "copilot" };
@@ -1838,7 +1877,11 @@ const copilotAdapter: AgentSessionAdapter = {
 					return;
 				}
 				try {
-					await unlink(hooksFilePath);
+					if (previousHooksFileContent !== null) {
+						await ensureTextFile(hooksFilePath, previousHooksFileContent);
+					} else {
+						await unlink(hooksFilePath);
+					}
 				} catch {
 					// Best-effort cleanup only.
 				}

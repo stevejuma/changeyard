@@ -845,6 +845,12 @@ body.kb-dependency-link-mode {
 	background: transparent;
 }
 
+.kb-diff-row-linked,
+.kb-diff-row-linked:hover {
+	background: color-mix(in srgb, var(--color-accent) 24%, transparent);
+	box-shadow: inset 3px 0 0 var(--color-accent);
+}
+
 .kb-diff-row-noncommentable {
 	cursor: default;
 }

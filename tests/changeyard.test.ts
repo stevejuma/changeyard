@@ -135,6 +135,9 @@ test("init installs cursor agent artifacts when .cursor exists", () => {
     runInit(repo);
     assert.doesNotThrow(() => readFileSync(path.join(repo, ".cursor", "skills", "changeyard", "SKILL.md"), "utf8"));
     assert.doesNotThrow(() => readFileSync(path.join(repo, ".cursor", "commands", "cy-create.md"), "utf8"));
+    assert.match(readFileSync(path.join(repo, ".cursor", "hooks.json"), "utf8"), /\.cursor\/hooks\/kanban-stop/);
+    assert.match(readFileSync(path.join(repo, ".cursor", "hooks", "kanban-stop"), "utf8"), /cy' 'hooks' 'notify' '--event' 'to_review'/);
+    assert.equal((statSync(path.join(repo, ".cursor", "hooks", "kanban-stop")).mode & 0o111) !== 0, true);
   } finally {
     cleanup(repo);
   }
@@ -170,12 +173,71 @@ test("update refreshes bundled templates and agent artifacts", () => {
   try {
     runInit(repo, { tools: "cursor" });
     const skillPath = path.join(repo, ".cursor", "skills", "changeyard", "SKILL.md");
+    const hookScriptPath = path.join(repo, ".cursor", "hooks", "kanban-stop");
     writeFileSync(skillPath, "# custom\n");
+    writeFileSync(hookScriptPath, "# custom hook\n");
     const output = runUpdate(repo, { tools: "cursor" });
     assert.match(output, /Updated Changeyard scaffold/);
     assert.match(readFileSync(skillPath, "utf8"), /Changeyard Agent Protocol/);
+    assert.match(readFileSync(path.join(repo, ".cursor", "hooks.json"), "utf8"), /\.cursor\/hooks\/kanban-stop/);
+    assert.match(readFileSync(hookScriptPath, "utf8"), /cy' 'hooks' 'notify' '--event' 'to_review'/);
+    assert.equal((statSync(hookScriptPath).mode & 0o111) !== 0, true);
     const config = readFileSync(path.join(repo, ".changeyard", "config.jsonc"), "utf8");
     assert.doesNotThrow(() => JSON.parse(config));
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("update installs copilot hook config when selected", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo, { tools: "copilot" });
+    const hookConfigPath = path.join(repo, ".github", "hooks", "kanban.json");
+    writeFileSync(hookConfigPath, "{}\n");
+    const output = runUpdate(repo, { tools: "copilot" });
+    assert.match(output, /Updated Changeyard scaffold/);
+    const hooksConfig = JSON.parse(readFileSync(hookConfigPath, "utf8")) as {
+      hooks: Record<string, Array<{ bash: string; powershell: string }>>;
+    };
+    assert.match(hooksConfig.hooks.agentStop?.[0]?.bash ?? "", /cy' 'hooks' 'notify' '--event' 'to_review'/);
+    assert.match(hooksConfig.hooks.userPromptSubmitted?.[0]?.bash ?? "", /--event' 'to_in_progress'/);
+    assert.match(hooksConfig.hooks.agentStop?.[0]?.powershell ?? "", /"cy" "hooks" "notify" "--event" "to_review"/);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("update reports global codex prompts with a stable global label", () => {
+  const repo = tempRepo();
+  const previousCodexHome = process.env.CODEX_HOME;
+  try {
+    process.env.CODEX_HOME = path.join(repo, "codex-home");
+    const output = runUpdate(repo, { tools: "codex", dryRun: true });
+    assert.match(output, /\$CODEX_HOME\/prompts\/cy-create\.md/);
+    assert.doesNotMatch(output, /\.\.\/.*\.codex\/prompts\/cy-create\.md/);
+    assert.doesNotMatch(output, new RegExp(repo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  } finally {
+    if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previousCodexHome;
+    cleanup(repo);
+  }
+});
+
+test("update removes scaffolded hook paths from local git excludes", () => {
+  const repo = tempRepo();
+  try {
+    const init = spawnSync("git", ["init"], { cwd: repo, encoding: "utf8" });
+    assert.equal(init.status, 0, init.stderr);
+    const excludePath = path.join(repo, ".git", "info", "exclude");
+    writeFileSync(excludePath, ".github/hooks/kanban.json\n.cursor/hooks/kanban-*\n.cursor/hooks/kanban-stop\n");
+
+    runUpdate(repo, { tools: "cursor,copilot" });
+
+    const exclude = readFileSync(excludePath, "utf8");
+    assert.doesNotMatch(exclude, /\.github\/hooks\/kanban\.json/);
+    assert.doesNotMatch(exclude, /\.cursor\/hooks\/kanban-\*/);
+    assert.doesNotMatch(exclude, /\.cursor\/hooks\/kanban-stop/);
   } finally {
     cleanup(repo);
   }
@@ -1238,7 +1300,7 @@ test("review update parses structured fields and preserves unknown sections", ()
       summary: "Reviewed the structured draft.",
       requiredChanges: [
         { checked: false, text: "Tighten the API contract tests." },
-        { checked: true, text: "Keep markdown frontmatter stable." },
+        { checked: true, text: "src/example.ts:42: Keep markdown frontmatter stable.\n\nUse the shared helper." },
       ],
       inlineComments: [{ path: "src/example.ts", line: 42, body: "Prefer the shared helper here." }],
       expectedLastModifiedAt: before.lastModifiedAt,
@@ -1248,7 +1310,7 @@ test("review update parses structured fields and preserves unknown sections", ()
     assert.equal(updated.summary, "Reviewed the structured draft.");
     assert.deepEqual(updated.requiredChanges, [
       { checked: false, text: "Tighten the API contract tests." },
-      { checked: true, text: "Keep markdown frontmatter stable." },
+      { checked: true, text: "src/example.ts:42: Keep markdown frontmatter stable.\n\nUse the shared helper." },
     ]);
     assert.deepEqual(updated.inlineComments, [
       { path: "src/example.ts", line: 42, body: "Prefer the shared helper here." },
@@ -1256,7 +1318,31 @@ test("review update parses structured fields and preserves unknown sections", ()
     const raw = readFileSync(reviewPath, "utf8");
     assert.match(raw, /# Planning Context/);
     assert.match(raw, /Keep this context intact/);
+    assert.match(raw, /- \[x\] src\/example\.ts:42: Keep markdown frontmatter stable\.\n\s+$/m);
+    assert.match(raw, /\n  Use the shared helper\./);
     assert.match(raw, /change: CY-0001/);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("review detail omits required change placeholder and none sentinel", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "agent-task", title: "Empty required review" }, repo);
+    runReviewStart("CY-0001", repo);
+    assert.deepEqual(getReview("CY-0001", 1, repo).requiredChanges, []);
+
+    const reviewPath = path.join(repo, ".changeyard", "reviews", "CY-0001", "review-001.md");
+    writeFileSync(
+      reviewPath,
+      readFileSync(reviewPath, "utf8").replace(
+        "- [ ] Add any required changes, or leave this checklist as a record.",
+        "- [x] None.",
+      ),
+    );
+    assert.deepEqual(getReview("CY-0001", 1, repo).requiredChanges, []);
   } finally {
     cleanup(repo);
   }

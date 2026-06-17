@@ -6,6 +6,7 @@ export function generateCommandsForTool(adapter: ToolCommandAdapter): GeneratedC
     path: adapter.getFilePath(content.id),
     fileContent: adapter.formatFile(content),
     global: adapter.isGlobalPath === true,
+    displayPath: adapter.getDisplayPath?.(content.id),
   }));
 }
 

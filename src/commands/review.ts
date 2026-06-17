@@ -199,14 +199,30 @@ export function parseInlineComments(body: string): { path: string; line: number;
 }
 
 function parseRequiredChanges(body: string): ReviewRequiredChange[] {
-  return extractReviewSection(body, "Required Changes")
-    .split(/\r?\n/)
-    .map((line) => /^-\s+\[( |x|X)\]\s+(.+)$/.exec(line.trim()))
-    .filter((match): match is RegExpExecArray => match !== null)
-    .map((match) => ({
-      checked: match[1].toLowerCase() === "x",
-      text: match[2].trim(),
-    }));
+  const items: ReviewRequiredChange[] = [];
+  let current: ReviewRequiredChange | null = null;
+  for (const line of extractReviewSection(body, "Required Changes").split(/\r?\n/)) {
+    const match = /^-\s+\[( |x|X)\]\s*(.*)$/.exec(line.trimEnd());
+    if (match) {
+      if (current) items.push({ ...current, text: current.text.trim() });
+      current = {
+        checked: match[1].toLowerCase() === "x",
+        text: match[2].trim(),
+      };
+      continue;
+    }
+    if (!current) continue;
+    if (!line.trim()) {
+      current.text += "\n";
+      continue;
+    }
+    current.text += `${current.text ? "\n" : ""}${line.replace(/^\s{2,}/, "")}`;
+  }
+  if (current) items.push({ ...current, text: current.text.trim() });
+  return items.filter((item) => {
+    const text = item.text.toLowerCase().replace(/\.$/, "");
+    return text !== "none" && text !== "add any required changes, or leave this checklist as a record";
+  });
 }
 
 function reviewLastModifiedAt(reviewPath: string): string {
@@ -244,7 +260,14 @@ function formatRequiredChanges(requiredChanges: ReviewRequiredChange[]): string 
     return "- [x] None.";
   }
   return requiredChanges
-    .map((item) => `- [${item.checked ? "x" : " "}] ${item.text.trim() || "Untitled required change"}`)
+    .map((item) => {
+      const lines = (item.text.trim() || "Untitled required change").split(/\r?\n/);
+      const [firstLine = "Untitled required change", ...remainingLines] = lines;
+      return [
+        `- [${item.checked ? "x" : " "}] ${firstLine}`,
+        ...remainingLines.map((line) => `  ${line}`),
+      ].join("\n");
+    })
     .join("\n");
 }
 

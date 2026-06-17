@@ -1,8 +1,8 @@
-import { ChevronDown, ChevronRight, Command, CornerDownLeft, MessageSquare, X } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Command, CornerDownLeft, MessageSquare, Pencil, X } from "lucide-react";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
-import { MarkdownMessageEditor } from "@/components/ui/markdown-message-editor";
+import { MarkdownMessageEditor, MarkdownMessagePreview } from "@/components/ui/markdown-message-editor";
 import {
 	buildDisplayItems,
 	buildHighlightedLineMap,
@@ -40,6 +40,13 @@ export interface DiffLineComment {
 	lineText: string;
 	variant: "added" | "removed" | "context";
 	comment: string;
+}
+
+export interface DiffLineScrollTarget {
+	path: string;
+	lineNumber: number;
+	variant?: DiffLineComment["variant"];
+	nonce: number;
 }
 
 export type DiffViewMode = "unified" | "split";
@@ -88,22 +95,118 @@ function InlineComment({
 	comment,
 	onChange,
 	onDelete,
+	onInsertRequiredChange,
 }: {
 	comment: DiffLineComment;
 	onChange: (text: string) => void;
 	onDelete: () => void;
+	onInsertRequiredChange?: (comment: DiffLineComment) => void;
 }): React.ReactElement {
+	const [draft, setDraft] = useState(comment.comment);
+	const [isEditing, setEditing] = useState(comment.comment.trim().length === 0);
+	const lineSide = comment.variant === "removed" ? "L" : "R";
+	const lineLabel = `${lineSide}${comment.lineNumber}`;
+	const canSubmit = draft.trim().length > 0;
+
+	useEffect(() => {
+		setDraft(comment.comment);
+		if (comment.comment.trim().length === 0) {
+			setEditing(true);
+		}
+	}, [comment.comment]);
+
+	if (!isEditing && comment.comment.trim().length > 0) {
+		return (
+			<div className="kb-diff-inline-comment">
+				<div className="rounded-md border border-border bg-surface-0">
+					<div className="flex items-center justify-between gap-2 border-b border-divider bg-surface-1 px-3 py-2">
+						<div className="min-w-0 truncate text-xs font-medium text-text-secondary">
+							Comment on line {lineLabel}
+						</div>
+						<div className="flex shrink-0 gap-1">
+							<Button
+								variant="ghost"
+								size="sm"
+								icon={<Pencil size={13} />}
+								aria-label={`Edit comment on line ${lineLabel}`}
+								onClick={() => setEditing(true)}
+								className="h-7 px-2"
+							/>
+							<Button
+								variant="ghost"
+								size="sm"
+								icon={<X size={13} />}
+								aria-label={`Delete comment on line ${lineLabel}`}
+								onClick={onDelete}
+								className="h-7 px-2 text-status-red"
+							/>
+						</div>
+					</div>
+					<div className="px-3 py-2">
+						<MarkdownMessagePreview value={comment.comment} emptyLabel="" className="text-sm" />
+					</div>
+				</div>
+			</div>
+		);
+	}
+
 	return (
 		<div className="kb-diff-inline-comment">
-			<MarkdownMessageEditor
-				value={comment.comment}
-				onChange={onChange}
-				height="140px"
-				placeholder="Add a comment..."
-				autoFocus
-				onEscape={onDelete}
-				className="cy-markdown-editor-compact"
-			/>
+			<div className="rounded-md border border-border bg-surface-0">
+				<div className="border-b border-divider bg-surface-1 px-3 py-2 text-sm font-medium text-text-primary">
+					Add a comment on line {lineLabel}
+				</div>
+				<div className="p-2">
+					<MarkdownMessageEditor
+						value={draft}
+						onChange={setDraft}
+						height="140px"
+						placeholder="Add a comment..."
+						autoFocus
+						onEscape={onDelete}
+						className="cy-markdown-editor-compact"
+					/>
+					<div className="mt-2 flex items-center justify-end gap-2">
+						<Button variant="default" size="sm" onClick={onDelete}>
+							Cancel
+						</Button>
+						<Button
+							variant="default"
+							size="sm"
+							icon={<MessageSquare size={13} />}
+							disabled={!canSubmit}
+							onClick={() => {
+								const text = draft.trim();
+								if (!text) {
+									return;
+								}
+								onChange(text);
+								setDraft(text);
+								setEditing(false);
+							}}
+						>
+							Comment
+						</Button>
+						{onInsertRequiredChange ? (
+							<Button
+								variant="primary"
+								size="sm"
+								icon={<Check size={13} />}
+								disabled={!canSubmit}
+								onClick={() => {
+									const text = draft.trim();
+									if (!text) {
+										return;
+									}
+									onInsertRequiredChange({ ...comment, comment: text });
+								}}
+							>
+								Insert changes
+							</Button>
+						) : null}
+					</div>
+				</div>
+			</div>
 		</div>
 	);
 }
@@ -116,6 +219,7 @@ function UnifiedDiff({
 	onAddComment,
 	onUpdateComment,
 	onDeleteComment,
+	onInsertRequiredChange,
 }: {
 	path: string;
 	oldText: string | null | undefined;
@@ -124,6 +228,7 @@ function UnifiedDiff({
 	onAddComment: (lineNumber: number, lineText: string, variant: "added" | "removed" | "context") => void;
 	onUpdateComment: (lineNumber: number, variant: "added" | "removed" | "context", text: string) => void;
 	onDeleteComment: (lineNumber: number, variant: "added" | "removed" | "context") => void;
+	onInsertRequiredChange?: (comment: DiffLineComment) => void;
 }): React.ReactElement {
 	const { expandedBlocks, expandTop, expandBottom, expandAll } = useIncrementalExpand();
 	const prismLanguage = useMemo(() => resolvePrismLanguage(path), [path]);
@@ -167,7 +272,13 @@ function UnifiedDiff({
 
 		return (
 			<div key={row.key}>
-				<div className={rowClass} style={canClickRow ? undefined : { cursor: "default" }} onClick={handleRowClick}>
+				<div
+					className={rowClass}
+					data-diff-line-number={row.lineNumber ?? undefined}
+					data-diff-line-variant={row.lineNumber == null ? undefined : row.variant}
+					style={canClickRow ? undefined : { cursor: "default" }}
+					onClick={handleRowClick}
+				>
 					<span className="kb-diff-line-number" style={{ color: "var(--color-text-tertiary)" }}>
 						<span className="kb-diff-line-number-text">{row.lineNumber ?? ""}</span>
 						{row.lineNumber != null ? (
@@ -204,6 +315,7 @@ function UnifiedDiff({
 						comment={existingComment}
 						onChange={(text) => onUpdateComment(row.lineNumber!, row.variant, text)}
 						onDelete={() => onDeleteComment(row.lineNumber!, row.variant)}
+						onInsertRequiredChange={onInsertRequiredChange}
 					/>
 				) : null}
 			</div>
@@ -319,6 +431,7 @@ function SplitDiff({
 	onAddComment,
 	onUpdateComment,
 	onDeleteComment,
+	onInsertRequiredChange,
 }: {
 	path: string;
 	oldText: string | null | undefined;
@@ -327,6 +440,7 @@ function SplitDiff({
 	onAddComment: (lineNumber: number, lineText: string, variant: "added" | "removed" | "context") => void;
 	onUpdateComment: (lineNumber: number, variant: "added" | "removed" | "context", text: string) => void;
 	onDeleteComment: (lineNumber: number, variant: "added" | "removed" | "context") => void;
+	onInsertRequiredChange?: (comment: DiffLineComment) => void;
 }): React.ReactElement {
 	const { expandedBlocks, expandTop, expandBottom, expandAll } = useIncrementalExpand();
 	const prismLanguage = useMemo(() => resolvePrismLanguage(path), [path]);
@@ -362,6 +476,8 @@ function SplitDiff({
 			<div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
 				<div
 					className={rowClass}
+					data-diff-line-number={rowLineNumber}
+					data-diff-line-variant={row.variant}
 					style={canClickRow ? undefined : { cursor: "default" }}
 					onClick={
 						canClickRow
@@ -407,6 +523,7 @@ function SplitDiff({
 						comment={existingComment}
 						onChange={(text) => onUpdateComment(rowLineNumber, row.variant, text)}
 						onDelete={() => onDeleteComment(rowLineNumber, row.variant)}
+						onInsertRequiredChange={onInsertRequiredChange}
 					/>
 				) : null}
 			</div>
@@ -498,6 +615,8 @@ export function DiffViewerPanel({
 	onSendToTerminal,
 	comments,
 	onCommentsChange,
+	onInsertRequiredChange,
+	scrollTarget,
 	viewMode = "unified",
 }: {
 	workspaceFiles: RuntimeWorkspaceFileChange[] | null;
@@ -507,6 +626,8 @@ export function DiffViewerPanel({
 	onSendToTerminal?: (formatted: string) => void;
 	comments: Map<string, DiffLineComment>;
 	onCommentsChange: (comments: Map<string, DiffLineComment>) => void;
+	onInsertRequiredChange?: (comment: DiffLineComment) => void;
+	scrollTarget?: DiffLineScrollTarget | null;
 	viewMode?: DiffViewMode;
 }): React.ReactElement {
 	const [expandedPaths, setExpandedPaths] = useState<Record<string, boolean>>({});
@@ -516,6 +637,7 @@ export function DiffViewerPanel({
 	const suppressScrollSyncUntilRef = useRef(0);
 	const programmaticScrollUntilRef = useRef(0);
 	const programmaticScrollClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const highlightClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 	const diffEntries = useMemo(() => {
 		return (workspaceFiles ?? []).map((file, index) => ({
@@ -630,10 +752,51 @@ export function DiffViewerPanel({
 		container.scrollTop = targetScrollTop;
 	}, []);
 
+	const scrollToLine = useCallback(
+		(target: DiffLineScrollTarget) => {
+			const container = scrollContainerRef.current;
+			const section = sectionElementsRef.current[target.path];
+			if (!container || !section) {
+				return;
+			}
+			const lineSelector = `[data-diff-line-number="${target.lineNumber}"]`;
+			const variantSelector = target.variant ? `${lineSelector}[data-diff-line-variant="${target.variant}"]` : lineSelector;
+			const row =
+				section.querySelector<HTMLElement>(variantSelector)
+				?? section.querySelector<HTMLElement>(lineSelector);
+			if (!row) {
+				scrollToPath(target.path);
+				return;
+			}
+			programmaticScrollUntilRef.current = Date.now() + 420;
+			if (programmaticScrollClearTimerRef.current) {
+				clearTimeout(programmaticScrollClearTimerRef.current);
+			}
+			programmaticScrollClearTimerRef.current = setTimeout(() => {
+				programmaticScrollUntilRef.current = 0;
+				programmaticScrollClearTimerRef.current = null;
+			}, 420);
+			const targetScrollTop = Math.max(0, getSectionTopWithinScrollContainer(container, row) - 72);
+			container.scrollTop = targetScrollTop;
+			if (highlightClearTimerRef.current) {
+				clearTimeout(highlightClearTimerRef.current);
+			}
+			row.classList.add("kb-diff-row-linked");
+			highlightClearTimerRef.current = setTimeout(() => {
+				row.classList.remove("kb-diff-row-linked");
+				highlightClearTimerRef.current = null;
+			}, 1600);
+		},
+		[scrollToPath],
+	);
+
 	useEffect(() => {
 		return () => {
 			if (programmaticScrollClearTimerRef.current) {
 				clearTimeout(programmaticScrollClearTimerRef.current);
+			}
+			if (highlightClearTimerRef.current) {
+				clearTimeout(highlightClearTimerRef.current);
 			}
 		};
 	}, []);
@@ -651,6 +814,18 @@ export function DiffViewerPanel({
 		scrollSyncSelectionRef.current = null;
 		scrollToPath(selectedPath);
 	}, [scrollToPath, selectedPath]);
+
+	useEffect(() => {
+		if (!scrollTarget) {
+			return;
+		}
+		setExpandedPaths((prev) =>
+			prev[scrollTarget.path] === false ? { ...prev, [scrollTarget.path]: true } : prev,
+		);
+		requestAnimationFrame(() => {
+			requestAnimationFrame(() => scrollToLine(scrollTarget));
+		});
+	}, [scrollTarget, scrollToLine]);
 
 	const handleAddComment = useCallback(
 		(filePath: string, lineNumber: number, lineText: string, variant: "added" | "removed" | "context") => {
@@ -698,6 +873,14 @@ export function DiffViewerPanel({
 			onCommentsChange(next);
 		},
 		[comments, onCommentsChange],
+	);
+
+	const handleInsertRequiredChange = useCallback(
+		(comment: DiffLineComment) => {
+			onInsertRequiredChange?.(comment);
+			handleDeleteComment(comment.filePath, comment.lineNumber, comment.variant);
+		},
+		[handleDeleteComment, onInsertRequiredChange],
 	);
 
 	const nonEmptyComments = useMemo(() => {
@@ -892,6 +1075,7 @@ export function DiffViewerPanel({
 															onDeleteComment={(lineNumber, variant) =>
 																handleDeleteComment(group.path, lineNumber, variant)
 															}
+															onInsertRequiredChange={onInsertRequiredChange ? handleInsertRequiredChange : undefined}
 														/>
 													) : (
 														<UnifiedDiff
@@ -908,6 +1092,7 @@ export function DiffViewerPanel({
 															onDeleteComment={(lineNumber, variant) =>
 																handleDeleteComment(group.path, lineNumber, variant)
 															}
+															onInsertRequiredChange={onInsertRequiredChange ? handleInsertRequiredChange : undefined}
 														/>
 													)}
 												</div>

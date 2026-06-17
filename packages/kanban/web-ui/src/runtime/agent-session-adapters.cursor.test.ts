@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -133,5 +133,67 @@ describe("cursor agent session adapter", () => {
 
 		const status = run("jj", ["status", "--no-pager", "--color=never"], tempDir);
 		expect(status).not.toContain(".cursor/hooks/kanban-");
+	});
+
+	it("preserves scaffolded Cursor hooks during runtime cleanup", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "cursor-agent-launch-static-"));
+		const hooksConfigPath = join(tempDir, ".cursor", "hooks.json");
+		const hookScriptPath = join(tempDir, ".cursor", "hooks", "kanban-stop");
+		const hooksConfig = `${JSON.stringify({
+			version: 1,
+			hooks: {
+				stop: [{ command: ".cursor/hooks/kanban-stop" }],
+			},
+		}, null, 2)}\n`;
+		const hookScript = "#!/usr/bin/env bash\n# scaffolded\n";
+		await mkdir(join(tempDir, ".cursor", "hooks"), { recursive: true });
+		await writeFile(hooksConfigPath, hooksConfig);
+		await writeFile(hookScriptPath, hookScript);
+
+		const launch = await prepareAgentLaunch({
+			taskId: "task-6",
+			agentId: "cursor",
+			args: [],
+			autonomousModeEnabled: true,
+			cwd: tempDir,
+			prompt: "implement feature",
+			workspaceId: "workspace-6",
+		});
+		await launch.cleanup?.();
+
+		await expect(readFile(hooksConfigPath, "utf8")).resolves.toBe(hooksConfig);
+		await expect(readFile(hookScriptPath, "utf8")).resolves.toBe(hookScript);
+	});
+
+	it("preserves scaffolded Copilot hook config during runtime cleanup", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "copilot-agent-launch-static-"));
+		const hooksConfigPath = join(tempDir, ".github", "hooks", "kanban.json");
+		const hooksConfig = `${JSON.stringify({
+			version: 1,
+			hooks: {
+				agentStop: [{ type: "command", bash: "cy hooks notify --event to_review", powershell: "", timeoutSec: 5 }],
+			},
+		}, null, 2)}\n`;
+		await mkdir(join(tempDir, ".github", "hooks"), { recursive: true });
+		await writeFile(hooksConfigPath, hooksConfig);
+		const previousCopilotHome = process.env.COPILOT_HOME;
+		process.env.COPILOT_HOME = join(tempDir, ".copilot-home");
+		try {
+			const launch = await prepareAgentLaunch({
+				taskId: "task-7",
+				agentId: "copilot",
+				args: [],
+				autonomousModeEnabled: true,
+				cwd: tempDir,
+				prompt: "implement feature",
+				workspaceId: "workspace-7",
+			});
+			await launch.cleanup?.();
+
+			await expect(readFile(hooksConfigPath, "utf8")).resolves.toBe(hooksConfig);
+		} finally {
+			if (previousCopilotHome === undefined) delete process.env.COPILOT_HOME;
+			else process.env.COPILOT_HOME = previousCopilotHome;
+		}
 	});
 });

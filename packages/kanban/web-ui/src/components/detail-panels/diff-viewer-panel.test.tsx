@@ -16,6 +16,10 @@ vi.mock("react-hotkeys-hook", () => ({
 	},
 }));
 
+vi.mock("@uiw/react-markdown-preview", () => ({
+	default: ({ source }: { source: string }) => <article>{source}</article>,
+}));
+
 function createRect(top: number): DOMRect {
 	return {
 		x: 0,
@@ -34,9 +38,15 @@ describe("DiffViewerPanel", () => {
 	let container: HTMLDivElement;
 	let root: Root;
 	let previousActEnvironment: boolean | undefined;
+	let previousRequestAnimationFrame: typeof requestAnimationFrame | undefined;
 
 	beforeEach(() => {
 		hotkeyRegistrations.length = 0;
+		previousRequestAnimationFrame = globalThis.requestAnimationFrame;
+		globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+			callback(0);
+			return 0;
+		}) as typeof requestAnimationFrame;
 		previousActEnvironment = (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
 			.IS_REACT_ACT_ENVIRONMENT;
 		(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -51,6 +61,11 @@ describe("DiffViewerPanel", () => {
 		});
 		vi.restoreAllMocks();
 		container.remove();
+		if (previousRequestAnimationFrame) {
+			globalThis.requestAnimationFrame = previousRequestAnimationFrame;
+		} else {
+			Reflect.deleteProperty(globalThis, "requestAnimationFrame");
+		}
 		if (previousActEnvironment === undefined) {
 			delete (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
 		} else {
@@ -140,6 +155,35 @@ describe("DiffViewerPanel", () => {
 		});
 
 		expect(scrollContainer.scrollTop).toBe(547);
+	});
+
+	it("scrolls to and highlights a provided line target", async () => {
+		const workspaceFiles: RuntimeWorkspaceFileChange[] = [
+			{
+				path: "src/example.ts",
+				status: "modified",
+				additions: 1,
+				deletions: 1,
+				oldText: "const value = 1;\n",
+				newText: "const value = 2;\n",
+			},
+		];
+
+		await act(async () => {
+			root.render(
+				<DiffViewerPanel
+					workspaceFiles={workspaceFiles}
+					selectedPath="src/example.ts"
+					onSelectedPathChange={() => {}}
+					comments={new Map<string, DiffLineComment>()}
+					onCommentsChange={() => {}}
+					scrollTarget={{ path: "src/example.ts", lineNumber: 1, variant: "added", nonce: 1 }}
+				/>,
+			);
+		});
+
+		expect(container.querySelector('[data-diff-line-number="1"][data-diff-line-variant="added"]')).not.toBeNull();
+		expect(container.querySelector(".kb-diff-row-linked")).not.toBeNull();
 	});
 
 	it("renders replaced lines side by side in split view", async () => {
@@ -381,6 +425,117 @@ describe("DiffViewerPanel", () => {
 		});
 
 		expect(onSendToTerminal).toHaveBeenCalledWith("src/example.ts:1 | const value = 2;\n> Ship this");
+		expect(onCommentsChange).toHaveBeenCalledWith(new Map());
+	});
+
+	it("renders saved inline comments as previews with edit and delete actions", async () => {
+		const workspaceFiles: RuntimeWorkspaceFileChange[] = [
+			{
+				path: "src/example.ts",
+				status: "modified",
+				additions: 1,
+				deletions: 0,
+				oldText: "const value = 1;\n",
+				newText: "const value = 2;\n",
+			},
+		];
+		const comments = new Map<string, DiffLineComment>([
+			[
+				"src/example.ts:added:1",
+				{
+					filePath: "src/example.ts",
+					lineNumber: 1,
+					lineText: "const value = 2;",
+					variant: "added",
+					comment: "Saved **note**",
+				},
+			],
+		]);
+
+		await act(async () => {
+			root.render(
+				<DiffViewerPanel
+					workspaceFiles={workspaceFiles}
+					selectedPath={null}
+					onSelectedPathChange={() => {}}
+					comments={comments}
+					onCommentsChange={() => {}}
+				/>,
+			);
+		});
+
+		expect(container.textContent).toContain("Comment on line R1");
+		expect(container.textContent).toContain("Saved **note**");
+		expect(container.querySelector("textarea")).toBeNull();
+
+		await act(async () => {
+			container.querySelector<HTMLButtonElement>('button[aria-label="Edit comment on line R1"]')?.click();
+		});
+
+		expect(container.querySelector("textarea")).not.toBeNull();
+	});
+
+	it("inserts an inline composer as a required change and removes the draft comment", async () => {
+		const workspaceFiles: RuntimeWorkspaceFileChange[] = [
+			{
+				path: "src/example.ts",
+				status: "modified",
+				additions: 1,
+				deletions: 0,
+				oldText: "const value = 1;\n",
+				newText: "const value = 2;\n",
+			},
+		];
+		const comments = new Map<string, DiffLineComment>([
+			[
+				"src/example.ts:added:1",
+				{
+					filePath: "src/example.ts",
+					lineNumber: 1,
+					lineText: "const value = 2;",
+					variant: "added",
+					comment: "",
+				},
+			],
+		]);
+		const onCommentsChange = vi.fn();
+		const onInsertRequiredChange = vi.fn();
+
+		await act(async () => {
+			root.render(
+				<DiffViewerPanel
+					workspaceFiles={workspaceFiles}
+					selectedPath={null}
+					onSelectedPathChange={() => {}}
+					comments={comments}
+					onCommentsChange={onCommentsChange}
+					onInsertRequiredChange={onInsertRequiredChange}
+				/>,
+			);
+		});
+
+		const textarea = container.querySelector("textarea");
+		expect(textarea).toBeInstanceOf(HTMLTextAreaElement);
+		if (!(textarea instanceof HTMLTextAreaElement)) {
+			throw new Error("Expected inline composer textarea.");
+		}
+
+		await act(async () => {
+			const valueSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+			valueSetter?.call(textarea, "Please tighten this.");
+			textarea.dispatchEvent(new Event("input", { bubbles: true }));
+		});
+		await act(async () => {
+			Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Insert changes")?.click();
+		});
+
+		expect(onInsertRequiredChange).toHaveBeenCalledWith(
+			expect.objectContaining({
+				filePath: "src/example.ts",
+				lineNumber: 1,
+				comment: "Please tighten this.",
+			}),
+		);
 		expect(onCommentsChange).toHaveBeenCalledWith(new Map());
 	});
 });

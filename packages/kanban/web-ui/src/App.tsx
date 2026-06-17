@@ -682,6 +682,37 @@ export default function App(): ReactElement {
 		[refetchChangeyardChanges, refetchSelectedChangeDetail, setSelectedChangeDetail],
 	);
 
+	const handleMarkChangeDoneFromReview = useCallback(
+		async (changeId: string, status: "approved" | "merged") => {
+			if (!currentProjectId) {
+				return;
+			}
+			setIsChangeActionPending(true);
+			setChangeActionError(null);
+			try {
+				const client = getRuntimeTrpcClient(currentProjectId);
+				const nextDetail = await client.changes.updateStatus.mutate({ id: changeId, status });
+				setSelectedChangeId(nextDetail.id);
+				setSelectedChangeDetail(nextDetail);
+				await refetchChangeyardChanges();
+				await refetchSelectedChangeDetail();
+				showAppToast({
+					intent: "success",
+					icon: "tick",
+					message: `Marked ${changeId} done`,
+					timeout: 4000,
+				});
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				setChangeActionError(message);
+				throw error;
+			} finally {
+				setIsChangeActionPending(false);
+			}
+		},
+		[currentProjectId, refetchChangeyardChanges, refetchSelectedChangeDetail, setSelectedChangeDetail],
+	);
+
 	const runChangeAction = useCallback(
 		async (action: ChangeDetailAction, changeId: string) => {
 			if (!currentProjectId) {
@@ -1644,6 +1675,7 @@ export default function App(): ReactElement {
 					onReviewChanged={(change, message) => {
 						void handleReviewChanged(change, message);
 					}}
+					onMarkDone={(changeId, status) => handleMarkChangeDoneFromReview(changeId, status)}
 				/>
 				<TaskCreateDialog
 					open={isInlineTaskCreateOpen}

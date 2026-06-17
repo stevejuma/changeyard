@@ -7,11 +7,18 @@ function getCodexHome(): string {
   return path.resolve(envHome ? envHome : path.join(os.homedir(), ".codex"));
 }
 
+function getCodexHomeLabel(): string {
+  return process.env.CODEX_HOME?.trim() ? "$CODEX_HOME" : "~/.codex";
+}
+
 export const codexAdapter: ToolCommandAdapter = {
   toolId: "codex",
   isGlobalPath: true,
   getFilePath(commandId: string) {
     return path.join(getCodexHome(), "prompts", `cy-${commandId}.md`);
+  },
+  getDisplayPath(commandId: string) {
+    return path.posix.join(getCodexHomeLabel(), "prompts", `cy-${commandId}.md`);
   },
   formatFile(content: CommandContent) {
     return `---
