@@ -89,6 +89,12 @@ import {
 import { useTerminalThemeColors } from "@/terminal/theme-colors";
 import type { BoardData } from "@/types";
 import { unsupportedChangeMoveMessage } from "@/utils/change-move-error";
+import {
+	findAffectedWorkspaceChangeIds,
+	isChangeMarkdownEventPathForChange,
+	isChangeyardChangeMarkdownEventPath,
+	normalizeKanbanEventPath,
+} from "@/utils/changeyard-workspace-events";
 
 export default function App(): ReactElement {
 	const terminalThemeColors = useTerminalThemeColors();
@@ -103,12 +109,14 @@ export default function App(): ReactElement {
 	const [isGitHistoryOpen, setIsGitHistoryOpen] = useState(false);
 	const [changeBoardFilter, setChangeBoardFilter] = useState<ChangeBoardFilter>("all");
 	const [selectedChangeId, setSelectedChangeId] = useState<string | null>(null);
+	const [changeWorkspaceEventVersions, setChangeWorkspaceEventVersions] = useState<Record<string, number>>({});
 	const [isChangeReviewOpen, setIsChangeReviewOpen] = useState(false);
 	const [isChangeActionPending, setIsChangeActionPending] = useState(false);
 	const [changeActionError, setChangeActionError] = useState<string | null>(null);
 	const [pendingTaskStartAfterEditId, setPendingTaskStartAfterEditId] = useState<string | null>(null);
 	const taskEditorResetRef = useRef<() => void>(() => {});
 	const lastStreamErrorRef = useRef<string | null>(null);
+	const lastHandledVcsProjectEventRef = useRef<string | null>(null);
 	const handleProjectSwitchStart = useCallback(() => {
 		setCanPersistWorkspaceState(false);
 		setIsGitHistoryOpen(false);
@@ -123,6 +131,7 @@ export default function App(): ReactElement {
 		latestTaskChatMessage,
 		taskChatMessagesByTaskId,
 		latestTaskReadyForReview,
+		latestVcsProjectEvent,
 		latestMcpAuthStatuses,
 		clineSessionContextVersion,
 		streamError,
@@ -546,7 +555,9 @@ export default function App(): ReactElement {
 		setIsClearTrashDialogOpen(false);
 		setChangeBoardFilter("all");
 		setSelectedChangeId(null);
+		setChangeWorkspaceEventVersions({});
 		setChangeActionError(null);
+		lastHandledVcsProjectEventRef.current = null;
 		resetGitActionState();
 		resetProjectNavigationState();
 		resetTerminalPanelsState();
@@ -567,6 +578,50 @@ export default function App(): ReactElement {
 		}
 		setSelectedChangeId(null);
 	}, [changeyardChanges, selectedChangeId]);
+
+	useEffect(() => {
+		if (!latestVcsProjectEvent || latestVcsProjectEvent.kind !== "worktree_changes") {
+			return;
+		}
+		const signature = [
+			latestVcsProjectEvent.version,
+			latestVcsProjectEvent.changedAt,
+			latestVcsProjectEvent.kind,
+			...latestVcsProjectEvent.paths,
+		].join("\x1f");
+		if (lastHandledVcsProjectEventRef.current === signature) {
+			return;
+		}
+		lastHandledVcsProjectEventRef.current = signature;
+
+		const eventPaths = latestVcsProjectEvent.paths.map(normalizeKanbanEventPath).filter(Boolean);
+		const affectedChangeIds = findAffectedWorkspaceChangeIds(changeyardChanges, eventPaths, workspacePath);
+		if (affectedChangeIds.length > 0) {
+			setChangeWorkspaceEventVersions((current) => {
+				const next = { ...current };
+				for (const changeId of affectedChangeIds) {
+					next[changeId] = (next[changeId] ?? 0) + 1;
+				}
+				return next;
+			});
+		}
+
+		if (!eventPaths.some(isChangeyardChangeMarkdownEventPath)) {
+			return;
+		}
+
+		void refetchChangeyardChanges();
+		if (selectedChangeId && eventPaths.some((eventPath) => isChangeMarkdownEventPathForChange(eventPath, selectedChangeId))) {
+			void refetchSelectedChangeDetail();
+		}
+	}, [
+		changeyardChanges,
+		latestVcsProjectEvent,
+		refetchChangeyardChanges,
+		refetchSelectedChangeDetail,
+		selectedChangeId,
+		workspacePath,
+	]);
 
 	const handleCreateChange = useCallback(
 		async (
@@ -1376,6 +1431,7 @@ export default function App(): ReactElement {
 												moveToTrashLoadingById={moveToTrashLoadingById}
 												workspacePath={workspacePath}
 												workspaceId={currentProjectId}
+												workspaceEventVersions={changeWorkspaceEventVersions}
 												defaultClineModelId={runtimeProjectConfig?.clineProviderSettings?.modelId ?? null}
 												onCreateTask={handleOpenCreateTask}
 												onCreateChange={() => {

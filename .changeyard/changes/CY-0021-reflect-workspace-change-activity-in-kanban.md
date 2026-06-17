@@ -2,13 +2,13 @@
 id: CY-0021
 title: Reflect workspace change activity in Kanban
 type: agent-task
-status: synced
+status: merged
 priority: medium
 labels:
   - agent-ready
 author: stevejuma
 createdAt: 2026-06-17T17:25:04.820Z
-updatedAt: 2026-06-17T17:25:48.144Z
+updatedAt: 2026-06-17T17:47:00.580Z
 base:
   vcs: unknown
   revision: main
@@ -24,10 +24,11 @@ remote:
   issueUrl: null
   pullRequestNumber: null
   pullRequestUrl: null
+  mergedLocally: true
 checks:
   profile: standard
-  lastRun: null
-  lastStatus: null
+  lastRun: 2026-06-17T17:45:25.127Z
+  lastStatus: passed
 planning:
   model: openspec-lite
   storage: inline
@@ -43,6 +44,7 @@ planning:
     strictClarifications: skipped
     strictChecklist: skipped
     strictAnalysis: skipped
+mergedAt: 2026-06-17T17:47:00.578Z
 ---
 
 # Summary
@@ -55,10 +57,10 @@ Agents work inside isolated workspaces, but the Kanban UI currently does not rel
 
 # Plan
 
-- [ ] Surface runtime VCS project events to the Kanban app.
-- [ ] Use workspace path matching to refresh affected Changeyard change data.
-- [ ] Make change-card file summary caches invalidate when the affected workspace changes.
-- [ ] Add focused tests for stream handling, refresh orchestration, and lazy card cache invalidation.
+- [x] Surface runtime VCS project events to the Kanban app.
+- [x] Use workspace path matching to refresh affected Changeyard change data.
+- [x] Make change-card file summary caches invalidate when the affected workspace changes.
+- [x] Add focused tests for stream handling, refresh orchestration, and lazy card cache invalidation.
 
 <!-- cy:proposal:start -->
 # Proposal
@@ -144,14 +146,14 @@ Improves JJ/Git workspace visibility through existing watcher events. Provider s
 
 ## 2. Implementation
 
-- [ ] Expose active-workspace VCS project events from `useRuntimeStateStream`.
-- [ ] Add Kanban app refresh orchestration for change markdown and workspace file events.
-- [ ] Add workspace-version cache invalidation to `ChangeBoard`.
+- [x] Expose active-workspace VCS project events from `useRuntimeStateStream`.
+- [x] Add Kanban app refresh orchestration for change markdown and workspace file events.
+- [x] Add workspace-version cache invalidation to `ChangeBoard`.
 
 ## 3. Verification
 
-- [ ] Add and run targeted tests.
-- [ ] Run Kanban web typecheck.
+- [x] Add and run targeted tests.
+- [x] Run Kanban web typecheck.
 <!-- cy:tasks:end -->
 
 <!-- cy:verification:start -->
@@ -159,8 +161,7 @@ Improves JJ/Git workspace visibility through existing watcher events. Provider s
 
 ## Expected Checks
 
-- `pnpm --dir packages/kanban/web-ui run test -- src/runtime/use-runtime-state-stream.test.tsx src/components/changeyard/change-board.test.tsx`
-- Any added App/orchestration test.
+- `pnpm --dir packages/kanban/web-ui run test -- src/runtime/use-runtime-state-stream.test.tsx src/components/changeyard/change-board.test.tsx src/utils/changeyard-workspace-events.test.ts`
 - `pnpm --filter @changeyard/kanban run web:typecheck`
 
 ## Manual Scenarios
@@ -170,15 +171,16 @@ Improves JJ/Git workspace visibility through existing watcher events. Provider s
 
 ## Result
 
-_Not run yet._
+- Passed: `pnpm --dir packages/kanban/web-ui run test -- src/runtime/use-runtime-state-stream.test.tsx src/components/changeyard/change-board.test.tsx src/utils/changeyard-workspace-events.test.ts` (Vitest ran the package suite: 90 files, 552 tests).
+- Passed: `pnpm --filter @changeyard/kanban run web:typecheck`.
 <!-- cy:verification:end -->
 
 # Acceptance Criteria
-- [ ] Workspace `.changeyard/changes/*.md` edits trigger Changeyard change list refresh in the Kanban UI.
-- [ ] Workspace file edits invalidate only affected change-card lazy summaries/files.
-- [ ] Expanded selected change cards refresh visible file summary/list after relevant workspace events.
-- [ ] Tests cover stream event handling, refresh orchestration, and cache invalidation.
-- [ ] Targeted tests and typecheck pass or blockers are documented.
+- [x] Workspace `.changeyard/changes/*.md` edits trigger Changeyard change list refresh in the Kanban UI.
+- [x] Workspace file edits invalidate only affected change-card lazy summaries/files.
+- [x] Expanded selected change cards refresh visible file summary/list after relevant workspace events.
+- [x] Tests cover stream event handling, refresh orchestration, and cache invalidation.
+- [x] Targeted tests and typecheck pass or blockers are documented.
 
 # Agent Plan
 
@@ -186,4 +188,6 @@ Follow the Changeyard gates, then implement inside the verified workspace only. 
 
 # Completion Notes
 
-Summarize what changed, what checks ran, and what risks remain.
+Implemented workspace-aware Kanban refresh in the verified CY-0021 workspace. The runtime stream hook now exposes active `vcs_project_event` messages, project navigation forwards them to `App`, and Kanban derives affected change ids from normalized workspace paths. Change markdown events refetch canonical change data, while ordinary workspace file events bump per-change versions so selected/expanded change cards invalidate lazy summary/file caches without eager loading collapsed cards.
+
+Added focused tests for stream event handling, workspace path matching, and selected change-card cache refresh. Verification passed with the web UI test command and Kanban web typecheck. Remaining risk is limited to watcher path coverage for unusual workspace layouts; the path helper covers root-relative and absolute workspace metadata paths.

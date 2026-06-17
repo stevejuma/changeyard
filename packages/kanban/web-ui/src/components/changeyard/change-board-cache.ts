@@ -60,6 +60,7 @@ const filesCache = new BoundedLruCache<string, RuntimeChangeyardBoardFilesRespon
 export function getChangeBoardSummaryCacheKey(
 	workspaceId: string | null,
 	change: RuntimeChangeyardChangeListItem,
+	workspaceEventVersion = 0,
 ): string {
 	return [
 		workspaceId ?? "__unscoped__",
@@ -67,6 +68,7 @@ export function getChangeBoardSummaryCacheKey(
 		change.updatedAt ?? "unversioned",
 		change.base?.revision ?? "no-base",
 		change.workspace?.path ?? "no-workspace",
+		`workspace-event:${workspaceEventVersion}`,
 	].join("\x1f");
 }
 

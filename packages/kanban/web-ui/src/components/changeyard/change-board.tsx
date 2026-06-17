@@ -684,6 +684,7 @@ function ChangeCard({
 	index,
 	selected,
 	workspaceId,
+	workspaceEventVersion,
 	columnId,
 	selectedFile,
 	onSelectCard,
@@ -700,6 +701,7 @@ function ChangeCard({
 	index: number;
 	selected: boolean;
 	workspaceId?: string | null;
+	workspaceEventVersion: number;
 	columnId: ChangeColumnId;
 	selectedFile: SelectedBoardFile | null;
 	onSelectCard: (changeId: string) => void;
@@ -728,8 +730,12 @@ function ChangeCard({
 	const [commitFileErrors, setCommitFileErrors] = useState<Record<string, Error | null>>({});
 	const [allFilesMode, setAllFilesMode] = useState<BoardFileViewMode>("list");
 	const [commitFilesMode, setCommitFilesMode] = useState<BoardFileViewMode>("list");
-	const summaryCacheKey = useMemo(() => getChangeBoardSummaryCacheKey(workspaceId ?? null, change), [workspaceId, change]);
+	const summaryCacheKey = useMemo(
+		() => getChangeBoardSummaryCacheKey(workspaceId ?? null, change, workspaceEventVersion),
+		[workspaceEventVersion, workspaceId, change],
+	);
 	const summaryRequestRef = useRef<Promise<RuntimeChangeyardBoardSummaryResponse | null> | null>(null);
+	const previousWorkspaceEventVersionRef = useRef(workspaceEventVersion);
 
 	const loadSummary = useCallback(async () => {
 		if (summaryRequestRef.current) {
@@ -763,12 +769,11 @@ function ChangeCard({
 		}
 	}, [change.id, summaryCacheKey, workspaceId]);
 
-	const loadFiles = useCallback(
-		async (scope: RuntimeChangeyardBoardFilesScope) => {
-			const activeSummary = summary ?? (await loadSummary());
-			if (!activeSummary) {
-				return null;
-			}
+	const fetchFiles = useCallback(
+		async (
+			scope: RuntimeChangeyardBoardFilesScope,
+			activeSummary: RuntimeChangeyardBoardSummaryResponse,
+		): Promise<RuntimeChangeyardBoardFilesResponse> => {
 			const filesCacheKey = getChangeBoardFilesCacheKey(summaryCacheKey, activeSummary.version, scope);
 			const cached = readCachedChangeBoardFiles(filesCacheKey);
 			if (cached) {
@@ -781,7 +786,18 @@ function ChangeCard({
 			writeCachedChangeBoardFiles(filesCacheKey, response);
 			return response;
 		},
-		[change.id, loadSummary, summary, summaryCacheKey, workspaceId],
+		[change.id, summaryCacheKey, workspaceId],
+	);
+
+	const loadFiles = useCallback(
+		async (scope: RuntimeChangeyardBoardFilesScope) => {
+			const activeSummary = summary ?? (await loadSummary());
+			if (!activeSummary) {
+				return null;
+			}
+			return await fetchFiles(scope, activeSummary);
+		},
+		[fetchFiles, loadSummary, summary],
 	);
 
 	const loadAllFiles = useCallback(async (): Promise<RuntimeChangeyardBoardFilesResponse | null> => {
@@ -831,6 +847,57 @@ function ChangeCard({
 			void loadSummary();
 		}
 	}, [loadSummary, selected]);
+
+	useEffect(() => {
+		if (previousWorkspaceEventVersionRef.current === workspaceEventVersion) {
+			return;
+		}
+		previousWorkspaceEventVersionRef.current = workspaceEventVersion;
+		summaryRequestRef.current = null;
+		setSummary(null);
+		setSummaryError(null);
+		setAllFiles(null);
+		setAllFilesError(null);
+		setCommitFiles({});
+		setCommitFileErrors({});
+		if (!selected) {
+			return;
+		}
+		void loadSummary().then((nextSummary) => {
+			if (!nextSummary) {
+				return;
+			}
+			if (allFilesExpanded) {
+				setAllFilesLoading(true);
+				void fetchFiles("all", nextSummary)
+					.then((response) => {
+						setAllFiles(response);
+					})
+					.catch((error: unknown) => {
+						setAllFilesError(error instanceof Error ? error : new Error(String(error)));
+					})
+					.finally(() => {
+						setAllFilesLoading(false);
+					});
+			}
+			if (expandedCommitHash) {
+				setCommitFileLoading((current) => ({ ...current, [expandedCommitHash]: true }));
+				void fetchFiles({ commitHash: expandedCommitHash }, nextSummary)
+					.then((response) => {
+						setCommitFiles((current) => ({ ...current, [expandedCommitHash]: response }));
+					})
+					.catch((error: unknown) => {
+						setCommitFileErrors((current) => ({
+							...current,
+							[expandedCommitHash]: error instanceof Error ? error : new Error(String(error)),
+						}));
+					})
+					.finally(() => {
+						setCommitFileLoading((current) => ({ ...current, [expandedCommitHash]: false }));
+					});
+			}
+		});
+	}, [allFilesExpanded, expandedCommitHash, fetchFiles, loadSummary, selected, workspaceEventVersion]);
 
 	const selectFirstAllChangesFile = useCallback(() => {
 		setAllFilesExpanded(true);
@@ -1194,6 +1261,7 @@ export function ChangeBoard({
 	moveToTrashLoadingById,
 	workspacePath,
 	workspaceId,
+	workspaceEventVersions = {},
 	defaultClineModelId,
 }: {
 	board: BoardData;
@@ -1223,6 +1291,7 @@ export function ChangeBoard({
 	moveToTrashLoadingById?: Record<string, boolean>;
 	workspacePath?: string | null;
 	workspaceId?: string | null;
+	workspaceEventVersions?: Record<string, number>;
 	defaultClineModelId?: string | null;
 }): ReactElement {
 	const [collapsedPreferences, setCollapsedPreferences] = useState(readCollapsedColumnPreferences);
@@ -1443,6 +1512,22 @@ export function ChangeBoard({
 		});
 	};
 
+	const selectedFileWorkspaceEventVersion = selectedFile ? (workspaceEventVersions[selectedFile.changeId] ?? 0) : 0;
+	const previousSelectedFileWorkspaceEventVersionRef = useRef(selectedFileWorkspaceEventVersion);
+	useEffect(() => {
+		if (previousSelectedFileWorkspaceEventVersionRef.current === selectedFileWorkspaceEventVersion) {
+			return;
+		}
+		previousSelectedFileWorkspaceEventVersionRef.current = selectedFileWorkspaceEventVersion;
+		if (!selectedFile) {
+			return;
+		}
+		setSelectedFile(null);
+		setFileDiff(null);
+		setFileDiffError(null);
+		setFileDiffLoading(false);
+	}, [selectedFile, selectedFileWorkspaceEventVersion]);
+
 	return (
 		<section className="flex min-h-0 min-w-0 flex-1 flex-col bg-surface-0 px-3 py-3">
 			<div className="mb-3 flex flex-wrap items-center gap-2">
@@ -1578,6 +1663,7 @@ export function ChangeBoard({
 															index={column.tasks.length + index}
 															selected={change.id === selectedBoardChangeId}
 															workspaceId={workspaceId}
+															workspaceEventVersion={workspaceEventVersions[change.id] ?? 0}
 															columnId={column.id}
 															selectedFile={selectedFile?.changeId === change.id ? selectedFile : null}
 															onSelectCard={handleSelectBoardChange}

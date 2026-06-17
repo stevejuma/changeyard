@@ -13,6 +13,7 @@ import type {
 	RuntimeStateStreamTaskChatClearedMessage,
 	RuntimeStateStreamTaskChatMessage,
 	RuntimeStateStreamTaskReadyForReviewMessage,
+	RuntimeStateStreamVcsProjectEventMessage,
 	RuntimeTaskChatMessage,
 	RuntimeTaskSessionSummary,
 	RuntimeWorkspaceMetadata,
@@ -70,6 +71,7 @@ export interface UseRuntimeStateStreamResult {
 	latestTaskChatMessage: RuntimeStateStreamTaskChatMessage | null;
 	taskChatMessagesByTaskId: Record<string, RuntimeTaskChatMessage[]>;
 	latestTaskReadyForReview: RuntimeStateStreamTaskReadyForReviewMessage | null;
+	latestVcsProjectEvent: RuntimeStateStreamVcsProjectEventMessage | null;
 	latestMcpAuthStatuses: RuntimeClineMcpServerAuthStatus[] | null;
 	clineSessionContextVersion: number;
 	hubClients: RuntimeHubClientsSummary | null;
@@ -86,6 +88,7 @@ interface RuntimeStateStreamStore {
 	latestTaskChatMessage: RuntimeStateStreamTaskChatMessage | null;
 	taskChatMessagesByTaskId: Record<string, RuntimeTaskChatMessage[]>;
 	latestTaskReadyForReview: RuntimeStateStreamTaskReadyForReviewMessage | null;
+	latestVcsProjectEvent: RuntimeStateStreamVcsProjectEventMessage | null;
 	latestMcpAuthStatuses: RuntimeClineMcpServerAuthStatus[] | null;
 	clineSessionContextVersion: number;
 	hubClients: RuntimeHubClientsSummary | null;
@@ -108,6 +111,7 @@ type RuntimeStateStreamAction =
 	| { type: "task_chat_cleared"; payload: RuntimeStateStreamTaskChatClearedMessage }
 	| { type: "workspace_metadata_updated"; workspaceMetadata: RuntimeWorkspaceMetadata }
 	| { type: "task_ready_for_review"; payload: RuntimeStateStreamTaskReadyForReviewMessage }
+	| { type: "vcs_project_event"; payload: RuntimeStateStreamVcsProjectEventMessage }
 	| { type: "mcp_auth_updated"; payload: RuntimeStateStreamMcpAuthUpdatedMessage }
 	| { type: "cline_session_context_updated"; payload: RuntimeStateStreamClineSessionContextUpdatedMessage }
 	| { type: "workspace_state_updated"; workspaceState: RuntimeWorkspaceStateResponse }
@@ -124,6 +128,7 @@ function createInitialRuntimeStateStreamStore(requestedWorkspaceId: string | nul
 		latestTaskChatMessage: null,
 		taskChatMessagesByTaskId: {},
 		latestTaskReadyForReview: null,
+		latestVcsProjectEvent: null,
 		latestMcpAuthStatuses: null,
 		clineSessionContextVersion: 0,
 		hubClients: null,
@@ -177,6 +182,7 @@ function runtimeStateStreamReducer(
 			workspaceMetadata: null,
 			latestTaskChatMessage: null,
 			taskChatMessagesByTaskId: {},
+			latestVcsProjectEvent: null,
 			streamError: null,
 			isRuntimeDisconnected: false,
 			hasReceivedSnapshot: false,
@@ -210,6 +216,7 @@ function runtimeStateStreamReducer(
 			latestTaskChatMessage: null,
 			taskChatMessagesByTaskId: {},
 			latestTaskReadyForReview: state.latestTaskReadyForReview,
+			latestVcsProjectEvent: null,
 			latestMcpAuthStatuses: state.latestMcpAuthStatuses,
 			clineSessionContextVersion: action.payload.clineSessionContextVersion,
 			hubClients: action.payload.hubClients ?? state.hubClients,
@@ -229,6 +236,7 @@ function runtimeStateStreamReducer(
 			latestTaskChatMessage: didProjectChange ? null : state.latestTaskChatMessage,
 			taskChatMessagesByTaskId: didProjectChange ? {} : state.taskChatMessagesByTaskId,
 			latestTaskReadyForReview: didProjectChange ? null : state.latestTaskReadyForReview,
+			latestVcsProjectEvent: didProjectChange ? null : state.latestVcsProjectEvent,
 			hasReceivedSnapshot: true,
 		};
 	}
@@ -263,6 +271,12 @@ function runtimeStateStreamReducer(
 		return {
 			...state,
 			latestTaskReadyForReview: action.payload,
+		};
+	}
+	if (action.type === "vcs_project_event") {
+		return {
+			...state,
+			latestVcsProjectEvent: action.payload,
 		};
 	}
 	if (action.type === "mcp_auth_updated") {
@@ -473,6 +487,16 @@ export function useRuntimeStateStream(requestedWorkspaceId: string | null): UseR
 						});
 						return;
 					}
+					if (payload.type === "vcs_project_event") {
+						if (payload.workspaceId !== activeWorkspaceId) {
+							return;
+						}
+						dispatch({
+							type: "vcs_project_event",
+							payload,
+						});
+						return;
+					}
 					if (payload.type === "mcp_auth_updated") {
 						dispatch({
 							type: "mcp_auth_updated",
@@ -544,6 +568,7 @@ export function useRuntimeStateStream(requestedWorkspaceId: string | null): UseR
 		latestTaskChatMessage: state.latestTaskChatMessage,
 		taskChatMessagesByTaskId: state.taskChatMessagesByTaskId,
 		latestTaskReadyForReview: state.latestTaskReadyForReview,
+		latestVcsProjectEvent: state.latestVcsProjectEvent,
 		latestMcpAuthStatuses: state.latestMcpAuthStatuses,
 		clineSessionContextVersion: state.clineSessionContextVersion,
 		hubClients: state.hubClients,

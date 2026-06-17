@@ -370,6 +370,76 @@ describe("ChangeBoard", () => {
 		expect(runtimeMock.getBoardSummary).toHaveBeenCalledTimes(1);
 	});
 
+	it("refreshes selected change files when the workspace event version changes", async () => {
+		runtimeMock.getBoardSummary.mockResolvedValue({
+			ok: true,
+			changeId: "CY-0001",
+			version: "v1",
+			workspaceHead: "head",
+			baseRevision: "main",
+			commits: [],
+			files: { count: 1, additions: 2, deletions: 1 },
+		});
+		runtimeMock.getBoardFiles.mockResolvedValue({
+			ok: true,
+			changeId: "CY-0001",
+			version: "v1",
+			scope: "all",
+			files: [{ path: "src/change.ts", status: "modified", additions: 2, deletions: 1 }],
+		});
+		runtimeMock.getBoardFileDiff.mockResolvedValue({
+			ok: true,
+			changeId: "CY-0001",
+			version: "v1",
+			scope: "all",
+			path: "src/change.ts",
+			file: {
+				path: "src/change.ts",
+				status: "modified",
+				additions: 2,
+				deletions: 1,
+				oldText: "const value = 1;\n",
+				newText: "const value = 2;\n",
+			},
+		});
+		const change = createChange("CY-0001", "Quick change", null);
+		const props = {
+			board: { columns: [], dependencies: [] },
+			changes: [change],
+			filter: "changes" as const,
+			selectedChangeId: null,
+			selectedTaskId: null,
+			workspaceId: "project-1",
+			onFilterChange: vi.fn(),
+			onSelectChange: vi.fn(),
+			onSelectTask: vi.fn(),
+		};
+
+		act(() => {
+			root.render(<ChangeBoard {...props} workspaceEventVersions={{ "CY-0001": 0 }} />);
+		});
+
+		await act(async () => {
+			container.querySelector('[data-change-id="CY-0001"] [role="button"]')?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+
+		expect(runtimeMock.getBoardSummary).toHaveBeenCalledTimes(1);
+		expect(runtimeMock.getBoardFiles).toHaveBeenCalledTimes(1);
+
+		await act(async () => {
+			root.render(<ChangeBoard {...props} workspaceEventVersions={{ "CY-0001": 1 }} />);
+			await Promise.resolve();
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+
+		expect(runtimeMock.getBoardSummary.mock.calls.length).toBeGreaterThan(1);
+		expect(runtimeMock.getBoardFiles.mock.calls.length).toBeGreaterThan(1);
+		expect(runtimeMock.getBoardFiles).toHaveBeenLastCalledWith({ id: "CY-0001", scope: "all" });
+	});
+
 	it("selecting a change header opens all changes and selects the first file", async () => {
 		runtimeMock.getBoardSummary.mockResolvedValue({
 			ok: true,
