@@ -79,10 +79,10 @@ export function createProjectsApi(deps: CreateProjectsApiDependencies): RuntimeT
 			const result = await execFile(
 				"jj",
 				[
+					"--color=never",
 					"--no-pager",
 					"workspace",
 					"list",
-					"--color=never",
 					"--template",
 					'name ++ "\\t" ++ root ++ "\\n"',
 				],

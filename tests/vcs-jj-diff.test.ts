@@ -24,9 +24,9 @@ test("loadJjDiff returns the current change summary and patch", async () => {
 				return { ok: true, stdout: "origin/main", stderr: "", exitCode: 0 };
 			case "gh auth status --hostname github.com":
 				return { ok: true, stdout: "Logged in", stderr: "", exitCode: 0 };
-			case "jj show --ignore-working-copy -r qpvuntsm --summary --color=never":
+			case "jj --color=never show --ignore-working-copy -r qpvuntsm --summary":
 				return { ok: true, stdout: "M src/example.ts", stderr: "", exitCode: 0 };
-			case "jj show --ignore-working-copy -r qpvuntsm --git --color=never":
+			case "jj --color=never show --ignore-working-copy -r qpvuntsm --git":
 				return { ok: true, stdout: "diff --git a/src/example.ts b/src/example.ts", stderr: "", exitCode: 0 };
 			default:
 				return { ok: false, stdout: "", stderr: `${joined} not mocked`, exitCode: 1 };

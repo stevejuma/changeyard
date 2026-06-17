@@ -37,11 +37,34 @@ function restoreEnvFlag(name: string, value: string | undefined): void {
 }
 
 function runCommand(command: string, args: string[], cwd: string): string {
-  const result = spawnSync(command, args, { cwd, encoding: "utf8" });
+  const result = spawnSync(command, normalizeCommandArgs(command, args), { cwd, encoding: "utf8" });
   if (result.status !== 0) {
     throw new Error(`${command} ${args.join(" ")} failed: ${(result.stderr || result.stdout || "command failed").toString().trim()}`);
   }
   return (result.stdout || "").trim();
+}
+
+function normalizeCommandArgs(command: string, args: string[]): string[] {
+  if (command !== "jj") {
+    return args;
+  }
+  return ["--color=never", ...stripJjColorArgs(args)];
+}
+
+function stripJjColorArgs(args: string[]): string[] {
+  const next: string[] = [];
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
+    if (arg === "--color") {
+      index++;
+      continue;
+    }
+    if (arg.startsWith("--color=")) {
+      continue;
+    }
+    next.push(arg);
+  }
+  return next;
 }
 
 function replacePlanningSection(repoRoot: string, changeId: string, sectionId: PlanningSectionId, content: string): void {
@@ -339,7 +362,7 @@ test("ui server exposes scoped JJ inventory and operations through the runtime t
 	const originalFlag = process.env.CHANGEYARD_VCS;
 	try {
 		process.env.CHANGEYARD_VCS = "1";
-		if (spawnSync("jj", ["--version"], { encoding: "utf8" }).status !== 0) {
+		if (spawnSync("jj", normalizeCommandArgs("jj", ["--version"]), { encoding: "utf8" }).status !== 0) {
 			t.skip("jj is required for JJ inventory and operations server coverage");
 			return;
 		}
@@ -451,7 +474,7 @@ test("ui server exposes vcs.submitStackPreview through the runtime tRPC boundary
   try {
     process.env.CHANGEYARD_VCS = "1";
     process.env.TEST_GITHUB_TOKEN = "test-token";
-    if (spawnSync("jj", ["--version"], { encoding: "utf8" }).status !== 0) {
+    if (spawnSync("jj", normalizeCommandArgs("jj", ["--version"]), { encoding: "utf8" }).status !== 0) {
       t.skip("jj is required for submit stack preview server coverage");
       return;
     }
@@ -550,7 +573,7 @@ test("ui server exposes vcs.submitStack through the runtime tRPC boundary", asyn
   try {
     process.env.CHANGEYARD_VCS = "1";
     process.env.TEST_GITHUB_TOKEN = "test-token";
-    if (spawnSync("jj", ["--version"], { encoding: "utf8" }).status !== 0) {
+    if (spawnSync("jj", normalizeCommandArgs("jj", ["--version"]), { encoding: "utf8" }).status !== 0) {
       t.skip("jj is required for submit stack server coverage");
       return;
     }

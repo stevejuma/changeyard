@@ -23,11 +23,11 @@ const repoRoot = process.cwd();
 const scenarioScript = path.join(repoRoot, "scripts", "create-vcs-jj-scenarios.ts");
 
 function hasCommand(command: string): boolean {
-	return spawnSync(command, ["--version"], { encoding: "utf8" }).status === 0;
+	return spawnSync(command, normalizeCommandArgs(command, ["--version"]), { encoding: "utf8" }).status === 0;
 }
 
 function runCommand(command: string, args: string[], cwd: string): string {
-	const result = spawnSync(command, args, {
+	const result = spawnSync(command, normalizeCommandArgs(command, args), {
 		cwd,
 		encoding: "utf8",
 		maxBuffer: 20 * 1024 * 1024,
@@ -36,6 +36,29 @@ function runCommand(command: string, args: string[], cwd: string): string {
 		throw new Error(`${command} ${args.join(" ")} failed: ${(result.stderr || result.stdout || "command failed").trim()}`);
 	}
 	return (result.stdout || "").trim();
+}
+
+function normalizeCommandArgs(command: string, args: string[]): string[] {
+	if (command !== "jj") {
+		return args;
+	}
+	return ["--color=never", ...stripJjColorArgs(args)];
+}
+
+function stripJjColorArgs(args: string[]): string[] {
+	const next: string[] = [];
+	for (let index = 0; index < args.length; index++) {
+		const arg = args[index];
+		if (arg === "--color") {
+			index++;
+			continue;
+		}
+		if (arg.startsWith("--color=")) {
+			continue;
+		}
+		next.push(arg);
+	}
+	return next;
 }
 
 function createScenarioFixture(rootPath: string): ScenarioManifest {

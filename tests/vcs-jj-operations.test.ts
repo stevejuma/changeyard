@@ -172,7 +172,7 @@ test("createJjOperationSnapshot snapshots the working copy without ignore-workin
 		if (input.command === "jj" && input.args.join(" ") === "workspace root") {
 			return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
 		}
-		if (input.command === "jj" && input.args[0] === "status") {
+		if (input.command === "jj" && input.args.join(" ") === "--color=never status --no-pager") {
 			return { ok: true, stdout: "Working copy changes:\n", stderr: "", exitCode: 0 };
 		}
 		if (input.command === "jj" && input.args[0] === "op" && input.args[1] === "log") {
@@ -183,12 +183,12 @@ test("createJjOperationSnapshot snapshots the working copy without ignore-workin
 	};
 
 	const result = await createJjOperationSnapshot("/repo", runner);
-	const statusCommand = commands.find((command) => command.startsWith("jj status "));
+	const statusCommand = commands.find((command) => command.startsWith("jj --color=never status "));
 
 	assert.equal(result.ok, true);
 	assert.equal(result.operationId, afterOp);
 	assert.equal(result.changed, true);
-	assert.equal(statusCommand, "jj status --color never --no-pager");
+	assert.equal(statusCommand, "jj --color=never status --no-pager");
 	assert.equal(statusCommand?.includes("--ignore-working-copy"), false);
 });
 
@@ -204,7 +204,7 @@ test("createJjOperationSnapshot reports unchanged state when JJ does not create 
 		if (input.command === "jj" && input.args.join(" ") === "workspace root") {
 			return { ok: true, stdout: "/repo", stderr: "", exitCode: 0 };
 		}
-		if (input.command === "jj" && input.args[0] === "status") {
+		if (input.command === "jj" && input.args.join(" ") === "--color=never status --no-pager") {
 			return { ok: true, stdout: "The working copy is clean\n", stderr: "", exitCode: 0 };
 		}
 		if (input.command === "jj" && input.args[0] === "op" && input.args[1] === "log") {
@@ -245,7 +245,7 @@ test("revertJjOperation restores the first parent operation", async () => {
 		) {
 			return { ok: true, stdout: `${parent}\n`, stderr: "", exitCode: 0 };
 		}
-		if (input.command === "jj" && input.args[0] === "op" && input.args[1] === "restore") {
+		if (input.command === "jj" && input.args.join(" ") === `--color=never op restore ${parent} --no-pager`) {
 			return { ok: true, stdout: "", stderr: "", exitCode: 0 };
 		}
 		if (
@@ -263,7 +263,7 @@ test("revertJjOperation restores the first parent operation", async () => {
 
 	assert.equal(result.ok, true);
 	assert.equal(result.operationId, current);
-	assert(commands.includes(`jj op restore ${parent} --color never --no-pager`));
+	assert(commands.includes(`jj --color=never op restore ${parent} --no-pager`));
 });
 
 test("revertJjOperation reports operations without parents as unavailable", async () => {

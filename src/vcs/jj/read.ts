@@ -116,7 +116,7 @@ export async function readJjBookmarksWithBase(
 	baseRevset: string,
 	runner: VcsCommandRunner,
 ): Promise<VcsJjBookmarksReadResult> {
-	const result = await runner({
+	let result = await runner({
 		command: "jj",
 		args: [
 			"bookmark",
@@ -131,6 +131,22 @@ export async function readJjBookmarksWithBase(
 		],
 		cwd,
 	});
+	if (!result.ok) {
+		result = await runner({
+			command: "jj",
+			args: [
+				"bookmark",
+				"list",
+				"--ignore-working-copy",
+				"--at-op=@",
+				"--revisions",
+				createBookmarksRevset(baseRevset),
+				"--template",
+				'name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"',
+			],
+			cwd,
+		});
+	}
 	if (!result.ok) {
 		return { bookmarks: [], ok: false };
 	}
@@ -147,7 +163,10 @@ export async function readJjBookmarksWithBase(
 		if (!trimmed) {
 			continue;
 		}
-		const [name, remoteName = "", changeId, commitId, syncedFlag, trackedFlag] = trimmed.split(BOOKMARK_LINE_SEPARATOR);
+		const fields = trimmed.split(BOOKMARK_LINE_SEPARATOR);
+		const [name, remoteName, changeId, commitId, syncedFlag, trackedFlag] = fields.length >= 6
+			? fields
+			: [fields[0], "", fields[1], fields[2], fields[3], fields[4]];
 		if (!name || !changeId || !commitId) {
 			continue;
 		}
@@ -244,7 +263,7 @@ export async function readJjChangesForBookmarks(
 
 	for (let start = 0; start < bookmarkNames.length; start += GRAPH_BOOKMARK_BATCH_SIZE) {
 		const batch = bookmarkNames.slice(start, start + GRAPH_BOOKMARK_BATCH_SIZE);
-		const result = await runner({
+		let result = await runner({
 			command: "jj",
 			args: [
 				"log",
@@ -258,6 +277,22 @@ export async function readJjChangesForBookmarks(
 			],
 			cwd,
 		});
+		if (!result.ok) {
+			result = await runner({
+				command: "jj",
+				args: [
+					"log",
+					"--ignore-working-copy",
+					"--at-op=@",
+					"--revisions",
+					createGraphRevset(baseRevset, batch),
+					"--no-graph",
+					"--template",
+					'change_id.shortest(12) ++ "\\t" ++ commit_id.shortest(12) ++ "\\t" ++ description.first_line().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.name().replace("\\\\t", " ").replace("\\\\n", " ") ++ "\\t" ++ author.email() ++ "\\t" ++ parents.map(|p| p.change_id().shortest(12)).join("|") ++ "\\t" ++ local_bookmarks.map(|b| b.name()).join("|") ++ "\\t" ++ remote_bookmarks.map(|b| separate("@", b.name(), b.remote())).join("|") ++ "\\t" ++ if(current_working_copy, "1", "0") ++ "\\n"',
+				],
+				cwd,
+			});
+		}
 		if (!result.ok) {
 			return { changes: [...changesById.values()], diagnostics, ok: false };
 		}

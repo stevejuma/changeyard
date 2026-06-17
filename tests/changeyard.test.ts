@@ -2308,27 +2308,51 @@ test("doctor reports workspace drift and recover all repairs missing markers", (
 });
 
 function runCommand(command: string, args: string[], cwd: string): void {
-  const nextArgs = command === "git"
-    ? [
-        "-c",
-        "commit.gpgsign=false",
-        "-c",
-        "tag.gpgsign=false",
-        ...(args[0] === "commit" ? ["commit", "--no-gpg-sign", ...args.slice(1)] : args),
-      ]
-    : args;
+  const nextArgs = normalizeCommandArgs(command, args);
   const result = spawnSync(command, nextArgs, { cwd, encoding: "utf8" });
   if (result.status !== 0) throw new Error(result.stderr || `${command} ${args.join(" ")} failed`);
 }
 
 function commandOutput(command: string, args: string[], cwd: string): string {
-  const result = spawnSync(command, args, { cwd, encoding: "utf8" });
+  const result = spawnSync(command, normalizeCommandArgs(command, args), { cwd, encoding: "utf8" });
   if (result.status !== 0) throw new Error(result.stderr || `${command} ${args.join(" ")} failed`);
   return String(result.stdout ?? "").trim();
 }
 
 function hasCommand(command: string): boolean {
-  return spawnSync(command, ["--version"], { encoding: "utf8" }).status === 0;
+  return spawnSync(command, normalizeCommandArgs(command, ["--version"]), { encoding: "utf8" }).status === 0;
+}
+
+function normalizeCommandArgs(command: string, args: string[]): string[] {
+  if (command === "git") {
+    return [
+      "-c",
+      "commit.gpgsign=false",
+      "-c",
+      "tag.gpgsign=false",
+      ...(args[0] === "commit" ? ["commit", "--no-gpg-sign", ...args.slice(1)] : args),
+    ];
+  }
+  if (command !== "jj") {
+    return args;
+  }
+  return ["--color=never", ...stripJjColorArgs(args)];
+}
+
+function stripJjColorArgs(args: string[]): string[] {
+  const next: string[] = [];
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
+    if (arg === "--color") {
+      index++;
+      continue;
+    }
+    if (arg.startsWith("--color=")) {
+      continue;
+    }
+    next.push(arg);
+  }
+  return next;
 }
 
 test("git-worktree engine integrates with a real temporary git repository", () => {
@@ -2492,12 +2516,12 @@ test("land rebases and lands a described jj workspace task commit without root w
     assert.equal(existsSync(path.join(repo, ".changeyard", "workspaces", "CY-0001")), false);
     assert.equal(commandOutput("jj", ["file", "show", "-r", "main", "--", "landed.txt"], repo), "landed");
     assert.equal(commandOutput("jj", ["file", "show", "-r", "main", "--", "advance.txt"], repo), "advance");
-    const rootWipResult = spawnSync("jj", ["file", "show", "-r", "main", "--", "root-wip.txt"], { cwd: repo, encoding: "utf8" });
+    const rootWipResult = spawnSync("jj", normalizeCommandArgs("jj", ["file", "show", "-r", "main", "--", "root-wip.txt"]), { cwd: repo, encoding: "utf8" });
     assert.notEqual(rootWipResult.status, 0);
     const parsed = parseFrontmatter(commandOutput("jj", ["file", "show", "-r", "main", "--", ".changeyard/changes/CY-0001-land-jj-workspace.md"], repo));
     assert.equal(parsed.frontmatter.status, "merged");
     runCommand("jj", ["rebase", "-r", "@", "-d", "main"], repo);
-    const metadataConflicts = spawnSync("jj", ["resolve", "--list", "--", ".changeyard/changes/CY-0001-land-jj-workspace.md"], { cwd: repo, encoding: "utf8" });
+    const metadataConflicts = spawnSync("jj", normalizeCommandArgs("jj", ["resolve", "--list", "--", ".changeyard/changes/CY-0001-land-jj-workspace.md"]), { cwd: repo, encoding: "utf8" });
     assert.notEqual(metadataConflicts.status, 0);
     assert.match(String(metadataConflicts.stderr ?? ""), /No conflicts found/);
     assert.equal(commandOutput("jj", ["diff", "--name-only"], repo).split("\n").filter(Boolean).includes("root-wip.txt"), true);

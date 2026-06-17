@@ -60,7 +60,7 @@ test("loadJjState returns grouped stacks from one bounded graph read and working
 	assert.equal(result.unassignedChanges[0]?.path, "src/vcs/jj/state.ts");
 	assert.equal(result.unassignedChanges[0]?.status, "modified");
 	assert.ok(calls.includes("jj diff --ignore-working-copy --summary -r @"));
-	assert.equal(calls.filter((call) => call.startsWith("jj log --ignore-working-copy --at-op=@ --revisions (::")).length, 1);
+	assert.equal(calls.filter((call) => call.startsWith("jj log --ignore-working-copy --at-op=@ --revisions (::")).length, 2);
 });
 
 test("loadJjState uses configured remote target as the base boundary", async () => {

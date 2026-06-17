@@ -43,12 +43,12 @@ export async function loadJjDiff(cwd: string, runner: VcsCommandRunner): Promise
 	const [summaryResult, patchResult] = await Promise.all([
 		runner({
 			command: "jj",
-			args: ["show", "--ignore-working-copy", "-r", changeId, "--summary", "--color=never"],
+			args: ["--color=never", "show", "--ignore-working-copy", "-r", changeId, "--summary"],
 			cwd: repoCwd,
 		}),
 		runner({
 			command: "jj",
-			args: ["show", "--ignore-working-copy", "-r", changeId, "--git", "--color=never"],
+			args: ["--color=never", "show", "--ignore-working-copy", "-r", changeId, "--git"],
 			cwd: repoCwd,
 		}),
 	]);

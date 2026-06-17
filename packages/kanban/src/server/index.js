@@ -64,7 +64,7 @@ async function pathIsDirectory(targetPath) {
 }
 
 function detectWorkspaceRepositoryKindFallback(targetPath) {
-	const jjResult = spawnSync("jj", ["workspace", "root"], {
+	const jjResult = spawnSync("jj", ["--color=never", "workspace", "root"], {
 		cwd: targetPath,
 		encoding: "utf8",
 		stdio: ["ignore", "pipe", "ignore"],

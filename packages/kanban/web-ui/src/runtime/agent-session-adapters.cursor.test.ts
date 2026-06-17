@@ -7,15 +7,41 @@ import { afterEach, describe, expect, it } from "vitest";
 import { prepareAgentLaunch } from "../../../src/runtime-stack/terminal/agent-session-adapters.js";
 
 function commandAvailable(command: string): boolean {
-	return spawnSync(command, ["--version"], { encoding: "utf8" }).status === 0;
+	return spawnSync(command, normalizeCommandArgs(command, ["--version"]), { encoding: "utf8" }).status === 0;
 }
 
 function run(command: string, args: string[], cwd: string): string {
-	const result = spawnSync(command, args, { cwd, encoding: "utf8" });
+	const result = spawnSync(command, normalizeCommandArgs(command, args), { cwd, encoding: "utf8" });
 	if (result.status !== 0) {
 		throw new Error(result.stderr || result.stdout || `${command} ${args.join(" ")} failed`);
 	}
 	return result.stdout;
+}
+
+function normalizeCommandArgs(command: string, args: string[]): string[] {
+	if (command !== "jj") {
+		return args;
+	}
+	return ["--color=never", ...stripJjColorArgs(args)];
+}
+
+function stripJjColorArgs(args: string[]): string[] {
+	const next: string[] = [];
+	for (let index = 0; index < args.length; index++) {
+		const arg = args[index];
+		if (!arg) {
+			continue;
+		}
+		if (arg === "--color") {
+			index++;
+			continue;
+		}
+		if (arg.startsWith("--color=")) {
+			continue;
+		}
+		next.push(arg);
+	}
+	return next;
 }
 
 describe("cursor agent session adapter", () => {

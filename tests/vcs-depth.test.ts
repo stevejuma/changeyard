@@ -21,20 +21,44 @@ function cleanup(dir: string): void {
 }
 
 function runCommand(command: string, args: string[], cwd: string): string {
-  const nextArgs = command === "git"
-    ? [
-        "-c",
-        "commit.gpgsign=false",
-        "-c",
-        "tag.gpgsign=false",
-        ...(args[0] === "commit" ? ["commit", "--no-gpg-sign", ...args.slice(1)] : args),
-      ]
-    : args;
+  const nextArgs = normalizeCommandArgs(command, args);
   const result = spawnSync(command, nextArgs, { cwd, encoding: "utf8" });
   if (result.status !== 0) {
     throw new Error(`${command} ${args.join(" ")} failed: ${(result.stderr || result.stdout || "command failed").toString().trim()}`);
   }
   return (result.stdout || "").trim();
+}
+
+function normalizeCommandArgs(command: string, args: string[]): string[] {
+  if (command === "git") {
+    return [
+      "-c",
+      "commit.gpgsign=false",
+      "-c",
+      "tag.gpgsign=false",
+      ...(args[0] === "commit" ? ["commit", "--no-gpg-sign", ...args.slice(1)] : args),
+    ];
+  }
+  if (command !== "jj") {
+    return args;
+  }
+  return ["--color=never", ...stripJjColorArgs(args)];
+}
+
+function stripJjColorArgs(args: string[]): string[] {
+  const next: string[] = [];
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
+    if (arg === "--color") {
+      index++;
+      continue;
+    }
+    if (arg.startsWith("--color=")) {
+      continue;
+    }
+    next.push(arg);
+  }
+  return next;
 }
 
 function hasCommand(command: string): boolean {

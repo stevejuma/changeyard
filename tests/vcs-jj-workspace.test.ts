@@ -75,9 +75,9 @@ function createStateRunner(calls: string[] = []): VcsCommandRunner {
 				return ok("feature/api\tapi222\t22222222\t1\t1");
 			case "jj diff --ignore-working-copy --summary -r @":
 				return ok("M src/api.ts\nA src/new.ts");
-			case "jj diff --ignore-working-copy --git --color=never -- src/api.ts":
-			case "jj diff --ignore-working-copy --git --color=never -r api222 -- src/api.ts":
-			case "jj diff --ignore-working-copy --git --color=never -r root111 -- src/api.ts":
+			case "jj --color=never diff --ignore-working-copy --git -- src/api.ts":
+			case "jj --color=never diff --ignore-working-copy --git -r api222 -- src/api.ts":
+			case "jj --color=never diff --ignore-working-copy --git -r root111 -- src/api.ts":
 				return ok([
 					"diff --git a/src/api.ts b/src/api.ts",
 					"index 1111111..2222222 100644",
@@ -445,7 +445,7 @@ test("previewJjWorkspaceOperation allows selected working-copy hunk restore", as
 	assert.equal(preview.operation.kind, "discard_changes");
 	assert.deepEqual(preview.affectedPaths, ["src/api.ts"]);
 	assert.match(preview.summary, /selected working-copy hunk/i);
-	assert.ok(calls.includes("jj diff --ignore-working-copy --git --color=never -- src/api.ts"));
+	assert.ok(calls.includes("jj --color=never diff --ignore-working-copy --git -- src/api.ts"));
 	assert.ok(!calls.includes("git apply --reverse --whitespace=nowarn -"));
 });
 
@@ -477,7 +477,7 @@ test("applyJjWorkspaceOperation restores selected working-copy hunks with revers
 	assert.equal(result.ok, true);
 	assert.equal(result.operation.kind, "restore_changes");
 	assert.deepEqual(result.affectedPaths, ["src/api.ts"]);
-	assert.ok(calls.includes("jj diff --ignore-working-copy --git --color=never -- src/api.ts"));
+	assert.ok(calls.includes("jj --color=never diff --ignore-working-copy --git -- src/api.ts"));
 	assert.ok(calls.includes("git apply --reverse --whitespace=nowarn -"));
 });
 
@@ -519,7 +519,7 @@ test("applyJjWorkspaceOperation moves selected committed files through a tempora
 			if (joined === "jj split -r api222 --insert-after root111 -m changeyard move selected files -- src/api.ts") {
 				return { ok: true, stdout: "Created new commit temp333 33333333 changeyard move selected files", stderr: "", exitCode: 0 };
 			}
-			if (joined === "jj squash --from temp333 --into root111") {
+			if (joined === "jj squash --from temp333 --into root111 --use-destination-message") {
 				return ok("Squashed selected files into root111");
 			}
 			if (joined === "jj abandon temp333") {
@@ -535,7 +535,7 @@ test("applyJjWorkspaceOperation moves selected committed files through a tempora
 	assert.deepEqual(result.affectedCommitIds, ["api222", "root111"]);
 	assert.deepEqual(result.affectedPaths, ["src/api.ts"]);
 	assert.ok(calls.includes("jj split -r api222 --insert-after root111 -m changeyard move selected files -- src/api.ts"));
-	assert.ok(calls.includes("jj squash --from temp333 --into root111"));
+	assert.ok(calls.includes("jj squash --from temp333 --into root111 --use-destination-message"));
 });
 
 test("previewJjWorkspaceOperation allows selected committed hunk movement", async () => {
@@ -561,7 +561,7 @@ test("previewJjWorkspaceOperation allows selected committed hunk movement", asyn
 	assert.deepEqual(preview.affectedCommitIds, ["api222", "root111"]);
 	assert.deepEqual(preview.affectedPaths, ["src/api.ts"]);
 	assert.match(preview.summary, /selected hunk/i);
-	assert.ok(calls.includes("jj diff --ignore-working-copy --git --color=never -r api222 -- src/api.ts"));
+	assert.ok(calls.includes("jj --color=never diff --ignore-working-copy --git -r api222 -- src/api.ts"));
 	assert.ok(!calls.some((call) => call.startsWith("jj squash --from api222 --into root111 --interactive")));
 });
 
@@ -587,7 +587,7 @@ test("applyJjWorkspaceOperation moves selected committed hunks through a tempora
 			if (/^jj split -r api222 --insert-after root111 -m changeyard move selected hunks --interactive --tool .+ src\/api\.ts$/.test(joined)) {
 				return { ok: true, stdout: "Created new commit temp333 33333333 changeyard move selected hunks", stderr: "", exitCode: 0 };
 			}
-			if (joined === "jj squash --from temp333 --into root111") {
+			if (joined === "jj squash --from temp333 --into root111 --use-destination-message") {
 				return ok("Squashed selected hunks into root111");
 			}
 			if (joined === "jj abandon temp333") {
@@ -602,9 +602,9 @@ test("applyJjWorkspaceOperation moves selected committed hunks through a tempora
 	assert.equal(result.operation.kind, "move_changes");
 	assert.deepEqual(result.affectedCommitIds, ["api222", "root111"]);
 	assert.deepEqual(result.affectedPaths, ["src/api.ts"]);
-	assert.ok(calls.includes("jj diff --ignore-working-copy --git --color=never -r api222 -- src/api.ts"));
+	assert.ok(calls.includes("jj --color=never diff --ignore-working-copy --git -r api222 -- src/api.ts"));
 	assert.ok(calls.some((call) => /^jj split -r api222 --insert-after root111 -m changeyard move selected hunks --interactive --tool .+ src\/api\.ts$/.test(call)));
-	assert.ok(calls.includes("jj squash --from temp333 --into root111"));
+	assert.ok(calls.includes("jj squash --from temp333 --into root111 --use-destination-message"));
 });
 
 test("previewJjWorkspaceOperation allows selected committed hunk discard", async () => {
@@ -631,7 +631,7 @@ test("previewJjWorkspaceOperation allows selected committed hunk discard", async
 	assert.deepEqual(preview.affectedPaths, ["src/api.ts"]);
 	assert.match(preview.summary, /Remove 1 selected hunk/);
 	assert.ok(calls.includes("jj log --ignore-working-copy --no-graph -r api222- -T change_id.short()"));
-	assert.ok(calls.includes("jj diff --ignore-working-copy --git --color=never -r api222 -- src/api.ts"));
+	assert.ok(calls.includes("jj --color=never diff --ignore-working-copy --git -r api222 -- src/api.ts"));
 	assert.ok(!calls.some((call) => call.startsWith("jj new --no-edit root111")));
 	assert.ok(!calls.some((call) => call.startsWith("jj squash --from api222")));
 });
@@ -673,7 +673,7 @@ test("applyJjWorkspaceOperation discards selected committed hunks through a temp
 	assert.deepEqual(result.affectedCommitIds, ["api222"]);
 	assert.deepEqual(result.affectedPaths, ["src/api.ts"]);
 	assert.ok(calls.includes("jj log --ignore-working-copy --no-graph -r api222- -T change_id.short()"));
-	assert.ok(calls.includes("jj diff --ignore-working-copy --git --color=never -r api222 -- src/api.ts"));
+	assert.ok(calls.includes("jj --color=never diff --ignore-working-copy --git -r api222 -- src/api.ts"));
 	assert.ok(calls.includes("jj new --no-edit root111 -m changeyard discard selected hunks"));
 	assert.ok(calls.some((call) => /^jj squash --from api222 --into temp333 --interactive --tool .+ src\/api\.ts$/.test(call)));
 	assert.equal(calls.filter((call) => call === "jj abandon temp333").length, 1);
@@ -715,7 +715,7 @@ test("applyJjWorkspaceOperation uncommits selected committed files through a tem
 			if (joined === "jj split -r root111 --insert-after @ -m changeyard move selected files -- src/api.ts") {
 				return { ok: true, stdout: "Created new commit temp333 33333333 changeyard move selected files", stderr: "", exitCode: 0 };
 			}
-			if (joined === "jj squash --from temp333 --into @") {
+				if (joined === "jj squash --from temp333 --into @ --use-destination-message") {
 				return ok("Squashed selected files into the working copy");
 			}
 			if (joined === "jj abandon temp333") {
@@ -731,7 +731,7 @@ test("applyJjWorkspaceOperation uncommits selected committed files through a tem
 	assert.deepEqual(result.affectedCommitIds, ["root111"]);
 	assert.deepEqual(result.affectedPaths, ["src/api.ts"]);
 	assert.ok(calls.includes("jj split -r root111 --insert-after @ -m changeyard move selected files -- src/api.ts"));
-	assert.ok(calls.includes("jj squash --from temp333 --into @"));
+	assert.ok(calls.includes("jj squash --from temp333 --into @ --use-destination-message"));
 });
 
 test("applyJjWorkspaceOperation uncommits selected committed hunks through a temporary split into working copy", async () => {
@@ -755,7 +755,7 @@ test("applyJjWorkspaceOperation uncommits selected committed hunks through a tem
 			if (/^jj split -r root111 --insert-after @ -m changeyard move selected hunks --interactive --tool .+ src\/api\.ts$/.test(joined)) {
 				return { ok: true, stdout: "Created new commit temp333 33333333 changeyard move selected hunks", stderr: "", exitCode: 0 };
 			}
-			if (joined === "jj squash --from temp333 --into @") {
+				if (joined === "jj squash --from temp333 --into @ --use-destination-message") {
 				return ok("Squashed selected hunks into the working copy");
 			}
 			if (joined === "jj abandon temp333") {
@@ -770,9 +770,9 @@ test("applyJjWorkspaceOperation uncommits selected committed hunks through a tem
 	assert.equal(result.operation.kind, "uncommit_changes");
 	assert.deepEqual(result.affectedCommitIds, ["root111"]);
 	assert.deepEqual(result.affectedPaths, ["src/api.ts"]);
-	assert.ok(calls.includes("jj diff --ignore-working-copy --git --color=never -r root111 -- src/api.ts"));
+	assert.ok(calls.includes("jj --color=never diff --ignore-working-copy --git -r root111 -- src/api.ts"));
 	assert.ok(calls.some((call) => /^jj split -r root111 --insert-after @ -m changeyard move selected hunks --interactive --tool .+ src\/api\.ts$/.test(call)));
-	assert.ok(calls.includes("jj squash --from temp333 --into @"));
+	assert.ok(calls.includes("jj squash --from temp333 --into @ --use-destination-message"));
 });
 
 test("previewJjWorkspaceOperation translates neutral move commit to JJ reorder preview", async () => {
@@ -912,7 +912,7 @@ test("applyJjWorkspaceOperation splits selected committed hunks through JJ split
 	assert.equal(result.operation.kind, "split_commit");
 	assert.deepEqual(result.affectedCommitIds, ["api222"]);
 	assert.deepEqual(result.affectedPaths, ["src/api.ts"]);
-	assert.ok(calls.includes("jj diff --ignore-working-copy --git --color=never -r api222 -- src/api.ts"));
+	assert.ok(calls.includes("jj --color=never diff --ignore-working-copy --git -r api222 -- src/api.ts"));
 	assert.match(calls.at(-1) ?? "", /^jj split -r api222 -m Extract API hunk --tool .+ src\/api\.ts$/);
 });
 
@@ -1688,7 +1688,7 @@ test("applyJjWorkspaceOperation amends working-copy hunks through JJ squash edit
 	assert.equal(result.operation.kind, "amend_commit");
 	assert.deepEqual(result.affectedCommitIds, ["root111"]);
 	assert.deepEqual(result.affectedPaths, ["src/api.ts"]);
-	assert.ok(calls.includes("jj diff --ignore-working-copy --git --color=never -- src/api.ts"));
+	assert.ok(calls.includes("jj --color=never diff --ignore-working-copy --git -- src/api.ts"));
 	assert.match(calls.at(-1) ?? "", /^jj squash --from @ --into root111 --interactive --tool .+ src\/api\.ts$/);
 });
 

@@ -536,7 +536,7 @@ export async function createJjOperationSnapshot(
 	const previousOperationId = await resolveCurrentOperationId(repoCwd, runner);
 	const result = await runner({
 		command: "jj",
-		args: ["status", "--color", "never", "--no-pager"],
+		args: ["--color=never", "status", "--no-pager"],
 		cwd: repoCwd,
 	});
 	if (!result.ok) {
@@ -633,7 +633,7 @@ export async function revertJjOperation(
 	}
 	const result = await runner({
 		command: "jj",
-		args: ["op", "restore", parentOperationId, "--color", "never", "--no-pager"],
+		args: ["--color=never", "op", "restore", parentOperationId, "--no-pager"],
 		cwd: repoCwd,
 	});
 	if (!result.ok) {

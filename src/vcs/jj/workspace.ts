@@ -2386,7 +2386,7 @@ async function applyJjCommittedPathMoveOperation(
 	}
 	const squashResult = await runner({
 		command: "jj",
-		args: ["squash", "--from", temporaryChangeId, "--into", targetChangeId],
+		args: ["squash", "--from", temporaryChangeId, "--into", targetChangeId, "--use-destination-message"],
 		cwd,
 	});
 	if (!squashResult.ok) {
@@ -2463,7 +2463,7 @@ async function buildSelectedJjCommittedHunkPatch(
 	const paths = [...new Set(hunks.map((hunk) => hunk.path))];
 	const diffResult = await runner({
 		command: "jj",
-		args: ["diff", "--ignore-working-copy", "--git", "--color=never", "-r", sourceCommitId, "--", ...paths],
+		args: ["--color=never", "diff", "--ignore-working-copy", "--git", "-r", sourceCommitId, "--", ...paths],
 		cwd: repoCwd,
 	});
 	if (!diffResult.ok) {
@@ -2611,6 +2611,15 @@ function parseCreatedJjChangeId(output: string): string | null {
 	return match?.[1] ?? null;
 }
 
+function parseSelectedJjChangeId(output: string): string | null {
+	const match = /^Selected changes\s*:\s*([A-Za-z0-9._/-]+)/m.exec(output);
+	return match?.[1] ?? null;
+}
+
+function isSuccessfulJjSplitOutput(output: string): boolean {
+	return /^Selected changes\s*:/m.test(output) && /^Remaining changes\s*:/m.test(output);
+}
+
 function uniqueCommitIds(commitIds: string[]): string[] {
 	return [...new Set(commitIds.filter(Boolean))];
 }
@@ -2664,10 +2673,14 @@ async function applyJjCommittedHunkOperationWithEditor(
 			],
 			cwd: repoCwd,
 		});
-		if (!splitResult.ok || operation.kind === "create_commit") {
+		const splitOutput = [splitResult.stdout, splitResult.stderr].filter(Boolean).join("\n");
+		if ((!splitResult.ok && !isSuccessfulJjSplitOutput(splitOutput)) || operation.kind === "create_commit") {
 			return splitResult;
 		}
-		const temporaryChangeId = parseCreatedJjChangeId(splitResult.stdout) ?? parseCreatedJjChangeId(splitResult.stderr);
+		const temporaryChangeId =
+			parseCreatedJjChangeId(splitResult.stdout) ??
+			parseCreatedJjChangeId(splitResult.stderr) ??
+			parseSelectedJjChangeId(splitOutput);
 		if (!temporaryChangeId) {
 			return {
 				ok: false,
@@ -2678,7 +2691,7 @@ async function applyJjCommittedHunkOperationWithEditor(
 		}
 		const squashResult = await runner({
 			command: "jj",
-			args: ["squash", "--from", temporaryChangeId, "--into", target?.headChangeId ?? ""],
+			args: ["squash", "--from", temporaryChangeId, "--into", target?.headChangeId ?? "", "--use-destination-message"],
 			cwd: repoCwd,
 		});
 		if (squashResult.ok) {
@@ -2781,7 +2794,7 @@ async function buildSelectedJjWorkingCopyHunkPatch(
 	const paths = [...new Set(hunks.map((hunk) => hunk.path))];
 	const diffResult = await runner({
 		command: "jj",
-		args: ["diff", "--ignore-working-copy", "--git", "--color=never", "--", ...paths],
+		args: ["--color=never", "diff", "--ignore-working-copy", "--git", "--", ...paths],
 		cwd: repoCwd,
 	});
 	if (!diffResult.ok) {

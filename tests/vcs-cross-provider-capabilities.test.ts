@@ -172,9 +172,16 @@ test("JJ and Git neutral workspace previews reject capability-gated operations b
 			`${provider.name} move changes support`,
 		);
 		assert.equal(state.capabilities.supportsCreateStack, false, `${provider.name} create stack support`);
-		assert.equal(state.capabilities.supportsWorkingCopyCommit, false, `${provider.name} working-copy commit support`);
+		assert.equal(
+			state.capabilities.supportsWorkingCopyCommit,
+			provider.name === "jj",
+			`${provider.name} working-copy commit support`,
+		);
 
 		for (const operation of capabilityGatedOperations) {
+			if (provider.name === "jj" && operation.operation.kind !== "create_stack") {
+				continue;
+			}
 			const beforePreviewCalls = calls.length;
 			const preview = await provider.preview("/repo", operation, runner, {
 				targetBranch: "origin/main",

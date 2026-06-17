@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { normalizeVcsCommandArgs, vcsNoColorEnv } from "../vcs/argv.js";
 
 export type WorkspaceRepositoryKind = "git" | "jj";
 export type DetectedWorkspaceEngineName = "git-worktree" | "jj";
@@ -46,9 +47,11 @@ function commandSucceeded(
   args: string[],
   cwd: string,
 ): boolean {
-  const result = spawnSync(command, args, {
+  const normalizedArgs = normalizeVcsCommandArgs(command, args);
+  const result = spawnSync(command, normalizedArgs, {
     cwd,
     encoding: "utf8",
+    env: vcsNoColorEnv(),
   });
   return result.status === 0;
 }
@@ -58,9 +61,11 @@ function runCommand(
   args: string[],
   cwd: string,
 ): CommandResult {
-  const result = spawnSync(command, args, {
+  const normalizedArgs = normalizeVcsCommandArgs(command, args);
+  const result = spawnSync(command, normalizedArgs, {
     cwd,
     encoding: "utf8",
+    env: vcsNoColorEnv(),
   });
   return {
     ok: result.status === 0,

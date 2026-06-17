@@ -21,11 +21,34 @@ function cleanup(dir: string): void {
 }
 
 function runCommand(command: string, args: string[], cwd: string): string {
-	const result = spawnSync(command, args, { cwd, encoding: "utf8" });
+	const result = spawnSync(command, normalizeCommandArgs(command, args), { cwd, encoding: "utf8" });
 	if (result.status !== 0) {
 		throw new Error(`${command} ${args.join(" ")} failed: ${(result.stderr || result.stdout || "command failed").trim()}`);
 	}
 	return (result.stdout || "").trim();
+}
+
+function normalizeCommandArgs(command: string, args: string[]): string[] {
+	if (command !== "jj") {
+		return args;
+	}
+	return ["--color=never", ...stripJjColorArgs(args)];
+}
+
+function stripJjColorArgs(args: string[]): string[] {
+	const next: string[] = [];
+	for (let index = 0; index < args.length; index++) {
+		const arg = args[index];
+		if (arg === "--color") {
+			index++;
+			continue;
+		}
+		if (arg.startsWith("--color=")) {
+			continue;
+		}
+		next.push(arg);
+	}
+	return next;
 }
 
 function hasCommand(command: string): boolean {
