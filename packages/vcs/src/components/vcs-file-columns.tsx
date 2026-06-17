@@ -1,6 +1,7 @@
-import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, Folder, FolderOpen, FolderTree, List, Package, X } from "lucide-react";
+import { FileListing, FileListingViewModeToggle } from "@changeyard/web-ui";
+import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, FolderOpen, X } from "lucide-react";
 import type { DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 
 import { parsePatchToHunks, parsePatchToRows, ReadOnlyUnifiedDiff, type UnifiedDiffHunk } from "@/components/shared/diff-renderer";
 import { Button } from "@/components/ui/button";
@@ -8,7 +9,6 @@ import { cn } from "@/components/ui/cn";
 import { FileTypeIcon } from "@/components/ui/file-type-icon";
 import { FileStatusGlyph } from "@/components/ui/status-chip";
 import { EmptyState } from "@/components/vcs-panels";
-import { buildFileTree, buildPackageFileTree, type FileTreeNode } from "@/utils/file-tree";
 import { clampNumber, type VcsFileViewMode } from "@/utils/vcs-ui-preferences";
 
 export type VcsColumnId = "refs" | "commits" | "operations" | "stack" | "unstaged";
@@ -183,209 +183,24 @@ function fileKey(file: VcsFileChange): string {
 	return `${file.previousPath ?? ""}:${file.path}`;
 }
 
-function FileTreeRow({
-	node,
-	depth,
-	selectedPath,
-	onSelectPath,
-	filesByPath,
-	conflictPaths,
-	collapsedDirectoryPaths,
-	onToggleDirectory,
-	onFileDragStart,
-}: {
-	node: FileTreeNode;
-	depth: number;
-	selectedPath: string | null;
-	onSelectPath: (path: string) => void;
-	filesByPath: Map<string, VcsFileChange>;
-	conflictPaths?: ReadonlySet<string>;
-	collapsedDirectoryPaths: ReadonlySet<string>;
-	onToggleDirectory: (path: string) => void;
-	onFileDragStart?: (event: ReactDragEvent<HTMLButtonElement>, file: VcsFileChange) => void;
-}): React.ReactElement {
-	const isDirectory = node.type === "directory";
-	const isSelected = !isDirectory && node.path === selectedPath;
-	const file = filesByPath.get(node.path);
-	const isCollapsed = isDirectory && collapsedDirectoryPaths.has(node.path);
-	const hasConflict = isDirectory
-		? Array.from(conflictPaths ?? []).some((path) => path === node.path || path.startsWith(`${node.path}/`))
-		: Boolean(conflictPaths?.has(node.path));
-	const addedClassName = isSelected ? "text-accent-fg" : "text-status-green";
-	const removedClassName = isSelected ? "text-accent-fg" : "text-status-red";
-
-	return (
-		<div>
-			<button
-				type="button"
-				data-testid={isDirectory ? "vcs-directory-row" : "vcs-file-row"}
-				data-file-path={isDirectory ? undefined : node.path}
-				data-directory-path={isDirectory ? node.path : undefined}
-				aria-expanded={isDirectory ? !isCollapsed : undefined}
-				draggable={Boolean(file && onFileDragStart)}
-				className={cn(
-					"kb-file-tree-row",
-					isDirectory && "kb-file-tree-row-directory",
-					isDirectory && "cursor-pointer hover:bg-surface-2 hover:text-text-primary",
-					isSelected && "kb-file-tree-row-selected",
-					hasConflict && "kb-file-tree-row-conflict",
-					hasConflict && isSelected && "ring-1 ring-status-red/60",
-				)}
-				onDragStart={(event) => {
-					if (file && onFileDragStart) {
-						onFileDragStart(event, file);
-					}
-				}}
-				style={{ paddingLeft: depth * 12 + 8 }}
-				onClick={() => {
-					if (isDirectory) {
-						onToggleDirectory(node.path);
-					} else {
-						onSelectPath(node.path);
-					}
-				}}
-			>
-				{isDirectory ? (
-					<>
-						{isCollapsed ? <ChevronRight size={12} className="shrink-0" /> : <ChevronDown size={12} className="shrink-0" />}
-						{isCollapsed ? <Folder size={14} /> : <FolderOpen size={14} />}
-					</>
-				) : (
-					<>
-						<span className="w-3 shrink-0" />
-						<FileTypeIcon path={node.path} />
-					</>
-				)}
-				<span className="truncate">{node.name}</span>
-				{file ? (
-					<span className="ml-auto flex gap-1 font-mono text-[10px]">
-						{(file.additions ?? 0) > 0 ? <span className={addedClassName}>+{file.additions}</span> : null}
-						{(file.deletions ?? 0) > 0 ? <span className={removedClassName}>-{file.deletions}</span> : null}
-					</span>
-				) : null}
-				{hasConflict ? <AlertTriangle size={16} className="ml-auto shrink-0 text-status-red" /> : null}
-			</button>
-			{node.children.length > 0 && !isCollapsed ? (
-				<div>
-					{node.children.map((child) => (
-						<FileTreeRow
-							key={child.path}
-							node={child}
-							depth={depth + 1}
-							selectedPath={selectedPath}
-							onSelectPath={onSelectPath}
-							filesByPath={filesByPath}
-							conflictPaths={conflictPaths}
-							collapsedDirectoryPaths={collapsedDirectoryPaths}
-							onToggleDirectory={onToggleDirectory}
-							onFileDragStart={onFileDragStart}
-						/>
-					))}
-				</div>
-			) : null}
-		</div>
-	);
-}
-
-function FileListRow({
+function VcsFileStats({
 	file,
-	selectedPath,
-	hasConflict = false,
-	onSelectPath,
-	onFileDragStart,
+	isSelected,
 }: {
 	file: VcsFileChange;
-	selectedPath: string | null;
-	hasConflict?: boolean;
-	onSelectPath: (path: string) => void;
-	onFileDragStart?: (event: ReactDragEvent<HTMLButtonElement>, file: VcsFileChange) => void;
-}): React.ReactElement {
-	const isSelected = file.path === selectedPath;
+	isSelected: boolean;
+}): React.ReactElement | null {
 	const addedClassName = isSelected ? "text-accent-fg" : "text-status-green";
 	const removedClassName = isSelected ? "text-accent-fg" : "text-status-red";
+	if ((file.additions ?? 0) <= 0 && (file.deletions ?? 0) <= 0) {
+		return null;
+	}
 
 	return (
-		<button
-			type="button"
-			data-testid="vcs-file-row"
-			data-file-path={file.path}
-			draggable={Boolean(onFileDragStart)}
-			className={cn(
-				"kb-file-tree-row",
-				isSelected && "kb-file-tree-row-selected",
-				hasConflict && "kb-file-tree-row-conflict",
-				hasConflict && isSelected && "ring-1 ring-status-red/60",
-			)}
-			onDragStart={(event) => onFileDragStart?.(event, file)}
-			onClick={() => onSelectPath(file.path)}
-		>
-			<FileTypeIcon path={file.path} />
-			<FileStatusGlyph status={file.status} />
-			<span className="min-w-0 flex-1 truncate">{file.path}</span>
-			<span className="flex shrink-0 gap-1 font-mono text-[10px]">
-				{(file.additions ?? 0) > 0 ? <span className={addedClassName}>+{file.additions}</span> : null}
-				{(file.deletions ?? 0) > 0 ? <span className={removedClassName}>-{file.deletions}</span> : null}
-			</span>
-			{hasConflict ? <AlertTriangle size={16} className="ml-auto shrink-0 text-status-red" /> : null}
-		</button>
-	);
-}
-
-function FileViewToggle({
-	mode,
-	onModeChange,
-}: {
-	mode: VcsFileViewMode;
-	onModeChange: (mode: VcsFileViewMode) => void;
-}): React.ReactElement {
-	return (
-		<div className="inline-flex shrink-0 rounded-md border border-divider bg-surface-0 p-0.5">
-			<button
-				type="button"
-				aria-label="Show files as list"
-				title="List"
-				className={cn(
-					"grid h-6 w-6 place-items-center rounded border border-transparent text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary",
-					mode === "list" && "border-accent/30 bg-accent/15 text-accent",
-				)}
-				onClick={(event) => {
-					event.stopPropagation();
-					onModeChange("list");
-				}}
-			>
-				<List size={14} />
-			</button>
-			<button
-				type="button"
-				aria-label="Show files as folders"
-				title="Folder tree"
-				className={cn(
-					"grid h-6 w-6 place-items-center rounded border border-transparent text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary",
-					mode === "tree" && "border-accent/30 bg-accent/15 text-accent",
-				)}
-				onClick={(event) => {
-					event.stopPropagation();
-					onModeChange("tree");
-				}}
-			>
-				<FolderTree size={14} />
-			</button>
-			<button
-				type="button"
-				aria-label="Show files as packages"
-				title="Package tree"
-				className={cn(
-					"grid h-6 w-6 place-items-center rounded border border-transparent text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary",
-					mode === "package" && "border-accent/30 bg-accent/15 text-accent",
-				)}
-				onClick={(event) => {
-					event.stopPropagation();
-					onModeChange("package");
-				}}
-			>
-				<Package size={14} />
-			</button>
-		</div>
+		<span className="ml-auto flex shrink-0 gap-1 font-mono text-[10px]">
+			{(file.additions ?? 0) > 0 ? <span className={addedClassName}>+{file.additions}</span> : null}
+			{(file.deletions ?? 0) > 0 ? <span className={removedClassName}>-{file.deletions}</span> : null}
+		</span>
 	);
 }
 
@@ -434,25 +249,15 @@ export function VcsInlineFileSection({
 	conflictPaths?: ReadonlySet<string>;
 	fillHeight?: boolean;
 }): React.ReactElement {
-	const filesByPath = useMemo(() => new Map(files.map((file) => [file.path, file])), [files]);
-	const tree = useMemo(
-		() => (viewMode === "package" ? buildPackageFileTree(files.map((file) => file.path)) : buildFileTree(files.map((file) => file.path))),
-		[files, viewMode],
-	);
-	const [collapsedDirectoryPaths, setCollapsedDirectoryPaths] = useState<Set<string>>(() => new Set());
 	const additions = files.reduce((sum, file) => sum + (file.additions ?? 0), 0);
 	const deletions = files.reduce((sum, file) => sum + (file.deletions ?? 0), 0);
 	const conflictCount = conflictPaths ? files.filter((file) => conflictPaths.has(file.path)).length : 0;
-	function toggleDirectory(path: string): void {
-		setCollapsedDirectoryPaths((current) => {
-			const next = new Set(current);
-			if (next.has(path)) {
-				next.delete(path);
-			} else {
-				next.add(path);
-			}
-			return next;
-		});
+	const conflictPathValues = useMemo(() => Array.from(conflictPaths ?? []), [conflictPaths]);
+	function hasConflict(path: string): boolean {
+		return Boolean(conflictPaths?.has(path));
+	}
+	function directoryHasConflict(path: string): boolean {
+		return conflictPathValues.some((conflictPath) => conflictPath === path || conflictPath.startsWith(`${path}/`));
 	}
 	const headerContent = (
 		<>
@@ -467,7 +272,7 @@ export function VcsInlineFileSection({
 			) : null}
 			{additions > 0 ? <span className="text-[12px] font-medium text-status-green">+{additions}</span> : null}
 			{deletions > 0 ? <span className="text-[12px] font-medium text-status-red">-{deletions}</span> : null}
-			<FileViewToggle mode={viewMode} onModeChange={onViewModeChange} />
+			<FileListingViewModeToggle mode={viewMode} onModeChange={onViewModeChange} />
 		</>
 	);
 
@@ -507,31 +312,35 @@ export function VcsInlineFileSection({
 					<div className="px-2 py-2 text-[12px] text-text-tertiary">No changed files.</div>
 				) : (
 					<div className={cn("overflow-y-auto px-1 py-1", fillHeight ? "h-full" : "max-h-[250px]")}>
-						{viewMode === "tree" || viewMode === "package"
-							? tree.map((node) => (
-									<FileTreeRow
-										key={node.path}
-										node={node}
-										depth={0}
-										selectedPath={selectedPath}
-										onSelectPath={onSelectPath}
-										filesByPath={filesByPath}
-										conflictPaths={conflictPaths}
-										collapsedDirectoryPaths={collapsedDirectoryPaths}
-										onToggleDirectory={toggleDirectory}
-										onFileDragStart={onFileDragStart}
-									/>
-								))
-							: files.map((file) => (
-									<FileListRow
-										key={fileKey(file)}
-										file={file}
-										selectedPath={selectedPath}
-										hasConflict={Boolean(conflictPaths?.has(file.path))}
-										onSelectPath={onSelectPath}
-										onFileDragStart={onFileDragStart}
-									/>
-								))}
+						<FileListing
+							files={files}
+							mode={viewMode}
+							selectedPath={selectedPath}
+							onSelectPath={onSelectPath}
+							getFileKey={fileKey}
+							fileRowTestId="vcs-file-row"
+							directoryRowTestId="vcs-directory-row"
+							onFileDragStart={onFileDragStart}
+							getFileRowClassName={({ path, isSelected }) =>
+								cn(hasConflict(path) && "kb-file-tree-row-conflict", hasConflict(path) && isSelected && "ring-1 ring-status-red/60")
+							}
+							getDirectoryRowClassName={({ node }) => cn(directoryHasConflict(node.path) && "kb-file-tree-row-conflict")}
+							renderFileLeading={({ file, mode }) => (mode === "list" ? <FileStatusGlyph status={file.status} /> : null)}
+							renderFileLabel={({ path, name, mode }) => (
+								<span className="min-w-0 flex-1 truncate">{mode === "list" ? path : name}</span>
+							)}
+							renderFileMeta={({ file, path, isSelected }) => (
+								<>
+									<VcsFileStats file={file} isSelected={isSelected} />
+									{hasConflict(path) ? <AlertTriangle size={16} className="ml-auto shrink-0 text-status-red" /> : null}
+								</>
+							)}
+							renderDirectoryMeta={({ node }) =>
+								directoryHasConflict(node.path) ? (
+									<AlertTriangle size={16} className="ml-auto shrink-0 text-status-red" />
+								) : null
+							}
+						/>
 					</div>
 				)}
 			</div>}

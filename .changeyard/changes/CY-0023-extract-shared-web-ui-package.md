@@ -2,13 +2,13 @@
 id: CY-0023
 title: Extract shared web UI package
 type: agent-task
-status: synced
+status: merged
 priority: medium
 labels:
   - agent-ready
 author: stevejuma
 createdAt: 2026-06-17T22:25:40.754Z
-updatedAt: 2026-06-17T22:26:47.504Z
+updatedAt: 2026-06-17T22:54:05.353Z
 base:
   vcs: unknown
   revision: main
@@ -24,10 +24,11 @@ remote:
   issueUrl: null
   pullRequestNumber: null
   pullRequestUrl: null
+  mergedLocally: true
 checks:
   profile: standard
-  lastRun: null
-  lastStatus: null
+  lastRun: 2026-06-17T22:44:32.580Z
+  lastStatus: passed
 planning:
   model: openspec-lite
   storage: inline
@@ -43,6 +44,7 @@ planning:
     strictClarifications: pending
     strictChecklist: pending
     strictAnalysis: pending
+mergedAt: 2026-06-17T22:54:05.352Z
 ---
 
 # Summary
@@ -55,11 +57,11 @@ Kanban and VCS now carry duplicate UI primitives and very similar file-list beha
 
 # Plan
 
-- [ ] Create `packages/web-ui` as `@changeyard/web-ui` and add it to the pnpm workspace.
-- [ ] Move core shared primitives, file icon, clipboard, and file-tree utilities into the package.
-- [ ] Add a shared `FileListing` component with list, tree, and package modes plus folder expand/collapse.
-- [ ] Refactor kanban and VCS to consume the shared package while keeping app-specific wrappers for persistence, routing, and selection semantics.
-- [ ] Add package, kanban, and VCS tests for the shared file-list behavior.
+- [x] Create `packages/web-ui` as `@changeyard/web-ui` and add it to the pnpm workspace.
+- [x] Move core shared primitives, file icon, clipboard, and file-tree utilities into the package.
+- [x] Add a shared `FileListing` component with list, tree, and package modes plus folder expand/collapse.
+- [x] Refactor kanban and VCS to consume the shared package while keeping app-specific wrappers for persistence, routing, and selection semantics.
+- [x] Add package, kanban, and VCS tests for the shared file-list behavior.
 
 <!-- cy:proposal:start -->
 # Proposal
@@ -72,13 +74,13 @@ Introduce `@changeyard/web-ui` as the shared home for reusable web UI primitives
 
 ### In Scope
 
-- [ ] New workspace package at `packages/web-ui`.
-- [ ] Shared primitives and utilities: `cn`, `button`, `dialog`, `spinner`, `kbd`, `link`, `native-select`, `path-display`, `file-type-icon`, `cline-icon`, `clipboard`, and file-tree helpers.
-- [ ] Shared `FileListing` component supporting flat list, full folder tree, and package tree with compacted empty directory chains.
-- [ ] Folder expand/collapse behavior for tree and package modes.
-- [ ] Shared CSS export as `@changeyard/web-ui/styles.css` while retaining existing `kb-*` class names.
-- [ ] Kanban and VCS dependency/import updates to consume shared exports.
-- [ ] Focused tests and typechecks for the new shared package and refactored file-list consumers.
+- [x] New workspace package at `packages/web-ui`.
+- [x] Shared primitives and utilities: `cn`, `button`, `dialog`, `spinner`, `kbd`, `link`, `native-select`, `path-display`, `file-type-icon`, `cline-icon`, `clipboard`, and file-tree helpers.
+- [x] Shared `FileListing` component supporting flat list, full folder tree, and package tree with compacted empty directory chains.
+- [x] Folder expand/collapse behavior for tree and package modes.
+- [x] Shared CSS export as `@changeyard/web-ui/styles.css` while retaining existing `kb-*` class names.
+- [x] Kanban and VCS dependency/import updates to consume shared exports.
+- [x] Focused tests and typechecks for the new shared package and refactored file-list consumers.
 
 ### Out of Scope
 
@@ -152,19 +154,19 @@ The implementation must happen only inside the Changeyard workspace created for 
 
 ## 2. Implementation
 
-- [ ] Add `packages/web-ui` and workspace/package wiring.
-- [ ] Move shared primitives, utilities, CSS, Material file icon support, and file-tree helpers.
-- [ ] Implement shared `FileListing` with list/tree/package modes and folder expand/collapse.
-- [ ] Refactor kanban file-list consumers through local wrappers.
-- [ ] Refactor VCS file-list consumers through local wrappers.
-- [ ] Update package manifests and lockfile as needed.
+- [x] Add `packages/web-ui` and workspace/package wiring.
+- [x] Move shared primitives, utilities, CSS, Material file icon support, and file-tree helpers.
+- [x] Implement shared `FileListing` with list/tree/package modes and folder expand/collapse.
+- [x] Refactor kanban file-list consumers through local wrappers.
+- [x] Refactor VCS file-list consumers through local wrappers.
+- [x] Update package manifests and lockfile as needed.
 
 ## 3. Verification
 
-- [ ] Run shared package typecheck and tests.
-- [ ] Run kanban typecheck and relevant file-list tests.
-- [ ] Run VCS typecheck and relevant file-list tests.
-- [ ] Run root TypeScript check if available.
+- [x] Run shared package typecheck and tests.
+- [x] Run kanban typecheck and relevant file-list tests.
+- [x] Run VCS typecheck and relevant file-list tests.
+- [x] Run root TypeScript check if available.
 <!-- cy:tasks:end -->
 
 <!-- cy:verification:start -->
@@ -189,7 +191,13 @@ The implementation must happen only inside the Changeyard workspace created for 
 
 ## Result
 
-_Not run yet._
+- `pnpm --dir packages/web-ui run typecheck` passed.
+- `pnpm --dir packages/web-ui test` passed: 2 files, 7 tests.
+- `pnpm --dir packages/kanban/web-ui run typecheck` passed.
+- `pnpm --dir packages/kanban/web-ui exec vitest run src/components/detail-panels/file-tree-panel.test.tsx src/components/changeyard/change-board.test.tsx src/components/changeyard/change-review-modal.test.tsx src/components/git-history/git-commit-diff-panel.test.tsx` passed: 4 files, 32 tests.
+- `pnpm --dir packages/vcs run typecheck` passed.
+- `pnpm --dir packages/vcs test` passed: 73 tests.
+- `pnpm exec tsc --noEmit` passed.
 <!-- cy:verification:end -->
 
 <!-- cy:clarifications:start -->
@@ -227,16 +235,16 @@ _Not run yet._
 
 ## Gate Result
 
-No unresolved consistency blockers identified.
+Pass. No unresolved consistency blockers identified.
 <!-- cy:analysis:end -->
 
 # Acceptance Criteria
-- [ ] `packages/web-ui` exists, is part of the pnpm workspace, and exposes `@changeyard/web-ui` plus `@changeyard/web-ui/styles.css`.
-- [ ] Kanban and VCS depend on `@changeyard/web-ui` and no longer maintain duplicate implementations for the moved primitives, Material file icon, clipboard helper, or file-tree helpers.
-- [ ] Kanban and VCS file-list surfaces use the shared `FileListing` path or a thin wrapper around it.
-- [ ] Shared `FileListing` supports list, tree, and package modes with Material file icons and folder expand/collapse.
-- [ ] Package compaction behavior is covered by tests for the simple compact case, mixed direct-file sibling case, and stable sibling ordering.
-- [ ] The expected package, kanban, and VCS checks are run and recorded in Completion Notes.
+- [x] `packages/web-ui` exists, is part of the pnpm workspace, and exposes `@changeyard/web-ui` plus `@changeyard/web-ui/styles.css`.
+- [x] Kanban and VCS depend on `@changeyard/web-ui` and no longer maintain duplicate implementations for the moved primitives, Material file icon, clipboard helper, or file-tree helpers.
+- [x] Kanban and VCS file-list surfaces use the shared `FileListing` path or a thin wrapper around it.
+- [x] Shared `FileListing` supports list, tree, and package modes with Material file icons and folder expand/collapse.
+- [x] Package compaction behavior is covered by tests for the simple compact case, mixed direct-file sibling case, and stable sibling ordering.
+- [x] The expected package, kanban, and VCS checks are run and recorded in Completion Notes.
 
 # Agent Plan
 
@@ -248,4 +256,19 @@ No unresolved consistency blockers identified.
 
 # Completion Notes
 
-Not started.
+Implemented `packages/web-ui` as `@changeyard/web-ui` with shared primitive exports, Material file icons, clipboard and file-tree utilities, `FileListing`, `FileListingViewModeToggle`, package tests, and `@changeyard/web-ui/styles.css`.
+
+Updated kanban and VCS manifests, workspace configuration, lockfile, and app entrypoints to consume the shared package and stylesheet. Replaced duplicate local primitive/helper implementations in both apps with compatibility re-exports from `@changeyard/web-ui`.
+
+Refactored kanban `FileTreePanel`, kanban changeyard board file lists, VCS inline file sections, and the VCS JJ board working-copy file list to use shared `FileListing` while keeping app-specific status glyphs, diff stats, conflict markers, drag behavior, selection, and persistence in local wrappers.
+
+Verification passed:
+- `pnpm --dir packages/web-ui run typecheck`
+- `pnpm --dir packages/web-ui test`
+- `pnpm --dir packages/kanban/web-ui run typecheck`
+- `pnpm --dir packages/kanban/web-ui exec vitest run src/components/detail-panels/file-tree-panel.test.tsx src/components/changeyard/change-board.test.tsx src/components/changeyard/change-review-modal.test.tsx src/components/git-history/git-commit-diff-panel.test.tsx`
+- `pnpm --dir packages/vcs run typecheck`
+- `pnpm --dir packages/vcs test`
+- `pnpm exec tsc --noEmit`
+
+Residual risk: the shared stylesheet is imported before app globals and keeps existing `kb-*` names, so visual behavior should remain stable, but a quick browser smoke pass is still useful before landing because the refactor touches dense file-list UI.

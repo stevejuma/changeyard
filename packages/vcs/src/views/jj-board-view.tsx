@@ -1,5 +1,6 @@
 import * as RadixDropdownMenu from "@radix-ui/react-dropdown-menu";
-import { AlertTriangle, ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, Copy, Folder, FolderOpen, FolderTree, GitBranch, GitCommitHorizontal, GitMerge, Info, Layers, List, LockKeyhole, Maximize2, MoreHorizontal, Package, Pencil, PencilLine, Play, Plus, RotateCcw, Sparkles, Trash2, Type, Unlink, Upload, WrapText, X } from "lucide-react";
+import { FileListing, FileListingViewModeToggle } from "@changeyard/web-ui";
+import { AlertTriangle, ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, Copy, GitBranch, GitCommitHorizontal, GitMerge, Info, Layers, LockKeyhole, Maximize2, MoreHorizontal, Pencil, PencilLine, Play, Plus, RotateCcw, Sparkles, Trash2, Type, Unlink, Upload, WrapText, X } from "lucide-react";
 import { Fragment, useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent } from "react";
 
 import {
@@ -53,7 +54,6 @@ import {
 	useLazyPreviewVcsOperationQuery,
 	useUpdateProjectConfigMutation,
 } from "@/runtime/vcs-api";
-import { buildFileTree, buildPackageFileTree, type FileTreeNode } from "@/utils/file-tree";
 import { copyTextToClipboard } from "@/utils/clipboard";
 import {
 	readVcsBooleanPreference,
@@ -2600,65 +2600,7 @@ function UnstagedColumnHeader({
 			<span className="min-w-0 flex-1 truncate text-sm font-semibold text-text-primary">Working Copy</span>
 			{hasConflicts ? <StatusChip label="Conflicts" tone="orange" icon={<AlertTriangle size={11} />} /> : null}
 			<StatusChip label={String(count)} tone="neutral" />
-			<FileViewToggle mode={fileViewMode} onModeChange={onFileViewModeChange} />
-		</div>
-	);
-}
-
-function FileViewToggle({
-	mode,
-	onModeChange,
-}: {
-	mode: VcsFileViewMode;
-	onModeChange: (mode: VcsFileViewMode) => void;
-}): React.ReactElement {
-	return (
-		<div className="inline-flex shrink-0 rounded-md border border-divider bg-surface-0 p-0.5">
-			<button
-				type="button"
-				aria-label="Show files as list"
-				title="List"
-				className={cn(
-					"grid h-6 w-6 place-items-center rounded border border-transparent text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary",
-					mode === "list" && "border-accent/30 bg-accent/15 text-accent",
-				)}
-				onClick={(event) => {
-					event.stopPropagation();
-					onModeChange("list");
-				}}
-			>
-				<List size={14} />
-			</button>
-			<button
-				type="button"
-				aria-label="Show files as folders"
-				title="Folder tree"
-				className={cn(
-					"grid h-6 w-6 place-items-center rounded border border-transparent text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary",
-					mode === "tree" && "border-accent/30 bg-accent/15 text-accent",
-				)}
-				onClick={(event) => {
-					event.stopPropagation();
-					onModeChange("tree");
-				}}
-			>
-				<FolderTree size={14} />
-			</button>
-			<button
-				type="button"
-				aria-label="Show files as packages"
-				title="Package tree"
-				className={cn(
-					"grid h-6 w-6 place-items-center rounded border border-transparent text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary",
-					mode === "package" && "border-accent/30 bg-accent/15 text-accent",
-				)}
-				onClick={(event) => {
-					event.stopPropagation();
-					onModeChange("package");
-				}}
-			>
-				<Package size={14} />
-			</button>
+			<FileListingViewModeToggle mode={fileViewMode} onModeChange={onFileViewModeChange} />
 		</div>
 	);
 }
@@ -2678,184 +2620,46 @@ function UnstagedFileList({
 	onSelectPath: (path: string) => void;
 	onFileDragStart: (event: ReactDragEvent<HTMLButtonElement>, file: VcsFileChange) => void;
 }): React.ReactElement {
-	const filesByPath = useMemo(() => new Map(files.map((file) => [file.path, file])), [files]);
-	const tree = useMemo(
-		() => (viewMode === "package" ? buildPackageFileTree(files.map((file) => file.path)) : buildFileTree(files.map((file) => file.path))),
-		[files, viewMode],
-	);
-	const [collapsedDirectoryPaths, setCollapsedDirectoryPaths] = useState<Set<string>>(() => new Set());
-	function toggleDirectory(path: string): void {
-		setCollapsedDirectoryPaths((current) => {
-			const next = new Set(current);
-			if (next.has(path)) {
-				next.delete(path);
-			} else {
-				next.add(path);
-			}
-			return next;
-		});
+	const conflictPathValues = useMemo(() => Array.from(conflictPaths), [conflictPaths]);
+	function hasConflict(path: string): boolean {
+		return conflictPaths.has(path);
+	}
+	function directoryHasConflict(path: string): boolean {
+		return conflictPathValues.some((conflictPath) => conflictPath === path || conflictPath.startsWith(`${path}/`));
 	}
 	return (
 		<div className="px-1 py-1">
-			{viewMode === "tree" || viewMode === "package"
-				? tree.map((node) => (
-						<UnstagedFileTreeRow
-							key={node.path}
-							node={node}
-							depth={0}
-							selectedPath={selectedPath}
-							conflictPaths={conflictPaths}
-							onSelectPath={onSelectPath}
-							filesByPath={filesByPath}
-							collapsedDirectoryPaths={collapsedDirectoryPaths}
-							onToggleDirectory={toggleDirectory}
-							onFileDragStart={onFileDragStart}
-						/>
-					))
-				: files.map((file) => (
-						<UnstagedFileRow
-							key={`${file.status}:${file.path}`}
-							file={file}
-							selected={file.path === selectedPath}
-							hasConflict={conflictPaths.has(file.path)}
-							onSelectPath={onSelectPath}
-							onFileDragStart={onFileDragStart}
-						/>
-					))}
-		</div>
-	);
-}
-
-function UnstagedFileTreeRow({
-	node,
-	depth,
-	selectedPath,
-	conflictPaths,
-	onSelectPath,
-	filesByPath,
-	collapsedDirectoryPaths,
-	onToggleDirectory,
-	onFileDragStart,
-}: {
-	node: FileTreeNode;
-	depth: number;
-	selectedPath: string | null;
-	conflictPaths: ReadonlySet<string>;
-	onSelectPath: (path: string) => void;
-	filesByPath: Map<string, VcsFileChange>;
-	collapsedDirectoryPaths: ReadonlySet<string>;
-	onToggleDirectory: (path: string) => void;
-	onFileDragStart: (event: ReactDragEvent<HTMLButtonElement>, file: VcsFileChange) => void;
-}): React.ReactElement {
-	const isDirectory = node.type === "directory";
-	const file = filesByPath.get(node.path);
-	const selected = !isDirectory && node.path === selectedPath;
-	const isCollapsed = isDirectory && collapsedDirectoryPaths.has(node.path);
-	const hasConflict = isDirectory
-		? Array.from(conflictPaths).some((path) => path === node.path || path.startsWith(`${node.path}/`))
-		: conflictPaths.has(node.path);
-	return (
-		<div>
-			<button
-				type="button"
-				data-testid={isDirectory ? "vcs-working-copy-directory-row" : "vcs-working-copy-file-row"}
-				data-file-path={isDirectory ? undefined : node.path}
-				data-directory-path={isDirectory ? node.path : undefined}
-				aria-expanded={isDirectory ? !isCollapsed : undefined}
-				draggable={!isDirectory && Boolean(file)}
-				className={cn(
-					"kb-file-tree-row",
-					isDirectory && "kb-file-tree-row-directory",
-					isDirectory && "cursor-pointer hover:bg-surface-2 hover:text-text-primary",
-					!isDirectory && "cursor-pointer hover:bg-surface-2",
-					selected && "kb-file-tree-row-selected",
-					hasConflict && "kb-file-tree-row-conflict",
-					hasConflict && selected && "ring-1 ring-status-red/60",
+			<FileListing
+				files={files}
+				mode={viewMode}
+				selectedPath={selectedPath}
+				onSelectPath={onSelectPath}
+				getFileKey={(file) => `${file.status}:${file.path}`}
+				fileRowTestId="vcs-working-copy-file-row"
+				directoryRowTestId="vcs-working-copy-directory-row"
+				onFileDragStart={onFileDragStart}
+				getFileRowClassName={({ path, isSelected }) =>
+					cn(
+						"cursor-pointer hover:bg-surface-2",
+						hasConflict(path) && "kb-file-tree-row-conflict",
+						hasConflict(path) && isSelected && "ring-1 ring-status-red/60",
+					)
+				}
+				getDirectoryRowClassName={({ node }) => cn(directoryHasConflict(node.path) && "kb-file-tree-row-conflict")}
+				renderFileLeading={({ file }) => <FileStatusGlyph status={file.status} />}
+				renderFileLabel={({ path, name, mode }) => (
+					<span className="min-w-0 flex-1 truncate">{mode === "list" ? path : name}</span>
 				)}
-				style={{ paddingLeft: depth * 12 + 8 }}
-				onDragStart={(event) => {
-					if (file) {
-						onFileDragStart(event, file);
-					}
-				}}
-				onClick={() => {
-					if (isDirectory) {
-						onToggleDirectory(node.path);
-					} else {
-						onSelectPath(node.path);
-					}
-				}}
-			>
-				{isDirectory ? (
-					<>
-						{isCollapsed ? <ChevronRight size={12} className="shrink-0" /> : <ChevronDown size={12} className="shrink-0" />}
-						{isCollapsed ? <Folder size={14} /> : <FolderOpen size={14} />}
-					</>
-				) : (
-					<>
-						<span className="w-3 shrink-0" />
-						<FileTypeIcon path={node.path} />
-					</>
-				)}
-				{file ? <FileStatusGlyph status={file.status} /> : null}
-				<span className="min-w-0 flex-1 truncate">{node.name}</span>
-				{hasConflict ? <AlertTriangle size={16} className="ml-auto shrink-0 text-status-red" /> : null}
-			</button>
-			{node.children.length > 0 && !isCollapsed ? (
-				<div>
-					{node.children.map((child) => (
-						<UnstagedFileTreeRow
-							key={child.path}
-							node={child}
-							depth={depth + 1}
-							selectedPath={selectedPath}
-							conflictPaths={conflictPaths}
-							onSelectPath={onSelectPath}
-							filesByPath={filesByPath}
-							collapsedDirectoryPaths={collapsedDirectoryPaths}
-							onToggleDirectory={onToggleDirectory}
-							onFileDragStart={onFileDragStart}
-						/>
-					))}
-				</div>
-			) : null}
+				renderFileMeta={({ path }) =>
+					hasConflict(path) ? <AlertTriangle size={16} className="ml-auto shrink-0 text-status-red" /> : null
+				}
+				renderDirectoryMeta={({ node }) =>
+					directoryHasConflict(node.path) ? (
+						<AlertTriangle size={16} className="ml-auto shrink-0 text-status-red" />
+					) : null
+				}
+			/>
 		</div>
-	);
-}
-
-function UnstagedFileRow({
-	file,
-	selected,
-	hasConflict,
-	onSelectPath,
-	onFileDragStart,
-}: {
-	file: VcsFileChange;
-	selected: boolean;
-	hasConflict: boolean;
-	onSelectPath: (path: string) => void;
-	onFileDragStart: (event: ReactDragEvent<HTMLButtonElement>, file: VcsFileChange) => void;
-}): React.ReactElement {
-	return (
-		<button
-			type="button"
-			data-testid="vcs-working-copy-file-row"
-			data-file-path={file.path}
-			draggable
-			className={cn(
-				"kb-file-tree-row cursor-pointer hover:bg-surface-2",
-				selected && "kb-file-tree-row-selected",
-				hasConflict && "kb-file-tree-row-conflict",
-				hasConflict && selected && "ring-1 ring-status-red/60",
-			)}
-			onDragStart={(event) => onFileDragStart(event, file)}
-			onClick={() => onSelectPath(file.path)}
-		>
-			<FileTypeIcon path={file.path} />
-			<FileStatusGlyph status={file.status} />
-			<span className="min-w-0 flex-1 truncate">{file.path}</span>
-			{hasConflict ? <AlertTriangle size={16} className="ml-auto shrink-0 text-status-red" /> : null}
-		</button>
 	);
 }
 

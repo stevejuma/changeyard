@@ -8,7 +8,8 @@
     "packages/kanban",
     "packages/merge",
     "packages/tui",
-    "packages/vcs"
+    "packages/vcs",
+    "packages/web-ui"
   ],
   "bin": {
     "changeyard": "./scripts/cy.mjs",

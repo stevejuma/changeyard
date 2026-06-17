@@ -6,6 +6,7 @@ import {
 	type DropResult,
 } from "@hello-pangea/dnd";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import { FileListing, FileListingViewModeToggle } from "@changeyard/web-ui";
 import {
 	Bot,
 	ChevronDown,
@@ -13,14 +14,9 @@ import {
 	ChevronRight,
 	Copy,
 	FileText,
-	Folder,
-	FolderOpen,
-	FolderTree,
 	GitCommitVertical,
 	GitPullRequest,
-	List,
 	MoreHorizontal,
-	Package,
 	Plus,
 } from "lucide-react";
 import {
@@ -53,7 +49,6 @@ import { buildUnifiedDiffRows, parsePatchToRows, ReadOnlyUnifiedDiff } from "@/c
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { ColumnIndicator } from "@/components/ui/column-indicator";
-import { FileTypeIcon } from "@/components/ui/file-type-icon";
 import { ChangeStatusChip, StatusChip } from "@/components/ui/status-chip";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type {
@@ -67,7 +62,6 @@ import type {
 } from "@/runtime/types";
 import { LocalStorageKey, readLocalStorageItem, writeLocalStorageItem } from "@/storage/local-storage-store";
 import type { BoardCard as BoardCardModel, BoardColumnId, BoardData, DependencyEdge, DependencyNodeId } from "@/types";
-import { buildFileTree, buildPackageFileTree, type FileTreeNode } from "@/utils/file-tree";
 
 export type ChangeBoardFilter = "all" | "changes" | "planned";
 export type ChangeColumnId = "backlog" | "ready" | "in_progress" | "blocked" | "review" | "done" | "abandoned";
@@ -345,55 +339,7 @@ function BoardFilesToggle({
 	mode: BoardFileViewMode;
 	onModeChange: (mode: BoardFileViewMode) => void;
 }): ReactElement {
-	return (
-		<div className="inline-flex shrink-0 rounded-md border border-divider bg-surface-0 p-0.5">
-			<button
-				type="button"
-				aria-label="Show files as list"
-				title="List"
-				onClick={(event) => {
-					event.stopPropagation();
-					onModeChange("list");
-				}}
-				className={cn(
-					"grid h-6 w-6 place-items-center rounded border border-transparent text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary",
-					mode === "list" ? "border-accent/30 bg-accent/15 text-accent" : null,
-				)}
-			>
-				<List size={14} />
-			</button>
-			<button
-				type="button"
-				aria-label="Show files as folders"
-				title="Folder tree"
-				onClick={(event) => {
-					event.stopPropagation();
-					onModeChange("tree");
-				}}
-				className={cn(
-					"grid h-6 w-6 place-items-center rounded border border-transparent text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary",
-					mode === "tree" ? "border-accent/30 bg-accent/15 text-accent" : null,
-				)}
-			>
-				<FolderTree size={14} />
-			</button>
-			<button
-				type="button"
-				aria-label="Show files as packages"
-				title="Package tree"
-				onClick={(event) => {
-					event.stopPropagation();
-					onModeChange("package");
-				}}
-				className={cn(
-					"grid h-6 w-6 place-items-center rounded border border-transparent text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary",
-					mode === "package" ? "border-accent/30 bg-accent/15 text-accent" : null,
-				)}
-			>
-				<Package size={14} />
-			</button>
-		</div>
-	);
+	return <FileListingViewModeToggle mode={mode} onModeChange={onModeChange} />;
 }
 
 function FileStatusGlyph({ status }: { status: RuntimeChangeyardBoardFileSummary["status"] }): ReactElement {
@@ -480,108 +426,6 @@ function CopyKebabMenu({
 	);
 }
 
-function BoardFileRow({
-	file,
-	depth = 0,
-	selected = false,
-	onSelect,
-}: {
-	file: RuntimeChangeyardBoardFileSummary;
-	depth?: number;
-	selected?: boolean;
-	onSelect: (file: RuntimeChangeyardBoardFileSummary) => void;
-}): ReactElement {
-	return (
-		<button
-			type="button"
-			className={cn(
-				"group flex w-full min-w-0 cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-left text-[12px] transition-colors hover:bg-surface-3",
-				selected ? "bg-surface-3" : null,
-			)}
-			style={{ paddingLeft: 6 + depth * 12 }}
-			onClick={(event) => {
-				event.stopPropagation();
-				onSelect(file);
-			}}
-		>
-			<FileTypeIcon path={file.path} />
-			<FileStatusGlyph status={file.status} />
-			<span className="min-w-0 flex-1 truncate text-text-secondary" title={file.path}>
-				{file.previousPath ? `${file.previousPath} -> ${file.path}` : file.path}
-			</span>
-			<span className="shrink-0 text-green-600">{formatDelta(file.additions, "+")}</span>
-			<span className="shrink-0 text-red-600">{formatDelta(file.deletions, "-")}</span>
-		</button>
-	);
-}
-
-function FileTreeRows({
-	nodes,
-	filesByPath,
-	selectedPath,
-	onFileSelect,
-	collapsedDirectoryPaths,
-	onToggleDirectory,
-	depth = 0,
-}: {
-	nodes: FileTreeNode[];
-	filesByPath: Map<string, RuntimeChangeyardBoardFileSummary>;
-	selectedPath: string | null;
-	onFileSelect: (file: RuntimeChangeyardBoardFileSummary) => void;
-	collapsedDirectoryPaths: ReadonlySet<string>;
-	onToggleDirectory: (path: string) => void;
-	depth?: number;
-}): ReactElement {
-	return (
-		<>
-			{nodes.map((node) => {
-				if (node.type === "file") {
-					const file = filesByPath.get(node.path);
-					return file ? (
-						<BoardFileRow
-							key={node.path}
-							file={file}
-							depth={depth}
-							selected={selectedPath === file.path}
-							onSelect={onFileSelect}
-						/>
-					) : null;
-				}
-				const isCollapsed = collapsedDirectoryPaths.has(node.path);
-				return (
-					<div key={node.path}>
-						<button
-							type="button"
-							className="flex w-full min-w-0 cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-left text-[12px] font-medium text-text-secondary transition-colors hover:bg-surface-3"
-							style={{ paddingLeft: 6 + depth * 12 }}
-							aria-expanded={!isCollapsed}
-							onClick={(event) => {
-								event.stopPropagation();
-								onToggleDirectory(node.path);
-							}}
-						>
-							{isCollapsed ? <ChevronRight size={12} className="shrink-0" /> : <ChevronDown size={12} className="shrink-0" />}
-							{isCollapsed ? <Folder size={14} className="shrink-0" /> : <FolderOpen size={14} className="shrink-0" />}
-							<span className="truncate">{node.name}</span>
-						</button>
-						{isCollapsed ? null : (
-							<FileTreeRows
-								nodes={node.children}
-								filesByPath={filesByPath}
-								selectedPath={selectedPath}
-								onFileSelect={onFileSelect}
-								collapsedDirectoryPaths={collapsedDirectoryPaths}
-								onToggleDirectory={onToggleDirectory}
-								depth={depth + 1}
-							/>
-						)}
-					</div>
-				);
-			})}
-		</>
-	);
-}
-
 function BoardFileList({
 	files,
 	mode,
@@ -593,46 +437,38 @@ function BoardFileList({
 	selectedPath: string | null;
 	onFileSelect: (file: RuntimeChangeyardBoardFileSummary) => void;
 }): ReactElement {
-	const [collapsedDirectoryPaths, setCollapsedDirectoryPaths] = useState<Set<string>>(() => new Set());
-	function toggleDirectory(path: string): void {
-		setCollapsedDirectoryPaths((current) => {
-			const next = new Set(current);
-			if (next.has(path)) {
-				next.delete(path);
-			} else {
-				next.add(path);
-			}
-			return next;
-		});
-	}
+	const filesByPath = useMemo(() => new Map(files.map((file) => [file.path, file])), [files]);
 
 	if (files.length === 0) {
 		return <div className="px-2 py-2 text-[12px] text-text-tertiary">No changed files.</div>;
 	}
-	if (mode === "tree" || mode === "package") {
-		const filesByPath = new Map(files.map((file) => [file.path, file]));
-		return (
-			<FileTreeRows
-				nodes={(mode === "package" ? buildPackageFileTree : buildFileTree)(files.map((file) => file.path))}
-				filesByPath={filesByPath}
-				selectedPath={selectedPath}
-				onFileSelect={onFileSelect}
-				collapsedDirectoryPaths={collapsedDirectoryPaths}
-				onToggleDirectory={toggleDirectory}
-			/>
-		);
-	}
 	return (
-		<>
-			{files.map((file) => (
-				<BoardFileRow
-					key={`${file.previousPath ?? ""}:${file.path}`}
-					file={file}
-					selected={selectedPath === file.path}
-					onSelect={onFileSelect}
-				/>
-			))}
-		</>
+		<FileListing
+			files={files}
+			mode={mode}
+			selectedPath={selectedPath}
+			onSelectPath={(path) => {
+				const file = filesByPath.get(path);
+				if (file) {
+					onFileSelect(file);
+				}
+			}}
+			getFileKey={(file) => `${file.previousPath ?? ""}:${file.path}`}
+			getFileRowClassName={() => "group text-[12px] transition-colors hover:bg-surface-3"}
+			getDirectoryRowClassName={() => "text-[12px] font-medium transition-colors hover:bg-surface-3"}
+			renderFileLeading={({ file }) => <FileStatusGlyph status={file.status} />}
+			renderFileLabel={({ file }) => (
+				<span className="min-w-0 flex-1 truncate text-text-secondary" title={file.path}>
+					{file.previousPath ? `${file.previousPath} -> ${file.path}` : file.path}
+				</span>
+			)}
+			renderFileMeta={({ file }) => (
+				<>
+					<span className="ml-auto shrink-0 text-green-600">{formatDelta(file.additions, "+")}</span>
+					<span className="shrink-0 text-red-600">{formatDelta(file.deletions, "-")}</span>
+				</>
+			)}
+		/>
 	);
 }
 

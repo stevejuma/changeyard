@@ -6,6 +6,7 @@ import { AppErrorBoundary } from "@/components/app-error-boundary";
 import { PasscodeGateProvider } from "@/components/passcode-gate";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { isThemeId } from "@/hooks/use-theme";
+import "@changeyard/web-ui/styles.css";
 import "@/styles/globals.css";
 
 // Apply the persisted theme synchronously before first paint to prevent a flash.

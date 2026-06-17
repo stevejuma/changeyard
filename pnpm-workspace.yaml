@@ -4,6 +4,7 @@ packages:
   - packages/merge
   - packages/tui
   - packages/vcs
+  - packages/web-ui
 
 allowBuilds:
   esbuild: set this to true or false
