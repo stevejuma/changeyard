@@ -56,6 +56,7 @@ import { createProvider } from "../src/providers/index.js";
 import { ForgejoProvider } from "../src/providers/ForgejoProvider.js";
 import { GitHubProvider } from "../src/providers/GitHubProvider.js";
 import { GitLabProvider } from "../src/providers/GitLabProvider.js";
+import { LocalFolderProvider } from "../src/providers/LocalFolderProvider.js";
 import { curlJson, setHttpTransportForTests, type HttpRequest } from "../src/providers/http.js";
 import { GitWorktreeEngine } from "../src/workspace/GitWorktreeEngine.js";
 import { JjWorkspaceEngine } from "../src/workspace/JjWorkspaceEngine.js";
@@ -1637,6 +1638,119 @@ test("remote providers send expected issue, PR, and review HTTP requests", () =>
   }
 });
 
+test("providers implement branch pull request operations", () => {
+  const previousForgeToken = process.env.CHANGEYARD_TEST_FORGE_TOKEN;
+  const previousGitHubToken = process.env.CHANGEYARD_TEST_GITHUB_TOKEN;
+  const previousGitLabToken = process.env.CHANGEYARD_TEST_GITLAB_TOKEN;
+  process.env.CHANGEYARD_TEST_FORGE_TOKEN = "forge-token";
+  process.env.CHANGEYARD_TEST_GITHUB_TOKEN = "github-token";
+  process.env.CHANGEYARD_TEST_GITLAB_TOKEN = "gitlab-token";
+  const requests: ProviderRequest[] = [];
+  setHttpTransportForTests((request) => {
+    requests.push(request as ProviderRequest);
+    if (request.method === "GET" && request.url.includes("github.example.test") && request.url.includes("/pulls?head=")) {
+      return { status: 200, body: JSON.stringify([{ number: 50, html_url: "https://example.test/github/50", base: { ref: "main" }, state: "open" }]) };
+    }
+    if (request.method === "GET" && request.url.includes("forgejo.example.test") && request.url.includes("/pulls?state=open")) {
+      return { status: 200, body: JSON.stringify([{ number: 60, html_url: "https://example.test/forgejo/60", base: { ref: "main" }, state: "open" }]) };
+    }
+    if (request.method === "GET" && request.url.includes("gitlab.example.test") && request.url.includes("/merge_requests?source_branch=")) {
+      return { status: 200, body: JSON.stringify([{ iid: 70, web_url: "https://example.test/gitlab/70", source_branch: "feature/a", target_branch: "main", state: "opened" }]) };
+    }
+    if (request.method === "POST" && request.url === "https://github.example.test/repos/example-org/example-repo/pulls") {
+      return { status: 201, body: JSON.stringify({ number: 51, html_url: "https://example.test/github/51", base: { ref: (request.payload as { base?: string }).base }, state: "open" }) };
+    }
+    if (request.method === "POST" && request.url === "https://forgejo.example.test/api/v1/repos/example-org/example-repo/pulls") {
+      return { status: 201, body: JSON.stringify({ number: 61, html_url: "https://example.test/forgejo/61", base: { ref: (request.payload as { base?: string }).base }, state: "open" }) };
+    }
+    if (request.method === "POST" && request.url === "https://gitlab.example.test/api/v4/projects/example-org%2Fexample-repo/merge_requests") {
+      return { status: 201, body: JSON.stringify({ iid: 71, web_url: "https://example.test/gitlab/71", source_branch: (request.payload as { source_branch?: string }).source_branch, target_branch: (request.payload as { target_branch?: string }).target_branch, state: "opened" }) };
+    }
+    if (request.method === "PATCH" && request.url.endsWith("/pulls/51")) {
+      return { status: 200, body: JSON.stringify({ number: 51, html_url: "https://example.test/github/51", base: { ref: (request.payload as { base?: string }).base }, state: "open" }) };
+    }
+    if (request.method === "PATCH" && request.url.endsWith("/pulls/61")) {
+      return { status: 200, body: JSON.stringify({ number: 61, html_url: "https://example.test/forgejo/61", base: { ref: (request.payload as { base?: string }).base }, state: "open" }) };
+    }
+    if (request.method === "PUT" && request.url.endsWith("/merge_requests/71")) {
+      return { status: 200, body: JSON.stringify({ iid: 71, web_url: "https://example.test/gitlab/71", source_branch: "feature/a", target_branch: (request.payload as { target_branch?: string }).target_branch, state: "opened" }) };
+    }
+    if (request.method === "GET" && (request.url.includes("/comments") || request.url.includes("/notes"))) {
+      return { status: 200, body: "[]" };
+    }
+    if (request.method === "POST" && (request.url.includes("/comments") || request.url.includes("/notes"))) {
+      return { status: 201, body: JSON.stringify({ id: 81, html_url: "https://example.test/comment/81", web_url: "https://example.test/comment/81" }) };
+    }
+    throw new Error(`Unexpected request: ${request.method} ${request.url}`);
+  });
+
+  try {
+    const forgejo = new ForgejoProvider(providerConfig("forgejo", "CHANGEYARD_TEST_FORGE_TOKEN"));
+    const github = new GitHubProvider(providerConfig("github", "CHANGEYARD_TEST_GITHUB_TOKEN"));
+    const gitlab = new GitLabProvider(providerConfig("gitlab", "CHANGEYARD_TEST_GITLAB_TOKEN"));
+
+    assert.equal(github.findOpenPullRequestByHead?.({ repoRoot: "/repo", storageRoot: "/repo/.changeyard", head: "feature/a" })?.pullRequestNumber, 50);
+    assert.equal(forgejo.findOpenPullRequestByHead?.({ repoRoot: "/repo", storageRoot: "/repo/.changeyard", head: "feature/a" })?.pullRequestNumber, 60);
+    assert.equal(gitlab.findOpenPullRequestByHead?.({ repoRoot: "/repo", storageRoot: "/repo/.changeyard", head: "feature/a" })?.pullRequestNumber, 70);
+
+    const githubPr = github.createBranchPullRequest?.({ repoRoot: "/repo", storageRoot: "/repo/.changeyard", title: "Feature", body: "Body", head: "feature/a", base: "main", draft: true });
+    const forgejoPr = forgejo.createBranchPullRequest?.({ repoRoot: "/repo", storageRoot: "/repo/.changeyard", title: "Feature", body: "Body", head: "feature/a", base: "main", draft: true });
+    const gitlabPr = gitlab.createBranchPullRequest?.({ repoRoot: "/repo", storageRoot: "/repo/.changeyard", title: "Feature", body: "Body", head: "feature/a", base: "main", draft: true });
+    assert.equal(githubPr?.pullRequestNumber, 51);
+    assert.equal(forgejoPr?.pullRequestNumber, 61);
+    assert.equal(gitlabPr?.pullRequestNumber, 71);
+
+    assert.equal(github.updatePullRequestBase?.({ repoRoot: "/repo", storageRoot: "/repo/.changeyard", pullRequestNumber: 51, base: "feature/base" }).baseBranch, "feature/base");
+    assert.equal(forgejo.updatePullRequestBase?.({ repoRoot: "/repo", storageRoot: "/repo/.changeyard", pullRequestNumber: 61, base: "feature/base" }).baseBranch, "feature/base");
+    assert.equal(gitlab.updatePullRequestBase?.({ repoRoot: "/repo", storageRoot: "/repo/.changeyard", pullRequestNumber: 71, base: "feature/base" }).baseBranch, "feature/base");
+
+    assert.equal(github.upsertPullRequestComment?.({ repoRoot: "/repo", storageRoot: "/repo/.changeyard", pullRequestNumber: 51, marker: "<!-- marker -->", body: "<!-- marker -->\nbody" }).action, "created");
+    assert.equal(forgejo.upsertPullRequestComment?.({ repoRoot: "/repo", storageRoot: "/repo/.changeyard", pullRequestNumber: 61, marker: "<!-- marker -->", body: "<!-- marker -->\nbody" }).action, "created");
+    assert.equal(gitlab.upsertPullRequestComment?.({ repoRoot: "/repo", storageRoot: "/repo/.changeyard", pullRequestNumber: 71, marker: "<!-- marker -->", body: "<!-- marker -->\nbody" }).action, "created");
+
+    const githubCreate = requests.find((request) => request.url === "https://github.example.test/repos/example-org/example-repo/pulls" && request.method === "POST");
+    const forgejoUpdate = requests.find((request) => request.url === "https://forgejo.example.test/api/v1/repos/example-org/example-repo/pulls/61");
+    const gitlabUpdate = requests.find((request) => request.url === "https://gitlab.example.test/api/v4/projects/example-org%2Fexample-repo/merge_requests/71");
+    assert.equal(githubCreate?.payload.head, "feature/a");
+    assert.equal(forgejoUpdate?.payload.base, "feature/base");
+    assert.equal(gitlabUpdate?.payload.target_branch, "feature/base");
+  } finally {
+    setHttpTransportForTests();
+    if (previousForgeToken === undefined) delete process.env.CHANGEYARD_TEST_FORGE_TOKEN; else process.env.CHANGEYARD_TEST_FORGE_TOKEN = previousForgeToken;
+    if (previousGitHubToken === undefined) delete process.env.CHANGEYARD_TEST_GITHUB_TOKEN; else process.env.CHANGEYARD_TEST_GITHUB_TOKEN = previousGitHubToken;
+    if (previousGitLabToken === undefined) delete process.env.CHANGEYARD_TEST_GITLAB_TOKEN; else process.env.CHANGEYARD_TEST_GITLAB_TOKEN = previousGitLabToken;
+  }
+});
+
+test("local-folder provider simulates branch pull request operations", () => {
+  const repo = tempRepo();
+  try {
+    const storage = path.join(repo, ".changeyard");
+    mkdirSync(storage, { recursive: true });
+    const provider = new LocalFolderProvider();
+    const created = provider.createBranchPullRequest?.({
+      repoRoot: repo,
+      storageRoot: storage,
+      title: "Feature",
+      body: "Body",
+      head: "feature/a",
+      base: "main",
+      draft: false,
+    });
+    assert.equal(created?.pullRequestNumber, 1);
+    assert.equal(provider.findOpenPullRequestByHead?.({ repoRoot: repo, storageRoot: storage, head: "feature/a" })?.pullRequestNumber, 1);
+    assert.equal(provider.updatePullRequestBase?.({ repoRoot: repo, storageRoot: storage, pullRequestNumber: 1, base: "feature/base" }).baseBranch, "feature/base");
+    assert.equal(provider.upsertPullRequestComment?.({ repoRoot: repo, storageRoot: storage, pullRequestNumber: 1, marker: "<!-- marker -->", body: "<!-- marker -->\nfirst" }).action, "created");
+    assert.equal(provider.upsertPullRequestComment?.({ repoRoot: repo, storageRoot: storage, pullRequestNumber: 1, marker: "<!-- marker -->", body: "<!-- marker -->\nsecond" }).action, "updated");
+    const pullRequest = readFileSync(path.join(storage, "cache", "local-folder", "pull-requests", "0001-feature-a.md"), "utf8");
+    const comments = readdirSync(path.join(storage, "cache", "local-folder", "pull-request-comments"));
+    assert.match(pullRequest, /base: feature\/base/);
+    assert.equal(comments.length, 1);
+  } finally {
+    cleanup(repo);
+  }
+});
+
 test("remote provider issue sync payloads include the rendered planning projection for planned changes", () => {
   const previousForgeToken = process.env.CHANGEYARD_TEST_FORGE_TOKEN;
   const previousGitHubToken = process.env.CHANGEYARD_TEST_GITHUB_TOKEN;
@@ -1703,6 +1817,8 @@ test("package metadata includes release smoke scripts", () => {
     "packages/kanban/dist",
     "packages/kanban/package.json",
     "packages/kanban/README.md",
+    "packages/merge/dist",
+    "packages/merge/package.json",
     "packages/tui/dist",
     "packages/tui/package.json",
     "README.md",

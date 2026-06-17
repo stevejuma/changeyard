@@ -1,12 +1,31 @@
 import type { ChangeyardConfig } from "../types.js";
 import { ChangeyardError } from "../errors.js";
-import type { ChangeProvider, CreatePullRequestInput, ProviderCapabilities, PublishReviewInput, RemoteIssue, RemotePullRequest, RemoteReview, SyncIssueInput } from "./ChangeProvider.js";
+import type {
+  BranchPullRequestInput,
+  ChangeProvider,
+  CreatePullRequestInput,
+  FindOpenPullRequestByHeadInput,
+  ProviderCapabilities,
+  PublishReviewInput,
+  RemoteIssue,
+  RemotePullRequest,
+  RemotePullRequestComment,
+  RemoteReview,
+  SyncIssueInput,
+  UpdatePullRequestBaseInput,
+  UpsertPullRequestCommentInput,
+} from "./ChangeProvider.js";
 import { curlJson } from "./http.js";
 import { validateReviewCommentPath } from "./reviewHelpers.js";
 
 type MergeRequestResponse = {
   iid?: number;
+  id?: number;
   web_url?: string;
+  source_branch?: string;
+  target_branch?: string;
+  state?: string;
+  merged_at?: string | null;
   head_pipeline?: {
     sha?: string;
   };
@@ -25,6 +44,12 @@ type MergeRequestDiffFile = {
   oldPath?: string;
   newPath?: string;
   patch?: string;
+};
+
+type MergeRequestNoteResponse = {
+  id?: number;
+  web_url?: string;
+  body?: string;
 };
 
 function encodeProject(owner: string, repo: string): string {
@@ -82,6 +107,30 @@ function mergeRequestDiffs(cfg: { baseUrl: string; owner: string; repo: string; 
         patch: file.diff,
       }))
     : [];
+}
+
+function remotePullRequestFromMergeRequest(response: MergeRequestResponse, fallback?: { head?: string; base?: string }): RemotePullRequest | null {
+  const number = typeof response.iid === "number" ? response.iid : typeof response.id === "number" ? response.id : null;
+  if (number === null) return null;
+  return {
+    provider: "gitlab",
+    pullRequestNumber: number,
+    pullRequestUrl: response.web_url ?? null,
+    baseBranch: response.target_branch ?? fallback?.base ?? null,
+    headBranch: response.source_branch ?? fallback?.head ?? null,
+    state: response.merged_at ? "merged" : response.state === "closed" ? "closed" : response.state === "opened" || fallback ? "open" : "unknown",
+  };
+}
+
+function mergeRequestNotes(cfg: { baseUrl: string; owner: string; repo: string; token: string }, mergeRequestNumber: number): MergeRequestNoteResponse[] {
+  const response = curlJson({
+    method: "GET",
+    url: `${cfg.baseUrl}/api/v4/projects/${encodeProject(cfg.owner, cfg.repo)}/merge_requests/${mergeRequestNumber}/notes?per_page=100`,
+    token: cfg.token,
+    tokenScheme: "Bearer",
+    payload: {},
+  });
+  return Array.isArray(response) ? response as MergeRequestNoteResponse[] : [];
 }
 
 export class GitLabProvider implements ChangeProvider {
@@ -169,13 +218,97 @@ export class GitLabProvider implements ChangeProvider {
   }
 
   createPullRequest(input: CreatePullRequestInput): RemotePullRequest {
+    return this.createBranchPullRequest({
+      repoRoot: input.repoRoot,
+      storageRoot: input.storageRoot,
+      frontmatter: input.frontmatter,
+      title: input.title,
+      body: input.body,
+      head: input.branch,
+      base: input.base,
+      draft: input.draft,
+    });
+  }
+
+  findOpenPullRequestByHead(input: FindOpenPullRequestByHeadInput): RemotePullRequest | null {
+    const cfg = requireConfig(this.config);
+    const response = curlJson({
+      method: "GET",
+      url: `${cfg.baseUrl}/api/v4/projects/${encodeProject(cfg.owner, cfg.repo)}/merge_requests?source_branch=${encodeURIComponent(input.head)}&state=opened&per_page=1`,
+      token: cfg.token,
+      tokenScheme: "Bearer",
+      payload: {},
+    });
+    if (!Array.isArray(response) || !response[0]) return null;
+    return remotePullRequestFromMergeRequest(response[0] as MergeRequestResponse, { head: input.head });
+  }
+
+  createBranchPullRequest(input: BranchPullRequestInput): RemotePullRequest {
     const cfg = requireConfig(this.config);
     const response = curlJson({ method: "POST", url: `${cfg.baseUrl}/api/v4/projects/${encodeProject(cfg.owner, cfg.repo)}/merge_requests`, token: cfg.token, tokenScheme: "Bearer", payload: {
       title: input.draft ? `Draft: ${input.title}` : input.title,
       description: input.body,
-      source_branch: input.branch,
+      source_branch: input.head,
       target_branch: input.base,
     } });
-    return { provider: this.name, pullRequestNumber: response.iid ?? response.id ?? null, pullRequestUrl: response.web_url ?? null };
+    return remotePullRequestFromMergeRequest(response as MergeRequestResponse, { head: input.head, base: input.base }) ?? {
+      provider: this.name,
+      pullRequestNumber: null,
+      pullRequestUrl: null,
+      baseBranch: input.base,
+      headBranch: input.head,
+      state: "unknown",
+    };
+  }
+
+  updatePullRequestBase(input: UpdatePullRequestBaseInput): RemotePullRequest {
+    const cfg = requireConfig(this.config);
+    const response = curlJson({
+      method: "PUT",
+      url: `${cfg.baseUrl}/api/v4/projects/${encodeProject(cfg.owner, cfg.repo)}/merge_requests/${input.pullRequestNumber}`,
+      token: cfg.token,
+      tokenScheme: "Bearer",
+      payload: { target_branch: input.base },
+    });
+    return remotePullRequestFromMergeRequest(response as MergeRequestResponse, { base: input.base }) ?? {
+      provider: this.name,
+      pullRequestNumber: input.pullRequestNumber,
+      pullRequestUrl: null,
+      baseBranch: input.base,
+      state: "unknown",
+    };
+  }
+
+  upsertPullRequestComment(input: UpsertPullRequestCommentInput): RemotePullRequestComment {
+    const cfg = requireConfig(this.config);
+    const existing = mergeRequestNotes(cfg, input.pullRequestNumber).find((note) => note.body?.includes(input.marker));
+    if (existing?.id) {
+      const response = curlJson({
+        method: "PUT",
+        url: `${cfg.baseUrl}/api/v4/projects/${encodeProject(cfg.owner, cfg.repo)}/merge_requests/${input.pullRequestNumber}/notes/${existing.id}`,
+        token: cfg.token,
+        tokenScheme: "Bearer",
+        payload: { body: input.body },
+      }) as MergeRequestNoteResponse;
+      return {
+        provider: this.name,
+        commentNumber: response.id ?? existing.id,
+        commentUrl: response.web_url ?? existing.web_url ?? null,
+        action: "updated",
+      };
+    }
+    const response = curlJson({
+      method: "POST",
+      url: `${cfg.baseUrl}/api/v4/projects/${encodeProject(cfg.owner, cfg.repo)}/merge_requests/${input.pullRequestNumber}/notes`,
+      token: cfg.token,
+      tokenScheme: "Bearer",
+      payload: { body: input.body },
+    }) as MergeRequestNoteResponse;
+    return {
+      provider: this.name,
+      commentNumber: response.id ?? null,
+      commentUrl: response.web_url ?? null,
+      action: "created",
+    };
   }
 }

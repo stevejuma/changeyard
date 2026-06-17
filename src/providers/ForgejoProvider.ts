@@ -1,6 +1,20 @@
 import type { ChangeyardConfig } from "../types.js";
 import { ChangeyardError } from "../errors.js";
-import type { ChangeProvider, CreatePullRequestInput, ProviderCapabilities, PublishReviewInput, RemoteIssue, RemotePullRequest, RemoteReview, SyncIssueInput } from "./ChangeProvider.js";
+import type {
+  BranchPullRequestInput,
+  ChangeProvider,
+  CreatePullRequestInput,
+  FindOpenPullRequestByHeadInput,
+  ProviderCapabilities,
+  PublishReviewInput,
+  RemoteIssue,
+  RemotePullRequest,
+  RemotePullRequestComment,
+  RemoteReview,
+  SyncIssueInput,
+  UpdatePullRequestBaseInput,
+  UpsertPullRequestCommentInput,
+} from "./ChangeProvider.js";
 import { curlJson } from "./http.js";
 import { validateReviewCommentPath } from "./reviewHelpers.js";
 
@@ -14,9 +28,23 @@ type PullRequestResponse = {
   number?: number;
   html_url?: string;
   url?: string;
+  base?: {
+    ref?: string;
+    name?: string;
+  };
+  state?: string;
+  merged?: boolean;
+  merged_at?: string | null;
   head?: {
     sha?: string;
   };
+};
+
+type IssueCommentResponse = {
+  id?: number;
+  html_url?: string;
+  url?: string;
+  body?: string;
 };
 
 function requireConfig(config: ChangeyardConfig): { baseUrl: string; owner: string; repo: string; token: string } {
@@ -60,6 +88,30 @@ function pullRequest(cfg: { baseUrl: string; owner: string; repo: string; token:
     tokenScheme: "token",
     payload: {},
   });
+}
+
+function remotePullRequestFromResponse(response: PullRequestResponse, fallback?: { head?: string; base?: string }): RemotePullRequest | null {
+  if (typeof response.number !== "number") return null;
+  const baseBranch = typeof response.base?.ref === "string" ? response.base.ref : typeof response.base?.name === "string" ? response.base.name : fallback?.base ?? null;
+  return {
+    provider: "forgejo",
+    pullRequestNumber: response.number,
+    pullRequestUrl: typeof response.html_url === "string" ? response.html_url : typeof response.url === "string" ? response.url : null,
+    baseBranch,
+    headBranch: fallback?.head ?? null,
+    state: response.merged || response.merged_at ? "merged" : response.state === "closed" ? "closed" : response.state === "open" || fallback ? "open" : "unknown",
+  };
+}
+
+function issueComments(cfg: { baseUrl: string; owner: string; repo: string; token: string }, pullNumber: number): IssueCommentResponse[] {
+  const response = curlJson({
+    method: "GET",
+    url: `${cfg.baseUrl}/api/v1/repos/${cfg.owner}/${cfg.repo}/issues/${pullNumber}/comments`,
+    token: cfg.token,
+    tokenScheme: "token",
+    payload: {},
+  });
+  return Array.isArray(response) ? response as IssueCommentResponse[] : [];
 }
 
 export class ForgejoProvider implements ChangeProvider {
@@ -134,16 +186,100 @@ export class ForgejoProvider implements ChangeProvider {
   }
 
   createPullRequest(input: CreatePullRequestInput): RemotePullRequest {
+    return this.createBranchPullRequest({
+      repoRoot: input.repoRoot,
+      storageRoot: input.storageRoot,
+      frontmatter: input.frontmatter,
+      title: input.title,
+      body: input.body,
+      head: input.branch,
+      base: input.base,
+      draft: input.draft,
+    });
+  }
+
+  findOpenPullRequestByHead(input: FindOpenPullRequestByHeadInput): RemotePullRequest | null {
+    const cfg = requireConfig(this.config);
+    const response = curlJson({
+      method: "GET",
+      url: `${cfg.baseUrl}/api/v1/repos/${cfg.owner}/${cfg.repo}/pulls?state=open&head=${encodeURIComponent(input.head)}&limit=1`,
+      token: cfg.token,
+      tokenScheme: "token",
+      payload: {},
+    });
+    if (!Array.isArray(response) || !response[0]) return null;
+    return remotePullRequestFromResponse(response[0] as PullRequestResponse, { head: input.head });
+  }
+
+  createBranchPullRequest(input: BranchPullRequestInput): RemotePullRequest {
     const cfg = requireConfig(this.config);
     const response = curlJson({
       method: "POST",
       url: `${cfg.baseUrl}/api/v1/repos/${cfg.owner}/${cfg.repo}/pulls`, token: cfg.token, tokenScheme: "token", payload: {
         title: input.title,
         body: input.body,
-        head: input.branch,
+        head: input.head,
         base: input.base,
         draft: input.draft,
       } });
-    return { provider: this.name, pullRequestNumber: response.number ?? null, pullRequestUrl: response.html_url ?? response.url ?? null };
+    return remotePullRequestFromResponse(response as PullRequestResponse, { head: input.head, base: input.base }) ?? {
+      provider: this.name,
+      pullRequestNumber: null,
+      pullRequestUrl: null,
+      baseBranch: input.base,
+      headBranch: input.head,
+      state: "unknown",
+    };
+  }
+
+  updatePullRequestBase(input: UpdatePullRequestBaseInput): RemotePullRequest {
+    const cfg = requireConfig(this.config);
+    const response = curlJson({
+      method: "PATCH",
+      url: `${cfg.baseUrl}/api/v1/repos/${cfg.owner}/${cfg.repo}/pulls/${input.pullRequestNumber}`,
+      token: cfg.token,
+      tokenScheme: "token",
+      payload: { base: input.base },
+    });
+    return remotePullRequestFromResponse(response as PullRequestResponse, { base: input.base }) ?? {
+      provider: this.name,
+      pullRequestNumber: input.pullRequestNumber,
+      pullRequestUrl: null,
+      baseBranch: input.base,
+      state: "unknown",
+    };
+  }
+
+  upsertPullRequestComment(input: UpsertPullRequestCommentInput): RemotePullRequestComment {
+    const cfg = requireConfig(this.config);
+    const existing = issueComments(cfg, input.pullRequestNumber).find((comment) => comment.body?.includes(input.marker));
+    if (existing?.id) {
+      const response = curlJson({
+        method: "PATCH",
+        url: `${cfg.baseUrl}/api/v1/repos/${cfg.owner}/${cfg.repo}/issues/comments/${existing.id}`,
+        token: cfg.token,
+        tokenScheme: "token",
+        payload: { body: input.body },
+      }) as IssueCommentResponse;
+      return {
+        provider: this.name,
+        commentNumber: response.id ?? existing.id,
+        commentUrl: response.html_url ?? response.url ?? existing.html_url ?? existing.url ?? null,
+        action: "updated",
+      };
+    }
+    const response = curlJson({
+      method: "POST",
+      url: `${cfg.baseUrl}/api/v1/repos/${cfg.owner}/${cfg.repo}/issues/${input.pullRequestNumber}/comments`,
+      token: cfg.token,
+      tokenScheme: "token",
+      payload: { body: input.body },
+    }) as IssueCommentResponse;
+    return {
+      provider: this.name,
+      commentNumber: response.id ?? null,
+      commentUrl: response.html_url ?? response.url ?? null,
+      action: "created",
+    };
   }
 }

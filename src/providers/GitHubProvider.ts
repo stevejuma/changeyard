@@ -1,13 +1,34 @@
 import type { ChangeyardConfig } from "../types.js";
 import { ChangeyardError } from "../errors.js";
-import type { ChangeProvider, CreatePullRequestInput, ProviderCapabilities, PublishReviewInput, RemoteIssue, RemotePullRequest, RemoteReview, SyncIssueInput } from "./ChangeProvider.js";
+import type {
+  BranchPullRequestInput,
+  ChangeProvider,
+  CreatePullRequestInput,
+  ProviderCapabilities,
+  RemoteIssue,
+  RemotePullRequest,
+  RemotePullRequestComment,
+  RemoteReview,
+  SyncIssueInput,
+  PublishReviewInput,
+  UpdatePullRequestBaseInput,
+  UpsertPullRequestCommentInput,
+  FindOpenPullRequestByHeadInput,
+} from "./ChangeProvider.js";
 import { curlJson } from "./http.js";
 import { validateReviewCommentPath } from "./reviewHelpers.js";
+
+const GITHUB_HEADERS = ["Accept: application/vnd.github+json", "X-GitHub-Api-Version: 2022-11-28"];
 
 type PullRequestResponse = {
   number?: number;
   html_url?: string;
   url?: string;
+  base?: {
+    ref?: string;
+  };
+  state?: string;
+  merged_at?: string | null;
   head?: {
     sha?: string;
   };
@@ -16,6 +37,13 @@ type PullRequestResponse = {
 type PullRequestListFile = {
   filename?: string;
   patch?: string;
+};
+
+type IssueCommentResponse = {
+  id?: number;
+  html_url?: string;
+  url?: string;
+  body?: string;
 };
 
 function requireConfig(config: ChangeyardConfig): { baseUrl: string; owner: string; repo: string; token: string } {
@@ -47,7 +75,7 @@ function pullRequest(cfg: { baseUrl: string; owner: string; repo: string; token:
     token: cfg.token,
     tokenScheme: "Bearer",
     payload: {},
-    extraHeaders: ["Accept: application/vnd.github+json", "X-GitHub-Api-Version: 2022-11-28"],
+    extraHeaders: GITHUB_HEADERS,
   });
 }
 
@@ -58,9 +86,33 @@ function pullRequestFiles(cfg: { baseUrl: string; owner: string; repo: string; t
     token: cfg.token,
     tokenScheme: "Bearer",
     payload: {},
-    extraHeaders: ["Accept: application/vnd.github+json", "X-GitHub-Api-Version: 2022-11-28"],
+    extraHeaders: GITHUB_HEADERS,
   });
   return Array.isArray(response) ? response as PullRequestListFile[] : [];
+}
+
+function remotePullRequestFromResponse(response: PullRequestResponse, fallback?: { head?: string; base?: string }): RemotePullRequest | null {
+  if (typeof response.number !== "number") return null;
+  return {
+    provider: "github",
+    pullRequestNumber: response.number,
+    pullRequestUrl: typeof response.html_url === "string" ? response.html_url : typeof response.url === "string" ? response.url : null,
+    baseBranch: typeof response.base?.ref === "string" ? response.base.ref : fallback?.base ?? null,
+    headBranch: fallback?.head ?? null,
+    state: response.merged_at ? "merged" : response.state === "closed" ? "closed" : response.state === "open" || fallback ? "open" : "unknown",
+  };
+}
+
+function issueComments(cfg: { baseUrl: string; owner: string; repo: string; token: string }, pullNumber: number): IssueCommentResponse[] {
+  const response = curlJson({
+    method: "GET",
+    url: `${cfg.baseUrl}/repos/${cfg.owner}/${cfg.repo}/issues/${pullNumber}/comments?per_page=100`,
+    token: cfg.token,
+    tokenScheme: "Bearer",
+    payload: {},
+    extraHeaders: GITHUB_HEADERS,
+  });
+  return Array.isArray(response) ? response as IssueCommentResponse[] : [];
 }
 
 export class GitHubProvider implements ChangeProvider {
@@ -80,7 +132,7 @@ export class GitHubProvider implements ChangeProvider {
       title: String(input.frontmatter.title ?? input.frontmatter.id ?? "Changeyard change"),
       body: input.body,
       labels: Array.isArray(input.frontmatter.labels) ? input.frontmatter.labels : [],
-    }, extraHeaders: ["Accept: application/vnd.github+json", "X-GitHub-Api-Version: 2022-11-28"] });
+    }, extraHeaders: GITHUB_HEADERS });
     return { provider: this.name, issueNumber: response.number ?? null, issueUrl: response.html_url ?? response.url ?? null };
   }
 
@@ -116,7 +168,7 @@ export class GitHubProvider implements ChangeProvider {
             position,
             commit_id: commitId,
           },
-          extraHeaders: ["Accept: application/vnd.github+json", "X-GitHub-Api-Version: 2022-11-28"],
+          extraHeaders: GITHUB_HEADERS,
         });
         postedInline = true;
       }
@@ -130,21 +182,109 @@ export class GitHubProvider implements ChangeProvider {
       payload: {
         body: `Review decision: ${input.decision}\n\n${input.reviewBody}${postedInline ? `\n\n(Posted ${comments.length} inline review comment${comments.length === 1 ? "" : "s"} directly on this pull request.)` : ""}${inlineCommentSummary(input)}`,
       },
-      extraHeaders: ["Accept: application/vnd.github+json", "X-GitHub-Api-Version: 2022-11-28"],
+      extraHeaders: GITHUB_HEADERS,
     });
 
     return { provider: this.name, reviewNumber: review.id ?? null, reviewUrl: review.html_url ?? review.url ?? null };
   }
 
   createPullRequest(input: CreatePullRequestInput): RemotePullRequest {
-    const cfg = requireConfig(this.config);
-    const response = curlJson({ method: "POST", url: `${cfg.baseUrl}/repos/${cfg.owner}/${cfg.repo}/pulls`, token: cfg.token, tokenScheme: "Bearer", payload: {
+    return this.createBranchPullRequest({
+      repoRoot: input.repoRoot,
+      storageRoot: input.storageRoot,
+      frontmatter: input.frontmatter,
       title: input.title,
       body: input.body,
       head: input.branch,
       base: input.base,
       draft: input.draft,
-    }, extraHeaders: ["Accept: application/vnd.github+json", "X-GitHub-Api-Version: 2022-11-28"] });
-    return { provider: this.name, pullRequestNumber: response.number ?? null, pullRequestUrl: response.html_url ?? response.url ?? null };
+    });
+  }
+
+  findOpenPullRequestByHead(input: FindOpenPullRequestByHeadInput): RemotePullRequest | null {
+    const cfg = requireConfig(this.config);
+    const response = curlJson({
+      method: "GET",
+      url: `${cfg.baseUrl}/repos/${cfg.owner}/${cfg.repo}/pulls?head=${encodeURIComponent(`${cfg.owner}:${input.head}`)}&state=open&per_page=1`,
+      token: cfg.token,
+      tokenScheme: "Bearer",
+      payload: {},
+      extraHeaders: GITHUB_HEADERS,
+    });
+    if (!Array.isArray(response) || !response[0]) return null;
+    return remotePullRequestFromResponse(response[0] as PullRequestResponse, { head: input.head });
+  }
+
+  createBranchPullRequest(input: BranchPullRequestInput): RemotePullRequest {
+    const cfg = requireConfig(this.config);
+    const response = curlJson({ method: "POST", url: `${cfg.baseUrl}/repos/${cfg.owner}/${cfg.repo}/pulls`, token: cfg.token, tokenScheme: "Bearer", payload: {
+      title: input.title,
+      body: input.body,
+      head: input.head,
+      base: input.base,
+      draft: input.draft,
+    }, extraHeaders: GITHUB_HEADERS });
+    return remotePullRequestFromResponse(response as PullRequestResponse, { head: input.head, base: input.base }) ?? {
+      provider: this.name,
+      pullRequestNumber: null,
+      pullRequestUrl: null,
+      baseBranch: input.base,
+      headBranch: input.head,
+      state: "unknown",
+    };
+  }
+
+  updatePullRequestBase(input: UpdatePullRequestBaseInput): RemotePullRequest {
+    const cfg = requireConfig(this.config);
+    const response = curlJson({
+      method: "PATCH",
+      url: `${cfg.baseUrl}/repos/${cfg.owner}/${cfg.repo}/pulls/${input.pullRequestNumber}`,
+      token: cfg.token,
+      tokenScheme: "Bearer",
+      payload: { base: input.base },
+      extraHeaders: GITHUB_HEADERS,
+    });
+    return remotePullRequestFromResponse(response as PullRequestResponse, { base: input.base }) ?? {
+      provider: this.name,
+      pullRequestNumber: input.pullRequestNumber,
+      pullRequestUrl: null,
+      baseBranch: input.base,
+      state: "unknown",
+    };
+  }
+
+  upsertPullRequestComment(input: UpsertPullRequestCommentInput): RemotePullRequestComment {
+    const cfg = requireConfig(this.config);
+    const existing = issueComments(cfg, input.pullRequestNumber).find((comment) => comment.body?.includes(input.marker));
+    if (existing?.id) {
+      const response = curlJson({
+        method: "PATCH",
+        url: `${cfg.baseUrl}/repos/${cfg.owner}/${cfg.repo}/issues/comments/${existing.id}`,
+        token: cfg.token,
+        tokenScheme: "Bearer",
+        payload: { body: input.body },
+        extraHeaders: GITHUB_HEADERS,
+      }) as IssueCommentResponse;
+      return {
+        provider: this.name,
+        commentNumber: response.id ?? existing.id,
+        commentUrl: response.html_url ?? response.url ?? existing.html_url ?? existing.url ?? null,
+        action: "updated",
+      };
+    }
+    const response = curlJson({
+      method: "POST",
+      url: `${cfg.baseUrl}/repos/${cfg.owner}/${cfg.repo}/issues/${input.pullRequestNumber}/comments`,
+      token: cfg.token,
+      tokenScheme: "Bearer",
+      payload: { body: input.body },
+      extraHeaders: GITHUB_HEADERS,
+    }) as IssueCommentResponse;
+    return {
+      provider: this.name,
+      commentNumber: response.id ?? null,
+      commentUrl: response.html_url ?? response.url ?? null,
+      action: "created",
+    };
   }
 }

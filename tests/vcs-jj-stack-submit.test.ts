@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { updateLocalConfig } from "../src/config/localConfig.js";
 import { runInit } from "../src/commands/init.js";
 import { setHttpTransportForTests, type HttpRequest } from "../src/providers/http.js";
-import { previewJjStackSubmit, parseGitHubRepoInfo, submitJjStack } from "../src/vcs/jj/stack-submit.js";
+import { getJjInventory } from "../src/vcs/adapter.js";
+import { previewJjStackSubmit, submitJjStack } from "../src/vcs/jj/stack-submit.js";
+import { upsertVcsPullRequestCacheEntry } from "../src/vcs/pr-cache.js";
 import { runVcsCommand } from "../src/vcs/process.js";
 
 function tempRepo(): string {
@@ -85,17 +87,12 @@ function decodeStackCommentBody(body: string): { metadata: { version: number; st
 	};
 }
 
-test("parseGitHubRepoInfo accepts SSH and HTTPS remotes", () => {
-	assert.deepEqual(parseGitHubRepoInfo("https://github.com/example/changeyard.git"), {
-		owner: "example",
-		repo: "changeyard",
-	});
-	assert.deepEqual(parseGitHubRepoInfo("git@github.com:example/changeyard.git"), {
-		owner: "example",
-		repo: "changeyard",
-	});
-	assert.equal(parseGitHubRepoInfo("https://gitlab.com/example/changeyard.git"), null);
-});
+function readVcsPrCache(repo: string): Array<{ provider: string; repository: string; head: string; base: string | null; number: number; url: string | null; state: string }> {
+	const parsed = JSON.parse(readFileSync(path.join(repo, ".changeyard", "cache", "vcs-prs.json"), "utf8")) as {
+		pullRequests?: Array<{ provider: string; repository: string; head: string; base: string | null; number: number; url: string | null; state: string }>;
+	};
+	return parsed.pullRequests ?? [];
+}
 
 test("previewJjStackSubmit creates an ordered stacked PR plan", async (t) => {
 	if (!hasCommand("jj")) {
@@ -157,6 +154,10 @@ test("previewJjStackSubmit creates an ordered stacked PR plan", async (t) => {
 			],
 		);
 		assert.deepEqual(preview.commands.map((command) => command.args), []);
+		assert.deepEqual(
+			readVcsPrCache(repo).map((entry) => ({ head: entry.head, base: entry.base, number: entry.number, state: entry.state })),
+			[{ head: "feature/top", base: "main", number: 12, state: "open" }],
+		);
 	} finally {
 		setHttpTransportForTests(undefined);
 		if (originalToken === undefined) {
@@ -168,7 +169,68 @@ test("previewJjStackSubmit creates an ordered stacked PR plan", async (t) => {
 	}
 });
 
-test("previewJjStackSubmit stays unavailable when provider config is not github", async (t) => {
+test("previewJjStackSubmit and inventory use cached pull requests without provider lookup", async (t) => {
+	if (!hasCommand("jj")) {
+		t.skip("jj is required for stacked submit integration tests");
+		return;
+	}
+
+	const repo = initJjRepo();
+	const originalToken = process.env.TEST_GITHUB_TOKEN;
+	delete process.env.TEST_GITHUB_TOKEN;
+	upsertVcsPullRequestCacheEntry(path.join(repo, ".changeyard"), {
+		provider: "github",
+		repository: "example/changeyard",
+		head: "feature/base",
+		base: "main",
+		number: 30,
+		url: "https://github.com/example/changeyard/pull/30",
+		state: "open",
+	});
+	upsertVcsPullRequestCacheEntry(path.join(repo, ".changeyard"), {
+		provider: "github",
+		repository: "example/changeyard",
+		head: "feature/top",
+		base: "feature/base",
+		number: 12,
+		url: "https://github.com/example/changeyard/pull/12",
+		state: "open",
+	});
+	setHttpTransportForTests((request: HttpRequest) => {
+		throw new Error(`Unexpected provider lookup: ${request.method} ${request.url}`);
+	});
+
+	try {
+		const preview = await previewJjStackSubmit(repo, { targetBookmark: "feature/top" }, runVcsCommand);
+		assert.equal(preview.available, true);
+		assert.deepEqual(
+			preview.items.map((item) => ({
+				bookmarkName: item.bookmarkName,
+				action: item.action,
+				existingPr: item.existingPr?.number ?? null,
+			})),
+			[
+				{ bookmarkName: "feature/base", action: "none", existingPr: 30 },
+				{ bookmarkName: "feature/top", action: "none", existingPr: 12 },
+			],
+		);
+
+		const inventory = await getJjInventory(repo);
+		const top = inventory.items.find((item) => item.name === "feature/top");
+		assert.equal(top?.pr?.number, 12);
+		assert.equal(top?.pr?.baseBranch, "feature/base");
+	} finally {
+		setHttpTransportForTests(undefined);
+		if (originalToken === undefined) {
+			delete process.env.TEST_GITHUB_TOKEN;
+		} else {
+			process.env.TEST_GITHUB_TOKEN = originalToken;
+		}
+		cleanup(repo);
+	}
+});
+
+test("previewJjStackSubmit stays unavailable when provider lacks PR support", async (t) => {
 	if (!hasCommand("jj")) {
 		t.skip("jj is required for stacked submit integration tests");
 		return;
@@ -186,7 +248,7 @@ test("previewJjStackSubmit stays unavailable when provider config is not github"
 		assert.equal(preview.available, false);
 		assert.match(
 			preview.diagnostics.map((diagnostic) => diagnostic.message).join("\n"),
-			/provider\.type.*github/i,
+			/provider noop does not support stacked pull request operations/i,
 		);
 	} finally {
 		cleanup(repo);
@@ -208,7 +270,7 @@ test("previewJjStackSubmit stays unavailable when GitHub auth is missing", async
 		assert.equal(preview.available, false);
 		assert.match(
 			preview.diagnostics.map((diagnostic) => diagnostic.message).join("\n"),
-			/GitHub token env TEST_GITHUB_TOKEN is not configured/i,
+			/Failed to look up existing PR for feature\/base: GitHub provider requires owner, repo, and TEST_GITHUB_TOKEN/i,
 		);
 	} finally {
 		if (originalToken === undefined) {
@@ -351,6 +413,13 @@ test("submitJjStack creates and updates pull requests from the previewed stack",
 				["feature/base", "feature/top"],
 			);
 		}
+		assert.deepEqual(
+			readVcsPrCache(repo).map((entry) => ({ head: entry.head, base: entry.base, number: entry.number, state: entry.state })),
+			[
+				{ head: "feature/base", base: "main", number: 30, state: "open" },
+				{ head: "feature/top", base: "feature/base", number: 12, state: "open" },
+			],
+		);
 	} finally {
 		setHttpTransportForTests(undefined);
 		if (originalToken === undefined) {

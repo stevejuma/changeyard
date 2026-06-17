@@ -2,13 +2,13 @@
 id: CY-0019
 title: Provider-backed VCS PR operations
 type: agent-task
-status: synced
+status: merged
 priority: medium
 labels:
   - agent-ready
 author: stevejuma
 createdAt: 2026-06-17T13:13:56.185Z
-updatedAt: 2026-06-17T13:14:48.398Z
+updatedAt: 2026-06-17T13:36:11.748Z
 base:
   vcs: unknown
   revision: main
@@ -24,10 +24,11 @@ remote:
   issueUrl: null
   pullRequestNumber: null
   pullRequestUrl: null
+  mergedLocally: true
 checks:
   profile: standard
-  lastRun: null
-  lastStatus: null
+  lastRun: 2026-06-17T13:34:58.968Z
+  lastStatus: passed
 planning:
   model: openspec-lite
   storage: inline
@@ -39,10 +40,11 @@ planning:
     specDeltas: pass
     design: pass
     tasks: pass
-    verification: pending
+    verification: pass
     strictClarifications: skipped
     strictChecklist: skipped
     strictAnalysis: skipped
+mergedAt: 2026-06-17T13:36:11.747Z
 ---
 
 # Summary
@@ -55,12 +57,12 @@ The VCS app currently hard-codes GitHub API calls for stacked PR preview and sub
 
 # Plan
 
-- [ ] Extend provider interfaces with branch-level PR lookup, creation, base update, and managed comment APIs.
-- [ ] Implement those APIs for GitHub, Forgejo, GitLab, and local-folder.
-- [ ] Add a local VCS PR cache under `.changeyard/cache`.
-- [ ] Refactor JJ stack submit to use provider APIs and update cache entries.
-- [ ] Populate branch/bookmark inventory PR metadata from the local cache.
-- [ ] Cover provider operations, stack submit behavior, and cache-backed inventory with tests.
+- [x] Extend provider interfaces with branch-level PR lookup, creation, base update, and managed comment APIs.
+- [x] Implement those APIs for GitHub, Forgejo, GitLab, and local-folder.
+- [x] Add a local VCS PR cache under `.changeyard/cache`.
+- [x] Refactor JJ stack submit to use provider APIs and update cache entries.
+- [x] Populate branch/bookmark inventory PR metadata from the local cache.
+- [x] Cover provider operations, stack submit behavior, and cache-backed inventory with tests.
 
 <!-- cy:proposal:start -->
 # Proposal
@@ -73,12 +75,12 @@ Make VCS PR functionality provider-backed and locally cacheable so stacked PR wo
 
 ### In Scope
 
-- [ ] Provider interface additions for branch-head PR operations and managed PR comments.
-- [ ] Provider implementations for GitHub, Forgejo, GitLab, and local-folder.
-- [ ] VCS PR cache read/write helpers.
-- [ ] JJ stacked PR preview/submit refactor.
-- [ ] Inventory PR hydration from cache.
-- [ ] Unit/integration tests for provider calls, cache behavior, and stacked submit.
+- [x] Provider interface additions for branch-head PR operations and managed PR comments.
+- [x] Provider implementations for GitHub, Forgejo, GitLab, and local-folder.
+- [x] VCS PR cache read/write helpers.
+- [x] JJ stacked PR preview/submit refactor.
+- [x] Inventory PR hydration from cache.
+- [x] Unit/integration tests for provider calls, cache behavior, and stacked submit.
 
 ### Out of Scope
 
@@ -149,16 +151,16 @@ GitHub, Forgejo, GitLab, and local-folder providers gain new optional PR operati
 
 ## 2. Implementation
 
-- [ ] Extend provider PR operation interface and provider implementations
-- [ ] Add local VCS PR cache helpers
-- [ ] Refactor stack submit to use provider operations and cache
-- [ ] Hydrate branch inventory PR metadata from cache
+- [x] Extend provider PR operation interface and provider implementations
+- [x] Add local VCS PR cache helpers
+- [x] Refactor stack submit to use provider operations and cache
+- [x] Hydrate branch inventory PR metadata from cache
 
 ## 3. Verification
 
-- [ ] Run focused provider and VCS stack submit tests
-- [ ] Run CLI build
-- [ ] Record verification results
+- [x] Run focused provider and VCS stack submit tests
+- [x] Run CLI build
+- [x] Record verification results
 <!-- cy:tasks:end -->
 
 <!-- cy:verification:start -->
@@ -178,16 +180,21 @@ GitHub, Forgejo, GitLab, and local-folder providers gain new optional PR operati
 
 ## Result
 
-_Not run yet._
+Passed:
+
+- `pnpm run build:cli`
+- `node --test --test-force-exit dist/tests/vcs-jj-stack-submit.test.js dist/tests/changeyard.test.js`
+
+Also attempted `pnpm test`; it is blocked in the existing `@changeyard/merge` package build by missing `@radix-ui/react-dropdown-menu` types and existing implicit-any errors in `packages/merge/src/react/index.tsx`.
 <!-- cy:verification:end -->
 
 # Acceptance Criteria
-- [ ] VCS stacked PR submit has no direct GitHub API calls.
-- [ ] Provider interface supports branch PR lookup, creation, base update, and managed comments.
-- [ ] GitHub, Forgejo, GitLab, and local-folder implement the new provider operations.
-- [ ] `.changeyard/cache/vcs-prs.json` records active PR associations.
-- [ ] Branch/bookmark inventory uses cache-backed PR metadata without remote calls.
-- [ ] Focused build/tests pass or failures are documented.
+- [x] VCS stacked PR submit has no direct GitHub API calls.
+- [x] Provider interface supports branch PR lookup, creation, base update, and managed comments.
+- [x] GitHub, Forgejo, GitLab, and local-folder implement the new provider operations.
+- [x] `.changeyard/cache/vcs-prs.json` records active PR associations.
+- [x] Branch/bookmark inventory uses cache-backed PR metadata without remote calls.
+- [x] Focused build/tests pass or failures are documented.
 
 # Agent Plan
 
@@ -200,4 +207,4 @@ _Not run yet._
 
 # Completion Notes
 
-Summarize what changed, what checks ran, and what risks remain.
+Implemented provider-backed VCS PR operations and moved JJ stack submit off direct GitHub calls. Added `.changeyard/cache/vcs-prs.json` helpers, cache-backed inventory hydration, provider contract tests, stack-submit cache tests, and local-folder simulated PR/comment storage. Focused build and tests pass. Broader `pnpm test` is currently blocked by unrelated `@changeyard/merge` build errors.

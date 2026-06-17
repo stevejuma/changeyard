@@ -1,5 +1,7 @@
 import { detectVcsState } from "./detect.js";
 import { loadConfig } from "../config/loadConfig.js";
+import { storageRoot } from "../paths.js";
+import type { ChangeyardConfig } from "../types.js";
 import {
 	applyGitWorkspaceOperation,
 	loadGitConflictFile,
@@ -16,6 +18,7 @@ import { createJjOperationSnapshot, loadJjOperationDiff, loadJjOperations, rever
 import { previewJjOperation } from "./jj/preview.js";
 import { previewJjStackSubmit, submitJjStack } from "./jj/stack-submit.js";
 import { loadJjState, loadJjStateFromDetect } from "./jj/state.js";
+import { cachedPullRequestToInventoryPr, findCachedPullRequest, providerRepositoryIdentity, readVcsPullRequestCache } from "./pr-cache.js";
 import {
 	applyJjWorkspaceOperation,
 	loadJjConflictFile,
@@ -219,8 +222,34 @@ function createGitInventoryItem(input: {
 	};
 }
 
+function hydrateInventoryPullRequests(
+	repoRoot: string,
+	config: ChangeyardConfig,
+	inventory: VcsJjInventoryResult,
+): VcsJjInventoryResult {
+	const root = storageRoot(repoRoot, config);
+	const provider = config.provider.type;
+	const repository = providerRepositoryIdentity(config, repoRoot);
+	const pullRequests = readVcsPullRequestCache(root);
+	const hydrateItem = (item: VcsJjInventoryItem | null): VcsJjInventoryItem | null => {
+		if (!item) {
+			return null;
+		}
+		const head = item.target ?? item.name;
+		const cached = findCachedPullRequest(pullRequests, { provider, repository, head });
+		return cached ? { ...item, pr: cachedPullRequestToInventoryPr(cached) } : item;
+	};
+	return {
+		...inventory,
+		workspaceTarget: hydrateItem(inventory.workspaceTarget),
+		items: inventory.items.map((item) => hydrateItem(item) ?? item),
+	};
+}
+
 function gitWorkspaceToBranchesData(
 	detect: Awaited<ReturnType<typeof detectVcsState>>,
+	repoRoot: string,
+	config: ChangeyardConfig,
 	state: GitWorkspaceStateResult,
 ): VcsJjBranchesDataResult {
 	const appliedStackIds = new Set<string>(state.appliedStackIds);
@@ -303,7 +332,7 @@ function gitWorkspaceToBranchesData(
 		unassignedChanges: [],
 		diagnostics: detect.diagnostics,
 	};
-	return { inventory, state: branchState };
+	return { inventory: hydrateInventoryPullRequests(repoRoot, config, inventory), state: branchState };
 }
 
 export async function detectVcs(repoRoot: string) {
@@ -321,10 +350,11 @@ export async function getJjDiff(repoRoot: string) {
 
 export async function getJjInventory(repoRoot: string) {
 	const config = loadConfig(repoRoot);
-	return await loadJjInventory(repoRoot, runVcsCommand, {
+	const inventory = await loadJjInventory(repoRoot, runVcsCommand, {
 		targetBranch: config.vcs.targetBranch ?? null,
 		remoteBookmarks: config.vcs.remoteBookmarks,
 	});
+	return hydrateInventoryPullRequests(repoRoot, config, inventory);
 }
 
 export async function getJjBranchesData(repoRoot: string) {
@@ -339,13 +369,13 @@ export async function getJjBranchesData(repoRoot: string) {
 			...options,
 			appliedStackIds: config.vcs.appliedStacks ?? [],
 		});
-		return gitWorkspaceToBranchesData(detect, state);
+		return gitWorkspaceToBranchesData(detect, repoRoot, config, state);
 	}
 	const [inventory, state] = await Promise.all([
 		loadJjInventoryFromDetect(repoRoot, runVcsCommand, detect, options),
 		loadJjStateFromDetect(repoRoot, runVcsCommand, detect, options),
 	]);
-	return { inventory, state };
+	return { inventory: hydrateInventoryPullRequests(repoRoot, config, inventory), state };
 }
 
 export async function getVcsBranchesData(repoRoot: string) {
