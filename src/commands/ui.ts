@@ -165,7 +165,7 @@ export function createChangeyardUiApi() {
   return {
     listChanges(repoRoot: string) {
       const service = createChangeyardBoardService(repoRoot);
-      const board = service.getBoard();
+      const board = service.getBoard({ includeWorkspaceVerification: false });
       return board.columns.flatMap((column) => column.cards).map((card) => toChangeSummary(card));
     },
     createChange(repoRoot: string, input: {

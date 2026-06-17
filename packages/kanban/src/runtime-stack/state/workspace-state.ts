@@ -19,6 +19,7 @@ import {
 import { createGitProcessEnv } from "../core/git-process-env.js";
 import { updateTaskDependencies } from "../core/task-board-mutations.js";
 import { type LockRequest, lockedFileSystem } from "../fs/locked-file-system.js";
+import { stripAnsi } from "../terminal/output-utils.js";
 
 const RUNTIME_HOME_PARENT_DIR = ".changeyard";
 const RUNTIME_HOME_DIR = "kanban";
@@ -439,16 +440,46 @@ function runGitCapture(cwd: string, args: string[]): string | null {
 }
 
 function runJjCapture(cwd: string, args: string[]): string | null {
-	const result = spawnSync("jj", args, {
+	const result = spawnSync("jj", normalizeJjCaptureArgs(args), {
 		cwd,
 		encoding: "utf8",
 		stdio: ["ignore", "pipe", "ignore"],
+		env: createJjNoColorEnv(),
 	});
 	if (result.status !== 0 || typeof result.stdout !== "string") {
 		return null;
 	}
-	const value = result.stdout.trim();
+	const value = stripAnsi(result.stdout).trim();
 	return value.length > 0 ? value : null;
+}
+
+function normalizeJjCaptureArgs(args: string[]): string[] {
+	const normalized: string[] = [];
+	for (let index = 0; index < args.length; index++) {
+		const arg = args[index];
+		if (!arg) {
+			continue;
+		}
+		if (arg === "--color") {
+			index++;
+			continue;
+		}
+		if (arg.startsWith("--color=")) {
+			continue;
+		}
+		normalized.push(arg);
+	}
+	return ["--color=never", ...normalized];
+}
+
+function createJjNoColorEnv(): NodeJS.ProcessEnv {
+	return {
+		...process.env,
+		NO_COLOR: "1",
+		CLICOLOR: "0",
+		CLICOLOR_FORCE: "0",
+		FORCE_COLOR: "0",
+	};
 }
 
 function detectGitRoot(cwd: string): string | null {

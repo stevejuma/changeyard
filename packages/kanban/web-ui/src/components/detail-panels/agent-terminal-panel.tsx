@@ -408,7 +408,7 @@ function ExternalAgentSessionPanel({
 					}}
 				>
 					<Play size={14} />
-					Resume in UI
+					Resume
 				</Button>
 			</div>
 			<div className="rounded border border-divider bg-surface-0 p-3 text-xs text-text-secondary">

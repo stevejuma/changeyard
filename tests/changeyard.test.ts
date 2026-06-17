@@ -22,6 +22,7 @@ import { getHubStatus, runHubStatus } from "../src/commands/hub.js";
 import { runHydrate } from "../src/commands/hydrate.js";
 import { runInit } from "../src/commands/init.js";
 import { runLand } from "../src/commands/land.js";
+import { runHooks } from "../src/commands/hooks.js";
 import { runUpdate } from "../src/commands/update.js";
 import { getNextAction, runNext } from "../src/commands/next.js";
 import { formatCommandPreview } from "../src/scaffold/command-generation/generator.js";
@@ -659,12 +660,51 @@ test("session attach posts external session metadata to the runtime", async () =
     assert.equal(capturedUrl, "http://127.0.0.1:3484/api/trpc/session.attach");
     assert.equal(capturedContentType, "application/json");
     assert.deepEqual(capturedBody, {
-      json: {
-        taskId: "task-1",
-        provider: "codex",
-        sessionId: "abc",
-        workspacePath: "/tmp/repo",
-        source: "cli",
+      taskId: "task-1",
+      provider: "codex",
+      sessionId: "abc",
+      workspacePath: "/tmp/repo",
+      source: "cli",
+    });
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test("hooks ingest posts runtime metadata directly to the runtime", async () => {
+  const previousFetch = globalThis.fetch;
+  let capturedUrl = "";
+  let capturedBody: unknown = null;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    capturedUrl = String(input);
+    capturedBody = JSON.parse(String(init?.body ?? "{}"));
+    return new Response(JSON.stringify({
+      result: {
+        data: {
+          ok: true,
+          summary: { taskId: "task-1" },
+        },
+      },
+    }), { status: 200 });
+  }) as typeof fetch;
+
+  try {
+    await runHooks(["ingest"], {
+      event: "activity",
+      "task-id": "task-1",
+      "workspace-path": "/tmp/repo",
+      "activity-text": "running command",
+      source: "test",
+    });
+
+    assert.equal(capturedUrl, "http://127.0.0.1:3484/api/trpc/hooks.ingest");
+    assert.deepEqual(capturedBody, {
+      taskId: "task-1",
+      workspacePath: "/tmp/repo",
+      event: "activity",
+      metadata: {
+        activityText: "running command",
+        source: "test",
       },
     });
   } finally {

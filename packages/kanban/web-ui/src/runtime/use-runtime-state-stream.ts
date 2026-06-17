@@ -60,7 +60,7 @@ function detectRuntimeClientSurface(pathname: string): RuntimeHubClientSurface {
 	if (pathname === "/vcs" || pathname.startsWith("/vcs/")) {
 		return "vcs";
 	}
-	return "unknown";
+	return "dashboard";
 }
 
 export interface UseRuntimeStateStreamResult {

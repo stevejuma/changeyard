@@ -79,7 +79,7 @@ describe("useProjectUiState", () => {
 		}
 	});
 
-	it("keeps the project loading state visible while workspace metadata is still syncing", async () => {
+	it("keeps the board visible when only workspace metadata is still syncing", async () => {
 		let latestResult: ProjectUiStateResult | null = null;
 
 		await act(async () => {
@@ -96,7 +96,7 @@ describe("useProjectUiState", () => {
 			throw new Error("Expected a hook result.");
 		}
 		const result: ProjectUiStateResult = latestResult;
-		expect(result.shouldShowProjectLoadingState).toBe(true);
+		expect(result.shouldShowProjectLoadingState).toBe(false);
 		expect(result.shouldUseNavigationPath).toBe(true);
 	});
 });

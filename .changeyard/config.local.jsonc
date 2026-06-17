@@ -4,7 +4,8 @@
   },
   "vcs": {
     "engine": "jj",
-    "fallback": "jj"
+    "fallback": "jj",
+    "appliedStacks": []
   },
   "project": {
     "defaultBase": "main"

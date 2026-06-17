@@ -72,6 +72,9 @@ export function createProjectsApi(deps: CreateProjectsApiDependencies): RuntimeT
 		if (deps.detectWorkspaceRepositoryKind(repoPath) !== "jj") {
 			return [];
 		}
+		if (!(await pathExists(resolve(repoPath, ".jj/repo/store/type")))) {
+			return [];
+		}
 		try {
 			const result = await execFile(
 				"jj",
@@ -83,7 +86,7 @@ export function createProjectsApi(deps: CreateProjectsApiDependencies): RuntimeT
 					"--template",
 					'name ++ "\\t" ++ root ++ "\\n"',
 				],
-				{ cwd: repoPath, encoding: "utf8", maxBuffer: 10 * 1024 * 1024 },
+				{ cwd: repoPath, encoding: "utf8", maxBuffer: 10 * 1024 * 1024, timeout: 2_000 },
 			);
 			const rootPath = resolve(repoPath);
 			return result.stdout
@@ -172,8 +175,21 @@ export function createProjectsApi(deps: CreateProjectsApiDependencies): RuntimeT
 
 	async function workspaceDirectoryExists(repoPath: string, workspacePath: string): Promise<boolean> {
 		const absolutePath = resolveWorkspacePath(repoPath, workspacePath);
+		return pathIsDirectory(absolutePath);
+	}
+
+	async function pathExists(path: string): Promise<boolean> {
 		try {
-			return (await stat(absolutePath)).isDirectory();
+			await stat(path);
+			return true;
+		} catch {
+			return false;
+		}
+	}
+
+	async function pathIsDirectory(path: string): Promise<boolean> {
+		try {
+			return (await stat(path)).isDirectory();
 		} catch {
 			return false;
 		}

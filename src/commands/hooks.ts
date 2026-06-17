@@ -137,10 +137,16 @@ function metadataFromPayload(metadata: Record<string, string> | undefined, paylo
 
 function trpcErrorMessage(payload: unknown): string | null {
   if (!payload || typeof payload !== "object") return null;
-  const root = payload as { error?: { message?: unknown }; result?: { data?: { json?: { ok?: unknown; error?: unknown } } } };
+  const root = payload as { error?: { message?: unknown }; result?: { data?: unknown } };
   if (typeof root.error?.message === "string") return root.error.message;
-  const data = root.result?.data?.json;
-  if (data?.ok === false && typeof data.error === "string") return data.error;
+  const resultData = root.result?.data;
+  const data = resultData && typeof resultData === "object" && "json" in resultData
+    ? (resultData as { json?: unknown }).json
+    : resultData;
+  if (data && typeof data === "object") {
+    const result = data as { ok?: unknown; error?: unknown };
+    if (result.ok === false && typeof result.error === "string") return result.error;
+  }
   return null;
 }
 
@@ -190,7 +196,7 @@ export async function runHooks(positional: string[], flags: HookFlags): Promise<
   const response = await fetch(`${runtimeOrigin()}/api/trpc/hooks.ingest`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ json: body }),
+    body: JSON.stringify(body),
   });
   const payload = parseJsonResponse(await response.text());
   const errorMessage = trpcErrorMessage(payload);

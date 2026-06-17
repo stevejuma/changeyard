@@ -3,7 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ChangeDetailDialog } from "@/components/changeyard/change-detail-dialog";
-import type { RuntimeChangeyardChangeDetail } from "@/runtime/types";
+import type { RuntimeChangeyardChangeDetail, RuntimeTaskSessionSummary } from "@/runtime/types";
 
 const mockUseRuntimeChangeWorkspaceChanges = vi.fn();
 const mockDiffViewerPanel = vi.fn();
@@ -66,6 +66,32 @@ function createPlanning(): NonNullable<RuntimeChangeyardChangeDetail["planning"]
 		missingSections: [],
 		nextAction: "Complete pending planning gate: tasks",
 		errors: [],
+	};
+}
+
+function createSessionSummary(overrides: Partial<RuntimeTaskSessionSummary> = {}): RuntimeTaskSessionSummary {
+	return {
+		taskId: "CY-9999",
+		state: "running",
+		mode: null,
+		agentId: "codex",
+		workspacePath: "/repo",
+		pid: null,
+		startedAt: 1,
+		updatedAt: 2,
+		lastOutputAt: null,
+		reviewReason: null,
+		exitCode: null,
+		lastHookAt: null,
+		latestHookActivity: null,
+		externalSession: {
+			provider: "codex",
+			sessionId: "thread-123",
+			transcriptPath: null,
+			resumeCommand: ["codex", "resume", "thread-123"],
+			source: "cli",
+		},
+		...overrides,
 	};
 }
 
@@ -172,6 +198,26 @@ describe("ChangeDetailDialog", () => {
 		expect(document.body.textContent).toContain("Pending");
 		expect(document.body.textContent).toContain("Next Action");
 		expect(document.body.textContent).toContain("Complete pending planning gate: tasks");
+	});
+
+	it("renders attached external session metadata", () => {
+		render(
+			<ChangeDetailDialog
+				change={createChange()}
+				open
+				workspaceId="project-1"
+				sessionSummary={createSessionSummary()}
+				onOpenChange={vi.fn()}
+				onRunAction={vi.fn()}
+				onSaveBody={vi.fn()}
+			/>,
+		);
+
+		expect(document.body.textContent).toContain("Session");
+		expect(document.body.textContent).toContain("codex");
+		expect(document.body.textContent).toContain("running");
+		expect(document.body.textContent).toContain("thread-123");
+		expect(document.body.textContent).toContain("codex resume thread-123");
 	});
 
 	it("renders a visible file explorer in the changes tab and selects diffs from it", () => {

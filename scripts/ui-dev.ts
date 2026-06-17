@@ -42,7 +42,8 @@ async function main(): Promise<void> {
 	});
 
 	const runtimeUrl = new URL(runtime.url);
-	const workspacePath = runtimeUrl.pathname === "/" ? "" : runtimeUrl.pathname;
+	const workspaceId = runtimeUrl.pathname === "/" ? "" : runtimeUrl.pathname.split("/").filter(Boolean)[0] ?? "";
+	const workspacePath = workspaceId ? `/kanban/${workspaceId}` : "/kanban";
 	const devUrl = `http://${DEV_HOST}:${DEV_WEB_PORT}${workspacePath}`;
 
 	const viteChild = spawn(

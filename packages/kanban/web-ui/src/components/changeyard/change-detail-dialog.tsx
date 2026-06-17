@@ -1,4 +1,5 @@
 import {
+	Bot,
 	CheckCircle2,
 	ClipboardCheck,
 	FileDiff,
@@ -19,7 +20,7 @@ import { cn } from "@/components/ui/cn";
 import { Dialog, DialogBody, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { PathDisplay } from "@/components/ui/path-display";
 import { ChangeStatusChip, StatusChip } from "@/components/ui/status-chip";
-import type { RuntimeChangeyardChangeDetail } from "@/runtime/types";
+import type { RuntimeChangeyardChangeDetail, RuntimeTaskSessionSummary } from "@/runtime/types";
 import { useRuntimeChangeWorkspaceChanges } from "@/runtime/use-runtime-change-workspace-changes";
 
 export type ChangeDetailAction =
@@ -92,6 +93,45 @@ function PropertyRow({ label, children }: { label: string; children: ReactNode }
 	);
 }
 
+function getSessionStateTone(state: RuntimeTaskSessionSummary["state"]): "neutral" | "green" | "red" | "purple" | "gold" {
+	switch (state) {
+		case "running":
+			return "purple";
+		case "awaiting_review":
+			return "gold";
+		case "failed":
+		case "interrupted":
+			return "red";
+		case "idle":
+			return "neutral";
+		default:
+			return "neutral";
+	}
+}
+
+function formatResumeCommand(command: string[] | undefined): string | null {
+	return command && command.length > 0 ? command.join(" ") : null;
+}
+
+function SessionProperty({ summary }: { summary?: RuntimeTaskSessionSummary | null }): ReactElement {
+	if (!summary) {
+		return <span className="text-text-tertiary">No active session</span>;
+	}
+	const provider = summary.agentId ?? summary.externalSession?.provider ?? "session";
+	const sessionId = summary.externalSession?.sessionId ?? null;
+	const resumeCommand = formatResumeCommand(summary.externalSession?.resumeCommand);
+	return (
+		<div className="space-y-1.5">
+			<div className="flex flex-wrap gap-1.5">
+				<StatusChip label={provider} icon={<Bot size={12} />} tone="cyan" />
+				<StatusChip label={summary.state} tone={getSessionStateTone(summary.state)} />
+			</div>
+			{sessionId ? <div className="break-all font-mono text-xs text-text-tertiary">{sessionId}</div> : null}
+			{resumeCommand ? <div className="break-all font-mono text-xs text-text-tertiary">{resumeCommand}</div> : null}
+		</div>
+	);
+}
+
 function DetailTabButton({
 	active,
 	children,
@@ -120,6 +160,7 @@ export function ChangeDetailDialog({
 	open,
 	workspaceId,
 	repoRoot,
+	sessionSummary = null,
 	isActionPending = false,
 	actionError = null,
 	onOpenChange,
@@ -130,6 +171,7 @@ export function ChangeDetailDialog({
 	open: boolean;
 	workspaceId: string | null;
 	repoRoot?: string | null;
+	sessionSummary?: RuntimeTaskSessionSummary | null;
 	isActionPending?: boolean;
 	actionError?: string | null;
 	onOpenChange: (open: boolean) => void;
@@ -233,6 +275,9 @@ export function ChangeDetailDialog({
 										</PropertyRow>
 										<PropertyRow label="Type">
 											<StatusChip label={change.type} />
+										</PropertyRow>
+										<PropertyRow label="Session">
+											<SessionProperty summary={sessionSummary} />
 										</PropertyRow>
 										<PropertyRow label="Path">
 											<PathDisplay path={change.path} repoRoot={repoRoot} />

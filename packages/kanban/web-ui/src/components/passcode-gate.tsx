@@ -2,6 +2,7 @@ import { KeyRound, Loader2, ShieldCheck } from "lucide-react";
 import { type FormEvent, type ReactElement, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { isLocalhostAccess } from "@/utils/localhost-detection";
 
 // ── Provider ──────────────────────────────────────────────────────────────────
 
@@ -24,9 +25,14 @@ type AuthState = "loading" | "authenticated" | "requires-passcode";
  * before any protected API calls are made.
  */
 export function PasscodeGateProvider({ children }: { children: ReactNode }): ReactElement {
-	const [authState, setAuthState] = useState<AuthState>("loading");
+	const [authState, setAuthState] = useState<AuthState>(() =>
+		isLocalhostAccess() ? "authenticated" : "loading",
+	);
 
 	useEffect(() => {
+		if (isLocalhostAccess()) {
+			return;
+		}
 		let cancelled = false;
 		fetch("/api/passcode/status", { credentials: "same-origin" })
 			.then(async (res) => {

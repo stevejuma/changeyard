@@ -2,13 +2,10 @@ import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import ReactDOM from "react-dom/client";
 import { Toaster } from "sonner";
 
-import DashboardApp from "@/Dashboard";
 import { AppErrorBoundary } from "@/components/app-error-boundary";
 import { PasscodeGateProvider } from "@/components/passcode-gate";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { isThemeId } from "@/hooks/use-theme";
-import "@uiw/react-markdown-editor/markdown-editor.css";
-import "@uiw/react-markdown-preview/markdown.css";
 import "@/styles/globals.css";
 
 // Apply the persisted theme synchronously before first paint to prevent a flash.
@@ -27,6 +24,7 @@ if (!root) {
 }
 
 const KanbanApp = lazy(() => import("@/App"));
+const DashboardApp = lazy(() => import("@/Dashboard"));
 const VcsApp = lazy(() => import("virtual:changeyard-vcs-route"));
 
 type Surface = "dashboard" | "kanban" | "vcs";
@@ -83,6 +81,10 @@ function SurfaceRoot(): React.ReactElement {
 		}
 		return DashboardApp;
 	}, [surface]);
+
+	useEffect(() => {
+		document.getElementById("app-shell-fallback")?.remove();
+	}, []);
 
 	useEffect(() => {
 		const syncPathname = () => setPathname(window.location.pathname);

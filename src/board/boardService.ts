@@ -58,13 +58,21 @@ function verifyWorkspace(metadata: WorkspaceMetadata | null): { valid: boolean; 
   }
 }
 
-function toCard(repoRoot: string, filePath: string): Omit<ChangeyardCardDetail, "dependencies"> {
+type BoardReadOptions = {
+  includeWorkspaceVerification?: boolean;
+};
+
+function shouldVerifyWorkspace(options?: BoardReadOptions): boolean {
+  return options?.includeWorkspaceVerification ?? true;
+}
+
+function toCard(repoRoot: string, filePath: string, options?: BoardReadOptions): Omit<ChangeyardCardDetail, "dependencies"> {
   const rootParsed = readOverlayChangeDocument(filePath, null);
   const id = String(rootParsed.frontmatter.id ?? path.basename(filePath, ".md"));
   const metadata = readWorkspaceMetadataIfPresent(repoRoot, id);
   const parsed = readOverlayChangeDocument(filePath, metadata);
   const frontmatter = parsed.frontmatter;
-  const verification = verifyWorkspace(metadata);
+  const verification = shouldVerifyWorkspace(options) ? verifyWorkspace(metadata) : undefined;
   const workspaceFrontmatter = asRecord(frontmatter.workspace);
   const branchFrontmatter = asRecord(frontmatter.branch);
   const baseFrontmatter = asRecord(frontmatter.base);
@@ -120,8 +128,8 @@ export class ChangeyardBoardService {
       .map((file) => path.join(root, file));
   }
 
-  private readAllCards(): ChangeyardCardDetail[] {
-    const cards = this.changeFiles().map((filePath) => toCard(this.repoRoot, filePath));
+  private readAllCards(options?: BoardReadOptions): ChangeyardCardDetail[] {
+    const cards = this.changeFiles().map((filePath) => toCard(this.repoRoot, filePath, options));
     const dependencies = deriveChangeDependencyInfo(cards);
     return cards.map((card) => ({
       ...card,
@@ -129,9 +137,9 @@ export class ChangeyardBoardService {
     }));
   }
 
-  getBoard(): ChangeyardBoard {
+  getBoard(options?: BoardReadOptions): ChangeyardBoard {
     const config = loadConfig(this.repoRoot);
-    const cards = this.readAllCards();
+    const cards = this.readAllCards(options);
     const columns: ChangeyardBoardColumn[] = Object.entries(COLUMN_STATUS_MAP).map(([id, statuses]) => ({
       id: id as ChangeyardBoardColumn["id"],
       title: COLUMN_TITLES[id as keyof typeof COLUMN_TITLES],

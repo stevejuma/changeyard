@@ -68,7 +68,10 @@ export function useProjectUiState({
 	const shouldShowProjectLoadingState =
 		selectedTaskId === null &&
 		!streamError &&
-		(isProjectSwitching || isInitialRuntimeLoad || isAwaitingWorkspaceSnapshot || isWorkspaceMetadataPending);
+		(isProjectSwitching ||
+			isInitialRuntimeLoad ||
+			isAwaitingWorkspaceSnapshot ||
+			(isWorkspaceMetadataPending && !canPersistWorkspaceState));
 	const isProjectListLoading = !hasReceivedSnapshot && !streamError;
 	const shouldUseNavigationPath = isProjectSwitching || isAwaitingWorkspaceSnapshot || isWorkspaceMetadataPending;
 

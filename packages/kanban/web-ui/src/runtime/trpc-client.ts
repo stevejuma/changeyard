@@ -1,5 +1,5 @@
 import type { RuntimeAppRouter } from "@runtime-trpc";
-import { createTRPCProxyClient, httpBatchLink, TRPCClientError } from "@trpc/client";
+import { createTRPCProxyClient, httpLink, TRPCClientError } from "@trpc/client";
 
 interface TrpcErrorDataWithConflictRevision {
 	code?: string;
@@ -19,7 +19,7 @@ export function getRuntimeTrpcClient(workspaceId: string | null): RuntimeTrpcCli
 	}
 	const created = createTRPCProxyClient<RuntimeAppRouter>({
 		links: [
-			httpBatchLink({
+			httpLink({
 				url: "/api/trpc",
 				headers: () => (workspaceId ? { "x-kanban-workspace-id": workspaceId } : {}),
 			}),

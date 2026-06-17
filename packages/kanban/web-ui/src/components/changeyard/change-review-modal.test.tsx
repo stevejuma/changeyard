@@ -16,23 +16,8 @@ const mockReviewComplete = vi.fn();
 const mockGetBoardSummary = vi.fn();
 const mockGetBoardFiles = vi.fn();
 const mockGetBoardFileDiff = vi.fn();
-
-vi.mock("@/runtime/trpc-client", () => ({
-	getRuntimeTrpcClient: () => ({
-		changes: {
-			reviewList: { query: mockReviewList },
-			reviewGet: { query: mockReviewGet },
-			reviewUpdate: { mutate: mockReviewUpdate },
-			reviewComplete: { mutate: mockReviewComplete },
-			getBoardSummary: { query: mockGetBoardSummary },
-			getBoardFiles: { query: mockGetBoardFiles },
-			getBoardFileDiff: { query: mockGetBoardFileDiff },
-		},
-	}),
-}));
-
-vi.mock("@/runtime/use-runtime-change-workspace-changes", () => ({
-	useRuntimeChangeWorkspaceChanges: () => ({
+const mockUseRuntimeChangeWorkspaceChanges = vi.hoisted(() =>
+	vi.fn(() => ({
 		changes: {
 			repoRoot: "/repo",
 			generatedAt: 1,
@@ -50,7 +35,26 @@ vi.mock("@/runtime/use-runtime-change-workspace-changes", () => ({
 		isLoading: false,
 		isRuntimeAvailable: true,
 		refresh: vi.fn(),
+	})),
+);
+
+vi.mock("@/runtime/trpc-client", () => ({
+	getRuntimeTrpcClient: () => ({
+		changes: {
+			reviewList: { query: mockReviewList },
+			reviewGet: { query: mockReviewGet },
+			reviewUpdate: { mutate: mockReviewUpdate },
+			reviewComplete: { mutate: mockReviewComplete },
+			getBoardSummary: { query: mockGetBoardSummary },
+			getBoardFiles: { query: mockGetBoardFiles },
+			getBoardFileDiff: { query: mockGetBoardFileDiff },
+		},
 	}),
+}));
+
+vi.mock("@/runtime/use-runtime-change-workspace-changes", () => ({
+	useRuntimeChangeWorkspaceChanges: (...args: Parameters<typeof mockUseRuntimeChangeWorkspaceChanges>) =>
+		mockUseRuntimeChangeWorkspaceChanges(...args),
 }));
 
 const change = {
@@ -148,6 +152,7 @@ beforeEach(() => {
 		},
 		patch: "@@ -1 +1 @@\n-const value = 1;\n+const value = 2;\n",
 	});
+	mockUseRuntimeChangeWorkspaceChanges.mockClear();
 	container = document.createElement("div");
 	document.body.appendChild(container);
 	root = createRoot(container);
@@ -183,6 +188,22 @@ async function renderReview(element: ReactElement): Promise<HTMLDivElement> {
 }
 
 describe("ChangeReviewModal", () => {
+	it("loads workspace changes without background polling", async () => {
+		await renderReview(
+			<ChangeReviewModal
+				open
+				change={change}
+				changes={[change]}
+				workspaceId="changeyard"
+				onOpenChange={() => {}}
+				onSelectChange={() => {}}
+				onReviewChanged={() => {}}
+			/>,
+		);
+
+		expect(mockUseRuntimeChangeWorkspaceChanges).toHaveBeenCalledWith("CY-0001", "changeyard", null);
+	});
+
 	it("renders required changes as deleteable Radix checkbox rows", async () => {
 		const element = await renderReview(
 			<ChangeReviewModal

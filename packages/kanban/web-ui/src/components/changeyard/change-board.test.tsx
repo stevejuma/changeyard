@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ChangeBoard } from "@/components/changeyard/change-board";
 import { clearChangeBoardCaches } from "@/components/changeyard/change-board-cache";
-import type { RuntimeChangeyardChangeListItem } from "@/runtime/types";
+import type { RuntimeChangeyardChangeListItem, RuntimeTaskSessionSummary } from "@/runtime/types";
 import type { BoardData } from "@/types";
 
 const dndMock = vi.hoisted(() => ({
@@ -90,6 +90,7 @@ function createChange(
 	title: string,
 	planning: RuntimeChangeyardChangeListItem["planning"],
 	status = "ready",
+	updatedAt = "2026-06-11T12:00:00.000Z",
 ): RuntimeChangeyardChangeListItem {
 	return {
 		id,
@@ -100,8 +101,35 @@ function createChange(
 		base: { revision: "main" },
 		labels: [],
 		planning,
+		updatedAt,
 		dependencies: { blockedBy: [], blocks: [] },
 		workspace: { path: `.changeyard/workspaces/${id}/repo`, branch: `cy/${id}` },
+	};
+}
+
+function createSessionSummary(taskId: string, overrides: Partial<RuntimeTaskSessionSummary> = {}): RuntimeTaskSessionSummary {
+	return {
+		taskId,
+		state: "running",
+		mode: null,
+		agentId: "codex",
+		workspacePath: "/repo",
+		pid: null,
+		startedAt: 1,
+		updatedAt: 2,
+		lastOutputAt: null,
+		reviewReason: null,
+		exitCode: null,
+		lastHookAt: null,
+		latestHookActivity: null,
+		externalSession: {
+			provider: "codex",
+			sessionId: "thread-123",
+			transcriptPath: null,
+			resumeCommand: ["codex", "resume", "thread-123"],
+			source: "cli",
+		},
+		...overrides,
 	};
 }
 
@@ -251,6 +279,185 @@ describe("ChangeBoard", () => {
 		expect(detailsButton).toBeTruthy();
 		detailsButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 		expect(onSelectChange).toHaveBeenCalledWith("CY-0001");
+	});
+
+	it("orders changes in each column by most recent update first", () => {
+		act(() => {
+			root.render(
+				<ChangeBoard
+					board={{ columns: [], dependencies: [] }}
+					changes={[
+						createChange("CY-0001", "Older change", null, "ready", "2026-06-10T12:00:00.000Z"),
+						createChange("CY-0002", "Newest change", null, "ready", "2026-06-12T12:00:00.000Z"),
+						createChange("CY-0003", "Middle change", null, "ready", "2026-06-11T12:00:00.000Z"),
+					]}
+					filter="changes"
+					selectedChangeId={null}
+					selectedTaskId={null}
+					onFilterChange={vi.fn()}
+					onSelectChange={vi.fn()}
+					onSelectTask={vi.fn()}
+				/>,
+			);
+		});
+
+		const text = container.textContent ?? "";
+		expect(text.indexOf("Newest change")).toBeLessThan(text.indexOf("Middle change"));
+		expect(text.indexOf("Middle change")).toBeLessThan(text.indexOf("Older change"));
+	});
+
+	it("orders tasks in each column by most recent update first", () => {
+		act(() => {
+			root.render(
+				<ChangeBoard
+					board={{
+						columns: [
+							{
+								id: "backlog",
+								title: "Backlog",
+								cards: [
+									{
+										id: "task-old",
+										title: "Older task",
+										prompt: "Older task",
+										startInPlanMode: false,
+										baseRef: "main",
+										createdAt: 1,
+										updatedAt: 1,
+									},
+									{
+										id: "task-new",
+										title: "Newest task",
+										prompt: "Newest task",
+										startInPlanMode: false,
+										baseRef: "main",
+										createdAt: 1,
+										updatedAt: 3,
+									},
+									{
+										id: "task-mid",
+										title: "Middle task",
+										prompt: "Middle task",
+										startInPlanMode: false,
+										baseRef: "main",
+										createdAt: 1,
+										updatedAt: 2,
+									},
+								],
+							},
+						],
+						dependencies: [],
+					}}
+					changes={[]}
+					filter="all"
+					selectedChangeId={null}
+					selectedTaskId={null}
+					onFilterChange={vi.fn()}
+					onSelectChange={vi.fn()}
+					onSelectTask={vi.fn()}
+				/>,
+			);
+		});
+
+		const text = container.textContent ?? "";
+		expect(text.indexOf("Newest task")).toBeLessThan(text.indexOf("Middle task"));
+		expect(text.indexOf("Middle task")).toBeLessThan(text.indexOf("Older task"));
+	});
+
+	it("keeps rendering websocket-backed tasks while canonical changes are loading", () => {
+		act(() => {
+			root.render(
+				<ChangeBoard
+					board={{
+						columns: [
+							{
+								id: "backlog",
+								title: "Backlog",
+								cards: [
+									{
+										id: "task-1",
+										title: "Visible task",
+										prompt: "Visible task",
+										startInPlanMode: false,
+										baseRef: "main",
+										createdAt: 1,
+										updatedAt: 1,
+									},
+								],
+							},
+						],
+						dependencies: [],
+					}}
+					changes={[]}
+					filter="all"
+					selectedChangeId={null}
+					selectedTaskId={null}
+					isLoading
+					onFilterChange={vi.fn()}
+					onSelectChange={vi.fn()}
+					onSelectTask={vi.fn()}
+				/>,
+			);
+		});
+
+		expect(container.textContent).toContain("Loading changes...");
+		expect(container.textContent).toContain("Visible task");
+		expect(container.textContent).not.toContain("Loading canonical change files");
+	});
+
+	it("renders attached session state on canonical change cards", () => {
+		const onSelectChange = vi.fn();
+		act(() => {
+			root.render(
+				<ChangeBoard
+					board={{ columns: [], dependencies: [] }}
+					changes={[createChange("CY-0001", "Quick change", null)]}
+					filter="changes"
+					selectedChangeId={null}
+					selectedTaskId={null}
+					taskSessions={{ "CY-0001": createSessionSummary("CY-0001") }}
+					onFilterChange={vi.fn()}
+					onSelectChange={onSelectChange}
+					onSelectTask={vi.fn()}
+				/>,
+			);
+		});
+
+		expect(container.textContent).toContain("Quick change");
+		expect(container.textContent).toContain("codex");
+		expect(container.textContent).toContain("running");
+
+		const cardButton = container.querySelector('[data-change-id="CY-0001"] [role="button"]');
+		expect(cardButton).toBeTruthy();
+		cardButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+		expect(onSelectChange).toHaveBeenCalledWith("CY-0001");
+	});
+
+	it("opens the agent view for resumed change sessions without an external session marker", () => {
+		const onSelectChange = vi.fn();
+		act(() => {
+			root.render(
+				<ChangeBoard
+					board={{ columns: [], dependencies: [] }}
+					changes={[createChange("CY-0001", "Quick change", null)]}
+					filter="changes"
+					selectedChangeId={null}
+					selectedTaskId={null}
+					workspaceId="project-1"
+					taskSessions={{ "CY-0001": createSessionSummary("CY-0001", { externalSession: null }) }}
+					onFilterChange={vi.fn()}
+					onSelectChange={onSelectChange}
+					onSelectTask={vi.fn()}
+				/>,
+			);
+		});
+
+		const cardButton = container.querySelector('[data-change-id="CY-0001"] [role="button"]');
+		expect(cardButton).toBeTruthy();
+		cardButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+		expect(onSelectChange).toHaveBeenCalledWith("CY-0001");
+		expect(runtimeMock.getBoardSummary).not.toHaveBeenCalled();
 	});
 
 	it("shows the change details button in the abandoned column", () => {

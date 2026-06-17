@@ -74,7 +74,6 @@ import type {
 import { useRuntimeChangeWorkspaceChanges } from "@/runtime/use-runtime-change-workspace-changes";
 import { LocalStorageKey } from "@/storage/local-storage-store";
 
-const REVIEW_DIFF_POLL_INTERVAL_MS = 1_500;
 const REVIEW_STACK_PANEL_WIDTH = 300;
 const REVIEW_DRAFT_PANEL_DEFAULT_WIDTH = 460;
 const REVIEW_DRAFT_PANEL_MIN_WIDTH = 380;
@@ -860,7 +859,7 @@ export function ChangeReviewModal({
 	} = useRuntimeChangeWorkspaceChanges(
 		changeId,
 		workspaceId,
-		open ? REVIEW_DIFF_POLL_INTERVAL_MS : null,
+		null,
 	);
 	const workspaceFiles = workspaceChanges?.files ?? null;
 	const hasWorkspacePath = Boolean(change?.workspace?.path);

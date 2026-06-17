@@ -2,10 +2,8 @@
 // It decides whether the synthetic home session should render native Cline
 // chat or a terminal panel and wires that surface to shared runtime actions.
 import type { ReactElement } from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { AgentTerminalPanel } from "@/components/detail-panels/agent-terminal-panel";
-import { ClineAgentChatPanel } from "@/components/detail-panels/cline-agent-chat-panel";
 import { Spinner } from "@/components/ui/spinner";
 import { createIdleTaskSession } from "@/hooks/app-utils";
 import { selectNewestTaskSessionSummary } from "@/hooks/home-sidebar-agent-panel-session-summary";
@@ -22,6 +20,15 @@ import type {
 	RuntimeTaskSessionSummary,
 } from "@/runtime/types";
 import { useTerminalThemeColors } from "@/terminal/theme-colors";
+
+const AgentTerminalPanel = lazy(async () => {
+	const mod = await import("@/components/detail-panels/agent-terminal-panel");
+	return { default: mod.AgentTerminalPanel };
+});
+const ClineAgentChatPanel = lazy(async () => {
+	const mod = await import("@/components/detail-panels/cline-agent-chat-panel");
+	return { default: mod.ClineAgentChatPanel };
+});
 
 interface UseHomeSidebarAgentPanelInput {
 	currentProjectId: string | null;
@@ -153,38 +160,54 @@ export function useHomeSidebarAgentPanel({
 
 	if (panelMode === "chat" && taskId) {
 		return (
-			<ClineAgentChatPanel
-				key={taskId}
-				taskId={taskId}
-				summary={homeAgentPanelSummary ?? createIdleTaskSession(taskId)}
-				defaultMode="act"
-				showComposerModeToggle={false}
-				workspaceId={currentProjectId}
-				runtimeConfig={runtimeProjectConfig}
-				onSendMessage={handleSendHomeClineChatMessage}
-				onCancelTurn={handleCancelHomeClineChatTurn}
-				onLoadMessages={handleLoadHomeClineChatMessages}
-				incomingMessage={latestHomeTaskChatMessage}
-				incomingMessages={homeTaskChatMessages}
-				composerPlaceholder="Ask ChangeYard to add, edit, start, or link tasks"
-			/>
+			<Suspense
+				fallback={
+					<div className="flex w-full items-center justify-center rounded-md border border-border bg-surface-2 px-3 py-6">
+						<Spinner size={20} />
+					</div>
+				}
+			>
+				<ClineAgentChatPanel
+					key={taskId}
+					taskId={taskId}
+					summary={homeAgentPanelSummary ?? createIdleTaskSession(taskId)}
+					defaultMode="act"
+					showComposerModeToggle={false}
+					workspaceId={currentProjectId}
+					runtimeConfig={runtimeProjectConfig}
+					onSendMessage={handleSendHomeClineChatMessage}
+					onCancelTurn={handleCancelHomeClineChatTurn}
+					onLoadMessages={handleLoadHomeClineChatMessages}
+					incomingMessage={latestHomeTaskChatMessage}
+					incomingMessages={homeTaskChatMessages}
+					composerPlaceholder="Ask ChangeYard to add, edit, start, or link tasks"
+				/>
+			</Suspense>
 		);
 	}
 
 	if (panelMode === "terminal" && taskId) {
 		return (
-			<AgentTerminalPanel
-				key={taskId}
-				taskId={taskId}
-				workspaceId={currentProjectId}
-				summary={homeAgentPanelSummary}
-				onSummary={upsertSessionSummary}
-				showSessionToolbar={false}
-				autoFocus={!isMobile}
-				panelBackgroundColor="var(--color-surface-1)"
-				terminalBackgroundColor={terminalThemeColors.surfaceRaised}
-				cursorColor={terminalThemeColors.textPrimary}
-			/>
+			<Suspense
+				fallback={
+					<div className="flex w-full items-center justify-center rounded-md border border-border bg-surface-2 px-3 py-6">
+						<Spinner size={20} />
+					</div>
+				}
+			>
+				<AgentTerminalPanel
+					key={taskId}
+					taskId={taskId}
+					workspaceId={currentProjectId}
+					summary={homeAgentPanelSummary}
+					onSummary={upsertSessionSummary}
+					showSessionToolbar={false}
+					autoFocus={!isMobile}
+					panelBackgroundColor="var(--color-surface-1)"
+					terminalBackgroundColor={terminalThemeColors.surfaceRaised}
+					cursorColor={terminalThemeColors.textPrimary}
+				/>
+			</Suspense>
 		);
 	}
 

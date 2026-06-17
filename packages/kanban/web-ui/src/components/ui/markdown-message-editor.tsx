@@ -20,6 +20,7 @@ import {
 
 import { cn } from "@/components/ui/cn";
 import { useTheme } from "@/hooks/use-theme";
+import "@uiw/react-markdown-preview/markdown.css";
 
 const MarkdownPreview = lazy(() => import("@uiw/react-markdown-preview"));
 

@@ -7,6 +7,7 @@ import {
 } from "@hello-pangea/dnd";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
+	Bot,
 	ChevronDown,
 	ChevronLeft,
 	ChevronRight,
@@ -162,6 +163,36 @@ function filterChanges(changes: RuntimeChangeyardChangeListItem[], filter: Chang
 		default:
 			return changes;
 	}
+}
+
+function parseSortTimestamp(value: string | number | null | undefined): number {
+	if (typeof value === "number" && Number.isFinite(value)) {
+		return value;
+	}
+	if (typeof value === "string") {
+		const timestamp = Date.parse(value);
+		return Number.isFinite(timestamp) ? timestamp : 0;
+	}
+	return 0;
+}
+
+function compareChangesByUpdatedAtDesc(
+	left: RuntimeChangeyardChangeListItem,
+	right: RuntimeChangeyardChangeListItem,
+): number {
+	const updatedDelta = parseSortTimestamp(right.updatedAt) - parseSortTimestamp(left.updatedAt);
+	if (updatedDelta !== 0) {
+		return updatedDelta;
+	}
+	return right.id.localeCompare(left.id);
+}
+
+function compareTasksByUpdatedAtDesc(left: BoardCardModel, right: BoardCardModel): number {
+	const updatedDelta = parseSortTimestamp(right.updatedAt) - parseSortTimestamp(left.updatedAt);
+	if (updatedDelta !== 0) {
+		return updatedDelta;
+	}
+	return right.id.localeCompare(left.id);
 }
 
 function mapTaskColumnToChangeColumn(taskColumnId: string): ChangeColumnId {
@@ -683,6 +714,7 @@ function ChangeCard({
 	change,
 	index,
 	selected,
+	sessionSummary,
 	workspaceId,
 	workspaceEventVersion,
 	columnId,
@@ -700,6 +732,7 @@ function ChangeCard({
 	change: RuntimeChangeyardChangeListItem;
 	index: number;
 	selected: boolean;
+	sessionSummary?: RuntimeTaskSessionSummary;
 	workspaceId?: string | null;
 	workspaceEventVersion: number;
 	columnId: ChangeColumnId;
@@ -736,6 +769,7 @@ function ChangeCard({
 	);
 	const summaryRequestRef = useRef<Promise<RuntimeChangeyardBoardSummaryResponse | null> | null>(null);
 	const previousWorkspaceEventVersionRef = useRef(workspaceEventVersion);
+	const sessionProvider = sessionSummary?.agentId ?? sessionSummary?.externalSession?.provider ?? null;
 
 	const loadSummary = useCallback(async () => {
 		if (summaryRequestRef.current) {
@@ -917,6 +951,10 @@ function ChangeCard({
 	}, [allFiles, change.id, columnId, loadAllFiles, onFileSelect]);
 
 	const handleCardSelect = () => {
+		if (sessionSummary) {
+			onOpenDetails(change.id);
+			return;
+		}
 		const hadCommitSelection = selectedCommitHash !== null;
 		if (hadCommitSelection) {
 			setSelectedCommitHash(null);
@@ -1028,6 +1066,17 @@ function ChangeCard({
 								<ChangeStatusChip status={change.status} />
 								{change.remote?.pullRequestUrl ? (
 									<StatusChip label="PR" icon={<GitPullRequest size={12} />} tone="green" />
+								) : null}
+								{sessionProvider ? (
+									<StatusChip
+										label={sessionProvider}
+										icon={<Bot size={12} />}
+										tone="cyan"
+										title={`Session provider: ${sessionProvider}`}
+									/>
+								) : null}
+								{sessionSummary ? (
+									<StatusChip label={sessionSummary.state} tone={sessionSummary.state === "failed" ? "red" : "purple"} />
 								) : null}
 								<StatusChip label="No checks" />
 							</div>
@@ -1341,8 +1390,8 @@ export function ChangeBoard({
 	}
 
 	const columnModels = CHANGE_COLUMNS.map((column) => {
-		const tasks = groupedTasks.get(column.id) ?? [];
-		const columnChanges = groupedChanges.get(column.id) ?? [];
+		const tasks = [...(groupedTasks.get(column.id) ?? [])].sort(compareTasksByUpdatedAtDesc);
+		const columnChanges = [...(groupedChanges.get(column.id) ?? [])].sort(compareChangesByUpdatedAtDesc);
 		const count = tasks.length + columnChanges.length;
 		return {
 			...column,
@@ -1534,6 +1583,11 @@ export function ChangeBoard({
 				<div className="flex items-center gap-2">
 					<FileText size={14} className="text-text-secondary" />
 					<h2 className="text-xs font-semibold uppercase tracking-wide text-text-secondary">Board</h2>
+					{isLoading ? (
+						<span role="status" className="text-xs text-text-tertiary">
+							Loading changes...
+						</span>
+					) : null}
 				</div>
 				<div className="ml-auto inline-flex rounded-lg border border-divider bg-surface-1 p-1">
 					{(["all", "changes", "planned"] as const).map((option) => (
@@ -1560,45 +1614,42 @@ export function ChangeBoard({
 					</Button>
 				) : null}
 			</div>
-			{isLoading ? (
-				<p className="text-sm text-text-secondary">Loading canonical change files...</p>
-			) : (
-				<DragDropContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+			<DragDropContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+				<div
+					ref={boardSurfaceRef}
+					className="kb-board kb-dependency-surface"
+					style={{ overflowX: "auto", overflowY: "hidden", padding: 0 }}
+				>
 					<div
-						ref={boardSurfaceRef}
-						className="kb-board kb-dependency-surface"
-						style={{ overflowX: "auto", overflowY: "hidden", padding: 0 }}
+						data-testid="change-board-canvas"
+						className="flex h-full min-h-0"
+						style={{ width: canvasWidth, minWidth: canvasWidth, flex: "0 0 auto", gap: COLUMN_GAP }}
 					>
-						<div
-							data-testid="change-board-canvas"
-							className="flex h-full min-h-0"
-							style={{ width: canvasWidth, minWidth: canvasWidth, flex: "0 0 auto", gap: COLUMN_GAP }}
-						>
-							{columnModels.map((column) => {
-								const canCreateTask = filter === "all" && column.id === "backlog" && onCreateTask;
-								const taskDropColumnId = mapChangeColumnToTaskColumn(column.id);
-								const isDropDisabled = activeDragKind === "task" && taskDropColumnId === null;
-								if (column.collapsed) {
-									return (
-										<CollapsedChangeColumn
-											key={column.id}
-											columnId={column.id}
-											title={column.title}
-											count={column.count}
-											isDropDisabled={isDropDisabled}
-											onToggle={() => setColumnCollapsed(column.id, false)}
-										>
-											{() => null}
-										</CollapsedChangeColumn>
-									);
-								}
+						{columnModels.map((column) => {
+							const canCreateTask = filter === "all" && column.id === "backlog" && onCreateTask;
+							const taskDropColumnId = mapChangeColumnToTaskColumn(column.id);
+							const isDropDisabled = activeDragKind === "task" && taskDropColumnId === null;
+							if (column.collapsed) {
 								return (
-									<Fragment key={column.id}>
-										<section
-											data-column-id={column.id}
-											className="relative flex h-full min-h-0 shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-surface-1"
-											style={{ width: column.width, minWidth: column.width }}
-										>
+									<CollapsedChangeColumn
+										key={column.id}
+										columnId={column.id}
+										title={column.title}
+										count={column.count}
+										isDropDisabled={isDropDisabled}
+										onToggle={() => setColumnCollapsed(column.id, false)}
+									>
+										{() => null}
+									</CollapsedChangeColumn>
+								);
+							}
+							return (
+								<Fragment key={column.id}>
+									<section
+										data-column-id={column.id}
+										className="relative flex h-full min-h-0 shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-surface-1"
+										style={{ width: column.width, minWidth: column.width }}
+									>
 										<div className="flex h-10 items-center justify-between px-3">
 											<div className="flex min-w-0 items-center gap-2">
 												<ColumnIndicator columnId={column.id} />
@@ -1662,6 +1713,7 @@ export function ChangeBoard({
 															change={change}
 															index={column.tasks.length + index}
 															selected={change.id === selectedBoardChangeId}
+															sessionSummary={taskSessions[change.id]}
 															workspaceId={workspaceId}
 															workspaceEventVersion={workspaceEventVersions[change.id] ?? 0}
 															columnId={column.id}
@@ -1694,40 +1746,39 @@ export function ChangeBoard({
 											className="absolute right-0 top-0 z-10 h-full w-1 cursor-col-resize touch-none bg-transparent transition-colors hover:bg-accent/35"
 											onPointerDown={(event) => handleColumnResizeStart(event, column.id, column.width)}
 										/>
-										</section>
-										{selectedFile?.columnId === column.id ? (
-											<BoardColumnDiffPanel
-												key={`${column.id}-file-diff-panel`}
-												selectedFile={selectedFile}
-												diff={fileDiff}
-												isLoading={fileDiffLoading}
-												error={fileDiffError}
-												width={diffPanelWidth}
-												onResizeStart={handleDiffPanelResizeStart}
-											/>
-										) : null}
-									</Fragment>
-								);
-							})}
-						</div>
-						<DependencyOverlay
-							containerRef={boardSurfaceRef}
-							dependencies={changeDependencyEdges}
-							draft={dependencyLinking.draft}
-							activeNodeId={selectedBoardChangeId ? encodeChangeNodeId(selectedBoardChangeId) : null}
-							activeNodeEffectiveColumnId={
-								selectedBoardChangeId
-									? columnForStatus(
-											filteredChanges.find((change) => change.id === selectedBoardChangeId)?.status ?? "draft",
-										)
-									: null
-							}
-							columnOrder={CHANGE_COLUMNS.map((column) => column.id)}
-							onDeleteDependency={handleDeleteDependency}
-						/>
+									</section>
+									{selectedFile?.columnId === column.id ? (
+										<BoardColumnDiffPanel
+											key={`${column.id}-file-diff-panel`}
+											selectedFile={selectedFile}
+											diff={fileDiff}
+											isLoading={fileDiffLoading}
+											error={fileDiffError}
+											width={diffPanelWidth}
+											onResizeStart={handleDiffPanelResizeStart}
+										/>
+									) : null}
+								</Fragment>
+							);
+						})}
 					</div>
-				</DragDropContext>
-			)}
+					<DependencyOverlay
+						containerRef={boardSurfaceRef}
+						dependencies={changeDependencyEdges}
+						draft={dependencyLinking.draft}
+						activeNodeId={selectedBoardChangeId ? encodeChangeNodeId(selectedBoardChangeId) : null}
+						activeNodeEffectiveColumnId={
+							selectedBoardChangeId
+								? columnForStatus(
+										filteredChanges.find((change) => change.id === selectedBoardChangeId)?.status ?? "draft",
+									)
+								: null
+						}
+						columnOrder={CHANGE_COLUMNS.map((column) => column.id)}
+						onDeleteDependency={handleDeleteDependency}
+					/>
+				</div>
+			</DragDropContext>
 		</section>
 	);
 }

@@ -2,6 +2,8 @@ import MarkdownEditor from "@uiw/react-markdown-editor";
 import type { ReactElement } from "react";
 
 import { cn } from "@/components/ui/cn";
+import "@uiw/react-markdown-editor/markdown-editor.css";
+import "@uiw/react-markdown-preview/markdown.css";
 
 export function MarkdownDocumentEditor({
 	value,

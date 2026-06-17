@@ -936,7 +936,11 @@ export class TerminalSessionManager implements TerminalSessionService {
 			: undefined;
 		const normalizedPixelWidth = safePixelWidth !== undefined && safePixelWidth > 0 ? safePixelWidth : undefined;
 		const normalizedPixelHeight = safePixelHeight !== undefined && safePixelHeight > 0 ? safePixelHeight : undefined;
-		entry.active.session.resize(safeCols, safeRows, normalizedPixelWidth, normalizedPixelHeight);
+		try {
+			entry.active.session.resize(safeCols, safeRows, normalizedPixelWidth, normalizedPixelHeight);
+		} catch {
+			return false;
+		}
 		entry.terminalStateMirror?.resize(safeCols, safeRows);
 		entry.active.cols = safeCols;
 		entry.active.rows = safeRows;

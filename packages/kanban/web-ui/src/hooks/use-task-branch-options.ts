@@ -16,6 +16,15 @@ interface UseTaskBranchOptionsResult {
 	defaultTaskBranchRef: string;
 }
 
+function stripAnsi(input: string): string {
+	return input.replace(/\u001b(?:\[[0-?]*[ -/]*[@-~]|\][^\u0007]*(?:\u0007|\u001b\\))/g, "");
+}
+
+function normalizeBranchRef(value: string | null): string | null {
+	const normalized = value ? stripAnsi(value).trim() : "";
+	return normalized || null;
+}
+
 export function buildTaskBranchOptions(workspaceGit: RuntimeGitRepositoryInfo | null): TaskBranchOption[] {
 	if (!workspaceGit) {
 		return [];
@@ -24,26 +33,33 @@ export function buildTaskBranchOptions(workspaceGit: RuntimeGitRepositoryInfo | 
 	const options: TaskBranchOption[] = [];
 	const seen = new Set<string>();
 	const append = (value: string | null, labelSuffix?: string) => {
-		if (!value || seen.has(value)) {
+		const normalizedValue = normalizeBranchRef(value);
+		if (!normalizedValue || seen.has(normalizedValue)) {
 			return;
 		}
-		seen.add(value);
+		seen.add(normalizedValue);
 		options.push({
-			value,
-			label: labelSuffix ? `${value} ${labelSuffix}` : value,
+			value: normalizedValue,
+			label: labelSuffix ? `${normalizedValue} ${labelSuffix}` : normalizedValue,
 		});
 	};
 
 	append(workspaceGit.currentBranch, "(current)");
-	if (workspaceGit.engine === "jj" && workspaceGit.jjChangeId && workspaceGit.jjChangeId !== workspaceGit.currentBranch) {
+	const currentBranch = normalizeBranchRef(workspaceGit.currentBranch);
+	const jjChangeId = normalizeBranchRef(workspaceGit.jjChangeId);
+	if (workspaceGit.engine === "jj" && jjChangeId && jjChangeId !== currentBranch) {
 		append(workspaceGit.jjChangeId, "(current change)");
 	}
-	const mainCandidate = workspaceGit.branches.includes("main") ? "main" : workspaceGit.defaultBranch;
-	append(mainCandidate, mainCandidate && mainCandidate !== workspaceGit.currentBranch ? "(default)" : undefined);
+	const branches = workspaceGit.branches.map((branch) => normalizeBranchRef(branch)).filter((branch): branch is string =>
+		Boolean(branch),
+	);
+	const defaultBranch = normalizeBranchRef(workspaceGit.defaultBranch);
+	const mainCandidate = branches.includes("main") ? "main" : defaultBranch;
+	append(mainCandidate, mainCandidate && mainCandidate !== currentBranch ? "(default)" : undefined);
 	for (const branch of workspaceGit.branches) {
 		append(branch);
 	}
-	append(workspaceGit.defaultBranch, workspaceGit.defaultBranch ? "(default)" : undefined);
+	append(defaultBranch, defaultBranch ? "(default)" : undefined);
 
 	return options;
 }
@@ -55,7 +71,13 @@ export function resolveDefaultTaskBranchRef(
 	if (!workspaceGit) {
 		return "";
 	}
-	return workspaceGit.currentBranch ?? workspaceGit.jjChangeId ?? workspaceGit.defaultBranch ?? createTaskBranchOptions[0]?.value ?? "";
+	return (
+		normalizeBranchRef(workspaceGit.currentBranch) ??
+		normalizeBranchRef(workspaceGit.jjChangeId) ??
+		normalizeBranchRef(workspaceGit.defaultBranch) ??
+		createTaskBranchOptions[0]?.value ??
+		""
+	);
 }
 
 export function useTaskBranchOptions({ workspaceGit }: UseTaskBranchOptionsInput): UseTaskBranchOptionsResult {

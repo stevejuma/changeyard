@@ -53,4 +53,21 @@ describe("useTaskBranchOptions helpers", () => {
 			{ value: "main", label: "main (default)" },
 		]);
 	});
+
+	it("strips ansi color from jj refs before building dropdown options", () => {
+		const workspaceGit: RuntimeGitRepositoryInfo = {
+			engine: "jj",
+			currentBranch: "\u001b[32mfeature/test\u001b[39m",
+			jjChangeId: "\u001b[35msqxqrtuorxzn\u001b[39m",
+			defaultBranch: "\u001b[32mmain\u001b[39m",
+			branches: ["\u001b[32mfeature/test\u001b[39m", "\u001b[32mmain\u001b[39m"],
+		};
+
+		expect(buildTaskBranchOptions(workspaceGit)).toEqual([
+			{ value: "feature/test", label: "feature/test (current)" },
+			{ value: "sqxqrtuorxzn", label: "sqxqrtuorxzn (current change)" },
+			{ value: "main", label: "main (default)" },
+		]);
+		expect(resolveDefaultTaskBranchRef(workspaceGit, buildTaskBranchOptions(workspaceGit))).toBe("feature/test");
+	});
 });

@@ -244,7 +244,11 @@ export function createChokidarVcsProjectWatcher(): VcsProjectWatcher {
 				settle(() => reject(error instanceof Error ? error : new Error(String(error))));
 			};
 			const timeout = setTimeout(() => {
-				settle(() => reject(new Error("Timed out while starting VCS project watcher.")));
+				// Large workspaces can take longer than the startup budget to finish
+				// chokidar's initial scan. Keep the watcher alive; subsequent file
+				// events are still useful, and failing here causes noisy retries for
+				// every connected client.
+				settle(resolve);
 			}, WATCH_READY_TIMEOUT_MS);
 			timeout.unref();
 			watcher.once("ready", onReady);
