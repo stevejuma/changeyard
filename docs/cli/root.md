@@ -14,6 +14,7 @@ aliases:
 ```text
 cy [-i|--tui] [--connect <url>] [--host <host>] [--port <port|auto>] [--project <path>] [--debug]
 cy --dashboard [--host <host>] [--port <port|auto>] [--open|--no-open]
+cy --version
 cy <command> [options]
 ```
 
@@ -42,6 +43,7 @@ cy <command> [options]
 - `status`: Print one change summary.
 - `install`: Install local CLI symlinks.
 - `uninstall`: Remove local CLI symlinks.
+- `version`: Print the Changeyard version.
 - `help`: Print command or topic help.
 
 ## Options
@@ -51,6 +53,7 @@ cy <command> [options]
 - `--kanban`: Open the Kanban browser client.
 - `--vcs`: Open the VCS browser client.
 - `--json`: Print machine-readable output.
+- `--version`: Print the Changeyard version.
 - `--dry-run`: Simulate mutating commands without writing.
 - `--verbose`: Print additional diagnostic output.
 - `--quiet`: Suppress success output.

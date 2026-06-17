@@ -14,6 +14,7 @@ export {
 export { runSync } from "./commands/sync.js";
 export { runStart } from "./commands/start.js";
 export { runVerify } from "./commands/verify.js";
+export { getVersion, runVersion } from "./commands/version.js";
 export { runHydrate } from "./commands/hydrate.js";
 export { runComplete } from "./commands/complete.js";
 export { getNextAction, runNext } from "./commands/next.js";

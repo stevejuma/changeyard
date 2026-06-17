@@ -605,6 +605,23 @@ test("cli help describes commands and hub lifecycle", () => {
   assert.match(result.stdout, /cy hub stop/);
 });
 
+test("cli version prints the package version", () => {
+  const packageJson = JSON.parse(readFileSync(path.join(process.cwd(), "package.json"), "utf8")) as { version: string };
+  const command = spawnSync(nodeBinary(), [cliBinPath(), "version"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+  });
+  const flag = spawnSync(nodeBinary(), [cliBinPath(), "--version"], {
+    cwd: os.tmpdir(),
+    encoding: "utf8",
+  });
+
+  assert.equal(command.status, 0, command.stderr);
+  assert.equal(flag.status, 0, flag.stderr);
+  assert.equal(command.stdout.trim(), packageJson.version);
+  assert.equal(flag.stdout.trim(), packageJson.version);
+});
+
 test("cli help supports nested docs, topics, and forced color", () => {
   const nested = spawnSync(nodeBinary(), [cliBinPath(), "hooks", "ingest", "--help"], {
     cwd: process.cwd(),

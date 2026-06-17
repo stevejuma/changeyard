@@ -31,6 +31,7 @@ import { runConfig } from "./commands/config.js";
 import { getHubStatus, runHubForeground, runHubOpen, runHubRestart, runHubStart, runHubStatus, runHubStop } from "./commands/hub.js";
 import { runValidate } from "./commands/validate.js";
 import { runVerify } from "./commands/verify.js";
+import { runVersion } from "./commands/version.js";
 import { deleteWorkspace, getWorkspaceStatus, listWorkspaceStatuses, runWorkspaceList, runWorkspaceStatus } from "./commands/workspace.js";
 import { runInstallCli, runUninstallCli } from "./commands/install-cli.js";
 import { findRepoRoot } from "./config/loadConfig.js";
@@ -43,7 +44,7 @@ import type { ValidationGate } from "./planning/validation.js";
 import type { CreateOptions } from "./commands/create.js";
 import { readWorkspaceMetadata } from "./workspace/marker.js";
 
-type CommandName = "init" | "update" | "create" | "quick" | "validate" | "sync" | "start" | "verify" | "hydrate" | "complete" | "next" | "land" | "workspace" | "review" | "doctor" | "completions" | "recover" | "list" | "status" | "plan" | "ui" | "server" | "dashboard" | "hub" | "tui" | "config" | "hooks" | "session" | "install" | "uninstall" | "help";
+type CommandName = "init" | "update" | "create" | "quick" | "validate" | "sync" | "start" | "verify" | "hydrate" | "complete" | "next" | "land" | "workspace" | "review" | "doctor" | "completions" | "recover" | "list" | "status" | "plan" | "ui" | "server" | "dashboard" | "hub" | "tui" | "config" | "hooks" | "session" | "install" | "uninstall" | "version" | "help";
 
 type ParsedArgs = {
   command: string;
@@ -214,7 +215,7 @@ async function main(): Promise<void> {
   const shouldShowText = !(quiet && !json);
   const mutationOptions: MutationOptions = { dryRun, fix, verbose };
   const projectRoot = stringFlag(args.flags, "project");
-  const repoRoot = command === "help" ? process.cwd() : findRepoRoot(projectRoot ?? process.cwd());
+  const repoRoot = command === "help" || command === "version" ? process.cwd() : findRepoRoot(projectRoot ?? process.cwd());
   const rootForChange = (id: string): string => {
     try {
       return readWorkspaceMetadata(id, process.cwd()).repoRoot;
@@ -224,6 +225,13 @@ async function main(): Promise<void> {
   };
 
   const rootLaunchFlags = countRootLaunchFlags(args.flags);
+
+  if (asBooleanFlag(args.flags, "version")) {
+    const versionOutput = runVersion();
+    if (json) console.log(JSON.stringify({ ok: true, ...jsonPayload("version", versionOutput) }, null, 2));
+    else if (shouldShowText) outputLine("version", versionOutput);
+    return;
+  }
 
   if (asBooleanFlag(args.flags, "help") || asBooleanFlag(args.flags, "h")) {
     const output = renderCliHelp(
@@ -465,6 +473,9 @@ async function main(): Promise<void> {
           dir: stringFlag(args.flags, "dir"),
           dryRun,
         });
+        break;
+      case "version":
+        output = runVersion();
         break;
       case "help":
       default:
