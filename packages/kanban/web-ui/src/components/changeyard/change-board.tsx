@@ -13,11 +13,14 @@ import {
 	ChevronRight,
 	Copy,
 	FileText,
+	Folder,
+	FolderOpen,
 	FolderTree,
 	GitCommitVertical,
 	GitPullRequest,
 	List,
 	MoreHorizontal,
+	Package,
 	Plus,
 } from "lucide-react";
 import {
@@ -50,6 +53,7 @@ import { buildUnifiedDiffRows, parsePatchToRows, ReadOnlyUnifiedDiff } from "@/c
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { ColumnIndicator } from "@/components/ui/column-indicator";
+import { FileTypeIcon } from "@/components/ui/file-type-icon";
 import { ChangeStatusChip, StatusChip } from "@/components/ui/status-chip";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type {
@@ -63,7 +67,7 @@ import type {
 } from "@/runtime/types";
 import { LocalStorageKey, readLocalStorageItem, writeLocalStorageItem } from "@/storage/local-storage-store";
 import type { BoardCard as BoardCardModel, BoardColumnId, BoardData, DependencyEdge, DependencyNodeId } from "@/types";
-import { buildFileTree, type FileTreeNode } from "@/utils/file-tree";
+import { buildFileTree, buildPackageFileTree, type FileTreeNode } from "@/utils/file-tree";
 
 export type ChangeBoardFilter = "all" | "changes" | "planned";
 export type ChangeColumnId = "backlog" | "ready" | "in_progress" | "blocked" | "review" | "done" | "abandoned";
@@ -301,7 +305,7 @@ function writeColumnWidthPreferences(preferences: Partial<Record<ChangeColumnId,
 	writeLocalStorageItem(LocalStorageKey.ChangeBoardColumnWidths, JSON.stringify(preferences));
 }
 
-type BoardFileViewMode = "list" | "tree";
+type BoardFileViewMode = "list" | "tree" | "package";
 type SelectedBoardFile = {
 	changeId: string;
 	columnId: ChangeColumnId;
@@ -315,6 +319,19 @@ const MAX_DIFF_PANEL_WIDTH = 820;
 
 function formatDelta(value: number, prefix: "+" | "-"): string {
 	return value > 0 ? `${prefix}${value}` : `${prefix}0`;
+}
+
+function normalizeBoardFileViewMode(value: string | null | undefined): BoardFileViewMode | null {
+	return value === "list" || value === "tree" || value === "package" ? value : null;
+}
+
+function readBoardFileViewMode(key: LocalStorageKey): BoardFileViewMode {
+	return normalizeBoardFileViewMode(readLocalStorageItem(key)) ?? "tree";
+}
+
+function writeBoardFileViewMode(key: LocalStorageKey, mode: BoardFileViewMode): BoardFileViewMode {
+	writeLocalStorageItem(key, mode);
+	return mode;
 }
 
 function scopeLabel(scope: RuntimeChangeyardBoardFilesScope): string {
@@ -359,6 +376,21 @@ function BoardFilesToggle({
 				)}
 			>
 				<FolderTree size={14} />
+			</button>
+			<button
+				type="button"
+				aria-label="Show files as packages"
+				title="Package tree"
+				onClick={(event) => {
+					event.stopPropagation();
+					onModeChange("package");
+				}}
+				className={cn(
+					"grid h-6 w-6 place-items-center rounded border border-transparent text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary",
+					mode === "package" ? "border-accent/30 bg-accent/15 text-accent" : null,
+				)}
+			>
+				<Package size={14} />
 			</button>
 		</div>
 	);
@@ -472,6 +504,7 @@ function BoardFileRow({
 				onSelect(file);
 			}}
 		>
+			<FileTypeIcon path={file.path} />
 			<FileStatusGlyph status={file.status} />
 			<span className="min-w-0 flex-1 truncate text-text-secondary" title={file.path}>
 				{file.previousPath ? `${file.previousPath} -> ${file.path}` : file.path}
@@ -487,12 +520,16 @@ function FileTreeRows({
 	filesByPath,
 	selectedPath,
 	onFileSelect,
+	collapsedDirectoryPaths,
+	onToggleDirectory,
 	depth = 0,
 }: {
 	nodes: FileTreeNode[];
 	filesByPath: Map<string, RuntimeChangeyardBoardFileSummary>;
 	selectedPath: string | null;
 	onFileSelect: (file: RuntimeChangeyardBoardFileSummary) => void;
+	collapsedDirectoryPaths: ReadonlySet<string>;
+	onToggleDirectory: (path: string) => void;
 	depth?: number;
 }): ReactElement {
 	return (
@@ -510,22 +547,34 @@ function FileTreeRows({
 						/>
 					) : null;
 				}
+				const isCollapsed = collapsedDirectoryPaths.has(node.path);
 				return (
 					<div key={node.path}>
-						<div
-							className="flex min-w-0 cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-[12px] font-medium text-text-secondary transition-colors hover:bg-surface-3"
+						<button
+							type="button"
+							className="flex w-full min-w-0 cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-left text-[12px] font-medium text-text-secondary transition-colors hover:bg-surface-3"
 							style={{ paddingLeft: 6 + depth * 12 }}
+							aria-expanded={!isCollapsed}
+							onClick={(event) => {
+								event.stopPropagation();
+								onToggleDirectory(node.path);
+							}}
 						>
-							<FolderTree size={13} className="shrink-0" />
+							{isCollapsed ? <ChevronRight size={12} className="shrink-0" /> : <ChevronDown size={12} className="shrink-0" />}
+							{isCollapsed ? <Folder size={14} className="shrink-0" /> : <FolderOpen size={14} className="shrink-0" />}
 							<span className="truncate">{node.name}</span>
-						</div>
-						<FileTreeRows
-							nodes={node.children}
-							filesByPath={filesByPath}
-							selectedPath={selectedPath}
-							onFileSelect={onFileSelect}
-							depth={depth + 1}
-						/>
+						</button>
+						{isCollapsed ? null : (
+							<FileTreeRows
+								nodes={node.children}
+								filesByPath={filesByPath}
+								selectedPath={selectedPath}
+								onFileSelect={onFileSelect}
+								collapsedDirectoryPaths={collapsedDirectoryPaths}
+								onToggleDirectory={onToggleDirectory}
+								depth={depth + 1}
+							/>
+						)}
 					</div>
 				);
 			})}
@@ -544,17 +593,32 @@ function BoardFileList({
 	selectedPath: string | null;
 	onFileSelect: (file: RuntimeChangeyardBoardFileSummary) => void;
 }): ReactElement {
+	const [collapsedDirectoryPaths, setCollapsedDirectoryPaths] = useState<Set<string>>(() => new Set());
+	function toggleDirectory(path: string): void {
+		setCollapsedDirectoryPaths((current) => {
+			const next = new Set(current);
+			if (next.has(path)) {
+				next.delete(path);
+			} else {
+				next.add(path);
+			}
+			return next;
+		});
+	}
+
 	if (files.length === 0) {
 		return <div className="px-2 py-2 text-[12px] text-text-tertiary">No changed files.</div>;
 	}
-	if (mode === "tree") {
+	if (mode === "tree" || mode === "package") {
 		const filesByPath = new Map(files.map((file) => [file.path, file]));
 		return (
 			<FileTreeRows
-				nodes={buildFileTree(files.map((file) => file.path))}
+				nodes={(mode === "package" ? buildPackageFileTree : buildFileTree)(files.map((file) => file.path))}
 				filesByPath={filesByPath}
 				selectedPath={selectedPath}
 				onFileSelect={onFileSelect}
+				collapsedDirectoryPaths={collapsedDirectoryPaths}
+				onToggleDirectory={toggleDirectory}
 			/>
 		);
 	}
@@ -761,8 +825,12 @@ function ChangeCard({
 	const [commitFiles, setCommitFiles] = useState<Record<string, RuntimeChangeyardBoardFilesResponse | null>>({});
 	const [commitFileLoading, setCommitFileLoading] = useState<Record<string, boolean>>({});
 	const [commitFileErrors, setCommitFileErrors] = useState<Record<string, Error | null>>({});
-	const [allFilesMode, setAllFilesMode] = useState<BoardFileViewMode>("list");
-	const [commitFilesMode, setCommitFilesMode] = useState<BoardFileViewMode>("list");
+	const [allFilesMode, setAllFilesMode] = useState<BoardFileViewMode>(() =>
+		readBoardFileViewMode(LocalStorageKey.ChangeBoardAllFilesViewMode),
+	);
+	const [commitFilesMode, setCommitFilesMode] = useState<BoardFileViewMode>(() =>
+		readBoardFileViewMode(LocalStorageKey.ChangeBoardCommitFilesViewMode),
+	);
 	const summaryCacheKey = useMemo(
 		() => getChangeBoardSummaryCacheKey(workspaceId ?? null, change, workspaceEventVersion),
 		[workspaceEventVersion, workspaceId, change],
@@ -770,6 +838,12 @@ function ChangeCard({
 	const summaryRequestRef = useRef<Promise<RuntimeChangeyardBoardSummaryResponse | null> | null>(null);
 	const previousWorkspaceEventVersionRef = useRef(workspaceEventVersion);
 	const sessionProvider = sessionSummary?.agentId ?? sessionSummary?.externalSession?.provider ?? null;
+	const setPersistedAllFilesMode = useCallback((mode: BoardFileViewMode) => {
+		setAllFilesMode(writeBoardFileViewMode(LocalStorageKey.ChangeBoardAllFilesViewMode, mode));
+	}, []);
+	const setPersistedCommitFilesMode = useCallback((mode: BoardFileViewMode) => {
+		setCommitFilesMode(writeBoardFileViewMode(LocalStorageKey.ChangeBoardCommitFilesViewMode, mode));
+	}, []);
 
 	const loadSummary = useCallback(async () => {
 		if (summaryRequestRef.current) {
@@ -1104,7 +1178,7 @@ function ChangeCard({
 							error={summaryError ?? allFilesError}
 							viewMode={allFilesMode}
 							onToggle={() => setAllFilesExpanded((current) => !current)}
-							onViewModeChange={setAllFilesMode}
+							onViewModeChange={setPersistedAllFilesMode}
 							onLoad={loadAllFiles}
 							selectedFile={selectedFile}
 							onFileSelect={(scope, file) => {
@@ -1200,7 +1274,7 @@ function ChangeCard({
 														setExpandedCommitHash(null);
 														onCommitUnselect(change.id, commit.hash);
 													}}
-													onViewModeChange={setCommitFilesMode}
+													onViewModeChange={setPersistedCommitFilesMode}
 													onLoad={() => {
 														void loadCommitFiles(commit.hash);
 													}}

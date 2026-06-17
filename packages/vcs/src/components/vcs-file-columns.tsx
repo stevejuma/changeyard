@@ -1,4 +1,4 @@
-import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, Folder, FolderOpen, FolderTree, List, X } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, Folder, FolderOpen, FolderTree, List, Package, X } from "lucide-react";
 import type { DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { useMemo, useState } from "react";
 
@@ -8,7 +8,7 @@ import { cn } from "@/components/ui/cn";
 import { FileTypeIcon } from "@/components/ui/file-type-icon";
 import { FileStatusGlyph } from "@/components/ui/status-chip";
 import { EmptyState } from "@/components/vcs-panels";
-import { buildFileTree, type FileTreeNode } from "@/utils/file-tree";
+import { buildFileTree, buildPackageFileTree, type FileTreeNode } from "@/utils/file-tree";
 import { clampNumber, type VcsFileViewMode } from "@/utils/vcs-ui-preferences";
 
 export type VcsColumnId = "refs" | "commits" | "operations" | "stack" | "unstaged";
@@ -370,6 +370,21 @@ function FileViewToggle({
 			>
 				<FolderTree size={14} />
 			</button>
+			<button
+				type="button"
+				aria-label="Show files as packages"
+				title="Package tree"
+				className={cn(
+					"grid h-6 w-6 place-items-center rounded border border-transparent text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary",
+					mode === "package" && "border-accent/30 bg-accent/15 text-accent",
+				)}
+				onClick={(event) => {
+					event.stopPropagation();
+					onModeChange("package");
+				}}
+			>
+				<Package size={14} />
+			</button>
 		</div>
 	);
 }
@@ -420,7 +435,10 @@ export function VcsInlineFileSection({
 	fillHeight?: boolean;
 }): React.ReactElement {
 	const filesByPath = useMemo(() => new Map(files.map((file) => [file.path, file])), [files]);
-	const tree = useMemo(() => buildFileTree(files.map((file) => file.path)), [files]);
+	const tree = useMemo(
+		() => (viewMode === "package" ? buildPackageFileTree(files.map((file) => file.path)) : buildFileTree(files.map((file) => file.path))),
+		[files, viewMode],
+	);
 	const [collapsedDirectoryPaths, setCollapsedDirectoryPaths] = useState<Set<string>>(() => new Set());
 	const additions = files.reduce((sum, file) => sum + (file.additions ?? 0), 0);
 	const deletions = files.reduce((sum, file) => sum + (file.deletions ?? 0), 0);
@@ -489,7 +507,7 @@ export function VcsInlineFileSection({
 					<div className="px-2 py-2 text-[12px] text-text-tertiary">No changed files.</div>
 				) : (
 					<div className={cn("overflow-y-auto px-1 py-1", fillHeight ? "h-full" : "max-h-[250px]")}>
-						{viewMode === "tree"
+						{viewMode === "tree" || viewMode === "package"
 							? tree.map((node) => (
 									<FileTreeRow
 										key={node.path}

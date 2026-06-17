@@ -1,5 +1,5 @@
 import * as RadixDropdownMenu from "@radix-ui/react-dropdown-menu";
-import { AlertTriangle, ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, Copy, Folder, FolderOpen, FolderTree, GitBranch, GitCommitHorizontal, GitMerge, Info, Layers, List, LockKeyhole, Maximize2, MoreHorizontal, Pencil, PencilLine, Play, Plus, RotateCcw, Sparkles, Trash2, Type, Unlink, Upload, WrapText, X } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, Copy, Folder, FolderOpen, FolderTree, GitBranch, GitCommitHorizontal, GitMerge, Info, Layers, List, LockKeyhole, Maximize2, MoreHorizontal, Package, Pencil, PencilLine, Play, Plus, RotateCcw, Sparkles, Trash2, Type, Unlink, Upload, WrapText, X } from "lucide-react";
 import { Fragment, useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent } from "react";
 
 import {
@@ -53,7 +53,7 @@ import {
 	useLazyPreviewVcsOperationQuery,
 	useUpdateProjectConfigMutation,
 } from "@/runtime/vcs-api";
-import { buildFileTree, type FileTreeNode } from "@/utils/file-tree";
+import { buildFileTree, buildPackageFileTree, type FileTreeNode } from "@/utils/file-tree";
 import { copyTextToClipboard } from "@/utils/clipboard";
 import {
 	readVcsBooleanPreference,
@@ -2644,6 +2644,21 @@ function FileViewToggle({
 			>
 				<FolderTree size={14} />
 			</button>
+			<button
+				type="button"
+				aria-label="Show files as packages"
+				title="Package tree"
+				className={cn(
+					"grid h-6 w-6 place-items-center rounded border border-transparent text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary",
+					mode === "package" && "border-accent/30 bg-accent/15 text-accent",
+				)}
+				onClick={(event) => {
+					event.stopPropagation();
+					onModeChange("package");
+				}}
+			>
+				<Package size={14} />
+			</button>
 		</div>
 	);
 }
@@ -2664,7 +2679,10 @@ function UnstagedFileList({
 	onFileDragStart: (event: ReactDragEvent<HTMLButtonElement>, file: VcsFileChange) => void;
 }): React.ReactElement {
 	const filesByPath = useMemo(() => new Map(files.map((file) => [file.path, file])), [files]);
-	const tree = useMemo(() => buildFileTree(files.map((file) => file.path)), [files]);
+	const tree = useMemo(
+		() => (viewMode === "package" ? buildPackageFileTree(files.map((file) => file.path)) : buildFileTree(files.map((file) => file.path))),
+		[files, viewMode],
+	);
 	const [collapsedDirectoryPaths, setCollapsedDirectoryPaths] = useState<Set<string>>(() => new Set());
 	function toggleDirectory(path: string): void {
 		setCollapsedDirectoryPaths((current) => {
@@ -2679,7 +2697,7 @@ function UnstagedFileList({
 	}
 	return (
 		<div className="px-1 py-1">
-			{viewMode === "tree"
+			{viewMode === "tree" || viewMode === "package"
 				? tree.map((node) => (
 						<UnstagedFileTreeRow
 							key={node.path}

@@ -31,6 +31,7 @@ import type {
 	RuntimeWorkspaceFileChange,
 } from "@/runtime/types";
 import { useRuntimeWorkspaceChanges } from "@/runtime/use-runtime-workspace-changes";
+import { LocalStorageKey } from "@/storage/local-storage-store";
 import { useTaskWorkspaceStateVersionValue } from "@/stores/workspace-metadata-store";
 import { useTerminalThemeColors } from "@/terminal/theme-colors";
 import { type BoardCard, type CardSelection, getTaskAutoReviewCancelButtonLabel } from "@/types";
@@ -885,6 +886,8 @@ export function CardDetailView({
 									setMobileTab("diff");
 								}}
 								panelFlex="1 1 0"
+								showViewModeToggle
+								viewModeStorageKey={LocalStorageKey.DetailFileTreeViewMode}
 							/>
 						</div>
 					</div>
@@ -1015,6 +1018,8 @@ export function CardDetailView({
 													selectedPath={selectedPath}
 													onSelectPath={setSelectedPath}
 													panelFlex="1 1 0"
+													showViewModeToggle
+													viewModeStorageKey={LocalStorageKey.DetailFileTreeViewMode}
 												/>
 											</div>
 										</div>

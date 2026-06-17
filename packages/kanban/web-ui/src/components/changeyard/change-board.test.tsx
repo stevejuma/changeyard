@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChangeBoard } from "@/components/changeyard/change-board";
 import { clearChangeBoardCaches } from "@/components/changeyard/change-board-cache";
 import type { RuntimeChangeyardChangeListItem, RuntimeTaskSessionSummary } from "@/runtime/types";
+import { LocalStorageKey } from "@/storage/local-storage-store";
 import type { BoardData } from "@/types";
 
 const dndMock = vi.hoisted(() => ({
@@ -711,6 +712,81 @@ describe("ChangeBoard", () => {
 		expect(container.textContent).toContain("src/change.ts");
 		expect(container.querySelector('[data-testid="change-board-file-diff-panel"]')).toBeTruthy();
 		expect(container.textContent).toContain("const oldValue = 1;");
+	});
+
+	it("switches board file lists to package mode and collapses compacted folders", async () => {
+		runtimeMock.getBoardSummary.mockResolvedValue({
+			ok: true,
+			changeId: "CY-0001",
+			version: "v1",
+			workspaceHead: "head",
+			baseRevision: "main",
+			commits: [],
+			files: { count: 1, additions: 1, deletions: 1 },
+		});
+		runtimeMock.getBoardFiles.mockResolvedValue({
+			ok: true,
+			changeId: "CY-0001",
+			version: "v1",
+			scope: "all",
+			files: [{ path: "src/nested/change.ts", status: "modified", additions: 1, deletions: 1 }],
+		});
+		runtimeMock.getBoardFileDiff.mockResolvedValue({
+			ok: true,
+			changeId: "CY-0001",
+			version: "v1",
+			scope: "all",
+			path: "src/nested/change.ts",
+			file: {
+				path: "src/nested/change.ts",
+				status: "modified",
+				additions: 1,
+				deletions: 1,
+				oldText: "const value = 1;\n",
+				newText: "const value = 2;\n",
+			},
+		});
+
+		act(() => {
+			root.render(
+				<ChangeBoard
+					board={{ columns: [], dependencies: [] }}
+					changes={[createChange("CY-0001", "Quick change", null)]}
+					filter="changes"
+					selectedChangeId={null}
+					selectedTaskId={null}
+					workspaceId="project-1"
+					onFilterChange={vi.fn()}
+					onSelectChange={vi.fn()}
+					onSelectTask={vi.fn()}
+				/>,
+			);
+		});
+
+		await act(async () => {
+			container.querySelector('[data-change-id="CY-0001"] [role="button"]')?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+
+		await act(async () => {
+			container.querySelector<HTMLButtonElement>('button[aria-label="Show files as packages"]')?.click();
+		});
+
+		expect(window.localStorage.getItem(LocalStorageKey.ChangeBoardAllFilesViewMode)).toBe("package");
+		const compactFolder = Array.from(container.querySelectorAll<HTMLButtonElement>("button[aria-expanded]"))
+			.find((button) => button.textContent?.includes("src/nested"));
+		expect(compactFolder).toBeTruthy();
+		expect(compactFolder?.getAttribute("aria-expanded")).toBe("true");
+		expect(container.querySelector(".kb-file-type-icon svg")).not.toBeNull();
+
+		await act(async () => {
+			compactFolder?.click();
+		});
+
+		const collapsedFolder = Array.from(container.querySelectorAll<HTMLButtonElement>("button[aria-expanded]"))
+			.find((button) => button.textContent?.includes("src/nested"));
+		expect(collapsedFolder?.getAttribute("aria-expanded")).toBe("false");
 	});
 
 	it("selecting a commit lazily loads only that commit's files", async () => {

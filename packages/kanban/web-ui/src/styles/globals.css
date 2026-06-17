@@ -745,6 +745,25 @@ body.kb-dependency-link-mode {
 	color: var(--color-accent-fg);
 }
 
+.kb-file-type-icon {
+	display: grid;
+	width: 16px;
+	height: 16px;
+	flex-shrink: 0;
+	place-items: center;
+	overflow: hidden;
+	border-radius: var(--radius-sm);
+}
+
+.kb-file-tree-row-selected .kb-file-type-icon {
+	background: color-mix(in srgb, var(--color-accent-fg) 92%, var(--color-accent) 8%);
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent-fg) 48%, transparent);
+}
+
+.kb-file-tree-row-selected .kb-file-type-icon .text-text-tertiary {
+	color: var(--color-text-secondary);
+}
+
 .kb-file-tree-row-conflict {
 	border-top: 1px solid color-mix(in srgb, var(--color-status-red) 34%, transparent);
 	border-bottom: 1px solid color-mix(in srgb, var(--color-status-red) 34%, transparent);

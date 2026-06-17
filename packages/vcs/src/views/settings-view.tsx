@@ -10,6 +10,7 @@ import {
 	GitBranch,
 	GitMerge,
 	List,
+	Package,
 	Palette,
 	RadioTower,
 	Settings,
@@ -251,6 +252,18 @@ function FileViewModeControl({
 				)}
 			>
 				<FolderTree size={14} />
+			</button>
+			<button
+				type="button"
+				aria-label="Show files as packages"
+				title="Package tree"
+				onClick={() => onChange("package")}
+				className={cn(
+					"grid h-7 w-7 place-items-center rounded border border-transparent text-text-secondary hover:bg-surface-2 hover:text-text-primary",
+					value === "package" && "border-accent/30 bg-accent/15 text-accent",
+				)}
+			>
+				<Package size={14} />
 			</button>
 		</div>
 	);

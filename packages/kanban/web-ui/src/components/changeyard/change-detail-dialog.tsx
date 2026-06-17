@@ -22,6 +22,7 @@ import { PathDisplay } from "@/components/ui/path-display";
 import { ChangeStatusChip, StatusChip } from "@/components/ui/status-chip";
 import type { RuntimeChangeyardChangeDetail, RuntimeTaskSessionSummary } from "@/runtime/types";
 import { useRuntimeChangeWorkspaceChanges } from "@/runtime/use-runtime-change-workspace-changes";
+import { LocalStorageKey } from "@/storage/local-storage-store";
 
 export type ChangeDetailAction =
 	| "validate"
@@ -351,6 +352,8 @@ export function ChangeDetailDialog({
 											selectedPath={selectedPath}
 											onSelectPath={setSelectedPath}
 											panelFlex="1 1 0"
+											showViewModeToggle
+											viewModeStorageKey={LocalStorageKey.ChangeDetailFileTreeViewMode}
 										/>
 									) : (
 										<div className="flex flex-1 items-center justify-center px-3 text-center text-sm text-text-secondary">

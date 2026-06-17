@@ -41,7 +41,12 @@ import {
 	type DiffLineScrollTarget,
 	DiffViewerPanel,
 } from "@/components/detail-panels/diff-viewer-panel";
-import { FileTreePanel, type FileTreePanelViewMode } from "@/components/detail-panels/file-tree-panel";
+import {
+	FileTreePanel,
+	readFileTreePanelViewModePreference,
+	type FileTreePanelViewMode,
+	writeFileTreePanelViewModePreference,
+} from "@/components/detail-panels/file-tree-panel";
 import { CollapsedHistoryRail } from "@/components/git-history/collapsed-history-rail";
 import { buildUnifiedDiffRows, parsePatchToRows, ReadOnlyUnifiedDiff } from "@/components/shared/diff-renderer";
 import { Button } from "@/components/ui/button";
@@ -820,7 +825,9 @@ export function ChangeReviewModal({
 	const [isStackCollapsed, setStackCollapsed] = useState(false);
 	const [isDraftCollapsed, setDraftCollapsed] = useState(false);
 	const [isReviewFilesCollapsed, setReviewFilesCollapsed] = useState(false);
-	const [reviewFileViewMode, setReviewFileViewMode] = useState<FileTreePanelViewMode>("tree");
+	const [reviewFileViewMode, setReviewFileViewMode] = useState<FileTreePanelViewMode>(() =>
+		readFileTreePanelViewModePreference(LocalStorageKey.ReviewFileTreeViewMode),
+	);
 	const [isSubmitDialogOpen, setSubmitDialogOpen] = useState(false);
 	const [submitDecision, setSubmitDecision] = useState<ReviewDecision>("comment");
 	const [submitSummary, setSubmitSummary] = useState("");
@@ -1085,6 +1092,9 @@ export function ChangeReviewModal({
 		},
 		[reviewDraftPanelWidth, startDraftPanelResize],
 	);
+	const setPersistedReviewFileViewMode = useCallback((mode: FileTreePanelViewMode) => {
+		setReviewFileViewMode(writeFileTreePanelViewModePreference(LocalStorageKey.ReviewFileTreeViewMode, mode));
+	}, []);
 
 	useEffect(() => {
 		if (selectedPath && availablePaths.includes(selectedPath)) {
@@ -1442,7 +1452,7 @@ export function ChangeReviewModal({
 									onSelectPath={setSelectedPath}
 									panelFlex="1 1 0"
 									viewMode={reviewFileViewMode}
-									onViewModeChange={setReviewFileViewMode}
+									onViewModeChange={setPersistedReviewFileViewMode}
 									showViewModeToggle
 								/>
 							) : (

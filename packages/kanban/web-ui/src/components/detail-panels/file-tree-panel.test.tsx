@@ -133,4 +133,40 @@ describe("FileTreePanel", () => {
 		expect(onViewModeChange).toHaveBeenCalledWith("tree");
 		expect(findButton(container, "src").getAttribute("aria-expanded")).toBe("true");
 	});
+
+	it("switches to package view with material file icons", async () => {
+		const onViewModeChange = vi.fn();
+		await act(async () => {
+			root.render(
+				<FileTreePanel
+					workspaceFiles={[
+						{
+							path: "packages/app/src/index.ts",
+							status: "modified",
+							additions: 3,
+							deletions: 1,
+							oldText: "",
+							newText: "",
+						},
+					]}
+					selectedPath={null}
+					onSelectPath={() => {}}
+					showViewModeToggle
+					onViewModeChange={onViewModeChange}
+				/>,
+			);
+		});
+
+		expect(container.querySelector('button[aria-label="Show files as list"]')).not.toBeNull();
+		expect(container.querySelector('button[aria-label="Show files as folders"]')).not.toBeNull();
+		expect(container.querySelector('button[aria-label="Show files as packages"]')).not.toBeNull();
+
+		await act(async () => {
+			container.querySelector<HTMLButtonElement>('button[aria-label="Show files as packages"]')?.click();
+		});
+
+		expect(onViewModeChange).toHaveBeenCalledWith("package");
+		expect(container.textContent).toContain("packages/app/src");
+		expect(container.querySelector(".kb-file-type-icon svg")).not.toBeNull();
+	});
 });

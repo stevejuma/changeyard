@@ -1,66 +1,47 @@
 import {
 	ChevronDown,
 	ChevronRight,
-	FileArchive,
-	FileCode,
-	FileCog,
-	FileImage,
-	FileJson,
-	FileText,
-	FileType,
 	Folder,
 	FolderOpen,
 	FolderTree,
 	List,
+	Package,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { cn } from "@/components/ui/cn";
+import { FileTypeIcon } from "@/components/ui/file-type-icon";
 import type { RuntimeWorkspaceFileChange } from "@/runtime/types";
-import { buildFileTree, type FileTreeNode } from "@/utils/file-tree";
+import { LocalStorageKey, readLocalStorageItem, writeLocalStorageItem } from "@/storage/local-storage-store";
+import { buildFileTree, buildPackageFileTree, type FileTreeNode } from "@/utils/file-tree";
 
 interface FileDiffStats {
 	added: number;
 	removed: number;
 }
 
-export type FileTreePanelViewMode = "tree" | "list";
+export type FileTreePanelViewMode = "tree" | "list" | "package";
+
+export function normalizeFileTreePanelViewMode(value: string | null | undefined): FileTreePanelViewMode | null {
+	return value === "list" || value === "tree" || value === "package" ? value : null;
+}
+
+export function readFileTreePanelViewModePreference(
+	key: LocalStorageKey,
+	fallback: FileTreePanelViewMode = "tree",
+): FileTreePanelViewMode {
+	return normalizeFileTreePanelViewMode(readLocalStorageItem(key)) ?? fallback;
+}
+
+export function writeFileTreePanelViewModePreference(
+	key: LocalStorageKey,
+	mode: FileTreePanelViewMode,
+): FileTreePanelViewMode {
+	writeLocalStorageItem(key, mode);
+	return mode;
+}
 
 function getPathName(path: string): string {
 	return path.split("/").filter(Boolean).at(-1) ?? path;
-}
-
-function getFileExtension(path: string): string {
-	const name = getPathName(path).toLowerCase();
-	const dotIndex = name.lastIndexOf(".");
-	if (dotIndex <= 0 || dotIndex === name.length - 1) {
-		return "";
-	}
-	return name.slice(dotIndex + 1);
-}
-
-function FileExtensionIcon({ path, selected = false }: { path: string; selected?: boolean }): React.ReactElement {
-	const extension = getFileExtension(path);
-	const baseClassName = selected ? "shrink-0 text-accent-fg" : "shrink-0";
-	const iconProps = { size: 14, className: baseClassName };
-	if (["ts", "tsx", "js", "jsx", "mjs", "cjs", "css", "scss", "html", "rs", "go", "py", "sh"].includes(extension)) {
-		return <FileCode {...iconProps} style={selected ? undefined : { color: "var(--color-status-blue)" }} />;
-	}
-	if (["json", "jsonc", "lock"].includes(extension)) {
-		return <FileJson {...iconProps} style={selected ? undefined : { color: "var(--color-status-gold)" }} />;
-	}
-	if (["md", "mdx", "txt", "rst"].includes(extension)) {
-		return <FileType {...iconProps} style={selected ? undefined : { color: "var(--color-status-purple)" }} />;
-	}
-	if (["png", "jpg", "jpeg", "gif", "webp", "svg", "ico"].includes(extension)) {
-		return <FileImage {...iconProps} style={selected ? undefined : { color: "var(--color-status-green)" }} />;
-	}
-	if (["zip", "gz", "tgz", "tar"].includes(extension)) {
-		return <FileArchive {...iconProps} style={selected ? undefined : { color: "var(--color-status-red)" }} />;
-	}
-	if (["yml", "yaml", "toml", "ini", "env"].includes(extension) || getPathName(path).startsWith(".")) {
-		return <FileCog {...iconProps} style={selected ? undefined : { color: "var(--color-text-tertiary)" }} />;
-	}
-	return <FileText {...iconProps} />;
 }
 
 function FileTreeViewToggle({
@@ -95,6 +76,18 @@ function FileTreeViewToggle({
 				)}
 			>
 				<FolderTree size={14} />
+			</button>
+			<button
+				type="button"
+				aria-label="Show files as packages"
+				title="Package tree"
+				onClick={() => onModeChange("package")}
+				className={cn(
+					"grid h-6 w-6 place-items-center rounded border border-transparent text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary",
+					mode === "package" ? "border-accent/30 bg-accent/15 text-accent" : null,
+				)}
+			>
+				<Package size={14} />
 			</button>
 		</div>
 	);
@@ -156,7 +149,7 @@ function FileTreeRow({
 						<Folder size={14} className="shrink-0" />
 					)
 				) : (
-					<FileExtensionIcon path={node.path} selected={isSelected} />
+					<FileTypeIcon path={node.path} />
 				)}
 				<span className="truncate">{node.name}</span>
 				{fileStats ? (
@@ -203,7 +196,7 @@ function FileListRow({
 			className={cn("kb-file-tree-row", isSelected ? "kb-file-tree-row-selected" : null)}
 			onClick={() => onSelectPath(file.path)}
 		>
-			<FileExtensionIcon path={file.path} selected={isSelected} />
+			<FileTypeIcon path={file.path} />
 			<span className="min-w-0 flex-1">
 				<span className="block truncate">{getPathName(file.path)}</span>
 				{directory ? (
@@ -229,6 +222,7 @@ export function FileTreePanel({
 	defaultViewMode = "tree",
 	onViewModeChange,
 	showViewModeToggle = false,
+	viewModeStorageKey,
 }: {
 	workspaceFiles: RuntimeWorkspaceFileChange[] | null;
 	selectedPath: string | null;
@@ -238,14 +232,20 @@ export function FileTreePanel({
 	defaultViewMode?: FileTreePanelViewMode;
 	onViewModeChange?: (mode: FileTreePanelViewMode) => void;
 	showViewModeToggle?: boolean;
+	viewModeStorageKey?: LocalStorageKey;
 }): React.ReactElement {
-	const [internalViewMode, setInternalViewMode] = useState<FileTreePanelViewMode>(defaultViewMode);
+	const [internalViewMode, setInternalViewMode] = useState<FileTreePanelViewMode>(() =>
+		viewModeStorageKey ? readFileTreePanelViewModePreference(viewModeStorageKey, defaultViewMode) : defaultViewMode,
+	);
 	const [expandedDirectories, setExpandedDirectories] = useState<Record<string, boolean>>({});
 	const resolvedViewMode = viewMode ?? internalViewMode;
 	const referencedPaths = useMemo(() => {
 		return workspaceFiles?.map((file) => file.path) ?? [];
 	}, [workspaceFiles]);
-	const tree = useMemo(() => buildFileTree(referencedPaths), [referencedPaths]);
+	const tree = useMemo(
+		() => (resolvedViewMode === "package" ? buildPackageFileTree(referencedPaths) : buildFileTree(referencedPaths)),
+		[referencedPaths, resolvedViewMode],
+	);
 	const sortedFiles = useMemo(
 		() => [...(workspaceFiles ?? [])].sort((a, b) => a.path.localeCompare(b.path)),
 		[workspaceFiles],
@@ -262,6 +262,9 @@ export function FileTreePanel({
 	}, [workspaceFiles]);
 	const setViewMode = (mode: FileTreePanelViewMode): void => {
 		setInternalViewMode(mode);
+		if (viewModeStorageKey) {
+			writeFileTreePanelViewModePreference(viewModeStorageKey, mode);
+		}
 		onViewModeChange?.(mode);
 	};
 	const toggleDirectory = (path: string): void => {

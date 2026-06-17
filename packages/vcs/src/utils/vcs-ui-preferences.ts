@@ -1,6 +1,6 @@
 import type { LineDiffAlgorithm } from "@changeyard/merge/react";
 
-export type VcsFileViewMode = "list" | "tree";
+export type VcsFileViewMode = "list" | "tree" | "package";
 
 export type VcsMergeEditorPreferences = {
 	ignoreWhitespace: boolean;
@@ -93,7 +93,8 @@ export function readVcsFileViewMode(): VcsFileViewMode {
 	if (typeof window === "undefined") {
 		return "tree";
 	}
-	return window.localStorage.getItem(VCS_LAYOUT_STORAGE_KEYS.fileViewMode) === "list" ? "list" : "tree";
+	const value = window.localStorage.getItem(VCS_LAYOUT_STORAGE_KEYS.fileViewMode);
+	return value === "list" || value === "package" ? value : "tree";
 }
 
 export function writeVcsFileViewMode(mode: VcsFileViewMode): VcsFileViewMode {

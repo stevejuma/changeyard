@@ -26,6 +26,7 @@ import {
 import { clampAtLeast } from "@/resize/resize-persistence";
 import { useResizeDrag } from "@/resize/use-resize-drag";
 import type { RuntimeGitCommitDiffFile, RuntimeWorkspaceFileChange } from "@/runtime/types";
+import { LocalStorageKey } from "@/storage/local-storage-store";
 import { isBinaryFilePath } from "@/utils/is-binary-file-path";
 
 export type GitCommitDiffSource =
@@ -514,6 +515,8 @@ export function GitCommitDiffPanel({
 						selectedPath={selectedPath}
 						onSelectPath={onSelectPath}
 						panelFlex="1 1 0"
+						showViewModeToggle
+						viewModeStorageKey={LocalStorageKey.GitDiffFileTreeViewMode}
 					/>
 				</div>
 			)}

@@ -47,3 +47,29 @@ export function buildFileTree(paths: string[]): FileTreeNode[] {
 
 	return sortNodes(root);
 }
+
+export function buildPackageFileTree(paths: string[]): FileTreeNode[] {
+	function compactNode(node: FileTreeNode): FileTreeNode {
+		let current: FileTreeNode = {
+			...node,
+			children: node.children.map(compactNode),
+		};
+
+		while (
+			current.type === "directory"
+			&& current.children.length === 1
+			&& current.children[0]?.type === "directory"
+		) {
+			const child = current.children[0];
+			current = {
+				...child,
+				name: `${current.name}/${child.name}`,
+				path: child.path,
+			};
+		}
+
+		return current;
+	}
+
+	return buildFileTree(paths).map(compactNode);
+}
