@@ -30,12 +30,67 @@ type MutationOptions = {
 
 export type CreateChangeResult = ChangeSummary & {
   message: string;
+  sessionAttach: SessionAttachDiscovery;
 };
 
 const QUICK_LABELS = ["quick", "low-risk"] as const;
 
+export type SessionAttachDiscovery = {
+  recommended: boolean;
+  taskId: string;
+  workspacePath: string;
+  source: "cli";
+  command: string;
+  genericCommand: string;
+  providers: {
+    codex: {
+      provider: "codex";
+      sessionIdEnv: "CODEX_THREAD_ID";
+      available: boolean;
+      command: string;
+    };
+  };
+};
+
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function shellQuote(value: string): string {
+  if (/^[A-Za-z0-9_/:=.,@%+-]+$/.test(value)) return value;
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+export function buildSessionAttachDiscovery(input: {
+  taskId: string;
+  workspacePath: string;
+  commandName?: string;
+  env?: NodeJS.ProcessEnv;
+}): SessionAttachDiscovery {
+  const commandName = input.commandName?.trim() || "cy";
+  const taskId = input.taskId.trim();
+  const workspacePath = input.workspacePath.trim() || process.cwd();
+  const quotedTaskId = shellQuote(taskId);
+  const quotedWorkspacePath = shellQuote(workspacePath);
+  const genericCommand = `${commandName} session attach --task-id ${quotedTaskId} --provider <provider> --session-id <session_id> --workspace-path ${quotedWorkspacePath} --source cli`;
+  const codexCommand = `${commandName} session attach --task-id ${quotedTaskId} --provider codex --session-id "$CODEX_THREAD_ID" --workspace-path ${quotedWorkspacePath} --source cli`;
+  const codexAvailable = Boolean(input.env?.CODEX_THREAD_ID?.trim());
+  return {
+    recommended: true,
+    taskId,
+    workspacePath,
+    source: "cli",
+    command: codexAvailable ? codexCommand : genericCommand,
+    genericCommand,
+    providers: {
+      codex: {
+        provider: "codex",
+        sessionIdEnv: "CODEX_THREAD_ID",
+        available: codexAvailable,
+        command: codexCommand,
+      },
+    },
+  };
 }
 
 function resolvePlanningModel(options: CreateOptions, defaultProfile: PlanningModel | undefined): PlanningModel {
@@ -186,6 +241,7 @@ export function createChange(options: CreateOptions, repoRoot = process.cwd(), m
       type: template.definition.type,
       path: path.relative(repoRoot, filePath),
       message: `Dry-run: would create ${id}: ${path.relative(repoRoot, filePath)}${planningMessage}`,
+      sessionAttach: buildSessionAttachDiscovery({ taskId: id, workspacePath: repoRoot, env: process.env }),
     };
   }
 
@@ -197,6 +253,7 @@ export function createChange(options: CreateOptions, repoRoot = process.cwd(), m
     type: template.definition.type,
     path: path.relative(repoRoot, filePath),
     message: `Created ${id}: ${path.relative(repoRoot, filePath)}${planningMessage}`,
+    sessionAttach: buildSessionAttachDiscovery({ taskId: id, workspacePath: repoRoot, env: process.env }),
   };
 }
 

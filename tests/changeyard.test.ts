@@ -31,6 +31,7 @@ import { CANONICAL_SKILL_RELATIVE_PATH } from "../src/scaffold/skill-generation.
 import { listChanges, runList } from "../src/commands/list.js";
 import { runRecover } from "../src/commands/recover.js";
 import { getReview, listReviews, runReviewComplete, runReviewStart, updateReview } from "../src/commands/review.js";
+import { attachSession } from "../src/commands/session.js";
 import { runStart } from "../src/commands/start.js";
 import { getStatus, runStatus } from "../src/commands/status.js";
 import { runSync } from "../src/commands/sync.js";
@@ -505,6 +506,12 @@ test("cli create --quick uses the quick template and preserves the standard json
     assert.equal(payload.ok, true);
     assert.equal(payload.command, "create");
     assert.match(payload.message, /Created CY-0001: \.changeyard\/changes\/CY-0001-docs-wording\.md/);
+    assert.equal(payload.data.id, "CY-0001");
+    assert.equal(payload.data.sessionAttach.taskId, "CY-0001");
+    assert.equal(payload.data.sessionAttach.source, "cli");
+    assert.match(payload.data.sessionAttach.genericCommand, /cy session attach --task-id CY-0001 --provider <provider>/);
+    assert.match(payload.data.sessionAttach.providers.codex.command, /--provider codex --session-id "\$CODEX_THREAD_ID"/);
+    assert.equal(typeof payload.data.sessionAttach.providers.codex.available, "boolean");
 
     const parsed = parseFrontmatter(readFileSync(path.join(repo, ".changeyard", "changes", "CY-0001-docs-wording.md"), "utf8"));
     assert.equal(parsed.frontmatter.type, "quick");
@@ -532,6 +539,11 @@ test("cli docs loader reads command docs, topics, and possible values", () => {
   assert.equal(hooks.command, "cy hooks");
   assert.equal(hooks.options.find((option) => option.flags === "--event <event>")?.possibleValues.join(","), "to_review,to_in_progress,activity");
   assert.match(renderCliHelp(hooks, createColors(false)), /possible values: to_review, to_in_progress, activity/);
+
+  const sessionAttach = readCliHelpEntry(["session", "attach"]);
+  assert.ok(sessionAttach);
+  assert.equal(sessionAttach.command, "cy session attach");
+  assert.match(renderCliHelp(sessionAttach, createColors(false)), /--provider <name>/);
 
   const topic = readCliTopic("color");
   assert.ok(topic);
@@ -581,6 +593,14 @@ test("cli help supports nested docs, topics, and forced color", () => {
   assert.match(nested.stdout, /cy hooks ingest --event <event>/);
   assert.match(nested.stdout, /possible values: to_review, to_in_progress, activity/);
 
+  const sessionAttach = spawnSync(nodeBinary(), [cliBinPath(), "session", "attach", "--help"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+  });
+  assert.equal(sessionAttach.status, 0, sessionAttach.stderr);
+  assert.match(sessionAttach.stdout, /cy session attach --task-id <id> --provider <name>/);
+  assert.match(sessionAttach.stdout, /--workspace-path <path>/);
+
   const topic = spawnSync(nodeBinary(), [cliBinPath(), "help", "-k", "hooks"], {
     cwd: process.cwd(),
     encoding: "utf8",
@@ -601,6 +621,66 @@ test("cli help supports nested docs, topics, and forced color", () => {
   });
   assert.equal(plain.status, 0, plain.stderr);
   assert.doesNotMatch(plain.stdout, /\u001b\[[0-9;]*m/);
+});
+
+test("session attach posts external session metadata to the runtime", async () => {
+  const previousFetch = globalThis.fetch;
+  let capturedUrl = "";
+  let capturedBody: unknown = null;
+  let capturedContentType = "";
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    capturedUrl = String(input);
+    capturedBody = JSON.parse(String(init?.body ?? "{}"));
+    capturedContentType = new Headers(init?.headers).get("content-type") ?? "";
+    return new Response(JSON.stringify({
+      result: {
+        data: {
+          json: {
+            ok: true,
+            summary: { taskId: "task-1" },
+            workspaceId: "workspace-1",
+            workspacePath: "/tmp/repo",
+          },
+        },
+      },
+    }), { status: 200 });
+  }) as typeof fetch;
+
+  try {
+    const response = await attachSession(["attach"], {
+      "task-id": "task-1",
+      provider: "codex",
+      "session-id": "abc",
+      "workspace-path": "/tmp/repo",
+      source: "cli",
+    });
+
+    assert.equal(response.ok, true);
+    assert.equal(capturedUrl, "http://127.0.0.1:3484/api/trpc/session.attach");
+    assert.equal(capturedContentType, "application/json");
+    assert.deepEqual(capturedBody, {
+      json: {
+        taskId: "task-1",
+        provider: "codex",
+        sessionId: "abc",
+        workspacePath: "/tmp/repo",
+        source: "cli",
+      },
+    });
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test("session attach validates required flags before posting", async () => {
+  await assert.rejects(
+    () => attachSession(["attach"], { provider: "codex", "workspace-path": "/tmp/repo" }),
+    /Missing required option: --task-id <id>/,
+  );
+  await assert.rejects(
+    () => attachSession(["attach"], { "task-id": "task-1", "workspace-path": "/tmp/repo" }),
+    /Missing required option: --provider <name>/,
+  );
 });
 
 test("cli dashboard command is removed", () => {

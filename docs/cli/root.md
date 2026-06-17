@@ -35,6 +35,7 @@ cy <command> [options]
 - `plan`: Inspect and update planning sections.
 - `doctor`: Check Changeyard state and repair supported drift.
 - `hooks`: Forward terminal-agent hook events to the local runtime.
+- `session`: Register external agent session metadata with the runtime.
 - `hub`: Manage the shared UI/runtime hub.
 - `config`: Print runtime config as JSON.
 - `list`: List local changes.
@@ -64,4 +65,3 @@ cy start CY-0001
 cy next CY-0001
 cy help -k workflow
 ```
-

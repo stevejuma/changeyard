@@ -28,7 +28,7 @@ cy hooks codex-hook --event <event> [--external-session]
 - `--activity-text <text>`: Human activity text for activity events.
 - `--hook-event-name <name>`: Native agent hook event name.
 - `--notification-type <name>`: Native notification type.
-- `--external-session`: Register an external Codex session when possible.
+- `--external-session`: Register an external Codex session from hook payloads when possible. Prefer `cy session attach` when the agent already knows its session id.
 
 ## Examples
 
@@ -36,5 +36,5 @@ cy hooks codex-hook --event <event> [--external-session]
 cy hooks ingest --event to_review
 cy hooks notify --event activity --activity-text "Waiting for input"
 cy hooks codex-hook --event activity --source codex
+cy session attach --task-id task-1 --provider codex --session-id "$CODEX_THREAD_ID" --workspace-path "$PWD" --source cli
 ```
-

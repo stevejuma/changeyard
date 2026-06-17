@@ -207,6 +207,11 @@ Parameters:
 - \`--auto-review-enabled <true|false>\` optional. Default false. Enables automatic action once task reaches review.
 - \`--auto-review-mode commit|pr\` optional auto-review action. Default \`commit\`.
 
+Notes:
+- After \`task create\` or \`cy create --json\` returns a new task id, inspect any \`sessionAttach\` object in the JSON response and run its best matching command. Report failures only if the user is explicitly asking about runtime or session tracking.
+- If no \`sessionAttach\` object is present and you are running in Codex with \`CODEX_THREAD_ID\` set, run this best-effort registration command: \`${kanbanCommand} session attach --task-id <task_id> --provider codex --session-id "$CODEX_THREAD_ID" --workspace-path "$PWD" --source cli\`.
+- For other agents with a known stable session id, use \`${kanbanCommand} session attach --task-id <task_id> --provider <agent> --session-id <known_session_id> --workspace-path "$PWD" --source cli\`.
+
 ## task update
 
 Purpose: update an existing task, including prompt, base ref, plan mode, and auto-review behavior.

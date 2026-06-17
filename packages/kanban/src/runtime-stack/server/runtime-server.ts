@@ -46,6 +46,7 @@ import { createChangesApi, type RuntimeChangeyardApiAdapter } from "../trpc/chan
 import { createHooksApi } from "../trpc/hooks-api.js";
 import { createProjectsApi } from "../trpc/projects-api.js";
 import { createRuntimeApi } from "../trpc/runtime-api.js";
+import { createSessionApi } from "../trpc/session-api.js";
 import { createVcsApi } from "../trpc/vcs-api.js";
 import { createWorkspaceApi } from "../trpc/workspace-api.js";
 import { getWebUiDir, normalizeRequestPath, readAsset, readMountedAsset, type RuntimeAsset } from "./assets.js";
@@ -310,6 +311,11 @@ function writeAssetResponse(request: IncomingMessage, response: ServerResponse, 
 				ensureTerminalManagerForWorkspace: deps.ensureTerminalManagerForWorkspace,
 				broadcastRuntimeWorkspaceStateUpdated: deps.runtimeStateHub.broadcastRuntimeWorkspaceStateUpdated,
 				broadcastTaskReadyForReview: deps.runtimeStateHub.broadcastTaskReadyForReview,
+			}),
+			sessionApi: createSessionApi({
+				getWorkspacePathById: deps.workspaceRegistry.getWorkspacePathById,
+				ensureTerminalManagerForWorkspace: deps.ensureTerminalManagerForWorkspace,
+				broadcastRuntimeWorkspaceStateUpdated: deps.runtimeStateHub.broadcastRuntimeWorkspaceStateUpdated,
 			}),
 			changesApi: createChangesApi({
 				changeyardApi: deps.changeyardApi ?? null,

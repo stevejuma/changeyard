@@ -12,7 +12,7 @@ import {
   runPlanStrictDisable,
   runPlanStrictEnable,
 } from "./commands/plan.js";
-import { runCreate } from "./commands/create.js";
+import { createChange, runCreate } from "./commands/create.js";
 import { runHooks } from "./commands/hooks.js";
 import { runHydrate } from "./commands/hydrate.js";
 import { runInit } from "./commands/init.js";
@@ -22,6 +22,7 @@ import { listChanges, runList } from "./commands/list.js";
 import { getNextAction, runNext } from "./commands/next.js";
 import { runRecover } from "./commands/recover.js";
 import { runReviewComplete, runReviewStart } from "./commands/review.js";
+import { attachSession, runSession } from "./commands/session.js";
 import { runStart } from "./commands/start.js";
 import { getStatus, runStatus } from "./commands/status.js";
 import { runSync } from "./commands/sync.js";
@@ -42,7 +43,7 @@ import type { ValidationGate } from "./planning/validation.js";
 import type { CreateOptions } from "./commands/create.js";
 import { readWorkspaceMetadata } from "./workspace/marker.js";
 
-type CommandName = "init" | "update" | "create" | "quick" | "validate" | "sync" | "start" | "verify" | "hydrate" | "complete" | "next" | "land" | "workspace" | "review" | "doctor" | "completions" | "recover" | "list" | "status" | "plan" | "ui" | "server" | "dashboard" | "hub" | "tui" | "config" | "hooks" | "install" | "uninstall" | "help";
+type CommandName = "init" | "update" | "create" | "quick" | "validate" | "sync" | "start" | "verify" | "hydrate" | "complete" | "next" | "land" | "workspace" | "review" | "doctor" | "completions" | "recover" | "list" | "status" | "plan" | "ui" | "server" | "dashboard" | "hub" | "tui" | "config" | "hooks" | "session" | "install" | "uninstall" | "help";
 
 type ParsedArgs = {
   command: string;
@@ -184,7 +185,11 @@ function outputLine(command: string, output: unknown): void {
 }
 
 function jsonPayload(command: string, output: unknown): { command: string; message?: string; data?: unknown } {
-  return typeof output === "string" ? { command, message: output } : { command, data: output };
+  if (typeof output === "string") return { command, message: output };
+  const message = output && typeof output === "object" && "message" in output && typeof output.message === "string"
+    ? output.message
+    : undefined;
+  return message ? { command, message, data: output } : { command, data: output };
 }
 
 function helpCommandPath(command: CommandName, positional: string[]): string[] {
@@ -285,11 +290,11 @@ async function main(): Promise<void> {
         output = runUpdate(repoRoot, { dryRun, tools: stringFlag(args.flags, "tools") });
         break;
       case "create": {
-        output = runCreate(createOptionsFromFlags(args.flags), repoRoot, { dryRun });
+        output = json ? createChange(createOptionsFromFlags(args.flags), repoRoot, { dryRun }) : runCreate(createOptionsFromFlags(args.flags), repoRoot, { dryRun });
         break;
       }
       case "quick": {
-        output = runCreate(createOptionsFromFlags(args.flags, { template: "quick" }), repoRoot, { dryRun });
+        output = json ? createChange(createOptionsFromFlags(args.flags, { template: "quick" }), repoRoot, { dryRun }) : runCreate(createOptionsFromFlags(args.flags, { template: "quick" }), repoRoot, { dryRun });
         break;
       }
       case "validate":
@@ -445,6 +450,9 @@ async function main(): Promise<void> {
       }
       case "hooks":
         output = await runHooks(args.positional, args.flags);
+        break;
+      case "session":
+        output = json ? await attachSession(args.positional, args.flags) : await runSession(args.positional, args.flags);
         break;
       case "install":
         output = runInstallCli({

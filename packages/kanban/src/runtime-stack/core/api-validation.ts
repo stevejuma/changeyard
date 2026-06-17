@@ -17,6 +17,7 @@ import {
 	type RuntimeHookIngestRequest,
 	type RuntimeProjectAddRequest,
 	type RuntimeProjectRemoveRequest,
+	type RuntimeSessionAttachRequest,
 	type RuntimeShellSessionStartRequest,
 	type RuntimeTaskChatAbortRequest,
 	type RuntimeTaskChatCancelRequest,
@@ -49,6 +50,7 @@ import {
 	runtimeHookIngestRequestSchema,
 	runtimeProjectAddRequestSchema,
 	runtimeProjectRemoveRequestSchema,
+	runtimeSessionAttachRequestSchema,
 	runtimeShellSessionStartRequestSchema,
 	runtimeTaskChatAbortRequestSchema,
 	runtimeTaskChatCancelRequestSchema,
@@ -603,6 +605,34 @@ export function parseHookIngestRequest(value: unknown): RuntimeHookIngestRequest
 		workspacePath: workspacePath || undefined,
 		metadata,
 		externalSession: externalSession as RuntimeHookIngestRequest["externalSession"],
+	};
+}
+
+export function parseSessionAttachRequest(value: unknown): RuntimeSessionAttachRequest {
+	const parsed = parseWithSchema(runtimeSessionAttachRequestSchema, value);
+	const taskId = parsed.taskId.trim();
+	const provider = parsed.provider.trim();
+	const workspaceId = parsed.workspaceId?.trim() ?? "";
+	const workspacePath = parsed.workspacePath?.trim() ?? "";
+	if (!taskId) {
+		throw new Error("Missing taskId");
+	}
+	if (!provider) {
+		throw new Error("Missing provider");
+	}
+	if (!workspaceId && !workspacePath) {
+		throw new Error("Missing workspaceId or workspacePath");
+	}
+	const resumeCommand = parsed.resumeCommand?.map((part) => part.trim()).filter(Boolean);
+	return {
+		taskId,
+		provider,
+		sessionId: parsed.sessionId?.trim() || null,
+		transcriptPath: parsed.transcriptPath?.trim() || null,
+		resumeCommand,
+		workspaceId: workspaceId || undefined,
+		workspacePath: workspacePath || undefined,
+		source: parsed.source?.trim() || null,
 	};
 }
 

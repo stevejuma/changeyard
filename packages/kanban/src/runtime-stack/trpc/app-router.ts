@@ -63,6 +63,8 @@ import type {
 	RuntimeProjectRemoveResponse,
 	RuntimeProjectsResponse,
 	RuntimeRunUpdateResponse,
+	RuntimeSessionAttachRequest,
+	RuntimeSessionAttachResponse,
 	RuntimeShellSessionStartRequest,
 	RuntimeShellSessionStartResponse,
 	RuntimeSlashCommandsResponse,
@@ -218,6 +220,8 @@ import {
 	runtimeProjectRemoveResponseSchema,
 	runtimeProjectsResponseSchema,
 	runtimeRunUpdateResponseSchema,
+	runtimeSessionAttachRequestSchema,
+	runtimeSessionAttachResponseSchema,
 	runtimeShellSessionStartRequestSchema,
 	runtimeShellSessionStartResponseSchema,
 	runtimeSlashCommandsResponseSchema,
@@ -547,6 +551,9 @@ export interface RuntimeTrpcContext {
 	};
 	hooksApi: {
 		ingest: (input: RuntimeHookIngestRequest) => Promise<RuntimeHookIngestResponse>;
+	};
+	sessionApi: {
+		attach: (input: RuntimeSessionAttachRequest) => Promise<RuntimeSessionAttachResponse>;
 	};
 	changesApi: RuntimeTrpcChangesApi;
 }
@@ -1270,6 +1277,14 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeHookIngestResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.hooksApi.ingest(input);
+			}),
+	}),
+	session: t.router({
+		attach: t.procedure
+			.input(runtimeSessionAttachRequestSchema)
+			.output(runtimeSessionAttachResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.sessionApi.attach(input);
 			}),
 	}),
 });

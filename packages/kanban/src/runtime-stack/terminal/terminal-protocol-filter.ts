@@ -134,7 +134,8 @@ export function filterTerminalProtocolOutput(
 			let finalIndex = -1;
 			let index = sequenceStart + 2;
 			while (index < source.byteLength) {
-				if (isCsiFinalByte(source[index])) {
+				const byte = source[index];
+				if (byte !== undefined && isCsiFinalByte(byte)) {
 					finalIndex = index;
 					break;
 				}

@@ -2756,3 +2756,24 @@ export const runtimeHookIngestResponseSchema = z.object({
 	error: z.string().optional(),
 });
 export type RuntimeHookIngestResponse = z.infer<typeof runtimeHookIngestResponseSchema>;
+
+export const runtimeSessionAttachRequestSchema = z.object({
+	taskId: z.string(),
+	provider: z.string(),
+	sessionId: z.string().nullable().optional(),
+	transcriptPath: z.string().nullable().optional(),
+	resumeCommand: z.array(z.string()).optional(),
+	workspaceId: z.string().optional(),
+	workspacePath: z.string().optional(),
+	source: z.string().nullable().optional(),
+});
+export type RuntimeSessionAttachRequest = z.infer<typeof runtimeSessionAttachRequestSchema>;
+
+export const runtimeSessionAttachResponseSchema = z.object({
+	ok: z.boolean(),
+	summary: runtimeTaskSessionSummarySchema.nullable().optional(),
+	workspaceId: z.string().nullable().optional(),
+	workspacePath: z.string().nullable().optional(),
+	error: z.string().optional(),
+});
+export type RuntimeSessionAttachResponse = z.infer<typeof runtimeSessionAttachResponseSchema>;

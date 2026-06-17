@@ -22,11 +22,12 @@ cy create --quick --title <title> [options]
 - `--strict`: Enable strict planning gates.
 - `--no-planning`: Disable planning for this change.
 - `--dry-run`: Show the target path without writing.
+- `--json`: Print the created change plus `data.sessionAttach`, a machine-readable follow-up command for external agent session registration.
 
 ## Examples
 
 ```sh
 cy create --template agent-task --title "Add workspace verification"
 cy create --quick --title "Fix typo"
+cy create --template agent-task --title "Add workspace verification" --json
 ```
-
