@@ -1,4 +1,5 @@
 import * as RadixSelect from "@radix-ui/react-select";
+import * as RadixSwitch from "@radix-ui/react-switch";
 import {
 	AlertTriangle,
 	Bell,
@@ -7,6 +8,7 @@ import {
 	ExternalLink,
 	FolderTree,
 	GitBranch,
+	GitMerge,
 	List,
 	Palette,
 	RadioTower,
@@ -41,16 +43,19 @@ import {
 } from "@/utils/notification-permission";
 import { previewThemeId, readStoredThemeId, saveThemeId, THEME_GROUPS, THEMES, type ThemeId } from "@/utils/vcs-theme";
 import {
+	DEFAULT_VCS_MERGE_EDITOR_PREFERENCES,
+	normalizeVcsMergeEditorPreferences,
 	readVcsFileViewMode,
 	resetVcsLayoutPreferences,
 	writeVcsFileViewMode,
 	type VcsFileViewMode,
+	type VcsMergeEditorPreferences,
 } from "@/utils/vcs-ui-preferences";
 
 const CHANGEYARD_VCS_DOCS_URL = "https://github.com/stevejuma/changeyard/blob/main/docs/vcs-jj.md";
 const VCS_NOTIFICATIONS_ENABLED_KEY = "changeyard.vcs.notifications.enabled";
 
-type SettingsNavId = "general" | "notifications" | "appearance" | "vcs" | "provider" | "diagnostics";
+type SettingsNavId = "general" | "notifications" | "appearance" | "merge" | "vcs" | "provider" | "diagnostics";
 
 const SETTINGS_NAV_ITEMS: ReadonlyArray<{
 	id: SettingsNavId;
@@ -60,6 +65,7 @@ const SETTINGS_NAV_ITEMS: ReadonlyArray<{
 	{ id: "general", label: "General", icon: <SlidersHorizontal size={16} /> },
 	{ id: "notifications", label: "Notifications", icon: <Bell size={16} /> },
 	{ id: "appearance", label: "Appearance", icon: <Palette size={16} /> },
+	{ id: "merge", label: "Merge Editor", icon: <GitMerge size={16} /> },
 	{ id: "vcs", label: "VCS", icon: <GitBranch size={16} /> },
 	{ id: "provider", label: "Provider", icon: <RadioTower size={16} /> },
 	{ id: "diagnostics", label: "Diagnostics", icon: <AlertTriangle size={16} /> },
@@ -86,6 +92,16 @@ function writeBooleanStorage(key: string, value: boolean): void {
 	} catch {
 		// Ignore storage write failures.
 	}
+}
+
+function mergeEditorPreferencesEqual(left: VcsMergeEditorPreferences, right: VcsMergeEditorPreferences): boolean {
+	return (
+		left.ignoreWhitespace === right.ignoreWhitespace &&
+		left.ignoreCase === right.ignoreCase &&
+		left.lineDiffAlgorithm === right.lineDiffAlgorithm &&
+		left.syncHorizontalScroll === right.syncHorizontalScroll &&
+		left.editableSideControls === right.editableSideControls
+	);
 }
 
 function formatNotificationPermission(permission: BrowserNotificationPermission): string {
@@ -183,25 +199,23 @@ function SwitchControl({
 	label: string;
 }): React.ReactElement {
 	return (
-		<button
-			type="button"
-			role="switch"
-			aria-checked={checked}
+		<RadixSwitch.Root
+			checked={checked}
+			onCheckedChange={onChange}
 			aria-label={label}
 			disabled={disabled}
-			onClick={() => onChange(!checked)}
 			className={cn(
-				"relative h-5 w-9 rounded-full bg-surface-4 cursor-pointer disabled:opacity-40 disabled:cursor-default",
+				"relative h-5 w-9 rounded-full border-0 bg-surface-4 cursor-pointer disabled:opacity-40 disabled:cursor-default",
 				checked && "bg-accent",
 			)}
 		>
-			<span
+			<RadixSwitch.Thumb
 				className={cn(
 					"block h-4 w-4 rounded-full bg-white shadow-sm transition-transform translate-x-0.5",
 					checked && "translate-x-[18px]",
 				)}
 			/>
-		</button>
+		</RadixSwitch.Root>
 	);
 }
 
@@ -239,6 +253,62 @@ function FileViewModeControl({
 				<FolderTree size={14} />
 			</button>
 		</div>
+	);
+}
+
+function lineDiffAlgorithmLabel(value: VcsMergeEditorPreferences["lineDiffAlgorithm"]): string {
+	if (value === "characters") {
+		return "Characters";
+	}
+	if (value === "words") {
+		return "Words";
+	}
+	return "Words with spaces";
+}
+
+function MergeLineDiffAlgorithmControl({
+	value,
+	onChange,
+}: {
+	value: VcsMergeEditorPreferences["lineDiffAlgorithm"];
+	onChange: (value: VcsMergeEditorPreferences["lineDiffAlgorithm"]) => void;
+}): React.ReactElement {
+	const algorithms: readonly VcsMergeEditorPreferences["lineDiffAlgorithm"][] = ["words_with_space", "words", "characters"];
+	return (
+		<RadixSelect.Root value={value} onValueChange={(nextValue) => onChange(nextValue as VcsMergeEditorPreferences["lineDiffAlgorithm"])}>
+			<RadixSelect.Trigger
+				className="flex h-8 min-w-[180px] cursor-pointer items-center justify-between rounded-md border border-border-bright bg-surface-2 px-3 text-[13px] text-text-primary outline-none hover:bg-surface-3 hover:border-border-bright focus:border-border-focus focus:outline-none"
+				aria-label="Merge line diff algorithm"
+			>
+				<RadixSelect.Value />
+				<RadixSelect.Icon>
+					<ChevronDown size={14} className="text-text-tertiary" />
+				</RadixSelect.Icon>
+			</RadixSelect.Trigger>
+			<RadixSelect.Portal>
+				<RadixSelect.Content
+					className="z-50 max-h-72 w-(--radix-select-trigger-width) overflow-auto rounded-lg border border-border bg-surface-1 p-1 shadow-xl"
+					position="popper"
+					sideOffset={4}
+					align="end"
+				>
+					<RadixSelect.Viewport>
+						{algorithms.map((algorithm) => (
+							<RadixSelect.Item
+								key={algorithm}
+								value={algorithm}
+								className="flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] text-text-secondary outline-none data-highlighted:bg-surface-3 data-highlighted:text-text-primary data-[state=checked]:text-text-primary"
+							>
+								<RadixSelect.ItemText>{lineDiffAlgorithmLabel(algorithm)}</RadixSelect.ItemText>
+								<RadixSelect.ItemIndicator className="ml-auto">
+									<Check size={14} className="text-accent-2" />
+								</RadixSelect.ItemIndicator>
+							</RadixSelect.Item>
+						))}
+					</RadixSelect.Viewport>
+				</RadixSelect.Content>
+			</RadixSelect.Portal>
+		</RadixSelect.Root>
 	);
 }
 
@@ -448,12 +518,14 @@ function SettingsDialogContent({
 	draftTargetBranch,
 	draftNotificationsEnabled,
 	draftFModeEnabled,
+	draftMergeEditorPreferences,
 	notificationPermission,
 	onFileViewModeChange,
 	onThemeChange,
 	onTargetBranchChange,
 	onNotificationsEnabledChange,
 	onFModeEnabledChange,
+	onMergeEditorPreferencesChange,
 	onRequestNotificationPermission,
 	onResetLayout,
 }: {
@@ -468,12 +540,14 @@ function SettingsDialogContent({
 	draftTargetBranch: string | null;
 	draftNotificationsEnabled: boolean;
 	draftFModeEnabled: boolean;
+	draftMergeEditorPreferences: VcsMergeEditorPreferences;
 	notificationPermission: BrowserNotificationPermission;
 	onFileViewModeChange: (mode: VcsFileViewMode) => void;
 	onThemeChange: (themeId: ThemeId) => void;
 	onTargetBranchChange: (targetBranch: string) => void;
 	onNotificationsEnabledChange: (enabled: boolean) => void;
 	onFModeEnabledChange: (enabled: boolean) => void;
+	onMergeEditorPreferencesChange: (preferences: VcsMergeEditorPreferences) => void;
 	onRequestNotificationPermission: () => void;
 	onResetLayout: () => void;
 }): React.ReactElement {
@@ -488,6 +562,10 @@ function SettingsDialogContent({
 		configuredTarget: draftTargetBranch,
 	});
 	const selectedTargetBranch = draftTargetBranch ?? getDefaultTargetBranch(state.status === "ready" ? state.data : null) ?? targetBranchOptions[0]?.value ?? "";
+
+	function updateDraftMergeEditorPreferences(patch: Partial<VcsMergeEditorPreferences>): void {
+		onMergeEditorPreferencesChange(normalizeVcsMergeEditorPreferences({ ...draftMergeEditorPreferences, ...patch }));
+	}
 
 	const handleBodyScroll = useCallback(() => {
 		if (isScrollingProgrammatically.current) return;
@@ -724,6 +802,76 @@ function SettingsDialogContent({
 					) : null}
 				</SettingsSection>
 
+				<SettingsSection id="merge" title="Merge Editor" icon={<GitMerge size={16} />}>
+					<SettingsRow
+						label="Ignore whitespace"
+						value={draftMergeEditorPreferences.ignoreWhitespace ? "Enabled" : "Disabled"}
+						action={
+							<SwitchControl
+								checked={draftMergeEditorPreferences.ignoreWhitespace}
+								onChange={(ignoreWhitespace) => updateDraftMergeEditorPreferences({ ignoreWhitespace })}
+								label="Ignore whitespace in merge editor"
+							/>
+						}
+					/>
+					<SettingsRow
+						label="Ignore case"
+						value={draftMergeEditorPreferences.ignoreCase ? "Enabled" : "Disabled"}
+						action={
+							<SwitchControl
+								checked={draftMergeEditorPreferences.ignoreCase}
+								onChange={(ignoreCase) => updateDraftMergeEditorPreferences({ ignoreCase })}
+								label="Ignore case in merge editor"
+							/>
+						}
+					/>
+					<SettingsRow
+						label="Horizontal scroll"
+						value={draftMergeEditorPreferences.syncHorizontalScroll ? "Synchronized" : "Independent"}
+						action={
+							<SwitchControl
+								checked={draftMergeEditorPreferences.syncHorizontalScroll}
+								onChange={(syncHorizontalScroll) => updateDraftMergeEditorPreferences({ syncHorizontalScroll })}
+								label="Synchronize merge editor horizontal scroll"
+							/>
+						}
+					/>
+					<SettingsRow
+						label="Gutter actions"
+						value={draftMergeEditorPreferences.editableSideControls ? "Visible" : "Hidden"}
+						action={
+							<SwitchControl
+								checked={draftMergeEditorPreferences.editableSideControls}
+								onChange={(editableSideControls) => updateDraftMergeEditorPreferences({ editableSideControls })}
+								label="Show merge editor gutter actions"
+							/>
+						}
+					/>
+					<SettingsRow
+						label="Line diff"
+						value={lineDiffAlgorithmLabel(draftMergeEditorPreferences.lineDiffAlgorithm)}
+						action={
+							<MergeLineDiffAlgorithmControl
+								value={draftMergeEditorPreferences.lineDiffAlgorithm}
+								onChange={(lineDiffAlgorithm) => updateDraftMergeEditorPreferences({ lineDiffAlgorithm })}
+							/>
+						}
+					/>
+					<SettingsRow
+						label="Defaults"
+						value="Restore default merge editor options"
+						action={
+							<Button
+								variant="default"
+								size="sm"
+								onClick={() => onMergeEditorPreferencesChange(DEFAULT_VCS_MERGE_EDITOR_PREFERENCES)}
+							>
+								Reset
+							</Button>
+						}
+					/>
+				</SettingsSection>
+
 				<SettingsSection id="vcs" title="VCS" icon={<GitBranch size={16} />}>
 					{vcsSection}
 				</SettingsSection>
@@ -748,6 +896,8 @@ export function SettingsDialog({
 	onOpenChange,
 	fModeEnabled,
 	onFModeEnabledChange,
+	mergeEditorPreferences,
+	onMergeEditorPreferencesChange,
 }: {
 	state: QueryState<VcsDetectResponse>;
 	projectState: VcsShellProjectState;
@@ -756,6 +906,8 @@ export function SettingsDialog({
 	onOpenChange: (open: boolean) => void;
 	fModeEnabled: boolean;
 	onFModeEnabledChange: (enabled: boolean) => void;
+	mergeEditorPreferences: VcsMergeEditorPreferences;
+	onMergeEditorPreferencesChange: (preferences: VcsMergeEditorPreferences) => void;
 }): React.ReactElement {
 	const [fileViewMode, setFileViewMode] = useState<VcsFileViewMode>(() => readVcsFileViewMode());
 	const [draftFileViewMode, setDraftFileViewMode] = useState<VcsFileViewMode>(() => readVcsFileViewMode());
@@ -766,6 +918,9 @@ export function SettingsDialog({
 	const [notificationsEnabled, setNotificationsEnabled] = useState(() => readBooleanStorage(VCS_NOTIFICATIONS_ENABLED_KEY, false));
 	const [draftNotificationsEnabled, setDraftNotificationsEnabled] = useState(() => readBooleanStorage(VCS_NOTIFICATIONS_ENABLED_KEY, false));
 	const [draftFModeEnabled, setDraftFModeEnabled] = useState(fModeEnabled);
+	const [draftMergeEditorPreferences, setDraftMergeEditorPreferences] = useState<VcsMergeEditorPreferences>(() =>
+		normalizeVcsMergeEditorPreferences(mergeEditorPreferences),
+	);
 	const [notificationPermission, setNotificationPermission] = useState<BrowserNotificationPermission>(() => getBrowserNotificationPermission());
 	const projectConfigResult = useGetProjectConfigQuery({ workspaceId: workspaceId ?? "" }, { skip: !workspaceId || !open });
 	const inventoryResult = useGetJjInventoryQuery({ workspaceId: workspaceId ?? "" }, { skip: !workspaceId || !open });
@@ -782,16 +937,19 @@ export function SettingsDialog({
 			draftThemeId !== initialThemeId ||
 			draftTargetBranch !== targetBranch ||
 			draftNotificationsEnabled !== notificationsEnabled ||
-			draftFModeEnabled !== fModeEnabled,
+			draftFModeEnabled !== fModeEnabled ||
+			!mergeEditorPreferencesEqual(draftMergeEditorPreferences, mergeEditorPreferences),
 		[
 			draftFModeEnabled,
 			draftFileViewMode,
+			draftMergeEditorPreferences,
 			draftNotificationsEnabled,
 			draftTargetBranch,
 			draftThemeId,
 			fModeEnabled,
 			fileViewMode,
 			initialThemeId,
+			mergeEditorPreferences,
 			notificationsEnabled,
 			targetBranch,
 		],
@@ -809,8 +967,9 @@ export function SettingsDialog({
 	useEffect(() => {
 		if (open) {
 			setDraftFModeEnabled(fModeEnabled);
+			setDraftMergeEditorPreferences(normalizeVcsMergeEditorPreferences(mergeEditorPreferences));
 		}
-	}, [fModeEnabled, open]);
+	}, [fModeEnabled, mergeEditorPreferences, open]);
 
 	function closeSettings(): void {
 		onOpenChange(false);
@@ -823,6 +982,7 @@ export function SettingsDialog({
 		setDraftTargetBranch(targetBranch);
 		setDraftNotificationsEnabled(notificationsEnabled);
 		setDraftFModeEnabled(fModeEnabled);
+		setDraftMergeEditorPreferences(normalizeVcsMergeEditorPreferences(mergeEditorPreferences));
 		closeSettings();
 	}
 
@@ -854,6 +1014,9 @@ export function SettingsDialog({
 		writeBooleanStorage(VCS_NOTIFICATIONS_ENABLED_KEY, draftNotificationsEnabled);
 		if (draftFModeEnabled !== fModeEnabled) {
 			onFModeEnabledChange(draftFModeEnabled);
+		}
+		if (!mergeEditorPreferencesEqual(draftMergeEditorPreferences, mergeEditorPreferences)) {
+			onMergeEditorPreferencesChange(draftMergeEditorPreferences);
 		}
 		if (draftNotificationsEnabled && !notificationsEnabled && notificationPermission === "default") {
 			const nextPermission = await requestBrowserNotificationPermission();
@@ -891,12 +1054,14 @@ export function SettingsDialog({
 				draftTargetBranch={draftTargetBranch}
 				draftNotificationsEnabled={draftNotificationsEnabled}
 				draftFModeEnabled={draftFModeEnabled}
+				draftMergeEditorPreferences={draftMergeEditorPreferences}
 				notificationPermission={notificationPermission}
 				onFileViewModeChange={setDraftFileViewMode}
 				onThemeChange={setDraftThemeId}
 				onTargetBranchChange={setDraftTargetBranch}
 				onNotificationsEnabledChange={setDraftNotificationsEnabled}
 				onFModeEnabledChange={setDraftFModeEnabled}
+				onMergeEditorPreferencesChange={setDraftMergeEditorPreferences}
 				onRequestNotificationPermission={requestNotifications}
 				onResetLayout={resetLayout}
 			/>

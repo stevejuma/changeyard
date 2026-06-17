@@ -421,7 +421,7 @@ test("deleting a picked modified source flips its action back to merge", () => {
 	assert.equal(rightAfterDelete.action?.kind, "merge");
 });
 
-test("merging a left-side conflict change inserts it above center content", () => {
+test("merging a left-side conflict change replaces center content", () => {
 	const model = assembleThreeWayMerge("left change\n", "center change\n", "right change\n");
 	const block = model.blocks.find((candidate) => candidate.kind === "conflict");
 	assert.ok(block);
@@ -429,10 +429,10 @@ test("merging a left-side conflict change inserts it above center content", () =
 
 	const merged = mergeRenderComponentIntoCenter(model, left);
 
-	assert.equal(serializeMergeCenter(merged), "left change\ncenter change\n");
+	assert.equal(serializeMergeCenter(merged), "left change\n");
 });
 
-test("merging a right-side conflict change inserts it below center content", () => {
+test("merging a right-side conflict change replaces center content", () => {
 	const model = assembleThreeWayMerge("left change\n", "center change\n", "right change\n");
 	const block = model.blocks.find((candidate) => candidate.kind === "conflict");
 	assert.ok(block);
@@ -440,10 +440,30 @@ test("merging a right-side conflict change inserts it below center content", () 
 
 	const merged = mergeRenderComponentIntoCenter(model, right);
 
-	assert.equal(serializeMergeCenter(merged), "center change\nright change\n");
+	assert.equal(serializeMergeCenter(merged), "right change\n");
 });
 
-test("removing an already merged right-side conflict restores center content", () => {
+test("merging both conflict sides stacks left then right in center content", () => {
+	const model = assembleThreeWayMerge("left change\n", "center change\n", "right change\n");
+	const conflict = model.blocks.find((candidate) => candidate.kind === "conflict");
+	assert.ok(conflict);
+	const withLeftMerged = mergeRenderComponentIntoCenter(model, renderComponent(model, "left", conflict.id));
+	const withRightMerged = mergeRenderComponentIntoCenter(withLeftMerged, renderComponent(withLeftMerged, "right", conflict.id));
+
+	assert.equal(serializeMergeCenter(withRightMerged), "left change\nright change\n");
+});
+
+test("merging both conflict sides from right first still stacks left then right in center content", () => {
+	const model = assembleThreeWayMerge("left change\n", "center change\n", "right change\n");
+	const conflict = model.blocks.find((candidate) => candidate.kind === "conflict");
+	assert.ok(conflict);
+	const withRightMerged = mergeRenderComponentIntoCenter(model, renderComponent(model, "right", conflict.id));
+	const withLeftMerged = mergeRenderComponentIntoCenter(withRightMerged, renderComponent(withRightMerged, "left", conflict.id));
+
+	assert.equal(serializeMergeCenter(withLeftMerged), "left change\nright change\n");
+});
+
+test("removing a single already merged right-side conflict restores original center content", () => {
 	const model = assembleThreeWayMerge("left change\n", "center change\n", "right change\n");
 	const conflict = model.blocks.find((candidate) => candidate.kind === "conflict");
 	assert.ok(conflict);
@@ -453,5 +473,19 @@ test("removing an already merged right-side conflict restores center content", (
 	const removed = deleteMergedRenderComponentFromCenter(withRightMerged, right);
 
 	assert.equal(serializeMergeCenter(removed), "center change\n");
+	assert.equal(renderComponent(removed, "right", conflict.id).action?.kind, "merge");
+});
+
+test("removing one side from stacked conflict content keeps the other selected side", () => {
+	const model = assembleThreeWayMerge("left change\n", "center change\n", "right change\n");
+	const conflict = model.blocks.find((candidate) => candidate.kind === "conflict");
+	assert.ok(conflict);
+	const withLeftMerged = mergeRenderComponentIntoCenter(model, renderComponent(model, "left", conflict.id));
+	const withBothMerged = mergeRenderComponentIntoCenter(withLeftMerged, renderComponent(withLeftMerged, "right", conflict.id));
+	const right = renderComponent(withBothMerged, "right", conflict.id);
+
+	const removed = deleteMergedRenderComponentFromCenter(withBothMerged, right);
+
+	assert.equal(serializeMergeCenter(removed), "left change\n");
 	assert.equal(renderComponent(removed, "right", conflict.id).action?.kind, "merge");
 });

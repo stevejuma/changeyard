@@ -1,5 +1,5 @@
 import * as RadixDropdownMenu from "@radix-ui/react-dropdown-menu";
-import { AlertTriangle, ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, Copy, Folder, FolderOpen, FolderTree, GitBranch, GitCommitHorizontal, Info, Layers, List, LockKeyhole, Maximize2, MoreHorizontal, Pencil, PencilLine, Play, Plus, RotateCcw, Sparkles, Trash2, Type, Unlink, Upload, WrapText, X } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, Copy, Folder, FolderOpen, FolderTree, GitBranch, GitCommitHorizontal, GitMerge, Info, Layers, List, LockKeyhole, Maximize2, MoreHorizontal, Pencil, PencilLine, Play, Plus, RotateCcw, Sparkles, Trash2, Type, Unlink, Upload, WrapText, X } from "lucide-react";
 import { Fragment, useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent } from "react";
 
 import {
@@ -23,7 +23,7 @@ import { FileTypeIcon } from "@/components/ui/file-type-icon";
 import { MarkdownMessageEditor, MarkdownMessagePreview, type MarkdownMessageEditorMode } from "@/components/ui/markdown-message-editor";
 import { Spinner } from "@/components/ui/spinner";
 import { FileStatusGlyph, StatusChip } from "@/components/ui/status-chip";
-import { VcsConflictMergeEditor } from "@/components/vcs-conflict-merge-editor";
+import { VcsConflictMergeEditor, VcsConflictMergeLauncher, type VcsConflictMergeSource } from "@/components/vcs-conflict-merge-editor";
 import {
 	findFileByPath,
 	getFirstFilePath,
@@ -64,6 +64,7 @@ import {
 	writeVcsFileViewMode,
 	writeVcsNumberPreference,
 	type VcsFileViewMode,
+	type VcsMergeEditorPreferences,
 } from "@/utils/vcs-ui-preferences";
 import { readVcsQueryParam, useVcsRouter } from "@/utils/vcs-router";
 import {
@@ -99,6 +100,7 @@ const WORKSPACE_COLUMN_LIMITS = {
 const WORKSPACE_TRAILING_SPACER_WIDTH = WORKSPACE_COLUMN_LIMITS.diff.fallback;
 const EMPTY_CONFLICT_PATHS = new Set<string>();
 const SUMMARY_EDIT_HEIGHT = "190px";
+const COMMIT_CONFLICT_READ_ONLY_REASON = "Check out or edit this conflicted commit before saving a resolution.";
 
 function stackColumnWidthKey(stackId: string): string {
 	return `changeyard.vcs.workspace.stack.${stackId}.width`;
@@ -227,6 +229,13 @@ type CommitEditModeState = {
 	files: VcsFileChange[];
 	isSaving: boolean;
 	error: string | null;
+};
+
+type ConflictEditModeState = {
+	path: string;
+	source: VcsConflictMergeSource;
+	revision?: string | null;
+	readOnlyReason?: string;
 };
 
 type ImmutableRemoteBookmarkInfo = {
@@ -609,6 +618,8 @@ export function WorkspaceView({
 	projectState,
 	workspaceId,
 	onWorkspaceStateRefresh,
+	mergeEditorPreferences,
+	onMergeEditorPreferencesChange,
 }: {
 	state: QueryState<VcsWorkspaceState>;
 	diffState: QueryState<VcsDiffResult>;
@@ -616,6 +627,8 @@ export function WorkspaceView({
 	projectState: VcsShellProjectState;
 	workspaceId: string | null;
 	onWorkspaceStateRefresh: () => Promise<void>;
+	mergeEditorPreferences: VcsMergeEditorPreferences;
+	onMergeEditorPreferencesChange: (patch: Partial<VcsMergeEditorPreferences>) => void;
 	}): React.ReactElement {
 		const activeWorkspacePath = projectState.activeWorkspacePath;
 			const projectConfigResult = useGetProjectConfigQuery({ workspaceId: workspaceId ?? "" }, { skip: !workspaceId });
@@ -664,6 +677,8 @@ export function WorkspaceView({
 										onWorkspaceStateRefresh={onWorkspaceStateRefresh}
 										workspaceId={workspaceId}
 										workspacePath={activeWorkspacePath}
+										mergeEditorPreferences={mergeEditorPreferences}
+										onMergeEditorPreferencesChange={onMergeEditorPreferencesChange}
 									/>
 							)}
 						</QueryGate>
@@ -739,6 +754,8 @@ function WorkspaceReady({
 	onWorkspaceStateRefresh,
 	workspaceId,
 	workspacePath,
+	mergeEditorPreferences,
+	onMergeEditorPreferencesChange,
 }: {
 	data: VcsWorkspaceState;
 	diffState: QueryState<VcsDiffResult>;
@@ -747,6 +764,8 @@ function WorkspaceReady({
 	onWorkspaceStateRefresh: () => Promise<void>;
 	workspaceId: string;
 	workspacePath: string | null;
+	mergeEditorPreferences: VcsMergeEditorPreferences;
+	onMergeEditorPreferencesChange: (patch: Partial<VcsMergeEditorPreferences>) => void;
 }): React.ReactElement {
 	const [applyVcsOperation] = useApplyVcsOperationMutation();
 	const [previewVcsOperation, previewResult] = useLazyPreviewVcsOperationQuery();
@@ -800,6 +819,7 @@ function WorkspaceReady({
 		createDefaultFloatingSummaryGeometry(),
 	);
 	const [commitEditMode, setCommitEditMode] = useState<CommitEditModeState | null>(null);
+	const [conflictEditMode, setConflictEditMode] = useState<ConflictEditModeState | null>(null);
 	const [immutableCommitPrompt, setImmutableCommitPrompt] = useState<ImmutableCommitPromptState | null>(null);
 	const [stackCommitComposer, setStackCommitComposer] = useState<StackCommitComposerState | null>(null);
 	const [workspaceActionDialog, setWorkspaceActionDialog] = useState<WorkspaceActionDialogState | null>(null);
@@ -1459,6 +1479,27 @@ function WorkspaceReady({
 					: current,
 			);
 		}
+	}
+
+	function openWorkspaceConflictEditor(path: string): void {
+		setConflictEditMode({
+			path,
+			source: "workspace",
+		});
+	}
+
+	function openCommitConflictEditor(path: string, revision: string): void {
+		setConflictEditMode({
+			path,
+			source: "commit",
+			revision,
+			readOnlyReason: COMMIT_CONFLICT_READ_ONLY_REASON,
+		});
+	}
+
+	async function handleConflictEditorResolved(): Promise<void> {
+		await onWorkspaceStateRefresh();
+		setConflictEditMode(null);
 	}
 
 	function openStackCommitComposer(stackId: string, selection: VcsChangeSelection | null = null, error: string | null = null): void {
@@ -2203,13 +2244,11 @@ function WorkspaceReady({
 			topContent={diffColumnTopContent}
 			content={
 				selectedFile && selectedCommitHasConflict && selectedCommitChangeId ? (
-					<VcsConflictMergeEditor
-						workspaceId={workspaceId}
-						workspacePath={workspacePath}
+					<VcsConflictMergeLauncher
 						path={selectedFile.path}
 						source="commit"
-						revision={selectedCommitChangeId}
-						readOnlyReason="Check out or edit this conflicted commit before saving a resolution."
+						readOnlyReason={COMMIT_CONFLICT_READ_ONLY_REASON}
+						onOpen={() => openCommitConflictEditor(selectedFile.path, selectedCommitChangeId)}
 					/>
 				) : undefined
 			}
@@ -2227,12 +2266,10 @@ function WorkspaceReady({
 			onHunkDragStart={startWorkingCopyHunkDrag}
 			content={
 				selectedUnstagedFile && selectedUnstagedHasConflict ? (
-					<VcsConflictMergeEditor
-						workspaceId={workspaceId}
-						workspacePath={workspacePath}
+					<VcsConflictMergeLauncher
 						path={selectedUnstagedFile.path}
 						source="workspace"
-						onResolved={onWorkspaceStateRefresh}
+						onOpen={() => openWorkspaceConflictEditor(selectedUnstagedFile.path)}
 					/>
 				) : undefined
 			}
@@ -2422,6 +2459,15 @@ function WorkspaceReady({
 			prompt={immutableCommitPrompt}
 			onTrack={previewTrackRemoteBookmark}
 			onClose={() => setImmutableCommitPrompt(null)}
+		/>
+		<ConflictEditModeOverlay
+			conflict={conflictEditMode}
+			workspaceId={workspaceId}
+			workspacePath={workspacePath}
+			mergeEditorPreferences={mergeEditorPreferences}
+			onMergeEditorPreferencesChange={onMergeEditorPreferencesChange}
+			onClose={() => setConflictEditMode(null)}
+			onResolved={() => void handleConflictEditorResolved()}
 		/>
 		<CommitEditModeOverlay
 			editMode={commitEditMode}
@@ -4381,6 +4427,65 @@ function WorkspaceActionDialog({
 				</Button>
 			</DialogFooter>
 		</Dialog>
+	);
+}
+
+function ConflictEditModeOverlay({
+	conflict,
+	workspaceId,
+	workspacePath,
+	mergeEditorPreferences,
+	onMergeEditorPreferencesChange,
+	onClose,
+	onResolved,
+}: {
+	conflict: ConflictEditModeState | null;
+	workspaceId: string;
+	workspacePath: string | null;
+	mergeEditorPreferences: VcsMergeEditorPreferences;
+	onMergeEditorPreferencesChange: (patch: Partial<VcsMergeEditorPreferences>) => void;
+	onClose: () => void;
+	onResolved: () => Promise<void> | void;
+}): React.ReactElement | null {
+	if (!conflict) {
+		return null;
+	}
+	const isWorkspaceConflict = conflict.source === "workspace";
+	return (
+		<div className="fixed inset-0 z-50 flex min-h-0 flex-col bg-surface-0 text-text-primary">
+			<header className="flex shrink-0 items-center justify-between gap-4 border-b border-divider bg-surface-1 px-6 py-4">
+				<div className="flex min-w-0 items-center gap-3">
+					<div className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-status-orange/35 bg-status-orange/10 text-status-orange">
+						<GitMerge size={18} />
+					</div>
+					<div className="min-w-0">
+						<div className="text-lg font-semibold text-text-primary">
+							{isWorkspaceConflict ? "Resolve workspace conflict" : "Review commit conflict"}
+						</div>
+						<div className="mt-1 flex min-w-0 items-center gap-2 text-xs text-text-secondary">
+							<FileTypeIcon path={conflict.path} />
+							<span className="truncate font-mono">{conflict.path}</span>
+						</div>
+					</div>
+				</div>
+				<Button variant="ghost" icon={<X size={16} />} aria-label="Close merge editor" title="Close merge editor" onClick={onClose} />
+			</header>
+			<div className="flex min-h-0 flex-1 flex-col px-6 py-5">
+				<VcsConflictMergeEditor
+					workspaceId={workspaceId}
+					workspacePath={workspacePath}
+					path={conflict.path}
+					source={conflict.source}
+					revision={conflict.revision}
+					readOnlyReason={conflict.readOnlyReason}
+					className="min-h-0 flex-1"
+					editorClassName="min-h-0 flex-1"
+					mergeEditorPreferences={mergeEditorPreferences}
+					onMergeEditorPreferencesChange={onMergeEditorPreferencesChange}
+					onResolved={isWorkspaceConflict ? onResolved : undefined}
+				/>
+			</div>
+		</div>
 	);
 }
 

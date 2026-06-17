@@ -81,6 +81,16 @@ function centerIncludesMergedChange(block: MergeBlock): boolean {
 	return hasMergedIntoCenter(block, "left") || hasMergedIntoCenter(block, "right");
 }
 
+function oppositeSide(side: MergeSide): "left" | "right" | null {
+	if (side === "left") {
+		return "right";
+	}
+	if (side === "right") {
+		return "left";
+	}
+	return null;
+}
+
 function visualKindFor(block: MergeBlock, side: MergeSide, placeholder: boolean): RenderVisualKind {
 	if (block.kind === "unchanged") {
 		return "unchanged";
@@ -116,6 +126,15 @@ function linesForComponent(component: RenderComponent): string[] {
 	return component.lines.map((line) => line.text);
 }
 
+function originalCenterLines(block: MergeBlock): string[] {
+	return [...(block.originalBaseLines ?? lineTexts(block, "base"))];
+}
+
+function sideMatchesOriginalCenter(block: MergeBlock, side: "left" | "right", sourceLines: readonly string[]): boolean {
+	const originalLines = originalCenterLines(block);
+	return side === "left" ? startsWithSequence(originalLines, sourceLines) : endsWithSequence(originalLines, sourceLines);
+}
+
 function updateBlockCenterLines(model: MergeModel, blockId: string, lines: string[], resolved?: boolean): MergeModel {
 	const blocks = model.blocks.map((block) =>
 		block.id === blockId ? cloneBlockWithBaseLines(block, lines, resolved ?? block.resolved, model.options) : block,
@@ -136,10 +155,18 @@ export function mergeRenderComponentIntoCenter(model: MergeModel, component: Ren
 	if (block.kind !== "modified" && block.kind !== "conflict") {
 		return updateBlockCenterLines(model, block.id, sourceLines, true);
 	}
-	if (component.side === "left") {
-		return updateBlockCenterLines(model, block.id, startsWithSequence(centerLines, sourceLines) ? centerLines : [...sourceLines, ...centerLines]);
+	if (hasMergedIntoCenter(block, component.side)) {
+		return model;
 	}
-	return updateBlockCenterLines(model, block.id, endsWithSequence(centerLines, sourceLines) ? centerLines : [...centerLines, ...sourceLines]);
+	const otherSide = oppositeSide(component.side);
+	const otherSideIsMerged = otherSide ? hasMergedIntoCenter(block, otherSide) : false;
+	if (!otherSideIsMerged) {
+		return updateBlockCenterLines(model, block.id, sourceLines);
+	}
+	if (component.side === "left") {
+		return updateBlockCenterLines(model, block.id, [...sourceLines, ...centerLines]);
+	}
+	return updateBlockCenterLines(model, block.id, [...centerLines, ...sourceLines]);
 }
 
 export function deleteMergedRenderComponentFromCenter(model: MergeModel, component: RenderComponent): MergeModel {
@@ -152,10 +179,18 @@ export function deleteMergedRenderComponentFromCenter(model: MergeModel, compone
 	if (sourceLines.length === 0) {
 		return model;
 	}
+	const otherSide = oppositeSide(component.side);
+	const otherSideIsMerged = otherSide ? hasMergedIntoCenter(block, otherSide) : false;
 	if (component.side === "left" && startsWithSequence(centerLines, sourceLines)) {
+		if (!otherSideIsMerged && !sideMatchesOriginalCenter(block, "left", sourceLines)) {
+			return updateBlockCenterLines(model, block.id, originalCenterLines(block));
+		}
 		return updateBlockCenterLines(model, block.id, centerLines.slice(sourceLines.length));
 	}
 	if (component.side === "right" && endsWithSequence(centerLines, sourceLines)) {
+		if (!otherSideIsMerged && !sideMatchesOriginalCenter(block, "right", sourceLines)) {
+			return updateBlockCenterLines(model, block.id, originalCenterLines(block));
+		}
 		return updateBlockCenterLines(model, block.id, centerLines.slice(0, centerLines.length - sourceLines.length));
 	}
 	return model;

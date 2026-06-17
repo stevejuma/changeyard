@@ -6,7 +6,7 @@
 	--cy-merge-conflict-bg: color-mix(in srgb, var(--color-status-orange) 13%, var(--color-surface-0));
 	--cy-merge-resolved-bg: color-mix(in srgb, var(--color-status-blue) 12%, var(--color-surface-0));
 	--cy-merge-connector-width: 40px;
-	--cy-merge-line-number-width: 48px;
+	--cy-merge-line-number-width: 56px;
 	display: flex;
 	min-height: 0;
 	flex-direction: column;
@@ -36,6 +36,14 @@
 	white-space: nowrap;
 	font-size: 12px;
 	font-weight: 650;
+}
+
+.cy-merge-toolbar-actions {
+	position: relative;
+	display: inline-flex;
+	flex-shrink: 0;
+	align-items: center;
+	gap: 6px;
 }
 
 .cy-merge-navigation {
@@ -89,6 +97,145 @@
 	stroke-linecap: round;
 	stroke-linejoin: round;
 	stroke-width: 2;
+}
+
+.cy-merge-options-button {
+	display: inline-flex;
+	width: 24px;
+	height: 24px;
+	cursor: pointer;
+	align-items: center;
+	justify-content: center;
+	gap: 2px;
+	border: 0;
+	border-radius: 4px;
+	background: transparent;
+	color: var(--color-text-secondary);
+	padding: 0;
+}
+
+.cy-merge-options-button:hover,
+.cy-merge-options-button[data-state="open"] {
+	background: var(--color-surface-3);
+	color: var(--color-text-primary);
+}
+
+.cy-merge-options-button span {
+	width: 3px;
+	height: 3px;
+	border-radius: 999px;
+	background: currentColor;
+}
+
+.cy-merge-options-menu {
+	z-index: 1000;
+	display: grid;
+	min-width: 260px;
+	gap: 2px;
+	border: 1px solid var(--color-border);
+	border-radius: 6px;
+	background: var(--color-surface-1);
+	box-shadow: 0 10px 28px color-mix(in srgb, #000 22%, transparent);
+	padding: 6px;
+	color: var(--color-text-primary);
+	font-size: 12px;
+}
+
+.cy-merge-options-row {
+	display: flex;
+	min-height: 30px;
+	align-items: center;
+	gap: 10px;
+	border-radius: 4px;
+	padding: 4px 6px;
+	cursor: pointer;
+	outline: none;
+	user-select: none;
+}
+
+.cy-merge-options-row[data-highlighted] {
+	background: var(--color-surface-2);
+}
+
+.cy-merge-options-check,
+.cy-merge-options-radio {
+	position: relative;
+	display: inline-flex;
+	width: 14px;
+	height: 14px;
+	flex: 0 0 14px;
+	align-items: center;
+	justify-content: center;
+	border: 1px solid var(--color-border);
+	background: var(--color-surface-0);
+}
+
+.cy-merge-options-check {
+	border-radius: 3px;
+}
+
+.cy-merge-options-radio {
+	border-radius: 999px;
+}
+
+.cy-merge-options-row[data-state="checked"] .cy-merge-options-check {
+	border-color: var(--color-accent);
+	background: var(--color-accent);
+}
+
+.cy-merge-options-row[data-state="checked"] .cy-merge-options-check::after {
+	width: 7px;
+	height: 4px;
+	border-bottom: 2px solid white;
+	border-left: 2px solid white;
+	content: "";
+	transform: rotate(-45deg) translateY(-1px);
+}
+
+.cy-merge-options-row[data-state="checked"] .cy-merge-options-radio {
+	border-color: var(--color-accent);
+}
+
+.cy-merge-options-row[data-state="checked"] .cy-merge-options-radio::after {
+	width: 6px;
+	height: 6px;
+	border-radius: 999px;
+	background: var(--color-accent);
+	content: "";
+}
+
+.cy-merge-options-label {
+	padding: 6px 6px 2px;
+	color: var(--color-text-tertiary);
+	font-size: 11px;
+	font-weight: 650;
+	text-transform: uppercase;
+}
+
+.cy-merge-options-separator {
+	height: 1px;
+	margin: 4px 0;
+	background: var(--color-border);
+}
+
+.cy-merge-options-reset {
+	display: flex;
+	min-height: 30px;
+	align-items: center;
+	cursor: pointer;
+	border: 0;
+	border-radius: 4px;
+	background: transparent;
+	color: var(--color-status-orange);
+	padding: 0 6px;
+	text-align: left;
+	font: inherit;
+	outline: none;
+}
+
+.cy-merge-options-reset[data-highlighted] {
+	background: color-mix(in srgb, var(--color-status-orange) 12%, var(--color-surface-2));
+	color: var(--color-text-primary);
 }
 
 .cy-merge-pane-labels {
@@ -279,6 +426,10 @@
 	border-left: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
 }
 
+.cy-merge-view-left .cy-merge-side-panel-right {
+	border-right: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+}
+
 .cy-merge-line-number {
 	position: relative;
 	min-height: 20px;
@@ -303,12 +454,12 @@
 }
 
 .cy-merge-side-panel-left .cy-merge-line-number pre {
-	padding-left: 18px;
+	padding-left: 30px;
 	text-align: left;
 }
 
 .cy-merge-side-panel-right .cy-merge-line-number pre {
-	padding-right: 18px;
+	padding-right: 30px;
 	text-align: right;
 }
 
@@ -362,11 +513,11 @@
 }
 
 .cy-merge-side-panel-left .cy-merge-icon-button {
-	left: 0;
+	left: 4px;
 }
 
 .cy-merge-side-panel-right .cy-merge-icon-button {
-	right: 0;
+	right: 4px;
 }
 
 .cy-merge-icon-button:hover {

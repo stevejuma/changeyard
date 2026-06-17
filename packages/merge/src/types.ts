@@ -26,6 +26,7 @@ export interface MergeBlock {
 	kind: MergeBlockKind;
 	resolved: boolean;
 	sides: Partial<Record<MergeSide, MergeLine[]>>;
+	originalBaseLines?: string[];
 }
 
 export interface MergeModel {

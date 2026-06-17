@@ -2,13 +2,13 @@
 id: CY-0018
 title: Open conflicts in full-screen merge editor
 type: agent-task
-status: synced
+status: merged
 priority: medium
 labels:
   - agent-ready
 author: stevejuma
 createdAt: 2026-06-17T11:09:56.904Z
-updatedAt: 2026-06-17T11:10:35.891Z
+updatedAt: 2026-06-17T11:54:09.329Z
 base:
   vcs: unknown
   revision: main
@@ -24,10 +24,11 @@ remote:
   issueUrl: null
   pullRequestNumber: null
   pullRequestUrl: null
+  mergedLocally: true
 checks:
   profile: standard
-  lastRun: null
-  lastStatus: null
+  lastRun: 2026-06-17T11:53:54.478Z
+  lastStatus: passed
 planning:
   model: openspec-lite
   storage: inline
@@ -43,6 +44,7 @@ planning:
     strictClarifications: skipped
     strictChecklist: skipped
     strictAnalysis: skipped
+mergedAt: 2026-06-17T11:54:09.328Z
 ---
 
 # Summary
@@ -55,11 +57,11 @@ The current conflict detail panel is too cramped for practical merge resolution.
 
 # Plan
 
-- [ ] Inspect the current conflict panel, route state, and edit-commit full-screen UI.
-- [ ] Add a conflict edit action where the merge panel currently renders.
-- [ ] Add a full-screen conflict editor view with editable center content and left/right accept-all controls.
-- [ ] Preserve current read-only behavior for historical conflicted commits unless saving is supported by the existing runtime contract.
-- [ ] Run targeted VCS and merge checks.
+- [x] Inspect the current conflict panel, route state, and edit-commit full-screen UI.
+- [x] Add a conflict edit action where the merge panel currently renders.
+- [x] Add a full-screen conflict editor view with editable center content and left/right accept-all controls.
+- [x] Preserve current read-only behavior for historical conflicted commits unless saving is supported by the existing runtime contract.
+- [x] Run targeted VCS and merge checks.
 
 <!-- cy:proposal:start -->
 # Proposal
@@ -105,7 +107,7 @@ Reuse the VCS full-screen edit pattern where possible. Keep conflict-file loadin
 
 ## REMOVED Requirements
 
-Document removed behavior, or leave `None.`
+None.
 <!-- cy:spec-deltas:end -->
 
 <!-- cy:design:start -->
@@ -113,16 +115,16 @@ Document removed behavior, or leave `None.`
 
 ## Technical Approach
 
-Find the current route/query state used for selected commit/workspace files and extend it with an edit-conflict mode, mirroring the edit-commit full-screen structure. Update the conflict merge component or wrapper so it can render either as a compact launch panel or as the full merge editor.
+Find the current route/query state used for selected commit/workspace files and add a local edit-conflict mode that mirrors the edit-commit full-screen structure. Update the conflict merge component wrapper so the diff column renders a compact launch panel and the full-screen overlay renders the merge editor.
 
 ## Architecture Decisions
 
-- Prefer route/query driven UI state so reload/back behavior stays consistent with the rest of the VCS app.
+- Prefer local focused-mode state to match the existing edit-commit overlay and avoid adding URL state for a temporary editor surface.
 - Keep merge semantics inside `@changeyard/merge`; VCS supplies conflict content, labels, readonly/editable flags, and save callbacks.
 
 ## Data / State Impact
 
-No persistent schema changes are expected. UI state may add a route/query parameter for the active conflict editor.
+No persistent schema changes. The active conflict editor is transient React state.
 
 ## Workspace / Provider Impact
 
@@ -130,7 +132,7 @@ No provider changes are expected. Current workspace conflicts continue to save t
 
 ## Risks
 
-- Full-screen route state could conflict with existing file selection query params; mitigate with focused route tests.
+- Full-screen editor state could get stale after conflict resolution; mitigate by closing it after a successful workspace save.
 - Editable center content could diverge from merge model state; mitigate with targeted UI and package checks.
 <!-- cy:design:end -->
 
@@ -143,12 +145,12 @@ No provider changes are expected. Current workspace conflicts continue to save t
 
 ## 2. Implementation
 
-- [ ] Add conflict editor launch state and full-screen view
-- [ ] Wire editor save/readonly behavior and accept-all controls
+- [x] Add conflict editor launch state and full-screen view
+- [x] Wire editor save/readonly behavior and accept-all controls
 
 ## 3. Verification
 
-- [ ] Run checks and record results
+- [x] Run checks and record results
 <!-- cy:tasks:end -->
 
 <!-- cy:verification:start -->
@@ -169,16 +171,23 @@ No provider changes are expected. Current workspace conflicts continue to save t
 
 ## Result
 
-_Not run yet._
+- Passed: `pnpm --filter @changeyard/vcs run typecheck`
+- Passed: `pnpm --filter @changeyard/vcs run test`
+- Passed: `pnpm --filter @changeyard/merge run test`
+- Passed: `pnpm --filter @changeyard/merge run typecheck`
+- Passed: browser verification on the JJ commit conflict route at `http://127.0.0.1:4174/vcs/jj?workspaceId=repo-t9d5&commit=wwsplsmprqqn`; the detail column shows the launcher and the full-screen merge editor opens read-only.
+- Passed: browser verification on the JJ workspace conflict route at `http://127.0.0.1:4174/vcs/jj?workspaceId=repo-t9d5&workspacePath=...CY-CONFLICT...&workingCopyFile=src%2Fconflict.rs`; the full-screen editor has left/right accept-all controls, an editable base textarea, and a save button.
+- Passed: browser verification that selecting left replaces the center block, deleting that selected side restores the original center block, and then selecting both left and right stacks both side contents.
+- Passed: browser verification that the Radix merge editor options menu opens above the full-screen editor, shows `Ignore whitespace` and synchronized horizontal scroll enabled by default, and updates the same state shown in Settings.
 <!-- cy:verification:end -->
 
 # Acceptance Criteria
-- [ ] Conflicted file detail area launches a full-screen merge editor instead of showing the embedded editor.
-- [ ] Full-screen editor matches the edit-commit presentation pattern and can close back to the VCS view.
-- [ ] Current workspace conflict center pane is editable and save remains gated by resolved conflict state.
-- [ ] Accept-all-left/right controls are available in the left/right pane headers and work.
-- [ ] Historical commit conflicts open read-only.
-- [ ] Targeted checks are recorded in Completion Notes.
+- [x] Conflicted file detail area launches a full-screen merge editor instead of showing the embedded editor.
+- [x] Full-screen editor matches the edit-commit presentation pattern and can close back to the VCS view.
+- [x] Current workspace conflict center pane is editable and save remains gated by resolved conflict state.
+- [x] Accept-all-left/right controls are available in the left/right pane headers and work.
+- [x] Historical commit conflicts open read-only.
+- [x] Targeted checks are recorded in Completion Notes.
 
 # Agent Plan
 
@@ -189,4 +198,13 @@ _Not run yet._
 
 # Completion Notes
 
-Summarize what changed, what checks ran, and what risks remain.
+- Added `VcsConflictMergeLauncher` for compact conflict cards in the diff/detail column.
+- Added a full-screen conflict editor overlay in the JJ workspace view, reusing `VcsConflictMergeEditor`.
+- Current workspace conflicts open with an editable center pane, visible Save action, and left/right accept-all controls from `@changeyard/merge`.
+- Commit conflicts open in the same full-screen view read-only with the existing checkout/edit guidance.
+- Fixed render-driven side selection so a single left/right selection replaces center content, deleting that selection restores the original center content, and selecting both sides stacks left then right.
+- Restored the left-pane gutter/code border and increased gutter/action spacing.
+- Added a Radix-backed merge editor options menu with whitespace/case, synchronized horizontal scroll, gutter action visibility, line diff algorithm, and reset-to-original controls.
+- Added persisted VCS merge editor preferences with defaults of `ignoreWhitespace: true` and `syncHorizontalScroll: true`.
+- Added a Settings > Merge Editor category using Radix switches/selects and the same global preference state as the editor menu.
+- Checks passed: `pnpm --filter @changeyard/merge run test`, `pnpm --filter @changeyard/merge run typecheck`, `pnpm --filter @changeyard/vcs run typecheck`, `pnpm --filter @changeyard/vcs run test`, and targeted browser verification on commit/workspace conflict fixture routes plus merge option popup/settings flows.

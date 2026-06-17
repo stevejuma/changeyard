@@ -1,12 +1,16 @@
-import { ThreePaneMergeEditor, type MergeResolvedChange } from "@changeyard/merge/react";
-import { AlertTriangle, Check, GitMerge, Save } from "lucide-react";
+import { ThreePaneMergeEditor, type MergeEditorOptionPatch, type MergeResolvedChange } from "@changeyard/merge/react";
+import { AlertTriangle, Check, GitMerge, Maximize2, Save } from "lucide-react";
 import { useCallback, useMemo, useState, type ReactElement } from "react";
 
 import { showAppToast } from "@/components/app-toaster";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/spinner";
 import { EmptyState } from "@/components/vcs-panels";
 import { useGetVcsConflictFileQuery, useResolveVcsConflictFileMutation } from "@/runtime/vcs-api";
+import type { VcsMergeEditorPreferences } from "@/utils/vcs-ui-preferences";
+
+export type VcsConflictMergeSource = "workspace" | "commit";
 
 function languageFromPath(path: string): string | undefined {
 	const extension = path.split(".").pop()?.toLowerCase();
@@ -23,14 +27,22 @@ export function VcsConflictMergeEditor({
 	source = "workspace",
 	revision,
 	readOnlyReason,
+	className,
+	editorClassName,
+	mergeEditorPreferences,
+	onMergeEditorPreferencesChange,
 	onResolved,
 }: {
 	workspaceId: string;
 	workspacePath: string | null;
 	path: string;
-	source?: "workspace" | "commit";
+	source?: VcsConflictMergeSource;
 	revision?: string | null;
 	readOnlyReason?: string;
+	className?: string;
+	editorClassName?: string;
+	mergeEditorPreferences?: VcsMergeEditorPreferences;
+	onMergeEditorPreferencesChange?: (patch: MergeEditorOptionPatch) => void;
 	onResolved?: () => Promise<void> | void;
 }): ReactElement {
 	const query = useGetVcsConflictFileQuery(
@@ -112,7 +124,7 @@ export function VcsConflictMergeEditor({
 	}
 
 	return (
-		<div className="grid gap-2">
+		<div className={cn("flex min-h-0 flex-col gap-2", className)}>
 			<div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-surface-0 px-3 py-2">
 				<div className="flex min-w-0 items-center gap-2 text-xs text-text-secondary">
 					<GitMerge size={15} className="shrink-0 text-status-orange" />
@@ -152,8 +164,15 @@ export function VcsConflictMergeEditor({
 				path={path}
 				language={languageFromPath(path)}
 				readOnly={readOnly}
+				ignoreWhitespace={mergeEditorPreferences?.ignoreWhitespace}
+				ignoreCase={mergeEditorPreferences?.ignoreCase}
+				lineDiffAlgorithm={mergeEditorPreferences?.lineDiffAlgorithm}
+				syncHorizontalScroll={mergeEditorPreferences?.syncHorizontalScroll}
+				editableSideControls={mergeEditorPreferences?.editableSideControls}
 				onBaseChange={setResolvedContent}
 				onResolvedChange={handleResolvedChange}
+				onOptionsChange={onMergeEditorPreferencesChange}
+				className={editorClassName}
 			/>
 			{!readOnly && resolvedState?.resolved ? (
 				<div className="flex items-center gap-2 text-xs text-status-green">
@@ -161,6 +180,43 @@ export function VcsConflictMergeEditor({
 					<span>All conflict blocks are marked resolved.</span>
 				</div>
 			) : null}
+		</div>
+	);
+}
+
+export function VcsConflictMergeLauncher({
+	path,
+	source = "workspace",
+	readOnlyReason,
+	onOpen,
+}: {
+	path: string;
+	source?: VcsConflictMergeSource;
+	readOnlyReason?: string;
+	onOpen: () => void;
+}): ReactElement {
+	const isWorkspaceConflict = source === "workspace";
+	return (
+		<div className="grid gap-3 rounded-md border border-status-orange/35 bg-status-orange/10 p-4 text-sm text-text-primary">
+			<div className="flex min-w-0 items-start gap-3">
+				<div className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-md border border-status-orange/35 bg-surface-0 text-status-orange">
+					<GitMerge size={17} />
+				</div>
+				<div className="min-w-0 flex-1">
+					<div className="font-semibold text-text-primary">{isWorkspaceConflict ? "Resolve workspace conflict" : "Review commit conflict"}</div>
+					<div className="mt-1 truncate font-mono text-xs text-text-secondary">{path}</div>
+					<div className="mt-2 text-xs leading-5 text-text-secondary">
+						{isWorkspaceConflict
+							? "Open the full merge editor to resolve this file with an editable center pane."
+							: readOnlyReason ?? "This historical conflict opens read-only until the commit is checked out or edited."}
+					</div>
+				</div>
+			</div>
+			<div className="flex justify-end">
+				<Button variant="primary" icon={<Maximize2 size={14} />} onClick={onOpen} data-testid="vcs-conflict-edit-button">
+					Open merge editor
+				</Button>
+			</div>
 		</div>
 	);
 }

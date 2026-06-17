@@ -1,4 +1,14 @@
+import type { LineDiffAlgorithm } from "@changeyard/merge/react";
+
 export type VcsFileViewMode = "list" | "tree";
+
+export type VcsMergeEditorPreferences = {
+	ignoreWhitespace: boolean;
+	ignoreCase: boolean;
+	lineDiffAlgorithm: LineDiffAlgorithm;
+	syncHorizontalScroll: boolean;
+	editableSideControls: boolean;
+};
 
 export const VCS_LAYOUT_STORAGE_KEYS = {
 	projectNavCollapsed: "changeyard.vcs.project-nav.collapsed",
@@ -21,6 +31,15 @@ export const VCS_LAYOUT_STORAGE_KEYS = {
 export const VCS_LAYOUT_STORAGE_KEY_VALUES = Object.values(VCS_LAYOUT_STORAGE_KEYS);
 
 export const VCS_F_MODE_ENABLED_STORAGE_KEY = "changeyard.vcs.f-mode.enabled";
+export const VCS_MERGE_EDITOR_PREFERENCES_STORAGE_KEY = "changeyard.vcs.merge-editor.preferences";
+
+export const DEFAULT_VCS_MERGE_EDITOR_PREFERENCES: VcsMergeEditorPreferences = {
+	ignoreWhitespace: true,
+	ignoreCase: false,
+	lineDiffAlgorithm: "words_with_space",
+	syncHorizontalScroll: true,
+	editableSideControls: true,
+};
 
 export function clampNumber(value: number, min: number, max: number): number {
 	return Math.max(min, Math.min(max, Math.round(value)));
@@ -82,6 +101,44 @@ export function writeVcsFileViewMode(mode: VcsFileViewMode): VcsFileViewMode {
 		window.localStorage.setItem(VCS_LAYOUT_STORAGE_KEYS.fileViewMode, mode);
 	}
 	return mode;
+}
+
+function normalizeLineDiffAlgorithm(value: unknown): LineDiffAlgorithm {
+	return value === "characters" || value === "words" || value === "words_with_space"
+		? value
+		: DEFAULT_VCS_MERGE_EDITOR_PREFERENCES.lineDiffAlgorithm;
+}
+
+export function normalizeVcsMergeEditorPreferences(value: Partial<VcsMergeEditorPreferences> | null | undefined): VcsMergeEditorPreferences {
+	return {
+		...DEFAULT_VCS_MERGE_EDITOR_PREFERENCES,
+		...(value ?? {}),
+		lineDiffAlgorithm: normalizeLineDiffAlgorithm(value?.lineDiffAlgorithm),
+	};
+}
+
+export function readVcsMergeEditorPreferences(): VcsMergeEditorPreferences {
+	if (typeof window === "undefined") {
+		return DEFAULT_VCS_MERGE_EDITOR_PREFERENCES;
+	}
+	const storedValue = window.localStorage.getItem(VCS_MERGE_EDITOR_PREFERENCES_STORAGE_KEY);
+	if (!storedValue) {
+		return DEFAULT_VCS_MERGE_EDITOR_PREFERENCES;
+	}
+	try {
+		const parsed = JSON.parse(storedValue) as Partial<VcsMergeEditorPreferences>;
+		return normalizeVcsMergeEditorPreferences(parsed);
+	} catch {
+		return DEFAULT_VCS_MERGE_EDITOR_PREFERENCES;
+	}
+}
+
+export function writeVcsMergeEditorPreferences(preferences: VcsMergeEditorPreferences): VcsMergeEditorPreferences {
+	const normalized = normalizeVcsMergeEditorPreferences(preferences);
+	if (typeof window !== "undefined") {
+		window.localStorage.setItem(VCS_MERGE_EDITOR_PREFERENCES_STORAGE_KEY, JSON.stringify(normalized));
+	}
+	return normalized;
 }
 
 export function resetVcsLayoutPreferences(): void {

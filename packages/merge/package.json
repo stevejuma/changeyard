@@ -26,7 +26,8 @@
     "test": "node --import tsx --test src/*.test.ts"
   },
   "peerDependencies": {
-    "react": ">=18"
+    "react": ">=18",
+    "react-dom": ">=18"
   },
   "devDependencies": {
     "@types/node": "^24.13.2",
@@ -38,5 +39,8 @@
     "tsx": "^4.21.0",
     "typescript": "^5.9.2",
     "vite": "^6.4.2"
+  },
+  "dependencies": {
+    "@radix-ui/react-dropdown-menu": "^2.1.17"
   }
 }

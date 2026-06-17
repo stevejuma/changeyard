@@ -32,8 +32,11 @@ import { withWorkspaceParam } from "@/utils/vcs-navigation";
 import {
 	VCS_F_MODE_ENABLED_STORAGE_KEY,
 	readVcsBooleanPreference,
+	readVcsMergeEditorPreferences,
 	VCS_LAYOUT_STORAGE_KEYS,
 	writeVcsBooleanPreference,
+	writeVcsMergeEditorPreferences,
+	type VcsMergeEditorPreferences,
 } from "@/utils/vcs-ui-preferences";
 import { readVcsQueryParam, useVcsRouter } from "@/utils/vcs-router";
 import "@changeyard/merge/styles.css";
@@ -99,6 +102,9 @@ export default function App(): React.ReactElement {
 	);
 	const [fModeEnabled, setFModeEnabledState] = useState(() =>
 		readVcsBooleanPreference(VCS_F_MODE_ENABLED_STORAGE_KEY, false),
+	);
+	const [mergeEditorPreferences, setMergeEditorPreferencesState] = useState<VcsMergeEditorPreferences>(() =>
+		readVcsMergeEditorPreferences(),
 	);
 	const [removingProjectId, setRemovingProjectId] = useState<string | null>(null);
 	const [optimisticallyRemovedProjectIds, setOptimisticallyRemovedProjectIds] = useState<Set<string>>(() => new Set());
@@ -217,6 +223,14 @@ export default function App(): React.ReactElement {
 
 	function setFModeEnabled(enabled: boolean): void {
 		setFModeEnabledState(writeVcsBooleanPreference(VCS_F_MODE_ENABLED_STORAGE_KEY, enabled));
+	}
+
+	function updateMergeEditorPreferences(patch: Partial<VcsMergeEditorPreferences>): void {
+		setMergeEditorPreferencesState((current) => writeVcsMergeEditorPreferences({ ...current, ...patch }));
+	}
+
+	function replaceMergeEditorPreferences(preferences: VcsMergeEditorPreferences): void {
+		setMergeEditorPreferencesState(writeVcsMergeEditorPreferences(preferences));
 	}
 
 	function handleAddProjectSuccess(projectId: string): void {
@@ -371,6 +385,8 @@ export default function App(): React.ReactElement {
 				onWorkspaceStateRefresh={async () => {
 					await workspaceStateResult.refetch();
 				}}
+				mergeEditorPreferences={mergeEditorPreferences}
+				onMergeEditorPreferencesChange={updateMergeEditorPreferences}
 			/>
 		);
 	} else {
@@ -386,6 +402,8 @@ export default function App(): React.ReactElement {
 					onWorkspaceStateRefresh={async () => {
 						await workspaceStateResult.refetch();
 					}}
+					mergeEditorPreferences={mergeEditorPreferences}
+					onMergeEditorPreferencesChange={updateMergeEditorPreferences}
 				/>
 			);
 			break;
@@ -419,6 +437,8 @@ export default function App(): React.ReactElement {
 					onWorkspaceStateRefresh={async () => {
 						await workspaceStateResult.refetch();
 					}}
+					mergeEditorPreferences={mergeEditorPreferences}
+					onMergeEditorPreferencesChange={updateMergeEditorPreferences}
 				/>
 			);
 			break;
@@ -449,6 +469,8 @@ export default function App(): React.ReactElement {
 				state={detectQuery.state}
 				fModeEnabled={fModeEnabled}
 				onFModeEnabledChange={setFModeEnabled}
+				mergeEditorPreferences={mergeEditorPreferences}
+				onMergeEditorPreferencesChange={replaceMergeEditorPreferences}
 			/>
 		</>
 	);

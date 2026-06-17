@@ -1,3 +1,4 @@
+import * as RadixDropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactElement, type ReactNode, type RefObject } from "react";
 
 import {
@@ -39,6 +40,14 @@ export interface MergeResolvedChange {
 	content: string;
 }
 
+export type MergeEditorOptionPatch = Partial<{
+	ignoreWhitespace: boolean;
+	ignoreCase: boolean;
+	lineDiffAlgorithm: LineDiffAlgorithm;
+	syncHorizontalScroll: boolean;
+	editableSideControls: boolean;
+}>;
+
 export interface ThreePaneMergeEditorProps extends MergeOptions {
 	left: string;
 	base: string;
@@ -57,6 +66,7 @@ export interface ThreePaneMergeEditorProps extends MergeOptions {
 	onBaseChange?: (content: string) => void;
 	onRightChange?: (content: string) => void;
 	onResolvedChange?: (state: MergeResolvedChange) => void;
+	onOptionsChange?: (patch: MergeEditorOptionPatch) => void;
 }
 
 export interface TwoPaneDiffEditorProps extends MergeOptions {
@@ -72,6 +82,7 @@ export interface TwoPaneDiffEditorProps extends MergeOptions {
 	syncHorizontalScroll?: boolean;
 	onLeftChange?: (content: string) => void;
 	onRightChange?: (content: string) => void;
+	onOptionsChange?: (patch: MergeEditorOptionPatch) => void;
 }
 
 function optionsFromProps(props: MergeOptions): MergeOptions {
@@ -80,6 +91,32 @@ function optionsFromProps(props: MergeOptions): MergeOptions {
 		ignoreWhitespace: props.ignoreWhitespace,
 		lineDiffAlgorithm: props.lineDiffAlgorithm,
 	};
+}
+
+type EffectiveMergeEditorOptions = {
+	ignoreWhitespace: boolean;
+	ignoreCase: boolean;
+	lineDiffAlgorithm: LineDiffAlgorithm;
+	syncHorizontalScroll: boolean;
+	editableSideControls: boolean;
+};
+
+const DEFAULT_REACT_MERGE_OPTIONS: EffectiveMergeEditorOptions = {
+	ignoreWhitespace: true,
+	ignoreCase: false,
+	lineDiffAlgorithm: "words_with_space",
+	syncHorizontalScroll: true,
+	editableSideControls: true,
+};
+
+function lineDiffAlgorithmLabel(algorithm: LineDiffAlgorithm): string {
+	if (algorithm === "characters") {
+		return "Characters";
+	}
+	if (algorithm === "words") {
+		return "Words";
+	}
+	return "Words with spaces";
 }
 
 function emitResolvedChange(model: MergeModel, onResolvedChange?: (state: MergeResolvedChange) => void): void {
@@ -769,6 +806,87 @@ function MergeNavigation({
 	);
 }
 
+function MergeOptionsMenu({
+	values,
+	onOptionsChange,
+	onResetToOriginal,
+}: {
+	values: EffectiveMergeEditorOptions;
+	onOptionsChange: (patch: MergeEditorOptionPatch) => void;
+	onResetToOriginal: () => void;
+}): ReactElement {
+	const algorithms: readonly LineDiffAlgorithm[] = ["words_with_space", "words", "characters"];
+	return (
+		<RadixDropdownMenu.Root>
+			<RadixDropdownMenu.Trigger asChild>
+				<button
+					type="button"
+					className="cy-merge-options-button"
+					aria-label="Merge editor options"
+					title="Merge editor options"
+				>
+					<span />
+					<span />
+					<span />
+				</button>
+			</RadixDropdownMenu.Trigger>
+			<RadixDropdownMenu.Portal>
+				<RadixDropdownMenu.Content className="cy-merge-options-menu" align="end" sideOffset={6}>
+					<RadixDropdownMenu.CheckboxItem
+						className="cy-merge-options-row"
+						checked={values.ignoreWhitespace}
+						onCheckedChange={(checked) => onOptionsChange({ ignoreWhitespace: checked === true })}
+					>
+						<span className="cy-merge-options-check" aria-hidden="true" />
+						<span>Ignore whitespace</span>
+					</RadixDropdownMenu.CheckboxItem>
+					<RadixDropdownMenu.CheckboxItem
+						className="cy-merge-options-row"
+						checked={values.ignoreCase}
+						onCheckedChange={(checked) => onOptionsChange({ ignoreCase: checked === true })}
+					>
+						<span className="cy-merge-options-check" aria-hidden="true" />
+						<span>Ignore case</span>
+					</RadixDropdownMenu.CheckboxItem>
+					<RadixDropdownMenu.CheckboxItem
+						className="cy-merge-options-row"
+						checked={values.syncHorizontalScroll}
+						onCheckedChange={(checked) => onOptionsChange({ syncHorizontalScroll: checked === true })}
+					>
+						<span className="cy-merge-options-check" aria-hidden="true" />
+						<span>Synchronized horizontal scroll</span>
+					</RadixDropdownMenu.CheckboxItem>
+					<RadixDropdownMenu.CheckboxItem
+						className="cy-merge-options-row"
+						checked={values.editableSideControls}
+						onCheckedChange={(checked) => onOptionsChange({ editableSideControls: checked === true })}
+					>
+						<span className="cy-merge-options-check" aria-hidden="true" />
+						<span>Actions in gutters</span>
+					</RadixDropdownMenu.CheckboxItem>
+					<RadixDropdownMenu.Separator className="cy-merge-options-separator" />
+					<RadixDropdownMenu.Label className="cy-merge-options-label">Line diff</RadixDropdownMenu.Label>
+					<RadixDropdownMenu.RadioGroup
+						value={values.lineDiffAlgorithm}
+						onValueChange={(value) => onOptionsChange({ lineDiffAlgorithm: value as LineDiffAlgorithm })}
+					>
+						{algorithms.map((algorithm) => (
+							<RadixDropdownMenu.RadioItem key={algorithm} value={algorithm} className="cy-merge-options-row">
+								<span className="cy-merge-options-radio" aria-hidden="true" />
+								<span>{lineDiffAlgorithmLabel(algorithm)}</span>
+							</RadixDropdownMenu.RadioItem>
+						))}
+					</RadixDropdownMenu.RadioGroup>
+					<RadixDropdownMenu.Separator className="cy-merge-options-separator" />
+					<RadixDropdownMenu.Item className="cy-merge-options-reset" onSelect={onResetToOriginal}>
+						Reset to original
+					</RadixDropdownMenu.Item>
+				</RadixDropdownMenu.Content>
+			</RadixDropdownMenu.Portal>
+		</RadixDropdownMenu.Root>
+	);
+}
+
 function MergeFooter({ model, sides }: { model: MergeModel; sides: MergeSide[] }): ReactElement {
 	const words = sides.map((side) => countWords(model[side])).join("/");
 	const chars = sides.map((side) => model[side].length).join("/");
@@ -819,17 +937,41 @@ export function ThreePaneMergeEditor({
 	language,
 	readOnly = false,
 	className,
-	editableSideControls = true,
+	editableSideControls: editableSideControlsProp = DEFAULT_REACT_MERGE_OPTIONS.editableSideControls,
 	editableSides,
-	syncHorizontalScroll = false,
+	syncHorizontalScroll: syncHorizontalScrollProp = DEFAULT_REACT_MERGE_OPTIONS.syncHorizontalScroll,
 	onLeftChange,
 	onBaseChange,
 	onRightChange,
 	onResolvedChange,
+	onOptionsChange,
 	...options
 }: ThreePaneMergeEditorProps): ReactElement {
 	const editorRef = useRef<HTMLDivElement>(null);
-	const normalizedOptions = useMemo(() => optionsFromProps(options), [options.ignoreCase, options.ignoreWhitespace, options.lineDiffAlgorithm]);
+	const [localOptionOverrides, setLocalOptionOverrides] = useState<MergeEditorOptionPatch>({});
+	const effectiveOptions = useMemo<EffectiveMergeEditorOptions>(
+		() => ({
+			ignoreWhitespace: (onOptionsChange ? options.ignoreWhitespace : localOptionOverrides.ignoreWhitespace ?? options.ignoreWhitespace) ?? DEFAULT_REACT_MERGE_OPTIONS.ignoreWhitespace,
+			ignoreCase: (onOptionsChange ? options.ignoreCase : localOptionOverrides.ignoreCase ?? options.ignoreCase) ?? DEFAULT_REACT_MERGE_OPTIONS.ignoreCase,
+			lineDiffAlgorithm: (onOptionsChange ? options.lineDiffAlgorithm : localOptionOverrides.lineDiffAlgorithm ?? options.lineDiffAlgorithm) ?? DEFAULT_REACT_MERGE_OPTIONS.lineDiffAlgorithm,
+			syncHorizontalScroll: (onOptionsChange ? syncHorizontalScrollProp : localOptionOverrides.syncHorizontalScroll ?? syncHorizontalScrollProp) ?? DEFAULT_REACT_MERGE_OPTIONS.syncHorizontalScroll,
+			editableSideControls: (onOptionsChange ? editableSideControlsProp : localOptionOverrides.editableSideControls ?? editableSideControlsProp) ?? DEFAULT_REACT_MERGE_OPTIONS.editableSideControls,
+		}),
+		[
+			editableSideControlsProp,
+			localOptionOverrides.editableSideControls,
+			localOptionOverrides.ignoreCase,
+			localOptionOverrides.ignoreWhitespace,
+			localOptionOverrides.lineDiffAlgorithm,
+			localOptionOverrides.syncHorizontalScroll,
+			onOptionsChange,
+			options.ignoreCase,
+			options.ignoreWhitespace,
+			options.lineDiffAlgorithm,
+			syncHorizontalScrollProp,
+		],
+	);
+	const normalizedOptions = useMemo(() => optionsFromProps(effectiveOptions), [effectiveOptions]);
 	const syntaxLanguage = useMemo(() => normalizeLanguage(language, path), [language, path]);
 	const [source, setSource] = useState(() => ({ left, base, right }));
 	const [model, setModel] = useState(() => assembleThreeWayMerge(left, base, right, normalizedOptions));
@@ -849,7 +991,7 @@ export function ThreePaneMergeEditor({
 	}, [model.blocks]);
 	const activeNavigationTarget = activeNavigationIndex >= 0 ? navigationTargets[activeNavigationIndex] : undefined;
 	const connectorGeometry = useConnectorGeometry(editorRef, renderModel);
-	usePaneScrollSync(editorRef, syncHorizontalScroll);
+	usePaneScrollSync(editorRef, effectiveOptions.syncHorizontalScroll);
 	useActiveNavigationHighlight(editorRef, activeNavigationTarget?.blockId);
 
 	useEffect(() => {
@@ -913,6 +1055,25 @@ export function ThreePaneMergeEditor({
 		emitResolvedChange(nextModel, onResolvedChange);
 	}
 
+	function updateEditorOptions(patch: MergeEditorOptionPatch): void {
+		if (onOptionsChange) {
+			onOptionsChange(patch);
+			return;
+		}
+		setLocalOptionOverrides((current) => ({ ...current, ...patch }));
+	}
+
+	function resetToOriginal(): void {
+		const nextSource = { left, base, right };
+		const nextModel = assembleThreeWayMerge(left, base, right, normalizedOptions);
+		setSource(nextSource);
+		setModel(nextModel);
+		onLeftChange?.(left);
+		onBaseChange?.(base);
+		onRightChange?.(right);
+		emitResolvedChange(nextModel, onResolvedChange);
+	}
+
 	function applyComponentAction(component: RenderComponent): void {
 		if (!component.action) {
 			return;
@@ -950,20 +1111,23 @@ export function ThreePaneMergeEditor({
 				<div className="cy-merge-title">
 					<span>{path ?? "Merge"}</span>
 				</div>
-				<MergeNavigation
-					target={navigationTargets[0]}
-					targetCount={navigationTargets.length}
-					activeIndex={activeNavigationIndex}
-					onPrevious={navigatePrevious}
-					onNext={navigateNext}
-				/>
+				<div className="cy-merge-toolbar-actions">
+					<MergeNavigation
+						target={navigationTargets[0]}
+						targetCount={navigationTargets.length}
+						activeIndex={activeNavigationIndex}
+						onPrevious={navigatePrevious}
+						onNext={navigateNext}
+					/>
+					<MergeOptionsMenu values={effectiveOptions} onOptionsChange={updateEditorOptions} onResetToOriginal={resetToOriginal} />
+				</div>
 			</div>
 			<div className="cy-merge-pane-labels cy-merge-pane-labels-three">
-				<PaneLabel label={leftLabel} side="left" showAcceptAll={editableSideControls && !readOnly} onAcceptAll={() => applyAction(undefined, "left")} />
+				<PaneLabel label={leftLabel} side="left" showAcceptAll={effectiveOptions.editableSideControls && !readOnly} onAcceptAll={() => applyAction(undefined, "left")} />
 				<div aria-hidden="true" />
 				<PaneLabel label={baseLabel} />
 				<div aria-hidden="true" />
-				<PaneLabel label={rightLabel} side="right" showAcceptAll={editableSideControls && !readOnly} onAcceptAll={() => applyAction(undefined, "right")} />
+				<PaneLabel label={rightLabel} side="right" showAcceptAll={effectiveOptions.editableSideControls && !readOnly} onAcceptAll={() => applyAction(undefined, "right")} />
 			</div>
 			<div className="cy-merge-main cy-merge-main-three">
 				<div className="cy-merge-views cy-merge-views-three">
@@ -1019,14 +1183,38 @@ export function TwoPaneDiffEditor({
 	language,
 	readOnly = false,
 	className,
-	editableSideControls = true,
-	syncHorizontalScroll = false,
+	editableSideControls: editableSideControlsProp = DEFAULT_REACT_MERGE_OPTIONS.editableSideControls,
+	syncHorizontalScroll: syncHorizontalScrollProp = DEFAULT_REACT_MERGE_OPTIONS.syncHorizontalScroll,
 	onLeftChange,
 	onRightChange,
+	onOptionsChange,
 	...options
 }: TwoPaneDiffEditorProps): ReactElement {
 	const editorRef = useRef<HTMLDivElement>(null);
-	const normalizedOptions = useMemo(() => optionsFromProps(options), [options.ignoreCase, options.ignoreWhitespace, options.lineDiffAlgorithm]);
+	const [localOptionOverrides, setLocalOptionOverrides] = useState<MergeEditorOptionPatch>({});
+	const effectiveOptions = useMemo<EffectiveMergeEditorOptions>(
+		() => ({
+			ignoreWhitespace: (onOptionsChange ? options.ignoreWhitespace : localOptionOverrides.ignoreWhitespace ?? options.ignoreWhitespace) ?? DEFAULT_REACT_MERGE_OPTIONS.ignoreWhitespace,
+			ignoreCase: (onOptionsChange ? options.ignoreCase : localOptionOverrides.ignoreCase ?? options.ignoreCase) ?? DEFAULT_REACT_MERGE_OPTIONS.ignoreCase,
+			lineDiffAlgorithm: (onOptionsChange ? options.lineDiffAlgorithm : localOptionOverrides.lineDiffAlgorithm ?? options.lineDiffAlgorithm) ?? DEFAULT_REACT_MERGE_OPTIONS.lineDiffAlgorithm,
+			syncHorizontalScroll: (onOptionsChange ? syncHorizontalScrollProp : localOptionOverrides.syncHorizontalScroll ?? syncHorizontalScrollProp) ?? DEFAULT_REACT_MERGE_OPTIONS.syncHorizontalScroll,
+			editableSideControls: (onOptionsChange ? editableSideControlsProp : localOptionOverrides.editableSideControls ?? editableSideControlsProp) ?? DEFAULT_REACT_MERGE_OPTIONS.editableSideControls,
+		}),
+		[
+			editableSideControlsProp,
+			localOptionOverrides.editableSideControls,
+			localOptionOverrides.ignoreCase,
+			localOptionOverrides.ignoreWhitespace,
+			localOptionOverrides.lineDiffAlgorithm,
+			localOptionOverrides.syncHorizontalScroll,
+			onOptionsChange,
+			options.ignoreCase,
+			options.ignoreWhitespace,
+			options.lineDiffAlgorithm,
+			syncHorizontalScrollProp,
+		],
+	);
+	const normalizedOptions = useMemo(() => optionsFromProps(effectiveOptions), [effectiveOptions]);
 	const syntaxLanguage = useMemo(() => normalizeLanguage(language, path), [language, path]);
 	const [source, setSource] = useState(() => ({ left, right }));
 	const [model, setModel] = useState(() => assembleOneWayMerge(left, right, normalizedOptions));
@@ -1038,7 +1226,7 @@ export function TwoPaneDiffEditor({
 	);
 	const activeNavigationTarget = activeNavigationIndex >= 0 ? navigationTargets[activeNavigationIndex] : undefined;
 	const connectorGeometry = useConnectorGeometry(editorRef, renderModel);
-	usePaneScrollSync(editorRef, syncHorizontalScroll);
+	usePaneScrollSync(editorRef, effectiveOptions.syncHorizontalScroll);
 	useActiveNavigationHighlight(editorRef, activeNavigationTarget?.blockId);
 
 	useEffect(() => {
@@ -1118,24 +1306,44 @@ export function TwoPaneDiffEditor({
 		}
 	}
 
+	function updateEditorOptions(patch: MergeEditorOptionPatch): void {
+		if (onOptionsChange) {
+			onOptionsChange(patch);
+			return;
+		}
+		setLocalOptionOverrides((current) => ({ ...current, ...patch }));
+	}
+
+	function resetToOriginal(): void {
+		const nextSource = { left, right };
+		const nextModel = assembleOneWayMerge(left, right, normalizedOptions);
+		setSource(nextSource);
+		setModel(nextModel);
+		onLeftChange?.(left);
+		onRightChange?.(right);
+	}
+
 	return (
 		<div ref={editorRef} className={["cy-merge-editor", "cy-merge-editor-two-pane", className].filter(Boolean).join(" ")} data-testid="cy-diff-editor" data-path={path}>
 			<div className="cy-merge-toolbar">
 				<div className="cy-merge-title">
 					<span>{path ?? "Diff"}</span>
 				</div>
-				<MergeNavigation
-					target={navigationTargets[0]}
-					targetCount={navigationTargets.length}
-					activeIndex={activeNavigationIndex}
-					onPrevious={navigatePrevious}
-					onNext={navigateNext}
-				/>
+				<div className="cy-merge-toolbar-actions">
+					<MergeNavigation
+						target={navigationTargets[0]}
+						targetCount={navigationTargets.length}
+						activeIndex={activeNavigationIndex}
+						onPrevious={navigatePrevious}
+						onNext={navigateNext}
+					/>
+					<MergeOptionsMenu values={effectiveOptions} onOptionsChange={updateEditorOptions} onResetToOriginal={resetToOriginal} />
+				</div>
 			</div>
 			<div className="cy-merge-pane-labels cy-merge-pane-labels-two">
-				<PaneLabel label={leftLabel} side="left" showAcceptAll={editableSideControls && !readOnly} onAcceptAll={() => acceptAllTwoPane("left")} />
+				<PaneLabel label={leftLabel} side="left" showAcceptAll={effectiveOptions.editableSideControls && !readOnly} onAcceptAll={() => acceptAllTwoPane("left")} />
 				<div aria-hidden="true" />
-				<PaneLabel label={rightLabel} side="right" showAcceptAll={editableSideControls && !readOnly} onAcceptAll={() => acceptAllTwoPane("right")} />
+				<PaneLabel label={rightLabel} side="right" showAcceptAll={effectiveOptions.editableSideControls && !readOnly} onAcceptAll={() => acceptAllTwoPane("right")} />
 			</div>
 			<div className="cy-merge-main cy-merge-main-two">
 				<div className="cy-merge-views cy-merge-views-two">

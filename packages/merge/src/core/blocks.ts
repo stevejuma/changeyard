@@ -37,7 +37,7 @@ export function createBlock(
 		const compareLines = side === "base" ? sideLines : baseCompare;
 		sides[side] = createLines(id, side, sideLines, lineStarts[side] ?? null, compareLines, options);
 	}
-	return { id, kind, resolved, sides };
+	return { id, kind, resolved, sides, originalBaseLines: [...baseCompare] };
 }
 
 export function linesFromBlock(block: MergeBlock, side: MergeSide): string[] {
@@ -64,7 +64,7 @@ export function cloneBlockWithBaseLines(
 	options: Required<MergeOptions>,
 ): MergeBlock {
 	const lineStart = block.sides.base?.[0]?.lineNumber ? block.sides.base[0].lineNumber - 1 : null;
-	return createBlock(
+	const nextBlock = createBlock(
 		Number(block.id.replace("block-", "")) || 0,
 		block.kind,
 		resolved,
@@ -80,4 +80,8 @@ export function cloneBlockWithBaseLines(
 		},
 		options,
 	);
+	return {
+		...nextBlock,
+		originalBaseLines: [...(block.originalBaseLines ?? linesFromBlock(block, "base"))],
+	};
 }
