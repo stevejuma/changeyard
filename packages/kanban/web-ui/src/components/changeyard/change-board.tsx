@@ -50,7 +50,11 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { ColumnIndicator } from "@/components/ui/column-indicator";
 import { ChangeStatusChip, StatusChip } from "@/components/ui/status-chip";
-import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
+import {
+	useLazyGetChangeBoardFileDiffQuery,
+	useLazyGetChangeBoardFilesQuery,
+	useLazyGetChangeBoardSummaryQuery,
+} from "@/runtime/kanban-api";
 import type {
 	RuntimeChangeyardBoardFilesResponse,
 	RuntimeChangeyardBoardFilesScope,
@@ -667,6 +671,9 @@ function ChangeCard({
 	const [commitFilesMode, setCommitFilesMode] = useState<BoardFileViewMode>(() =>
 		readBoardFileViewMode(LocalStorageKey.ChangeBoardCommitFilesViewMode),
 	);
+	const [getChangeBoardSummary] = useLazyGetChangeBoardSummaryQuery();
+	const [getChangeBoardFiles] = useLazyGetChangeBoardFilesQuery();
+	const [getChangeBoardFileDiff] = useLazyGetChangeBoardFileDiffQuery();
 	const summaryCacheKey = useMemo(
 		() => getChangeBoardSummaryCacheKey(workspaceId ?? null, change, workspaceEventVersion),
 		[workspaceEventVersion, workspaceId, change],
@@ -695,7 +702,13 @@ function ChangeCard({
 		setSummaryLoading(true);
 		setSummaryError(null);
 		const request = (async () => {
-			const response = await getRuntimeTrpcClient(workspaceId ?? null).changes.getBoardSummary.query({ id: change.id });
+			if (!workspaceId) {
+				throw new Error("Missing project.");
+			}
+			const response = await getChangeBoardSummary(
+				{ workspaceId, id: change.id },
+				true,
+			).unwrap();
 			writeCachedChangeBoardSummary(summaryCacheKey, response);
 			setSummary(response);
 			return response;
@@ -711,7 +724,7 @@ function ChangeCard({
 			summaryRequestRef.current = null;
 			setSummaryLoading(false);
 		}
-	}, [change.id, summaryCacheKey, workspaceId]);
+	}, [change.id, getChangeBoardSummary, summaryCacheKey, workspaceId]);
 
 	const fetchFiles = useCallback(
 		async (
@@ -723,14 +736,23 @@ function ChangeCard({
 			if (cached) {
 				return cached;
 			}
-			const response = await getRuntimeTrpcClient(workspaceId ?? null).changes.getBoardFiles.query({
-				id: change.id,
-				scope,
-			});
+			if (!workspaceId) {
+				throw new Error("Missing project.");
+			}
+			const response = await getChangeBoardFiles(
+				{
+					workspaceId,
+					input: {
+						id: change.id,
+						scope,
+					},
+				},
+				true,
+			).unwrap();
 			writeCachedChangeBoardFiles(filesCacheKey, response);
 			return response;
 		},
-		[change.id, summaryCacheKey, workspaceId],
+		[change.id, getChangeBoardFiles, summaryCacheKey, workspaceId],
 	);
 
 	const loadFiles = useCallback(
@@ -1262,6 +1284,7 @@ export function ChangeBoard({
 	const [fileDiffLoading, setFileDiffLoading] = useState(false);
 	const [fileDiffError, setFileDiffError] = useState<Error | null>(null);
 	const [diffPanelWidth, setDiffPanelWidth] = useState(DEFAULT_DIFF_PANEL_WIDTH);
+	const [getBoardFileDiffForPanel] = useLazyGetChangeBoardFileDiffQuery();
 	const boardSurfaceRef = useRef<HTMLDivElement | null>(null);
 	const filteredChanges = filterChanges(changes, filter);
 	const changeDependencyEdges = useMemo(() => buildChangeDependencyEdges(filteredChanges), [filteredChanges]);
@@ -1437,12 +1460,23 @@ export function ChangeBoard({
 		setFileDiff(null);
 		setFileDiffLoading(true);
 		setFileDiffError(null);
+		if (!workspaceId) {
+			setFileDiffError(new Error("Missing project."));
+			setFileDiffLoading(false);
+			return;
+		}
 		Promise.resolve(
-			getRuntimeTrpcClient(workspaceId ?? null).changes.getBoardFileDiff.query({
-				id: nextFile.changeId,
-				scope: nextFile.scope,
-				path: nextFile.path,
-			}),
+			getBoardFileDiffForPanel(
+				{
+					workspaceId,
+					input: {
+						id: nextFile.changeId,
+						scope: nextFile.scope,
+						path: nextFile.path,
+					},
+				},
+				true,
+			).unwrap(),
 		)
 			.then((response) => {
 				if (!response) {

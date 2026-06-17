@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { fetchRuntimeConfig, saveRuntimeConfig } from "@/runtime/runtime-config-query";
+import { useGetRuntimeConfigQuery, useSaveRuntimeConfigMutation } from "@/runtime/kanban-api";
 import type { RuntimeAgentId, RuntimeConfigResponse, RuntimeProjectShortcut } from "@/runtime/types";
-import { useTrpcQuery } from "@/runtime/use-trpc-query";
 
 export interface UseRuntimeConfigResult {
 	config: RuntimeConfigResponse | null;
@@ -29,13 +28,8 @@ export function useRuntimeConfig(
 	const previousWorkspaceIdRef = useRef<string | null>(null);
 	const didRetryAfterInitialErrorRef = useRef(false);
 	const lastLoggedErrorKeyRef = useRef<string | null>(null);
-	const queryFn = useCallback(async () => await fetchRuntimeConfig(workspaceId), [workspaceId]);
-	const configQuery = useTrpcQuery<RuntimeConfigResponse>({
-		enabled: open,
-		queryFn,
-		retainDataOnError: true,
-	});
-	const setConfigData = configQuery.setData;
+	const configQuery = useGetRuntimeConfigQuery({ workspaceId }, { skip: !open });
+	const [saveRuntimeConfigMutation] = useSaveRuntimeConfigMutation();
 
 	useEffect(() => {
 		const workspaceChanged = previousWorkspaceIdRef.current !== workspaceId;
@@ -43,16 +37,11 @@ export function useRuntimeConfig(
 		if (workspaceChanged) {
 			didRetryAfterInitialErrorRef.current = false;
 			lastLoggedErrorKeyRef.current = null;
-			setConfigData(initialConfig);
-			return;
 		}
-		if (configQuery.data === null && initialConfig !== null) {
-			setConfigData(initialConfig);
-		}
-	}, [configQuery.data, initialConfig, setConfigData, workspaceId]);
+	}, [workspaceId]);
 
 	useEffect(() => {
-		if (!open || configQuery.data !== null) {
+		if (!open || configQuery.data !== undefined || initialConfig !== null) {
 			didRetryAfterInitialErrorRef.current = false;
 			lastLoggedErrorKeyRef.current = null;
 			return;
@@ -61,7 +50,7 @@ export function useRuntimeConfig(
 			return;
 		}
 		const scopeLabel = workspaceId ?? "global";
-		const message = configQuery.error?.message ?? "Unknown runtime config load error.";
+		const message = configQuery.error instanceof Error ? configQuery.error.message : "Unknown runtime config load error.";
 		const errorKey = `${scopeLabel}:${message}`;
 		if (lastLoggedErrorKeyRef.current !== errorKey) {
 			console.warn(`[kanban][settings] runtime.getConfig failed for scope ${scopeLabel}: ${message}`);
@@ -73,7 +62,7 @@ export function useRuntimeConfig(
 		didRetryAfterInitialErrorRef.current = true;
 		console.warn(`[kanban][settings] Retrying runtime.getConfig once for scope ${scopeLabel}.`);
 		void configQuery.refetch();
-	}, [configQuery.data, configQuery.error, configQuery.isError, configQuery.refetch, open, workspaceId]);
+	}, [configQuery.data, configQuery.error, configQuery.isError, configQuery.refetch, initialConfig, open, workspaceId]);
 
 	const save = useCallback(
 		async (nextConfig: {
@@ -87,8 +76,7 @@ export function useRuntimeConfig(
 		}): Promise<RuntimeConfigResponse | null> => {
 			setIsSaving(true);
 			try {
-				const saved = await saveRuntimeConfig(workspaceId, nextConfig);
-				setConfigData(saved);
+				const saved = await saveRuntimeConfigMutation({ workspaceId, input: nextConfig }).unwrap();
 				return saved;
 			} catch {
 				return null;
@@ -96,7 +84,7 @@ export function useRuntimeConfig(
 				setIsSaving(false);
 			}
 		},
-		[setConfigData, workspaceId],
+		[saveRuntimeConfigMutation, workspaceId],
 	);
 
 	const refresh = useCallback(() => {
@@ -105,7 +93,7 @@ export function useRuntimeConfig(
 
 	return {
 		config: configQuery.data ?? initialConfig,
-		isLoading: open ? configQuery.isLoading && configQuery.data === null && initialConfig === null : false,
+		isLoading: open ? configQuery.isLoading && configQuery.data === undefined && initialConfig === null : false,
 		isSaving,
 		refresh,
 		save,

@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback } from "react";
 
-import { fetchRuntimeConfig } from "@/runtime/runtime-config-query";
+import { useGetRuntimeConfigQuery } from "@/runtime/kanban-api";
 import type { RuntimeConfigResponse } from "@/runtime/types";
-import { useTrpcQuery } from "@/runtime/use-trpc-query";
 
 export interface UseRuntimeProjectConfigResult {
 	config: RuntimeConfigResponse | null;
@@ -11,29 +10,15 @@ export interface UseRuntimeProjectConfigResult {
 }
 
 export function useRuntimeProjectConfig(workspaceId: string | null): UseRuntimeProjectConfigResult {
-	const previousWorkspaceIdRef = useRef<string | null>(null);
-	const queryFn = useCallback(async () => await fetchRuntimeConfig(workspaceId), [workspaceId]);
-	const configQuery = useTrpcQuery<RuntimeConfigResponse>({
-		enabled: true,
-		queryFn,
-	});
-	const setConfigData = configQuery.setData;
-
-	useEffect(() => {
-		const workspaceChanged = previousWorkspaceIdRef.current !== workspaceId;
-		previousWorkspaceIdRef.current = workspaceId;
-		if (workspaceChanged) {
-			setConfigData(null);
-		}
-	}, [setConfigData, workspaceId]);
+	const configQuery = useGetRuntimeConfigQuery(workspaceId === null ? { workspaceId: null } : { workspaceId });
 
 	const refresh = useCallback(() => {
 		void configQuery.refetch();
 	}, [configQuery.refetch]);
 
 	return {
-		config: configQuery.data,
-		isLoading: configQuery.isLoading && configQuery.data === null,
+		config: configQuery.currentData ?? null,
+		isLoading: configQuery.isLoading && configQuery.currentData === undefined,
 		refresh,
 	};
 }

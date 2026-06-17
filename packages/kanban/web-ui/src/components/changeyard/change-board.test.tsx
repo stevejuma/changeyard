@@ -20,14 +20,22 @@ const runtimeMock = vi.hoisted(() => ({
 	getBoardFileDiff: vi.fn(),
 }));
 
-vi.mock("@/runtime/trpc-client", () => ({
-	getRuntimeTrpcClient: () => ({
-		changes: {
-			getBoardSummary: { query: runtimeMock.getBoardSummary },
-			getBoardFiles: { query: runtimeMock.getBoardFiles },
-			getBoardFileDiff: { query: runtimeMock.getBoardFileDiff },
-		},
-	}),
+vi.mock("@/runtime/kanban-api", () => ({
+	useLazyGetChangeBoardSummaryQuery: () => [
+		(arg: { id: string }) => ({
+			unwrap: async () => await runtimeMock.getBoardSummary({ id: arg.id }),
+		}),
+	],
+	useLazyGetChangeBoardFilesQuery: () => [
+		(arg: { input: unknown }) => ({
+			unwrap: async () => await runtimeMock.getBoardFiles(arg.input),
+		}),
+	],
+	useLazyGetChangeBoardFileDiffQuery: () => [
+		(arg: { input: unknown }) => ({
+			unwrap: async () => await runtimeMock.getBoardFileDiff(arg.input),
+		}),
+	],
 }));
 
 vi.mock("@hello-pangea/dnd", async () => {

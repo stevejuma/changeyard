@@ -2,13 +2,13 @@
 id: CY-0024
 title: Adopt RTK Query for kanban core data
 type: agent-task
-status: synced
+status: merged
 priority: medium
 labels:
   - agent-ready
 author: stevejuma
 createdAt: 2026-06-17T23:14:12.327Z
-updatedAt: 2026-06-17T23:14:56.952Z
+updatedAt: 2026-06-18T08:21:52.724Z
 base:
   vcs: unknown
   revision: main
@@ -24,10 +24,11 @@ remote:
   issueUrl: null
   pullRequestNumber: null
   pullRequestUrl: null
+  mergedLocally: true
 checks:
   profile: standard
-  lastRun: null
-  lastStatus: null
+  lastRun: 2026-06-17T23:39:13.732Z
+  lastStatus: passed
 planning:
   model: openspec-lite
   storage: inline
@@ -43,6 +44,7 @@ planning:
     strictClarifications: skipped
     strictChecklist: skipped
     strictAnalysis: skipped
+mergedAt: 2026-06-18T08:21:52.720Z
 ---
 
 # Summary
@@ -60,12 +62,12 @@ for websocket-driven refresh behavior.
 
 # Plan
 
-- [ ] Add a kanban RTK Query service and store.
-- [ ] Add low-level tRPC fetch/mutation helpers for the RTK service.
-- [ ] Migrate core project, workspace state, config, change, change-board, and directory endpoints.
-- [ ] Move key websocket cache invalidation into the RTK service layer.
-- [ ] Preserve existing hook/component public contracts while migrating call sites.
-- [ ] Verify with kanban typecheck, tests, and build.
+- [x] Add a kanban RTK Query service and store.
+- [x] Add low-level tRPC fetch/mutation helpers for the RTK service.
+- [x] Migrate core project, workspace state, config, change, change-board, and directory endpoints.
+- [x] Move key websocket cache invalidation into the RTK service layer.
+- [x] Preserve existing hook/component public contracts while migrating call sites.
+- [x] Verify with kanban typecheck, tests, and build.
 
 <!-- cy:proposal:start -->
 # Proposal
@@ -79,11 +81,11 @@ preserving current UI behavior and keeping websocket streaming as the live event
 
 ### In Scope
 
-- [ ] `kanbanApi` and `kanbanStore` for the kanban web app.
-- [ ] Low-level tRPC helpers with workspace headers and abort signals.
-- [ ] RTK endpoints for projects, workspace state, runtime config, Changeyard config, changes, change-board data, reviews, and directory listing.
-- [ ] Cache invalidation for project, workspace, and Changeyard change file events.
-- [ ] Migration of `useChangeyardChanges`, workspace persistence, project navigation/add-project, runtime config hooks, and change-board summary/files/diff loading.
+- [x] `kanbanApi` and `kanbanStore` for the kanban web app.
+- [x] Low-level tRPC helpers with workspace headers and abort signals.
+- [x] RTK endpoints for projects, workspace state, runtime config, Changeyard config, changes, change-board data, reviews, and directory listing.
+- [x] Cache invalidation for project, workspace, and Changeyard change file events.
+- [x] Migration of `useChangeyardChanges`, workspace persistence, project navigation/add-project, runtime config hooks, and change-board summary/files/diff loading.
 
 ### Out of Scope
 
@@ -161,16 +163,16 @@ implements only inside the verified `CY-0024` workspace checkout.
 
 ## 2. Implementation
 
-- [ ] Add kanban RTK service/store and root provider.
-- [ ] Add tRPC transport helpers.
-- [ ] Implement initial endpoint/tag set.
-- [ ] Migrate selected hooks and components.
-- [ ] Add/update focused tests.
+- [x] Add kanban RTK service/store and root provider.
+- [x] Add tRPC transport helpers.
+- [x] Implement initial endpoint/tag set.
+- [x] Migrate selected hooks and components.
+- [x] Add/update focused tests.
 
 ## 3. Verification
 
-- [ ] Run typecheck, tests, and build.
-- [ ] Record verification results.
+- [x] Run typecheck, tests, and build.
+- [x] Record verification results.
 <!-- cy:tasks:end -->
 
 <!-- cy:verification:start -->
@@ -191,16 +193,18 @@ implements only inside the verified `CY-0024` workspace checkout.
 
 ## Result
 
-_Not run yet._
+- Passed: `pnpm --filter @kanban/web run typecheck`
+- Passed: `pnpm --filter @kanban/web run test` (95 files, 585 tests)
+- Passed: `pnpm --filter @kanban/web run build`
 <!-- cy:verification:end -->
 
 # Acceptance Criteria
-- [ ] `kanbanApi` and `kanbanStore` exist and are mounted for kanban/dashboard without disrupting the VCS route store.
-- [ ] Migrated endpoints use RTK Query and are no longer fetched through one-off `useTrpcQuery` calls.
-- [ ] Migrated mutations invalidate or update relevant project, workspace, config, change, review, board, and directory caches.
-- [ ] Runtime stream events invalidate migrated RTK caches for projects, workspace state, and affected Changeyard change files.
-- [ ] Existing UI behavior is preserved for migrated hooks/components.
-- [ ] Expected checks pass or any remaining blockers are documented.
+- [x] `kanbanApi` and `kanbanStore` exist and are mounted for kanban/dashboard without disrupting the VCS route store.
+- [x] Migrated endpoints use RTK Query and are no longer fetched through one-off `useTrpcQuery` calls.
+- [x] Migrated mutations invalidate or update relevant project, workspace, config, change, review, board, and directory caches.
+- [x] Runtime stream events invalidate migrated RTK caches for projects, workspace state, and affected Changeyard change files.
+- [x] Existing UI behavior is preserved for migrated hooks/components.
+- [x] Expected checks pass or any remaining blockers are documented.
 
 # Agent Plan
 
@@ -212,4 +216,19 @@ _Not run yet._
 
 # Completion Notes
 
-Summarize what changed, what checks ran, and what risks remain.
+Implemented a kanban RTK Query boundary with `kanbanApi`, `kanbanStore`, typed tags,
+low-level tRPC transport helpers, and stream-driven cache invalidation. Migrated the
+initial high-value surfaces: Changeyard changes, change mutations, change-board
+summary/files/diff loading, workspace state persistence, project navigation and
+add-project directory flows, runtime config, and Changeyard project config. Existing
+hook/component return shapes were preserved where callers still depend on them.
+
+Verification passed:
+
+- `pnpm --filter @kanban/web run typecheck`
+- `pnpm --filter @kanban/web run test`
+- `pnpm --filter @kanban/web run build`
+
+Follow-up migrations remain intentionally out of scope for chat, terminal internals,
+git history, debug actions, Cline provider/account calls, and miscellaneous file search
+endpoints.

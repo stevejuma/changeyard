@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { notifyError, showAppToast } from "@/components/app-toaster";
 import { KANBAN_BASE_PATH, buildProjectPathname, parseProjectIdFromPathname } from "@/hooks/app-utils";
-import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
+import { useAddProjectMutation, usePickProjectDirectoryMutation, useRemoveProjectMutation } from "@/runtime/kanban-api";
 import { useRuntimeStateStream } from "@/runtime/use-runtime-state-stream";
 import { isLocalhostAccess } from "@/utils/localhost-detection";
 import { useWindowEvent } from "@/utils/react-use";
@@ -78,6 +78,9 @@ export function useProjectNavigation({ onProjectSwitchStart }: UseProjectNavigat
 	const [removingProjectId, setRemovingProjectId] = useState<string | null>(null);
 	const [isAddProjectDialogOpen, setIsAddProjectDialogOpen] = useState(false);
 	const [pendingGitInitPath, setPendingGitInitPath] = useState<string | null>(null);
+	const [pickProjectDirectory] = usePickProjectDirectoryMutation();
+	const [addProject] = useAddProjectMutation();
+	const [removeProject] = useRemoveProjectMutation();
 
 	const {
 		currentProjectId,
@@ -128,11 +131,10 @@ export function useProjectNavigation({ onProjectSwitchStart }: UseProjectNavigat
 		// familiar UX.  Fall back to the remote file browser dialog if the
 		// native picker is unavailable (e.g. headless / Docker).
 		try {
-			const trpcClient = getRuntimeTrpcClient(currentProjectId);
-			const picked = await trpcClient.projects.pickDirectory.mutate();
+			const picked = await pickProjectDirectory({ workspaceId: currentProjectId }).unwrap();
 
 			if (picked.ok && picked.path) {
-				const added = await trpcClient.projects.add.mutate({ path: picked.path });
+				const added = await addProject({ workspaceId: currentProjectId, input: { path: picked.path } }).unwrap();
 				if (!added.ok || !added.project) {
 					if (added.requiresGitInitialization) {
 						// Needs git init — open the dialog with the path
@@ -164,7 +166,7 @@ export function useProjectNavigation({ onProjectSwitchStart }: UseProjectNavigat
 				showAppToast({ intent: "danger", icon: "warning-sign", message, timeout: 7000 });
 			}
 		}
-	}, [currentProjectId, handleAddProjectSuccess]);
+	}, [addProject, currentProjectId, handleAddProjectSuccess, pickProjectDirectory]);
 
 	const handleRemoveProject = useCallback(
 		async (projectId: string): Promise<boolean> => {
@@ -173,8 +175,7 @@ export function useProjectNavigation({ onProjectSwitchStart }: UseProjectNavigat
 			}
 			setRemovingProjectId(projectId);
 			try {
-				const trpcClient = getRuntimeTrpcClient(currentProjectId);
-				const payload = await trpcClient.projects.remove.mutate({ projectId });
+				const payload = await removeProject({ workspaceId: currentProjectId, projectId }).unwrap();
 				if (!payload.ok) {
 					throw new Error(payload.error ?? "Could not remove project.");
 				}
@@ -191,7 +192,7 @@ export function useProjectNavigation({ onProjectSwitchStart }: UseProjectNavigat
 				setRemovingProjectId((current) => (current === projectId ? null : current));
 			}
 		},
-		[currentProjectId, onProjectSwitchStart, removingProjectId],
+		[currentProjectId, onProjectSwitchStart, removeProject, removingProjectId],
 	);
 
 	const handlePopState = useCallback(() => {

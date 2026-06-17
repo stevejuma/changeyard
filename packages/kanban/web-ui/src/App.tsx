@@ -64,6 +64,19 @@ import type {
 	RuntimeChangeyardChangeListItem,
 	RuntimeTaskSessionSummary,
 } from "@/runtime/types";
+import {
+	useCompleteChangeMutation,
+	useCreateChangeMutation,
+	useLinkChangeMutation,
+	useReviewCompleteMutation,
+	useStartChangeMutation,
+	useSyncChangeMutation,
+	useUnlinkChangeMutation,
+	useUpdateChangeBodyMutation,
+	useUpdateChangeStatusMutation,
+	useValidateChangeMutation,
+	useVerifyChangeMutation,
+} from "@/runtime/kanban-api";
 import { getRuntimeTrpcClient, readTrpcConflictUpdatedAt } from "@/runtime/trpc-client";
 import { useRuntimeProjectConfig } from "@/runtime/use-runtime-project-config";
 import { useChangeyardProjectConfig } from "@/runtime/use-changeyard-project-config";
@@ -402,6 +415,17 @@ export default function App(): ReactElement {
 		refetchSelectedChangeDetail,
 		setSelectedChangeDetail,
 	} = useChangeyardChanges(currentProjectId, selectedChangeId);
+	const [createChangeMutation] = useCreateChangeMutation();
+	const [updateChangeStatusMutation] = useUpdateChangeStatusMutation();
+	const [validateChangeMutation] = useValidateChangeMutation();
+	const [syncChangeMutation] = useSyncChangeMutation();
+	const [startChangeMutation] = useStartChangeMutation();
+	const [verifyChangeMutation] = useVerifyChangeMutation();
+	const [completeChangeMutation] = useCompleteChangeMutation();
+	const [reviewCompleteMutation] = useReviewCompleteMutation();
+	const [linkChangeMutation] = useLinkChangeMutation();
+	const [unlinkChangeMutation] = useUnlinkChangeMutation();
+	const [updateChangeBodyMutation] = useUpdateChangeBodyMutation();
 	const selectedSessionChangeSelection = useMemo(() => {
 		if (!selectedSessionChangeId) {
 			return null;
@@ -778,7 +802,7 @@ export default function App(): ReactElement {
 			setIsChangeActionPending(true);
 			setChangeActionError(null);
 			try {
-				const created = await getRuntimeTrpcClient(currentProjectId).changes.create.mutate(input);
+				const created = await createChangeMutation({ workspaceId: currentProjectId, input }).unwrap();
 				setSelectedChangeId(created.id);
 				setSelectedChangeDetail(created);
 				await refetchChangeyardChanges();
@@ -799,7 +823,7 @@ export default function App(): ReactElement {
 				setIsChangeActionPending(false);
 			}
 		},
-		[currentProjectId, refetchChangeyardChanges, setSelectedChangeDetail],
+		[currentProjectId, createChangeMutation, refetchChangeyardChanges, setSelectedChangeDetail],
 	);
 
 	const handleReviewChanged = useCallback(
@@ -826,8 +850,10 @@ export default function App(): ReactElement {
 			setIsChangeActionPending(true);
 			setChangeActionError(null);
 			try {
-				const client = getRuntimeTrpcClient(currentProjectId);
-				const nextDetail = await client.changes.updateStatus.mutate({ id: changeId, status });
+				const nextDetail = await updateChangeStatusMutation({
+					workspaceId: currentProjectId,
+					input: { id: changeId, status },
+				}).unwrap();
 				setSelectedChangeId(nextDetail.id);
 				setSelectedChangeDetail(nextDetail);
 				await refetchChangeyardChanges();
@@ -846,7 +872,7 @@ export default function App(): ReactElement {
 				setIsChangeActionPending(false);
 			}
 		},
-		[currentProjectId, refetchChangeyardChanges, refetchSelectedChangeDetail, setSelectedChangeDetail],
+		[currentProjectId, refetchChangeyardChanges, refetchSelectedChangeDetail, setSelectedChangeDetail, updateChangeStatusMutation],
 	);
 
 	const runChangeAction = useCallback(
@@ -862,45 +888,50 @@ export default function App(): ReactElement {
 			setIsChangeActionPending(true);
 			setChangeActionError(null);
 			try {
-				const client = getRuntimeTrpcClient(currentProjectId);
 				let nextDetail;
 				let successMessage = "";
 				switch (action) {
 					case "validate":
-						nextDetail = await client.changes.validate.mutate({ id: changeId });
+						nextDetail = await validateChangeMutation({ workspaceId: currentProjectId, id: changeId }).unwrap();
 						successMessage = `Validated ${changeId}`;
 						break;
 					case "sync":
-						nextDetail = await client.changes.sync.mutate({ id: changeId });
+						nextDetail = await syncChangeMutation({ workspaceId: currentProjectId, id: changeId }).unwrap();
 						successMessage = `Synced ${changeId}`;
 						break;
 					case "start":
-						nextDetail = await client.changes.start.mutate({ id: changeId });
+						nextDetail = await startChangeMutation({ workspaceId: currentProjectId, id: changeId }).unwrap();
 						successMessage = `Started ${changeId}`;
 						break;
 					case "verify": {
-						const response = await client.changes.verify.mutate({ id: changeId });
+						const response = await verifyChangeMutation({ workspaceId: currentProjectId, id: changeId }).unwrap();
 						nextDetail = response.change;
 						successMessage = response.message;
 						break;
 					}
 					case "complete": {
-						const response = await client.changes.complete.mutate({ id: changeId, noPr: true });
+						const response = await completeChangeMutation({
+							workspaceId: currentProjectId,
+							input: { id: changeId, noPr: true },
+						}).unwrap();
 						nextDetail = response.change;
 						successMessage = response.message;
 						break;
 					}
 					case "approve": {
-						const response = await client.changes.reviewComplete.mutate({ id: changeId, decision: "approve" });
+						const response = await reviewCompleteMutation({
+							workspaceId: currentProjectId,
+							input: { id: changeId, decision: "approve" },
+						}).unwrap();
 						nextDetail = response.change;
 						successMessage = response.message;
 						break;
 					}
 					case "requestChanges": {
-						const response = await client.changes.reviewComplete.mutate({
-							id: changeId,
-							decision: "request-changes",
-						});
+						const response = await reviewCompleteMutation({
+							workspaceId: currentProjectId,
+							input: { id: changeId, decision: "request-changes" },
+						}).unwrap();
 						nextDetail = response.change;
 						successMessage = response.message;
 						break;
@@ -922,7 +953,18 @@ export default function App(): ReactElement {
 				setIsChangeActionPending(false);
 			}
 		},
-		[currentProjectId, refetchChangeyardChanges, refetchSelectedChangeDetail, setSelectedChangeDetail],
+		[
+			completeChangeMutation,
+			currentProjectId,
+			refetchChangeyardChanges,
+			refetchSelectedChangeDetail,
+			reviewCompleteMutation,
+			setSelectedChangeDetail,
+			startChangeMutation,
+			syncChangeMutation,
+			validateChangeMutation,
+			verifyChangeMutation,
+		],
 	);
 
 	const handleMoveChange = useCallback(
@@ -942,33 +984,41 @@ export default function App(): ReactElement {
 			setIsChangeActionPending(true);
 			setChangeActionError(null);
 			try {
-				const client = getRuntimeTrpcClient(currentProjectId);
 				const status = current.status;
 				let nextDetail;
 				let successMessage = "";
 				switch (targetColumnId) {
 					case "in_progress":
 						if (status === "ready" || status === "synced") {
-							nextDetail = await client.changes.start.mutate({ id: changeId });
+							nextDetail = await startChangeMutation({ workspaceId: currentProjectId, id: changeId }).unwrap();
 							successMessage = `Started ${changeId}`;
 							break;
 						}
 						if (status === "blocked" || status === "changes_requested") {
-							nextDetail = await client.changes.updateStatus.mutate({ id: changeId, status: "in_progress" });
+							nextDetail = await updateChangeStatusMutation({
+								workspaceId: currentProjectId,
+								input: { id: changeId, status: "in_progress" },
+							}).unwrap();
 							successMessage = `Moved ${changeId} to in progress`;
 							break;
 						}
 						throw new Error(unsupportedChangeMoveMessage(changeId, status, targetColumnId));
 					case "blocked":
 						if (status === "in_progress") {
-							nextDetail = await client.changes.updateStatus.mutate({ id: changeId, status: "blocked" });
+							nextDetail = await updateChangeStatusMutation({
+								workspaceId: currentProjectId,
+								input: { id: changeId, status: "blocked" },
+							}).unwrap();
 							successMessage = `Blocked ${changeId}`;
 							break;
 						}
 						throw new Error(unsupportedChangeMoveMessage(changeId, status, targetColumnId));
 					case "review": {
 						if (status === "in_progress") {
-							const response = await client.changes.complete.mutate({ id: changeId, noPr: true });
+							const response = await completeChangeMutation({
+								workspaceId: currentProjectId,
+								input: { id: changeId, noPr: true },
+							}).unwrap();
 							nextDetail = response.change;
 							successMessage = response.message;
 							break;
@@ -977,7 +1027,10 @@ export default function App(): ReactElement {
 					}
 					case "done": {
 						if (status === "in_review") {
-							const response = await client.changes.reviewComplete.mutate({ id: changeId, decision: "approve" });
+							const response = await reviewCompleteMutation({
+								workspaceId: currentProjectId,
+								input: { id: changeId, decision: "approve" },
+							}).unwrap();
 							nextDetail = response.change;
 							successMessage = response.message;
 							break;
@@ -986,7 +1039,10 @@ export default function App(): ReactElement {
 					}
 					case "abandoned":
 						if (["ready", "in_progress", "ready_for_pr", "pr_open", "in_review", "changes_requested", "approved"].includes(status)) {
-							nextDetail = await client.changes.updateStatus.mutate({ id: changeId, status: "abandoned" });
+							nextDetail = await updateChangeStatusMutation({
+								workspaceId: currentProjectId,
+								input: { id: changeId, status: "abandoned" },
+							}).unwrap();
 							successMessage = `Abandoned ${changeId}`;
 							break;
 						}
@@ -1020,11 +1076,15 @@ export default function App(): ReactElement {
 		},
 		[
 			changeyardChanges,
+			completeChangeMutation,
 			currentProjectId,
 			refetchChangeyardChanges,
 			refetchSelectedChangeDetail,
+			reviewCompleteMutation,
 			selectedChangeDetail,
 			setSelectedChangeDetail,
+			startChangeMutation,
+			updateChangeStatusMutation,
 		],
 	);
 
@@ -1036,10 +1096,10 @@ export default function App(): ReactElement {
 			setIsChangeActionPending(true);
 			setChangeActionError(null);
 			try {
-				const nextDetail = await getRuntimeTrpcClient(currentProjectId).changes.link.mutate({
-					changeId,
-					blockedByChangeId,
-				});
+				const nextDetail = await linkChangeMutation({
+					workspaceId: currentProjectId,
+					input: { changeId, blockedByChangeId },
+				}).unwrap();
 				setSelectedChangeId(nextDetail.id);
 				setSelectedChangeDetail(nextDetail);
 				await refetchChangeyardChanges();
@@ -1063,7 +1123,7 @@ export default function App(): ReactElement {
 				setIsChangeActionPending(false);
 			}
 		},
-		[currentProjectId, refetchChangeyardChanges, refetchSelectedChangeDetail, setSelectedChangeDetail],
+		[currentProjectId, linkChangeMutation, refetchChangeyardChanges, refetchSelectedChangeDetail, setSelectedChangeDetail],
 	);
 
 	const handleUnlinkChange = useCallback(
@@ -1074,10 +1134,10 @@ export default function App(): ReactElement {
 			setIsChangeActionPending(true);
 			setChangeActionError(null);
 			try {
-				const nextDetail = await getRuntimeTrpcClient(currentProjectId).changes.unlink.mutate({
-					changeId,
-					blockedByChangeId,
-				});
+				const nextDetail = await unlinkChangeMutation({
+					workspaceId: currentProjectId,
+					input: { changeId, blockedByChangeId },
+				}).unwrap();
 				setSelectedChangeId(nextDetail.id);
 				setSelectedChangeDetail(nextDetail);
 				await refetchChangeyardChanges();
@@ -1101,7 +1161,7 @@ export default function App(): ReactElement {
 				setIsChangeActionPending(false);
 			}
 		},
-		[currentProjectId, refetchChangeyardChanges, refetchSelectedChangeDetail, setSelectedChangeDetail],
+		[currentProjectId, refetchChangeyardChanges, refetchSelectedChangeDetail, setSelectedChangeDetail, unlinkChangeMutation],
 	);
 
 	const handleSaveChangeBody = useCallback(
@@ -1116,11 +1176,14 @@ export default function App(): ReactElement {
 			setIsChangeActionPending(true);
 			setChangeActionError(null);
 			try {
-				const nextDetail = await getRuntimeTrpcClient(currentProjectId).changes.updateBody.mutate({
-					id: input.changeId,
-					body: input.body,
-					expectedUpdatedAt: input.expectedUpdatedAt ?? null,
-				});
+				const nextDetail = await updateChangeBodyMutation({
+					workspaceId: currentProjectId,
+					input: {
+						id: input.changeId,
+						body: input.body,
+						expectedUpdatedAt: input.expectedUpdatedAt ?? null,
+					},
+				}).unwrap();
 				setSelectedChangeId(nextDetail.id);
 				setSelectedChangeDetail(nextDetail);
 				await refetchChangeyardChanges();
@@ -1152,7 +1215,7 @@ export default function App(): ReactElement {
 				setIsChangeActionPending(false);
 			}
 		},
-		[currentProjectId, refetchChangeyardChanges, refetchSelectedChangeDetail, setSelectedChangeDetail],
+		[currentProjectId, refetchChangeyardChanges, refetchSelectedChangeDetail, setSelectedChangeDetail, updateChangeBodyMutation],
 	);
 	useEffect(() => {
 		if (activeDetailSelection) {

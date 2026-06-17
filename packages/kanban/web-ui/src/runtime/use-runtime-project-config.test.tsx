@@ -1,15 +1,14 @@
 import { act, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { Provider } from "react-redux";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { kanbanApi } from "@/runtime/kanban-api";
+import { kanbanStore } from "@/runtime/kanban-store";
 import type { RuntimeConfigResponse } from "@/runtime/types";
 import { type UseRuntimeProjectConfigResult, useRuntimeProjectConfig } from "@/runtime/use-runtime-project-config";
 
 const fetchRuntimeConfigMock = vi.hoisted(() => vi.fn());
-
-vi.mock("@/runtime/runtime-config-query", () => ({
-	fetchRuntimeConfig: fetchRuntimeConfigMock,
-}));
 
 function createDeferred<T>() {
 	let resolve!: (value: T) => void;
@@ -85,7 +84,7 @@ function findLatestLoadedSnapshot(snapshots: HookSnapshot[]): HookSnapshot | nul
 	return null;
 }
 
-function HookHarness({
+function HookBody({
 	workspaceId,
 	onSnapshot,
 }: {
@@ -101,13 +100,57 @@ function HookHarness({
 	return null;
 }
 
+function HookHarness(props: {
+	workspaceId: string | null;
+	onSnapshot: (snapshot: HookSnapshot) => void;
+}): React.ReactElement {
+	return (
+		<Provider store={kanbanStore}>
+			<HookBody {...props} />
+		</Provider>
+	);
+}
+
+function mockTrpcResponse(data: unknown): Response {
+	return new Response(JSON.stringify({ result: { data } }), {
+		status: 200,
+		headers: { "content-type": "application/json" },
+	});
+}
+
+async function waitForExpect(assertion: () => void): Promise<void> {
+	let lastError: unknown;
+	for (let attempt = 0; attempt < 25; attempt += 1) {
+		try {
+			assertion();
+			return;
+		} catch (error) {
+			lastError = error;
+		}
+		await act(async () => {
+			await new Promise((resolve) => setTimeout(resolve, 0));
+		});
+	}
+	throw lastError;
+}
+
 describe("useRuntimeProjectConfig", () => {
 	let container: HTMLDivElement;
 	let root: Root;
 	let previousActEnvironment: boolean | undefined;
+	let fetchMock: ReturnType<typeof vi.fn>;
 
 	beforeEach(() => {
+		kanbanStore.dispatch(kanbanApi.util.resetApiState());
 		fetchRuntimeConfigMock.mockReset();
+		fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const url = new URL(String(input), "http://localhost");
+			if (url.pathname !== "/api/trpc/runtime.getConfig") {
+				return new Response("Not found", { status: 404 });
+			}
+			return mockTrpcResponse(await fetchRuntimeConfigMock(url.searchParams.get("workspaceId")));
+		});
+		vi.stubGlobal("fetch", fetchMock);
 		previousActEnvironment = (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
 			.IS_REACT_ACT_ENVIRONMENT;
 		(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -121,6 +164,7 @@ describe("useRuntimeProjectConfig", () => {
 			root.unmount();
 		});
 		container.remove();
+		vi.unstubAllGlobals();
 		if (previousActEnvironment === undefined) {
 			delete (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
 		} else {
@@ -148,12 +192,13 @@ describe("useRuntimeProjectConfig", () => {
 					}}
 				/>,
 			);
-			await Promise.resolve();
 		});
 
-		const loadedProjectASnapshot = findLatestLoadedSnapshot(snapshots);
-		expect(fetchRuntimeConfigMock).toHaveBeenCalledWith("project-a");
-		expect(loadedProjectASnapshot?.config?.shortcuts).toHaveLength(1);
+		await waitForExpect(() => {
+			const loadedProjectASnapshot = findLatestLoadedSnapshot(snapshots);
+			expect(fetchRuntimeConfigMock).toHaveBeenCalledWith("project-a");
+			expect(loadedProjectASnapshot?.config?.shortcuts).toHaveLength(1);
+		});
 
 		await act(async () => {
 			root.render(
@@ -174,7 +219,9 @@ describe("useRuntimeProjectConfig", () => {
 			await projectBDeferred.promise;
 		});
 
-		expect(snapshots.at(-1)?.config?.shortcuts).toEqual([]);
+		await waitForExpect(() => {
+			expect(snapshots.at(-1)?.config?.shortcuts).toEqual([]);
+		});
 	});
 
 	it("loads runtime config without a selected project", async () => {
@@ -191,15 +238,16 @@ describe("useRuntimeProjectConfig", () => {
 					}}
 				/>,
 			);
-			await Promise.resolve();
 		});
 
-		expect(fetchRuntimeConfigMock).toHaveBeenCalledWith(null);
-		if (latestSnapshot === null) {
-			throw new Error("Expected a runtime project config snapshot.");
-		}
-		const snapshot = latestSnapshot as HookSnapshot;
-		expect(snapshot.config?.selectedAgentId).toBe("codex");
-		expect(snapshot.isLoading).toBe(false);
+		await waitForExpect(() => {
+			expect(fetchRuntimeConfigMock).toHaveBeenCalledWith(null);
+			if (latestSnapshot === null) {
+				throw new Error("Expected a runtime project config snapshot.");
+			}
+			const snapshot = latestSnapshot as HookSnapshot;
+			expect(snapshot.config?.selectedAgentId).toBe("codex");
+			expect(snapshot.isLoading).toBe(false);
+		});
 	});
 });

@@ -1,5 +1,7 @@
 import { useEffect, useReducer } from "react";
 
+import { kanbanApi, tagsForRuntimeStreamMessage } from "@/runtime/kanban-api";
+import { kanbanStore } from "@/runtime/kanban-store";
 import type {
 	RuntimeClineMcpServerAuthStatus,
 	RuntimeHubClientSurface,
@@ -406,6 +408,10 @@ export function useRuntimeStateStream(requestedWorkspaceId: string | null): UseR
 			socket.onmessage = (event) => {
 				try {
 					const payload = JSON.parse(String(event.data)) as RuntimeStateStreamMessage;
+					const tags = tagsForRuntimeStreamMessage(payload);
+					if (tags.length > 0) {
+						kanbanStore.dispatch(kanbanApi.util.invalidateTags(tags));
+					}
 					if (payload.type === "snapshot") {
 						activeWorkspaceId = payload.currentProjectId;
 						dispatch({ type: "snapshot", payload });

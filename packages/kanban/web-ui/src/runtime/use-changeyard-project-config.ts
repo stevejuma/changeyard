@@ -1,11 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { skipToken } from "@reduxjs/toolkit/query";
+import { useCallback, useState } from "react";
 
-import {
-	fetchChangeyardProjectConfig,
-	saveChangeyardProjectConfig,
-} from "@/runtime/runtime-config-query";
+import { useGetChangeyardProjectConfigQuery, useSaveChangeyardProjectConfigMutation } from "@/runtime/kanban-api";
 import type { RuntimeChangeyardProjectConfig } from "@/runtime/types";
-import { useTrpcQuery } from "@/runtime/use-trpc-query";
 
 export interface UseChangeyardProjectConfigResult {
 	config: RuntimeChangeyardProjectConfig | null;
@@ -30,31 +27,10 @@ export function useChangeyardProjectConfig(
 	initialConfig: RuntimeChangeyardProjectConfig | null = null,
 ): UseChangeyardProjectConfigResult {
 	const [isSaving, setIsSaving] = useState(false);
-	const previousWorkspaceIdRef = useRef<string | null>(null);
-	const queryFn = useCallback(async () => {
-		if (!workspaceId) {
-			throw new Error("Missing project.");
-		}
-		return await fetchChangeyardProjectConfig(workspaceId);
-	}, [workspaceId]);
-	const configQuery = useTrpcQuery<RuntimeChangeyardProjectConfig>({
-		enabled: open && workspaceId !== null,
-		queryFn,
-		retainDataOnError: true,
-	});
-	const setConfigData = configQuery.setData;
-
-	useEffect(() => {
-		const workspaceChanged = previousWorkspaceIdRef.current !== workspaceId;
-		previousWorkspaceIdRef.current = workspaceId;
-		if (workspaceChanged) {
-			setConfigData(initialConfig);
-			return;
-		}
-		if (configQuery.data === null && initialConfig !== null) {
-			setConfigData(initialConfig);
-		}
-	}, [configQuery.data, initialConfig, setConfigData, workspaceId]);
+	const configQuery = useGetChangeyardProjectConfigQuery(
+		open && workspaceId !== null ? { workspaceId } : skipToken,
+	);
+	const [saveChangeyardProjectConfigMutation] = useSaveChangeyardProjectConfigMutation();
 
 	const save = useCallback(
 		async (input: {
@@ -72,8 +48,7 @@ export function useChangeyardProjectConfig(
 			}
 			setIsSaving(true);
 			try {
-				const saved = await saveChangeyardProjectConfig(workspaceId, input);
-				setConfigData(saved);
+				const saved = await saveChangeyardProjectConfigMutation({ workspaceId, input }).unwrap();
 				return saved;
 			} catch {
 				return null;
@@ -81,7 +56,7 @@ export function useChangeyardProjectConfig(
 				setIsSaving(false);
 			}
 		},
-		[setConfigData, workspaceId],
+		[saveChangeyardProjectConfigMutation, workspaceId],
 	);
 
 	const refresh = useCallback(() => {
@@ -90,7 +65,7 @@ export function useChangeyardProjectConfig(
 
 	return {
 		config: configQuery.data ?? initialConfig,
-		isLoading: open && workspaceId !== null ? configQuery.isLoading && configQuery.data === null && initialConfig === null : false,
+		isLoading: open && workspaceId !== null ? configQuery.isLoading && configQuery.data === undefined && initialConfig === null : false,
 		isSaving,
 		refresh,
 		save,

@@ -2,7 +2,7 @@ import { Folder, GitBranch } from "lucide-react";
 import { type ReactElement, useCallback, useEffect, useRef, useState } from "react";
 
 import { cn } from "@/components/ui/cn";
-import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
+import { useLazyListDirectoryContentsQuery } from "@/runtime/kanban-api";
 import type { RuntimeDirectoryListEntry, RuntimeDirectoryListResponse } from "@/runtime/types";
 import { useDebouncedEffect } from "@/utils/react-use";
 import { toUiRelative } from "@/utils/server-path";
@@ -37,6 +37,7 @@ export function DirectoryAutocomplete({
 	const inputRefToUse = externalInputRef ?? internalInputRef;
 	const fetchIdRef = useRef(0);
 	const [serverRootPath, setServerRootPath] = useState<string | null>(null);
+	const [listDirectoryContents] = useLazyListDirectoryContentsQuery();
 	// Track whether the user has explicitly interacted (clicked/typed) so we
 	// don't pop open the dropdown on the initial programmatic auto-focus.
 	const userInteractedRef = useRef(false);
@@ -87,10 +88,10 @@ export function DirectoryAutocomplete({
 
 		const fetchSuggestions = async () => {
 			try {
-				const trpcClient = getRuntimeTrpcClient(workspaceId);
-				const response: RuntimeDirectoryListResponse = await trpcClient.projects.listDirectoryContents.query(
-					parentDir ? { path: parentDir } : {},
-				);
+				const response: RuntimeDirectoryListResponse = await listDirectoryContents(
+					{ workspaceId, input: parentDir ? { path: parentDir } : {} },
+					true,
+				).unwrap();
 				if (fetchId !== fetchIdRef.current) {
 					return;
 				}
@@ -127,7 +128,7 @@ export function DirectoryAutocomplete({
 		};
 
 		void fetchSuggestions();
-	}, [debouncedValue, disabled, workspaceId]);
+	}, [debouncedValue, disabled, listDirectoryContents, workspaceId]);
 
 	// Close dropdown on outside click
 	useEffect(() => {

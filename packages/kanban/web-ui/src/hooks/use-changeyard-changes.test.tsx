@@ -1,25 +1,12 @@
 import { act, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { Provider } from "react-redux";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { RuntimeChangeyardChangeDetail, RuntimeChangeyardChangeListItem } from "@/runtime/types";
 import { useChangeyardChanges } from "@/hooks/use-changeyard-changes";
-
-const changesListQueryMock = vi.hoisted(() => vi.fn());
-const changesGetQueryMock = vi.hoisted(() => vi.fn());
-
-vi.mock("@/runtime/trpc-client", () => ({
-	getRuntimeTrpcClient: () => ({
-		changes: {
-			list: {
-				query: changesListQueryMock,
-			},
-			get: {
-				query: changesGetQueryMock,
-			},
-		},
-	}),
-}));
+import { kanbanApi } from "@/runtime/kanban-api";
+import { kanbanStore } from "@/runtime/kanban-store";
 
 function createChange(id: string): RuntimeChangeyardChangeListItem {
 	return {
@@ -47,6 +34,26 @@ interface HookSnapshot {
 	changesCount: number;
 	selectedChangeId: string | null;
 	isLoading: boolean;
+}
+
+async function flushAsyncWork(): Promise<void> {
+	await act(async () => {
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	});
+}
+
+async function waitForExpect(assertion: () => void): Promise<void> {
+	let lastError: unknown;
+	for (let attempt = 0; attempt < 25; attempt += 1) {
+		try {
+			assertion();
+			return;
+		} catch (error) {
+			lastError = error;
+		}
+		await flushAsyncWork();
+	}
+	throw lastError;
 }
 
 function HookHarness({
@@ -83,14 +90,28 @@ describe("useChangeyardChanges", () => {
 	let container: HTMLDivElement;
 	let root: Root;
 	let previousActEnvironment: boolean | undefined;
+	let fetchMock: ReturnType<typeof vi.fn>;
+
+	function mockTrpcResponse(data: unknown): Response {
+		return new Response(JSON.stringify({ result: { data } }), {
+			status: 200,
+			headers: { "content-type": "application/json" },
+		});
+	}
 
 	beforeEach(() => {
-		changesListQueryMock.mockReset();
-		changesGetQueryMock.mockReset();
-		changesListQueryMock.mockResolvedValue({
-			changes: [createChange("chg-1")],
+		kanbanStore.dispatch(kanbanApi.util.resetApiState());
+		fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input);
+			if (url.startsWith("/api/trpc/changes.list")) {
+				return mockTrpcResponse({ changes: [createChange("chg-1")] });
+			}
+			if (url.startsWith("/api/trpc/changes.get")) {
+				return mockTrpcResponse(createChangeDetail("chg-1"));
+			}
+			return new Response("Not found", { status: 404 });
 		});
-		changesGetQueryMock.mockResolvedValue(createChangeDetail("chg-1"));
+		vi.stubGlobal("fetch", fetchMock);
 		previousActEnvironment = (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
 			.IS_REACT_ACT_ENVIRONMENT;
 		(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -104,6 +125,7 @@ describe("useChangeyardChanges", () => {
 			root.unmount();
 		});
 		container.remove();
+		vi.unstubAllGlobals();
 		if (previousActEnvironment === undefined) {
 			delete (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
 		} else {
@@ -117,71 +139,86 @@ describe("useChangeyardChanges", () => {
 
 		await act(async () => {
 			root.render(
-				<HookHarness
-					currentProjectId="project-1"
-					selectedChangeId={null}
-					renderToken={1}
-					onSnapshot={(snapshot) => {
-						snapshots.push(snapshot);
-					}}
-				/>,
+				<Provider store={kanbanStore}>
+					<HookHarness
+						currentProjectId="project-1"
+						selectedChangeId={null}
+						renderToken={1}
+						onSnapshot={(snapshot) => {
+							snapshots.push(snapshot);
+						}}
+					/>
+				</Provider>,
 			);
-			await Promise.resolve();
 		});
+		await flushAsyncWork();
 
-		expect(changesListQueryMock).toHaveBeenCalledTimes(1);
-		expect(changesGetQueryMock).not.toHaveBeenCalled();
-		expect(snapshots.at(-1)).toMatchObject({
-			changesCount: 1,
-			selectedChangeId: null,
-			isLoading: false,
+		await waitForExpect(() => {
+			expect(fetchMock.mock.calls.filter(([url]) => String(url).startsWith("/api/trpc/changes.list"))).toHaveLength(1);
+			expect(fetchMock.mock.calls.filter(([url]) => String(url).startsWith("/api/trpc/changes.get"))).toHaveLength(0);
+			expect(snapshots.at(-1)).toMatchObject({
+				changesCount: 1,
+				selectedChangeId: null,
+				isLoading: false,
+			});
 		});
 
 		await act(async () => {
 			root.render(
-				<HookHarness
-					currentProjectId="project-1"
-					selectedChangeId={null}
-					renderToken={2}
-					onSnapshot={(snapshot) => {
-						snapshots.push(snapshot);
-					}}
-				/>,
+				<Provider store={kanbanStore}>
+					<HookHarness
+						currentProjectId="project-1"
+						selectedChangeId={null}
+						renderToken={2}
+						onSnapshot={(snapshot) => {
+							snapshots.push(snapshot);
+						}}
+					/>
+				</Provider>,
 			);
-			await Promise.resolve();
 		});
+		await flushAsyncWork();
 
-		expect(changesListQueryMock).toHaveBeenCalledTimes(1);
-		expect(changesGetQueryMock).not.toHaveBeenCalled();
+		await waitForExpect(() => {
+			expect(fetchMock.mock.calls.filter(([url]) => String(url).startsWith("/api/trpc/changes.list"))).toHaveLength(1);
+			expect(fetchMock.mock.calls.filter(([url]) => String(url).startsWith("/api/trpc/changes.get"))).toHaveLength(0);
+		});
 	});
 
 	it("loads selected change detail without retriggering the list query", async () => {
 		await act(async () => {
 			root.render(
-				<HookHarness
-					currentProjectId="project-1"
-					selectedChangeId={null}
-					renderToken={1}
-					onSnapshot={() => {}}
-				/>,
+				<Provider store={kanbanStore}>
+					<HookHarness
+						currentProjectId="project-1"
+						selectedChangeId={null}
+						renderToken={1}
+						onSnapshot={() => {}}
+					/>
+				</Provider>,
 			);
-			await Promise.resolve();
 		});
+		await flushAsyncWork();
 
 		await act(async () => {
 			root.render(
-				<HookHarness
-					currentProjectId="project-1"
-					selectedChangeId="chg-1"
-					renderToken={2}
-					onSnapshot={() => {}}
-				/>,
+				<Provider store={kanbanStore}>
+					<HookHarness
+						currentProjectId="project-1"
+						selectedChangeId="chg-1"
+						renderToken={2}
+						onSnapshot={() => {}}
+					/>
+				</Provider>,
 			);
-			await Promise.resolve();
 		});
+		await flushAsyncWork();
 
-		expect(changesListQueryMock).toHaveBeenCalledTimes(1);
-		expect(changesGetQueryMock).toHaveBeenCalledTimes(1);
-		expect(changesGetQueryMock).toHaveBeenCalledWith({ id: "chg-1" });
+		await waitForExpect(() => {
+			expect(fetchMock.mock.calls.filter(([url]) => String(url).startsWith("/api/trpc/changes.list"))).toHaveLength(1);
+			const getCalls = fetchMock.mock.calls.filter(([url]) => String(url).startsWith("/api/trpc/changes.get"));
+			expect(getCalls).toHaveLength(1);
+			expect(String(getCalls[0]?.[0])).toContain(encodeURIComponent(JSON.stringify({ id: "chg-1" })));
+		});
 	});
 });

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Dialog, DialogBody, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
-import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
+import { useLazyListDirectoryContentsQuery } from "@/runtime/kanban-api";
 import type { RuntimeDirectoryListEntry, RuntimeDirectoryListResponse } from "@/runtime/types";
 import { serverRootLabel, splitServerPath, toUiRelative } from "@/utils/server-path";
 
@@ -32,6 +32,7 @@ export function RemoteFileBrowserDialog({
 	const [error, setError] = useState<string | null>(null);
 	const [pathInput, setPathInput] = useState("");
 	const fetchIdRef = useRef(0);
+	const [listDirectoryContents] = useLazyListDirectoryContentsQuery();
 
 	const fetchContents = useCallback(
 		async (path?: string) => {
@@ -39,10 +40,10 @@ export function RemoteFileBrowserDialog({
 			setIsLoading(true);
 			setError(null);
 			try {
-				const trpcClient = getRuntimeTrpcClient(workspaceId);
-				const response: RuntimeDirectoryListResponse = await trpcClient.projects.listDirectoryContents.query(
-					path !== undefined ? { path } : {},
-				);
+				const response: RuntimeDirectoryListResponse = await listDirectoryContents(
+					{ workspaceId, input: path !== undefined ? { path } : {} },
+					true,
+				).unwrap();
 				if (fetchId !== fetchIdRef.current) {
 					return;
 				}
@@ -72,7 +73,7 @@ export function RemoteFileBrowserDialog({
 				}
 			}
 		},
-		[workspaceId],
+		[listDirectoryContents, workspaceId],
 	);
 
 	useEffect(() => {

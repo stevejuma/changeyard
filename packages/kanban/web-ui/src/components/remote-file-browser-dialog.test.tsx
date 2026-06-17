@@ -5,19 +5,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RemoteFileBrowserDialog } from "@/components/remote-file-browser-dialog";
 
 /* ------------------------------------------------------------------ */
-/* Mock: tRPC client                                                   */
+/* Mock: RTK directory query                                           */
 /* ------------------------------------------------------------------ */
 
 const mockQuery = vi.fn();
+const mockListDirectoryContents = vi.fn((arg: { input?: unknown }) => ({
+	unwrap: async () => await mockQuery(arg.input ?? {}),
+}));
 
-vi.mock("@/runtime/trpc-client", () => ({
-	getRuntimeTrpcClient: () => ({
-		projects: {
-			listDirectoryContents: {
-				query: mockQuery,
-			},
-		},
-	}),
+vi.mock("@/runtime/kanban-api", () => ({
+	useLazyListDirectoryContentsQuery: () => [
+		mockListDirectoryContents,
+		{ isLoading: false, isFetching: false, data: undefined, error: undefined },
+	],
 }));
 
 /* ------------------------------------------------------------------ */
@@ -58,6 +58,7 @@ describe("RemoteFileBrowserDialog", () => {
 		document.body.appendChild(container);
 		root = createRoot(container);
 		mockQuery.mockReset();
+		mockListDirectoryContents.mockClear();
 	});
 
 	afterEach(() => {

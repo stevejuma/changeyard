@@ -1,16 +1,14 @@
 import { act, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { Provider } from "react-redux";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { kanbanApi } from "@/runtime/kanban-api";
+import { kanbanStore } from "@/runtime/kanban-store";
 import type { RuntimeConfigResponse } from "@/runtime/types";
 import { type UseRuntimeConfigResult, useRuntimeConfig } from "@/runtime/use-runtime-config";
 
 const fetchRuntimeConfigMock = vi.hoisted(() => vi.fn());
-
-vi.mock("@/runtime/runtime-config-query", () => ({
-	fetchRuntimeConfig: fetchRuntimeConfigMock,
-	saveRuntimeConfig: vi.fn(),
-}));
 
 type HookSnapshot = UseRuntimeConfigResult;
 
@@ -63,7 +61,7 @@ function createRuntimeConfigResponse(selectedAgentId: RuntimeConfigResponse["sel
 	};
 }
 
-function HookHarness({
+function HookBody({
 	open,
 	workspaceId,
 	initialConfig,
@@ -83,13 +81,78 @@ function HookHarness({
 	return null;
 }
 
+function HookHarness(props: {
+	open: boolean;
+	workspaceId: string | null;
+	initialConfig?: RuntimeConfigResponse | null;
+	onSnapshot: (snapshot: HookSnapshot) => void;
+}): React.ReactElement {
+	return (
+		<Provider store={kanbanStore}>
+			<HookBody {...props} />
+		</Provider>
+	);
+}
+
+function mockTrpcResponse(data: unknown): Response {
+	return new Response(JSON.stringify({ result: { data } }), {
+		status: 200,
+		headers: { "content-type": "application/json" },
+	});
+}
+
+function mockTrpcError(error: unknown): Response {
+	return new Response(
+		JSON.stringify({
+			error: {
+				json: {
+					message: error instanceof Error ? error.message : String(error),
+					data: { code: "INTERNAL_SERVER_ERROR" },
+				},
+			},
+		}),
+		{ status: 500, headers: { "content-type": "application/json" } },
+	);
+}
+
+async function waitForExpect(assertion: () => void): Promise<void> {
+	let lastError: unknown;
+	for (let attempt = 0; attempt < 25; attempt += 1) {
+		try {
+			assertion();
+			return;
+		} catch (error) {
+			lastError = error;
+		}
+		await act(async () => {
+			await new Promise((resolve) => setTimeout(resolve, 0));
+		});
+	}
+	throw lastError;
+}
+
 describe("useRuntimeConfig", () => {
 	let container: HTMLDivElement;
 	let root: Root;
 	let previousActEnvironment: boolean | undefined;
+	let fetchMock: ReturnType<typeof vi.fn>;
 
 	beforeEach(() => {
+		kanbanStore.dispatch(kanbanApi.util.resetApiState());
 		fetchRuntimeConfigMock.mockReset();
+		fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const url = new URL(String(input), "http://localhost");
+			if (url.pathname !== "/api/trpc/runtime.getConfig") {
+				return new Response("Not found", { status: 404 });
+			}
+			const workspaceId = url.searchParams.get("workspaceId");
+			try {
+				return mockTrpcResponse(await fetchRuntimeConfigMock(workspaceId));
+			} catch (error) {
+				return mockTrpcError(error);
+			}
+		});
+		vi.stubGlobal("fetch", fetchMock);
 		previousActEnvironment = (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
 			.IS_REACT_ACT_ENVIRONMENT;
 		(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -103,6 +166,7 @@ describe("useRuntimeConfig", () => {
 			root.unmount();
 		});
 		container.remove();
+		vi.unstubAllGlobals();
 		if (previousActEnvironment === undefined) {
 			delete (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
 		} else {
@@ -148,16 +212,17 @@ describe("useRuntimeConfig", () => {
 					}}
 				/>,
 			);
-			await Promise.resolve();
 		});
 
-		if (latestSnapshot === null) {
-			throw new Error("Expected a refreshed hook snapshot.");
-		}
-		const refreshedSnapshot = latestSnapshot as HookSnapshot;
-		expect(fetchRuntimeConfigMock).toHaveBeenCalledWith("project-1");
-		expect(refreshedSnapshot.config?.selectedAgentId).toBe("codex");
-		expect(refreshedSnapshot.isLoading).toBe(false);
+		await waitForExpect(() => {
+			if (latestSnapshot === null) {
+				throw new Error("Expected a refreshed hook snapshot.");
+			}
+			const refreshedSnapshot = latestSnapshot as HookSnapshot;
+			expect(fetchRuntimeConfigMock).toHaveBeenCalledWith("project-1");
+			expect(refreshedSnapshot.config?.selectedAgentId).toBe("codex");
+			expect(refreshedSnapshot.isLoading).toBe(false);
+		});
 	});
 
 	it("fetches runtime config without a selected workspace when the dialog opens", async () => {
@@ -175,16 +240,17 @@ describe("useRuntimeConfig", () => {
 					}}
 				/>,
 			);
-			await Promise.resolve();
 		});
 
-		expect(fetchRuntimeConfigMock).toHaveBeenCalledWith(null);
-		if (latestSnapshot === null) {
-			throw new Error("Expected a runtime config snapshot.");
-		}
-		const snapshot = latestSnapshot as HookSnapshot;
-		expect(snapshot.config?.selectedAgentId).toBe("codex");
-		expect(snapshot.isLoading).toBe(false);
+		await waitForExpect(() => {
+			expect(fetchRuntimeConfigMock).toHaveBeenCalledWith(null);
+			if (latestSnapshot === null) {
+				throw new Error("Expected a runtime config snapshot.");
+			}
+			const snapshot = latestSnapshot as HookSnapshot;
+			expect(snapshot.config?.selectedAgentId).toBe("codex");
+			expect(snapshot.isLoading).toBe(false);
+		});
 	});
 
 	it("retries once after an initial load error while settings stay open", async () => {
@@ -203,19 +269,19 @@ describe("useRuntimeConfig", () => {
 					}}
 				/>,
 			);
-			await Promise.resolve();
-			await Promise.resolve();
 		});
 
-		expect(fetchRuntimeConfigMock).toHaveBeenNthCalledWith(1, null);
-		expect(fetchRuntimeConfigMock).toHaveBeenNthCalledWith(2, null);
-		expect(fetchRuntimeConfigMock).toHaveBeenCalledTimes(2);
-		if (latestSnapshot === null) {
-			throw new Error("Expected a runtime config snapshot after retry.");
-		}
-		const snapshot = latestSnapshot as HookSnapshot;
-		expect(snapshot.config?.selectedAgentId).toBe("codex");
-		expect(snapshot.isLoading).toBe(false);
+		await waitForExpect(() => {
+			expect(fetchRuntimeConfigMock).toHaveBeenNthCalledWith(1, null);
+			expect(fetchRuntimeConfigMock).toHaveBeenNthCalledWith(2, null);
+			expect(fetchRuntimeConfigMock).toHaveBeenCalledTimes(2);
+			if (latestSnapshot === null) {
+				throw new Error("Expected a runtime config snapshot after retry.");
+			}
+			const snapshot = latestSnapshot as HookSnapshot;
+			expect(snapshot.config?.selectedAgentId).toBe("codex");
+			expect(snapshot.isLoading).toBe(false);
+		});
 	});
 
 	it("retries once again after workspace changes", async () => {
@@ -238,8 +304,11 @@ describe("useRuntimeConfig", () => {
 					}}
 				/>,
 			);
-			await Promise.resolve();
-			await Promise.resolve();
+		});
+
+		await waitForExpect(() => {
+			expect(fetchRuntimeConfigMock).toHaveBeenNthCalledWith(1, "project-1");
+			expect(fetchRuntimeConfigMock).toHaveBeenNthCalledWith(2, "project-1");
 		});
 
 		await act(async () => {
@@ -252,20 +321,20 @@ describe("useRuntimeConfig", () => {
 					}}
 				/>,
 			);
-			await Promise.resolve();
-			await Promise.resolve();
 		});
 
-		expect(fetchRuntimeConfigMock).toHaveBeenNthCalledWith(1, "project-1");
-		expect(fetchRuntimeConfigMock).toHaveBeenNthCalledWith(2, "project-1");
-		expect(fetchRuntimeConfigMock).toHaveBeenNthCalledWith(3, null);
-		expect(fetchRuntimeConfigMock).toHaveBeenNthCalledWith(4, null);
-		expect(fetchRuntimeConfigMock).toHaveBeenCalledTimes(4);
-		if (latestSnapshot === null) {
-			throw new Error("Expected a runtime config snapshot after workspace switch retry.");
-		}
-		const snapshot = latestSnapshot as HookSnapshot;
-		expect(snapshot.config?.selectedAgentId).toBe("codex");
-		expect(snapshot.isLoading).toBe(false);
+		await waitForExpect(() => {
+			expect(fetchRuntimeConfigMock).toHaveBeenNthCalledWith(1, "project-1");
+			expect(fetchRuntimeConfigMock).toHaveBeenNthCalledWith(2, "project-1");
+			expect(fetchRuntimeConfigMock).toHaveBeenNthCalledWith(3, null);
+			expect(fetchRuntimeConfigMock).toHaveBeenNthCalledWith(4, null);
+			expect(fetchRuntimeConfigMock).toHaveBeenCalledTimes(4);
+			if (latestSnapshot === null) {
+				throw new Error("Expected a runtime config snapshot after workspace switch retry.");
+			}
+			const snapshot = latestSnapshot as HookSnapshot;
+			expect(snapshot.config?.selectedAgentId).toBe("codex");
+			expect(snapshot.isLoading).toBe(false);
+		});
 	});
 });
