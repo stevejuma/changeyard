@@ -8,7 +8,14 @@ import { createChange } from "./create.js";
 import { runLand } from "./land.js";
 import { getNextAction } from "./next.js";
 import { getPlanPrompt } from "./plan.js";
-import { runReviewComplete, runReviewStart, type ReviewDecision } from "./review.js";
+import {
+  getReview,
+  listReviews,
+  runReviewComplete,
+  runReviewStart,
+  updateReview,
+  type ReviewDecision,
+} from "./review.js";
 import { runVerify } from "./verify.js";
 import { deleteWorkspace, getWorkspaceStatus, listWorkspaceStatuses } from "./workspace.js";
 import { validateChangeFile } from "../documents/validateDocument.js";
@@ -258,6 +265,22 @@ export function createChangeyardUiApi() {
         message,
         change: toChangeDetail(createChangeyardBoardService(repoRoot).getCard(input.id)),
       };
+    },
+    reviewList(repoRoot: string, input: { id: string }) {
+      return { reviews: listReviews(input.id, repoRoot) };
+    },
+    reviewGet(repoRoot: string, input: { id: string; review: number }) {
+      return getReview(input.id, input.review, repoRoot);
+    },
+    reviewUpdate(repoRoot: string, input: {
+      id: string;
+      review: number;
+      summary: string;
+      requiredChanges: Array<{ text: string; checked: boolean }>;
+      inlineComments: Array<{ path: string; line: number; body: string }>;
+      expectedLastModifiedAt?: string | null;
+    }) {
+      return updateReview(input.id, input, repoRoot);
     },
     reviewComplete(repoRoot: string, input: { id: string; decision: ReviewDecision }) {
       const message = runReviewComplete(input.id, input.decision, repoRoot);

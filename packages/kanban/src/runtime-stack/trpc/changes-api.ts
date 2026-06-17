@@ -20,7 +20,12 @@ import type {
 	RuntimeChangeyardChangeUpdateBodyRequest,
 	RuntimeChangeyardPlanningPromptRequest,
 	RuntimeChangeyardPlanningPromptResponse,
+	RuntimeChangeyardReviewDetail,
+	RuntimeChangeyardReviewGetRequest,
+	RuntimeChangeyardReviewListRequest,
+	RuntimeChangeyardReviewListResponse,
 	RuntimeChangeyardReviewCompleteRequest,
+	RuntimeChangeyardReviewUpdateRequest,
 	RuntimeChangeyardChangeUpdatePlanningSectionRequest,
 	RuntimeChangeyardChangesListResponse,
 	RuntimeChangeyardDoctorResponse,
@@ -125,6 +130,18 @@ export interface RuntimeChangeyardApiAdapter {
 		repoRoot: string,
 		input: RuntimeChangeyardChangeGetRequest,
 	) => Promise<RuntimeChangeyardChangeActionResponse> | RuntimeChangeyardChangeActionResponse;
+	reviewList: (
+		repoRoot: string,
+		input: RuntimeChangeyardReviewListRequest,
+	) => Promise<RuntimeChangeyardReviewListResponse> | RuntimeChangeyardReviewListResponse;
+	reviewGet: (
+		repoRoot: string,
+		input: RuntimeChangeyardReviewGetRequest,
+	) => Promise<RuntimeChangeyardReviewDetail> | RuntimeChangeyardReviewDetail;
+	reviewUpdate: (
+		repoRoot: string,
+		input: RuntimeChangeyardReviewUpdateRequest,
+	) => Promise<RuntimeChangeyardReviewDetail> | RuntimeChangeyardReviewDetail;
 	reviewComplete: (
 		repoRoot: string,
 		input: RuntimeChangeyardReviewCompleteRequest,
@@ -243,6 +260,9 @@ export interface RuntimeTrpcChangesApi {
 	workspaceList: (workspacePath: string) => Promise<RuntimeChangeyardWorkspaceStatus[]>;
 	workspaceDelete: (workspacePath: string, input: RuntimeChangeyardWorkspaceDeleteRequest) => Promise<RuntimeChangeyardChangeActionResponse>;
 	reviewStart: (workspacePath: string, input: RuntimeChangeyardChangeGetRequest) => Promise<RuntimeChangeyardChangeActionResponse>;
+	reviewList: (workspacePath: string, input: RuntimeChangeyardReviewListRequest) => Promise<RuntimeChangeyardReviewListResponse>;
+	reviewGet: (workspacePath: string, input: RuntimeChangeyardReviewGetRequest) => Promise<RuntimeChangeyardReviewDetail>;
+	reviewUpdate: (workspacePath: string, input: RuntimeChangeyardReviewUpdateRequest) => Promise<RuntimeChangeyardReviewDetail>;
 	reviewComplete: (
 		workspacePath: string,
 		input: RuntimeChangeyardReviewCompleteRequest,
@@ -448,6 +468,24 @@ export function createChangesApi(deps: {
 				throw new Error("Changeyard review is not available in this runtime.");
 			}
 			return await deps.changeyardApi.reviewStart(workspacePath, input);
+		},
+		reviewList: async (workspacePath, input) => {
+			if (!deps.changeyardApi) {
+				throw new Error("Changeyard reviews are not available in this runtime.");
+			}
+			return await deps.changeyardApi.reviewList(workspacePath, input);
+		},
+		reviewGet: async (workspacePath, input) => {
+			if (!deps.changeyardApi) {
+				throw new Error("Changeyard reviews are not available in this runtime.");
+			}
+			return await deps.changeyardApi.reviewGet(workspacePath, input);
+		},
+		reviewUpdate: async (workspacePath, input) => {
+			if (!deps.changeyardApi) {
+				throw new Error("Changeyard review updates are not available in this runtime.");
+			}
+			return await deps.changeyardApi.reviewUpdate(workspacePath, input);
 		},
 		reviewComplete: async (workspacePath, input) => {
 			if (!deps.changeyardApi) {

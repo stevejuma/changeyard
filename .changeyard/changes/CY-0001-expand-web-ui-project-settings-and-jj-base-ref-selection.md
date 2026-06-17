@@ -2,13 +2,13 @@
 id: CY-0001
 title: Expand web UI project settings and JJ base ref selection
 type: agent-task
-status: ready_for_pr
+status: in_review
 priority: medium
 labels:
   - agent-ready
 author: stevejuma
 createdAt: 2026-06-11T08:44:49.845Z
-updatedAt: 2026-06-11T09:03:39.717Z
+updatedAt: 2026-06-17T13:48:39.789Z
 base:
   vcs: unknown
   revision: main

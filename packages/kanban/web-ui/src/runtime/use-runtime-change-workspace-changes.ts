@@ -42,12 +42,15 @@ export function useRuntimeChangeWorkspaceChanges(
 			return;
 		}
 		const interval = window.setInterval(() => {
+			if (changesQuery.isLoading) {
+				return;
+			}
 			void changesQuery.refetch();
 		}, pollIntervalMs);
 		return () => {
 			window.clearInterval(interval);
 		};
-	}, [changesQuery.refetch, hasWorkspaceScope, pollIntervalMs]);
+	}, [changesQuery.isLoading, changesQuery.refetch, hasWorkspaceScope, pollIntervalMs]);
 
 	if (!changeId) {
 		return {

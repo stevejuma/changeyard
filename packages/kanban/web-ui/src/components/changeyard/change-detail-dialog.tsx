@@ -28,7 +28,7 @@ export type ChangeDetailAction =
 	| "start"
 	| "verify"
 	| "complete"
-	| "reviewStart"
+	| "review"
 	| "approve"
 	| "requestChanges";
 
@@ -43,15 +43,16 @@ function actionsForStatus(status: string): ChangeDetailAction[] {
 		case "ready":
 			return ["sync", "start"];
 		case "synced":
-		case "changes_requested":
 			return ["start"];
+		case "changes_requested":
+			return ["start", "review"];
 		case "in_progress":
 			return ["verify", "complete"];
 		case "ready_for_pr":
 		case "pr_open":
-			return ["reviewStart"];
 		case "in_review":
-			return ["approve", "requestChanges"];
+		case "approved":
+			return ["review"];
 		default:
 			return [];
 	}
@@ -73,8 +74,8 @@ function actionMeta(action: ChangeDetailAction): {
 			return { label: "Verify", icon: <ShieldCheck size={14} />, variant: "default" };
 		case "complete":
 			return { label: "Complete", icon: <CheckCircle2 size={14} />, variant: "primary" };
-		case "reviewStart":
-			return { label: "Start Review", icon: <GitPullRequest size={14} />, variant: "primary" };
+		case "review":
+			return { label: "Review", icon: <GitPullRequest size={14} />, variant: "primary" };
 		case "approve":
 			return { label: "Approve", icon: <CheckCircle2 size={14} />, variant: "primary" };
 		case "requestChanges":

@@ -374,6 +374,35 @@ body,
 	background: var(--color-surface-1);
 }
 
+.cy-markdown-editor-compact {
+	overflow: hidden;
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-md);
+	background: var(--color-surface-0);
+}
+
+.cy-markdown-editor-compact > div:first-child {
+	min-height: 2rem;
+}
+
+.cy-markdown-editor-compact > div:first-child button {
+	height: 2rem;
+}
+
+.cy-markdown-editor-compact > div:first-child button[aria-label] {
+	width: 1.75rem;
+}
+
+.cy-markdown-editor-compact .w-md-editor-toolbar {
+	min-height: 28px;
+	padding: 2px 4px;
+}
+
+.cy-markdown-editor-compact .w-md-editor-toolbar li > button {
+	width: 24px;
+	height: 24px;
+}
+
 .cy-markdown-editor .w-md-editor-text,
 .cy-markdown-editor .w-md-editor-text-pre,
 .cy-markdown-editor .w-md-editor-text-input {
@@ -689,12 +718,11 @@ body.kb-dependency-link-mode {
 	color: var(--color-text-secondary);
 }
 
-.kb-file-tree-row:hover:not(.kb-file-tree-row-directory) {
+.kb-file-tree-row:hover {
 	background: var(--color-surface-3);
 }
 
 .kb-file-tree-row-directory {
-	cursor: default;
 	color: var(--color-text-tertiary);
 }
 

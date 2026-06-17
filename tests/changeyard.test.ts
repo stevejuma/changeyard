@@ -30,7 +30,7 @@ import { getCommandContents } from "../src/scaffold/templates/commands.js";
 import { CANONICAL_SKILL_RELATIVE_PATH } from "../src/scaffold/skill-generation.js";
 import { listChanges, runList } from "../src/commands/list.js";
 import { runRecover } from "../src/commands/recover.js";
-import { runReviewComplete, runReviewStart } from "../src/commands/review.js";
+import { getReview, listReviews, runReviewComplete, runReviewStart, updateReview } from "../src/commands/review.js";
 import { runStart } from "../src/commands/start.js";
 import { getStatus, runStatus } from "../src/commands/status.js";
 import { runSync } from "../src/commands/sync.js";
@@ -1159,6 +1159,99 @@ test("review start and complete update review and change status", () => {
     assert.match(review, /status: approved/);
     const change = parseFrontmatter(readFileSync(path.join(repo, ".changeyard", "changes", "CY-0001-review-workflow.md"), "utf8"));
     assert.equal(change.frontmatter.status, "approved");
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("review update parses structured fields and preserves unknown sections", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "agent-task", title: "Structured review" }, repo);
+    assert.match(runReviewStart("CY-0001", repo), /Started review 1/);
+    const reviewPath = path.join(repo, ".changeyard", "reviews", "CY-0001", "review-001.md");
+    writeFileSync(
+      reviewPath,
+      `${readFileSync(reviewPath, "utf8").trim()}\n\n# Planning Context\n\nKeep this context intact.\n`,
+    );
+
+    const before = getReview("CY-0001", 1, repo);
+    const updated = updateReview("CY-0001", {
+      review: 1,
+      summary: "Reviewed the structured draft.",
+      requiredChanges: [
+        { checked: false, text: "Tighten the API contract tests." },
+        { checked: true, text: "Keep markdown frontmatter stable." },
+      ],
+      inlineComments: [{ path: "src/example.ts", line: 42, body: "Prefer the shared helper here." }],
+      expectedLastModifiedAt: before.lastModifiedAt,
+    }, repo);
+
+    assert.equal(listReviews("CY-0001", repo).length, 1);
+    assert.equal(updated.summary, "Reviewed the structured draft.");
+    assert.deepEqual(updated.requiredChanges, [
+      { checked: false, text: "Tighten the API contract tests." },
+      { checked: true, text: "Keep markdown frontmatter stable." },
+    ]);
+    assert.deepEqual(updated.inlineComments, [
+      { path: "src/example.ts", line: 42, body: "Prefer the shared helper here." },
+    ]);
+    const raw = readFileSync(reviewPath, "utf8");
+    assert.match(raw, /# Planning Context/);
+    assert.match(raw, /Keep this context intact/);
+    assert.match(raw, /change: CY-0001/);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("review update rejects stale last-modified guards", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "agent-task", title: "Stale review" }, repo);
+    runReviewStart("CY-0001", repo);
+    assert.throws(
+      () => updateReview("CY-0001", {
+        review: 1,
+        summary: "This write is stale.",
+        requiredChanges: [],
+        inlineComments: [],
+        expectedLastModifiedAt: "2000-01-01T00:00:00.000Z",
+      }, repo),
+      /changed elsewhere/,
+    );
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("comment review completion leaves change status unchanged", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "agent-task", title: "Comment review" }, repo);
+    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-comment-review.md");
+    const changeBefore = parseFrontmatter(readFileSync(changePath, "utf8"));
+    writeFileSync(changePath, writeFrontmatter({ ...changeBefore.frontmatter, status: "ready_for_pr" }, changeBefore.body));
+    runReviewStart("CY-0001", repo);
+    assert.equal(parseFrontmatter(readFileSync(changePath, "utf8")).frontmatter.status, "in_review");
+
+    const review = getReview("CY-0001", 1, repo);
+    updateReview("CY-0001", {
+      review: 1,
+      summary: "",
+      requiredChanges: [],
+      inlineComments: [{ path: "src/example.ts", line: 7, body: "Question for follow-up." }],
+      expectedLastModifiedAt: review.lastModifiedAt,
+    }, repo);
+
+    assert.equal(runReviewComplete("CY-0001", "comment", repo), "Completed review for CY-0001: commented");
+    assert.equal(parseFrontmatter(readFileSync(changePath, "utf8")).frontmatter.status, "in_review");
+    const completedReview = parseFrontmatter(readFileSync(path.join(repo, ".changeyard", "reviews", "CY-0001", "review-001.md"), "utf8"));
+    assert.equal(completedReview.frontmatter.status, "commented");
+    assert.equal(typeof completedReview.frontmatter.completedAt, "string");
   } finally {
     cleanup(repo);
   }

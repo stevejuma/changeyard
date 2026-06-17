@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { loadConfig } from "../config/loadConfig.js";
 import { parseFrontmatter, writeFrontmatter } from "../documents/frontmatter.js";
@@ -9,7 +9,44 @@ import type { Frontmatter, ChangeStatus } from "../types.js";
 import { assertTransition } from "../state/transitions.js";
 import { createProvider } from "../providers/index.js";
 
-export type ReviewDecision = "approve" | "request-changes" | "reject";
+export type ReviewDecision = "approve" | "request-changes" | "reject" | "comment";
+
+export interface ReviewInlineComment {
+  path: string;
+  line: number;
+  body: string;
+}
+
+export interface ReviewRequiredChange {
+  text: string;
+  checked: boolean;
+}
+
+export interface ReviewSummary {
+  change: string;
+  review: number;
+  status: string;
+  reviewer: string | null;
+  createdAt: string | null;
+  completedAt: string | null;
+  path: string;
+  lastModifiedAt: string;
+}
+
+export interface ReviewDetail extends ReviewSummary {
+  summary: string;
+  requiredChanges: ReviewRequiredChange[];
+  inlineComments: ReviewInlineComment[];
+  body: string;
+}
+
+export interface ReviewUpdateInput {
+  review: number;
+  summary: string;
+  requiredChanges: ReviewRequiredChange[];
+  inlineComments: ReviewInlineComment[];
+  expectedLastModifiedAt?: string | null;
+}
 
 export const REVIEW_SUMMARY_PLACEHOLDER = "Review the change here.";
 
@@ -39,6 +76,7 @@ function nextReviewNumber(root: string): number {
 function reviewStatus(decision: ReviewDecision): string {
   if (decision === "approve") return "approved";
   if (decision === "request-changes") return "changes_requested";
+  if (decision === "comment") return "commented";
   return "rejected";
 }
 
@@ -49,12 +87,17 @@ export function mapReviewDecisionToStatus(decision: ReviewDecision): string {
 function changeStatus(decision: ReviewDecision): string {
   if (decision === "approve") return "approved";
   if (decision === "request-changes") return "changes_requested";
+  if (decision === "comment") return "in_review";
   return "abandoned";
 }
 
 function latestReviewPath(root: string): string | undefined {
   if (!existsSync(root)) return undefined;
   return readdirSync(root).filter((file) => /^review-\d+\.md$/.test(file)).sort().map((file) => path.join(root, file)).pop();
+}
+
+function reviewPathForNumber(root: string, review: number): string {
+  return path.join(root, `review-${String(review).padStart(3, "0")}.md`);
 }
 
 function asRecord(value: unknown): Frontmatter {
@@ -84,11 +127,56 @@ export function extractReviewSection(body: string, sectionName: string): string 
   return collected.join("\n").trim();
 }
 
+interface ReviewMarkdownSection {
+  name: string;
+  heading: string;
+  content: string;
+}
+
+function parseReviewMarkdownSections(body: string): ReviewMarkdownSection[] {
+  const sections: ReviewMarkdownSection[] = [];
+  const lines = body.split(/\r?\n/);
+  let current: ReviewMarkdownSection | null = null;
+  for (const line of lines) {
+    const heading = /^#+\s+(.+?)\s*$/.exec(line);
+    if (heading) {
+      if (current) {
+        current.content = current.content.replace(/\n+$/, "");
+        sections.push(current);
+      }
+      const name = heading[1].trim();
+      current = { name: name.toLowerCase(), heading: line, content: "" };
+      continue;
+    }
+    if (!current) {
+      if (line.trim()) {
+        current = { name: "", heading: "", content: line };
+      }
+      continue;
+    }
+    current.content += `${current.content ? "\n" : ""}${line}`;
+  }
+  if (current) {
+    current.content = current.content.replace(/\n+$/, "");
+    sections.push(current);
+  }
+  return sections;
+}
+
 export function assertReviewBodyFilled(body: string): void {
   const summary = extractReviewSection(body, "summary");
   if (!summary || summary === REVIEW_SUMMARY_PLACEHOLDER) {
     throw new Error(
       "Review Summary must be filled in before completing. Edit the review markdown under .changeyard/reviews/<id>/ and replace the template placeholder.",
+    );
+  }
+}
+
+function assertReviewBodyCommentable(body: string, inlineComments: ReviewInlineComment[]): void {
+  const summary = extractReviewSection(body, "summary");
+  if ((!summary || summary === REVIEW_SUMMARY_PLACEHOLDER) && inlineComments.length === 0) {
+    throw new Error(
+      "Comment reviews require either a Summary or at least one Inline Comment before completing.",
     );
   }
 }
@@ -108,6 +196,110 @@ export function parseInlineComments(body: string): { path: string; line: number;
     if (match) comments.push({ path: match[1].trim(), line: Number(match[2]), body: match[3].trim() });
   }
   return comments;
+}
+
+function parseRequiredChanges(body: string): ReviewRequiredChange[] {
+  return extractReviewSection(body, "Required Changes")
+    .split(/\r?\n/)
+    .map((line) => /^-\s+\[( |x|X)\]\s+(.+)$/.exec(line.trim()))
+    .filter((match): match is RegExpExecArray => match !== null)
+    .map((match) => ({
+      checked: match[1].toLowerCase() === "x",
+      text: match[2].trim(),
+    }));
+}
+
+function reviewLastModifiedAt(reviewPath: string): string {
+  return statSync(reviewPath).mtime.toISOString();
+}
+
+function reviewSummaryFromPath(repoRoot: string, reviewPath: string): ReviewSummary {
+  const parsed = parseFrontmatter(readFileSync(reviewPath, "utf8"));
+  const frontmatter = parsed.frontmatter;
+  return {
+    change: String(frontmatter.change ?? ""),
+    review: Number(frontmatter.review ?? 0),
+    status: String(frontmatter.status ?? "unknown"),
+    reviewer: typeof frontmatter.reviewer === "string" ? frontmatter.reviewer : null,
+    createdAt: typeof frontmatter.createdAt === "string" ? frontmatter.createdAt : null,
+    completedAt: typeof frontmatter.completedAt === "string" ? frontmatter.completedAt : null,
+    path: path.relative(repoRoot, reviewPath),
+    lastModifiedAt: reviewLastModifiedAt(reviewPath),
+  };
+}
+
+function reviewDetailFromPath(repoRoot: string, reviewPath: string): ReviewDetail {
+  const parsed = parseFrontmatter(readFileSync(reviewPath, "utf8"));
+  return {
+    ...reviewSummaryFromPath(repoRoot, reviewPath),
+    summary: extractReviewSection(parsed.body, "Summary"),
+    requiredChanges: parseRequiredChanges(parsed.body),
+    inlineComments: parseInlineComments(parsed.body),
+    body: parsed.body,
+  };
+}
+
+function formatRequiredChanges(requiredChanges: ReviewRequiredChange[]): string {
+  if (requiredChanges.length === 0) {
+    return "- [x] None.";
+  }
+  return requiredChanges
+    .map((item) => `- [${item.checked ? "x" : " "}] ${item.text.trim() || "Untitled required change"}`)
+    .join("\n");
+}
+
+function formatInlineComments(inlineComments: ReviewInlineComment[]): string {
+  if (inlineComments.length === 0) {
+    return "None.";
+  }
+  return inlineComments
+    .map((comment) => `- ${comment.path}:${comment.line}: ${comment.body.trim()}`)
+    .join("\n");
+}
+
+function updateReviewBody(body: string, input: Omit<ReviewUpdateInput, "review" | "expectedLastModifiedAt">): string {
+  const known = new Set(["summary", "required changes", "inline comments"]);
+  const unknownSections = parseReviewMarkdownSections(body).filter((section) => !known.has(section.name));
+  const sections = [
+    `# Summary\n\n${input.summary.trim() || REVIEW_SUMMARY_PLACEHOLDER}`,
+    `# Required Changes\n\n${formatRequiredChanges(input.requiredChanges)}`,
+    `# Inline Comments\n\n${formatInlineComments(input.inlineComments)}`,
+    ...unknownSections.map((section) => `${section.heading}\n\n${section.content}`.trim()),
+  ];
+  return `${sections.join("\n\n")}\n`;
+}
+
+export function listReviews(id: string, repoRoot = process.cwd()): ReviewSummary[] {
+  const config = loadConfig(repoRoot);
+  const root = path.join(reviewsRoot(repoRoot, config), id);
+  if (!existsSync(root)) return [];
+  return readdirSync(root)
+    .filter((file) => /^review-\d+\.md$/.test(file))
+    .sort()
+    .map((file) => reviewSummaryFromPath(repoRoot, path.join(root, file)));
+}
+
+export function getReview(id: string, review: number, repoRoot = process.cwd()): ReviewDetail {
+  const config = loadConfig(repoRoot);
+  const root = path.join(reviewsRoot(repoRoot, config), id);
+  const reviewPath = reviewPathForNumber(root, review);
+  if (!existsSync(reviewPath)) throw new Error(`Review not found for ${id}: ${review}`);
+  return reviewDetailFromPath(repoRoot, reviewPath);
+}
+
+export function updateReview(id: string, input: ReviewUpdateInput, repoRoot = process.cwd()): ReviewDetail {
+  const config = loadConfig(repoRoot);
+  const root = path.join(reviewsRoot(repoRoot, config), id);
+  const reviewPath = reviewPathForNumber(root, input.review);
+  if (!existsSync(reviewPath)) throw new Error(`Review not found for ${id}: ${input.review}`);
+  const currentLastModifiedAt = reviewLastModifiedAt(reviewPath);
+  if (input.expectedLastModifiedAt !== undefined && input.expectedLastModifiedAt !== currentLastModifiedAt) {
+    throw new Error(`Review ${id} #${input.review} changed elsewhere. Reload the latest review and retry your edit.`);
+  }
+  const parsed = parseFrontmatter(readFileSync(reviewPath, "utf8"));
+  const body = updateReviewBody(parsed.body, input);
+  writeFileSync(reviewPath, writeFrontmatter({ ...parsed.frontmatter }, body));
+  return getReview(id, input.review, repoRoot);
 }
 
 type MutationOptions = {
@@ -175,8 +367,12 @@ export function runReviewComplete(id: string, decision: ReviewDecision, repoRoot
   if (!changePath) throw new Error(`Change not found: ${id}`);
   const parsedChange = parseFrontmatter(readFileSync(changePath, "utf8"));
 
-  assertReviewBodyFilled(parsedReview.body);
   const inlineComments = parseInlineComments(parsedReview.body);
+  if (decision === "comment") {
+    assertReviewBodyCommentable(parsedReview.body, inlineComments);
+  } else {
+    assertReviewBodyFilled(parsedReview.body);
+  }
   if (mutationOptions.dryRun) {
     return `Dry-run: would complete review for ${id}: ${status} (${inlineComments.length} inline comments)`;
   }
@@ -215,7 +411,9 @@ export function runReviewComplete(id: string, decision: ReviewDecision, repoRoot
   writeFileSync(reviewPath, writeFrontmatter(reviewFrontmatter, parsedReview.body));
 
   const nextStatus = changeStatus(decision) as ChangeStatus;
-  assertTransition(String(parsedChange.frontmatter.status ?? ""), nextStatus, `Review ${id}`);
-  writeFileSync(changePath, writeFrontmatter({ ...parsedChange.frontmatter, status: nextStatus, updatedAt: new Date().toISOString() }, parsedChange.body));
+  if (decision !== "comment") {
+    assertTransition(String(parsedChange.frontmatter.status ?? ""), nextStatus, `Review ${id}`);
+    writeFileSync(changePath, writeFrontmatter({ ...parsedChange.frontmatter, status: nextStatus, updatedAt: new Date().toISOString() }, parsedChange.body));
+  }
   return `Completed review for ${id}: ${status}`;
 }

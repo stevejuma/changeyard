@@ -2,6 +2,7 @@ import { ChevronDown, ChevronRight, Command, CornerDownLeft, MessageSquare, X } 
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
+import { MarkdownMessageEditor } from "@/components/ui/markdown-message-editor";
 import {
 	buildDisplayItems,
 	buildHighlightedLineMap,
@@ -92,29 +93,16 @@ function InlineComment({
 	onChange: (text: string) => void;
 	onDelete: () => void;
 }): React.ReactElement {
-	const textAreaRef = useRef<HTMLTextAreaElement>(null);
-
-	useEffect(() => {
-		textAreaRef.current?.focus();
-	}, []);
-
 	return (
 		<div className="kb-diff-inline-comment">
-			<textarea
-				ref={textAreaRef}
+			<MarkdownMessageEditor
 				value={comment.comment}
-				onChange={(event) => onChange(event.target.value)}
-				onKeyDown={(event) => {
-					if (event.key === "Escape") {
-						event.preventDefault();
-						onDelete();
-					}
-				}}
-				onClick={(event) => event.stopPropagation()}
+				onChange={onChange}
+				height="140px"
 				placeholder="Add a comment..."
-				rows={1}
-				className="w-full rounded-md border border-border bg-surface-2 p-3 text-[13px] text-text-primary placeholder:text-text-tertiary focus:border-border-focus focus:outline-none resize-none"
-				style={{ fontSize: 12 }}
+				autoFocus
+				onEscape={onDelete}
+				className="cy-markdown-editor-compact"
 			/>
 		</div>
 	);
@@ -831,7 +819,7 @@ export function DiffViewerPanel({
 							flex: "1 1 0",
 							minHeight: 0,
 							overflowY: "auto",
-							overscrollBehavior: "contain",
+							overscrollBehaviorY: "contain",
 							padding: "0 12px 12px",
 						}}
 					>

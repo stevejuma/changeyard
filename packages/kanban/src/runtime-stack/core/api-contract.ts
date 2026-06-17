@@ -1560,9 +1560,66 @@ export const runtimeChangeyardCompleteRequestSchema = z.object({
 });
 export type RuntimeChangeyardCompleteRequest = z.infer<typeof runtimeChangeyardCompleteRequestSchema>;
 
+export const runtimeChangeyardReviewInlineCommentSchema = z.object({
+	path: z.string(),
+	line: z.number().int().positive(),
+	body: z.string(),
+});
+export type RuntimeChangeyardReviewInlineComment = z.infer<typeof runtimeChangeyardReviewInlineCommentSchema>;
+
+export const runtimeChangeyardReviewRequiredChangeSchema = z.object({
+	text: z.string(),
+	checked: z.boolean(),
+});
+export type RuntimeChangeyardReviewRequiredChange = z.infer<typeof runtimeChangeyardReviewRequiredChangeSchema>;
+
+export const runtimeChangeyardReviewSummarySchema = z.object({
+	change: z.string(),
+	review: z.number().int().positive(),
+	status: z.string(),
+	reviewer: z.string().nullable(),
+	createdAt: z.string().nullable(),
+	completedAt: z.string().nullable(),
+	path: z.string(),
+	lastModifiedAt: z.string(),
+});
+export type RuntimeChangeyardReviewSummary = z.infer<typeof runtimeChangeyardReviewSummarySchema>;
+
+export const runtimeChangeyardReviewDetailSchema = runtimeChangeyardReviewSummarySchema.extend({
+	summary: z.string(),
+	requiredChanges: z.array(runtimeChangeyardReviewRequiredChangeSchema),
+	inlineComments: z.array(runtimeChangeyardReviewInlineCommentSchema),
+	body: z.string(),
+});
+export type RuntimeChangeyardReviewDetail = z.infer<typeof runtimeChangeyardReviewDetailSchema>;
+
+export const runtimeChangeyardReviewListRequestSchema = z.object({
+	id: z.string(),
+});
+export type RuntimeChangeyardReviewListRequest = z.infer<typeof runtimeChangeyardReviewListRequestSchema>;
+
+export const runtimeChangeyardReviewListResponseSchema = z.object({
+	reviews: z.array(runtimeChangeyardReviewSummarySchema),
+});
+export type RuntimeChangeyardReviewListResponse = z.infer<typeof runtimeChangeyardReviewListResponseSchema>;
+
+export const runtimeChangeyardReviewGetRequestSchema = z.object({
+	id: z.string(),
+	review: z.number().int().positive(),
+});
+export type RuntimeChangeyardReviewGetRequest = z.infer<typeof runtimeChangeyardReviewGetRequestSchema>;
+
+export const runtimeChangeyardReviewUpdateRequestSchema = runtimeChangeyardReviewGetRequestSchema.extend({
+	summary: z.string(),
+	requiredChanges: z.array(runtimeChangeyardReviewRequiredChangeSchema),
+	inlineComments: z.array(runtimeChangeyardReviewInlineCommentSchema),
+	expectedLastModifiedAt: z.string().nullable().optional(),
+});
+export type RuntimeChangeyardReviewUpdateRequest = z.infer<typeof runtimeChangeyardReviewUpdateRequestSchema>;
+
 export const runtimeChangeyardReviewCompleteRequestSchema = z.object({
 	id: z.string(),
-	decision: z.enum(["approve", "request-changes", "reject"]),
+	decision: z.enum(["approve", "request-changes", "reject", "comment"]),
 });
 export type RuntimeChangeyardReviewCompleteRequest = z.infer<typeof runtimeChangeyardReviewCompleteRequestSchema>;
 

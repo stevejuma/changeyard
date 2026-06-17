@@ -19,6 +19,7 @@ export enum LocalStorageKey {
 	GitDiffFileTreePanelRatio = "kanban.git-diff-file-tree-panel-ratio",
 	GitDiffFileTreePanelWidth = "kanban.git-diff-file-tree-panel-width",
 	GitDiffFileTreePanelCollapsed = "kanban.git-diff-file-tree-panel-collapsed",
+	ReviewDraftPanelWidth = "kanban.review-draft-panel-width",
 	ChangeBoardCollapsedColumns = "kanban.change-board-collapsed-columns.v1",
 	ChangeBoardColumnWidths = "kanban.change-board-column-widths.v1",
 	OnboardingDialogShown = "kanban.onboarding.dialog.shown",
@@ -45,6 +46,7 @@ export const LAYOUT_CUSTOMIZATION_LOCAL_STORAGE_KEYS = [
 	LocalStorageKey.GitDiffFileTreePanelRatio,
 	LocalStorageKey.GitDiffFileTreePanelWidth,
 	LocalStorageKey.GitDiffFileTreePanelCollapsed,
+	LocalStorageKey.ReviewDraftPanelWidth,
 	LocalStorageKey.ChangeBoardCollapsedColumns,
 	LocalStorageKey.ChangeBoardColumnWidths,
 ] as const;

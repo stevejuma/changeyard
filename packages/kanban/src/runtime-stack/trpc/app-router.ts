@@ -147,6 +147,11 @@ import {
 	runtimeChangeyardPlanningPromptRequestSchema,
 	runtimeChangeyardPlanningPromptResponseSchema,
 	runtimeChangeyardReviewCompleteRequestSchema,
+	runtimeChangeyardReviewDetailSchema,
+	runtimeChangeyardReviewGetRequestSchema,
+	runtimeChangeyardReviewListRequestSchema,
+	runtimeChangeyardReviewListResponseSchema,
+	runtimeChangeyardReviewUpdateRequestSchema,
 	runtimeChangeyardChangeUpdatePlanningSectionRequestSchema,
 	runtimeChangeyardChangesListResponseSchema,
 	runtimeChangeyardWorkspaceDeleteRequestSchema,
@@ -1127,6 +1132,24 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeChangeyardChangeActionResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.changesApi.reviewStart(ctx.workspaceScope.workspacePath, input);
+			}),
+		reviewList: workspaceProcedure
+			.input(runtimeChangeyardReviewListRequestSchema)
+			.output(runtimeChangeyardReviewListResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.changesApi.reviewList(ctx.workspaceScope.workspacePath, input);
+			}),
+		reviewGet: workspaceProcedure
+			.input(runtimeChangeyardReviewGetRequestSchema)
+			.output(runtimeChangeyardReviewDetailSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.changesApi.reviewGet(ctx.workspaceScope.workspacePath, input);
+			}),
+		reviewUpdate: workspaceProcedure
+			.input(runtimeChangeyardReviewUpdateRequestSchema)
+			.output(runtimeChangeyardReviewDetailSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.changesApi.reviewUpdate(ctx.workspaceScope.workspacePath, input);
 			}),
 		reviewComplete: workspaceProcedure
 			.input(runtimeChangeyardReviewCompleteRequestSchema)

@@ -10,6 +10,7 @@ import { notifyError, showAppToast } from "@/components/app-toaster";
 import { CardDetailView } from "@/components/card-detail-view";
 import { ChangeBoard, type ChangeBoardFilter, type ChangeColumnId } from "@/components/changeyard/change-board";
 import { ChangeDetailDialog, type ChangeDetailAction } from "@/components/changeyard/change-detail-dialog";
+import { ChangeReviewModal } from "@/components/changeyard/change-review-modal";
 import { CreateChangeDialog } from "@/components/changeyard/create-change-dialog";
 import { ClearTrashDialog } from "@/components/clear-trash-dialog";
 import { DebugDialog } from "@/components/debug-dialog";
@@ -69,6 +70,7 @@ import {
 } from "@/runtime/native-agent";
 import type {
 	RuntimeClineReasoningEffort,
+	RuntimeChangeyardChangeDetail,
 	RuntimeTaskSessionSummary,
 } from "@/runtime/types";
 import { getRuntimeTrpcClient, readTrpcConflictUpdatedAt } from "@/runtime/trpc-client";
@@ -86,6 +88,7 @@ import {
 } from "@/stores/workspace-metadata-store";
 import { useTerminalThemeColors } from "@/terminal/theme-colors";
 import type { BoardData } from "@/types";
+import { unsupportedChangeMoveMessage } from "@/utils/change-move-error";
 
 export default function App(): ReactElement {
 	const terminalThemeColors = useTerminalThemeColors();
@@ -100,6 +103,7 @@ export default function App(): ReactElement {
 	const [isGitHistoryOpen, setIsGitHistoryOpen] = useState(false);
 	const [changeBoardFilter, setChangeBoardFilter] = useState<ChangeBoardFilter>("all");
 	const [selectedChangeId, setSelectedChangeId] = useState<string | null>(null);
+	const [isChangeReviewOpen, setIsChangeReviewOpen] = useState(false);
 	const [isChangeActionPending, setIsChangeActionPending] = useState(false);
 	const [changeActionError, setChangeActionError] = useState<string | null>(null);
 	const [pendingTaskStartAfterEditId, setPendingTaskStartAfterEditId] = useState<string | null>(null);
@@ -607,9 +611,30 @@ export default function App(): ReactElement {
 		[currentProjectId, refetchChangeyardChanges, setSelectedChangeDetail],
 	);
 
+	const handleReviewChanged = useCallback(
+		async (change: RuntimeChangeyardChangeDetail, message: string) => {
+			setSelectedChangeId(change.id);
+			setSelectedChangeDetail(change);
+			await refetchChangeyardChanges();
+			await refetchSelectedChangeDetail();
+			showAppToast({
+				intent: "success",
+				icon: "tick",
+				message,
+				timeout: 4000,
+			});
+		},
+		[refetchChangeyardChanges, refetchSelectedChangeDetail, setSelectedChangeDetail],
+	);
+
 	const runChangeAction = useCallback(
 		async (action: ChangeDetailAction, changeId: string) => {
 			if (!currentProjectId) {
+				return;
+			}
+			if (action === "review") {
+				setSelectedChangeId(changeId);
+				setIsChangeReviewOpen(true);
 				return;
 			}
 			setIsChangeActionPending(true);
@@ -639,12 +664,6 @@ export default function App(): ReactElement {
 					}
 					case "complete": {
 						const response = await client.changes.complete.mutate({ id: changeId, noPr: true });
-						nextDetail = response.change;
-						successMessage = response.message;
-						break;
-					}
-					case "reviewStart": {
-						const response = await client.changes.reviewStart.mutate({ id: changeId });
 						nextDetail = response.change;
 						successMessage = response.message;
 						break;
@@ -717,14 +736,14 @@ export default function App(): ReactElement {
 							successMessage = `Moved ${changeId} to in progress`;
 							break;
 						}
-						throw new Error(`Cannot move ${changeId} from ${status} to In Progress.`);
+						throw new Error(unsupportedChangeMoveMessage(changeId, status, targetColumnId));
 					case "blocked":
 						if (status === "in_progress") {
 							nextDetail = await client.changes.updateStatus.mutate({ id: changeId, status: "blocked" });
 							successMessage = `Blocked ${changeId}`;
 							break;
 						}
-						throw new Error(`Cannot move ${changeId} from ${status} to Blocked.`);
+						throw new Error(unsupportedChangeMoveMessage(changeId, status, targetColumnId));
 					case "review": {
 						if (status === "in_progress") {
 							const response = await client.changes.complete.mutate({ id: changeId, noPr: true });
@@ -732,7 +751,7 @@ export default function App(): ReactElement {
 							successMessage = response.message;
 							break;
 						}
-						throw new Error(`Cannot move ${changeId} from ${status} to Review / PR.`);
+						throw new Error(unsupportedChangeMoveMessage(changeId, status, targetColumnId));
 					}
 					case "done": {
 						if (status === "in_review") {
@@ -741,7 +760,7 @@ export default function App(): ReactElement {
 							successMessage = response.message;
 							break;
 						}
-						throw new Error(`Cannot move ${changeId} from ${status} to Done.`);
+						throw new Error(unsupportedChangeMoveMessage(changeId, status, targetColumnId));
 					}
 					case "abandoned":
 						if (["ready", "in_progress", "ready_for_pr", "pr_open", "in_review", "changes_requested", "approved"].includes(status)) {
@@ -749,10 +768,10 @@ export default function App(): ReactElement {
 							successMessage = `Abandoned ${changeId}`;
 							break;
 						}
-						throw new Error(`Cannot move ${changeId} from ${status} to Abandoned.`);
+						throw new Error(unsupportedChangeMoveMessage(changeId, status, targetColumnId));
 					case "backlog":
 					case "ready":
-						throw new Error(`Move ${changeId} with its lifecycle actions instead of dragging into ${targetColumnId}.`);
+						throw new Error(unsupportedChangeMoveMessage(changeId, status, targetColumnId));
 				}
 				setSelectedChangeId(nextDetail.id);
 				setSelectedChangeDetail(nextDetail);
@@ -1533,7 +1552,12 @@ export default function App(): ReactElement {
 				/>
 				<ChangeDetailDialog
 					change={selectedCard || !selectedChangeId ? null : selectedChangeDetail}
-					open={selectedCard === null && selectedChangeId !== null && selectedChangeDetail !== null}
+					open={
+						selectedCard === null
+						&& selectedChangeId !== null
+						&& selectedChangeDetail !== null
+						&& !isChangeReviewOpen
+					}
 					workspaceId={currentProjectId}
 					repoRoot={workspacePath}
 					isActionPending={isChangeActionPending}
@@ -1548,6 +1572,21 @@ export default function App(): ReactElement {
 					}}
 					onSaveBody={(input) => {
 						void handleSaveChangeBody(input);
+					}}
+				/>
+				<ChangeReviewModal
+					open={isChangeReviewOpen && selectedCard === null && selectedChangeId !== null}
+					change={selectedCard || !selectedChangeId ? null : selectedChangeDetail}
+					changes={changeyardChanges}
+					workspaceId={currentProjectId}
+					onOpenChange={(open) => {
+						setIsChangeReviewOpen(open);
+					}}
+					onSelectChange={(changeId) => {
+						setSelectedChangeId(changeId);
+					}}
+					onReviewChanged={(change, message) => {
+						void handleReviewChanged(change, message);
 					}}
 				/>
 				<TaskCreateDialog
