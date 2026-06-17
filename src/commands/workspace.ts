@@ -3,7 +3,7 @@ import path from "node:path";
 import { loadConfig } from "../config/loadConfig.js";
 import { parseFrontmatter } from "../documents/frontmatter.js";
 import { changesRoot, workspacesRoot } from "../paths.js";
-import { findChangeFile } from "../state/id.js";
+import { findChangeFile, findWorkspaceId } from "../state/id.js";
 import type { ChangeStatus, WorkspaceMetadata } from "../types.js";
 import { shellCommandRunner } from "../workspace/commandRunner.js";
 import { resolveWorkspaceChangePath } from "../workspace/marker.js";
@@ -57,7 +57,9 @@ function asWorkspaceMetadata(value: unknown): WorkspaceMetadata {
 
 export function workspaceMetadataPath(id: string, repoRoot: string): string {
   const config = loadConfig(repoRoot);
-  return path.join(workspacesRoot(repoRoot, config), id, "metadata.json");
+  const root = workspacesRoot(repoRoot, config);
+  const workspaceId = findWorkspaceId(root, id) ?? id;
+  return path.join(root, workspaceId, "metadata.json");
 }
 
 export function readWorkspaceMetadataFromRoot(id: string, repoRoot: string): WorkspaceMetadata | null {
@@ -195,13 +197,16 @@ function inspectDirtyState(metadata: WorkspaceMetadata, neverCopy: string[]): { 
 export function getWorkspaceStatus(id: string, repoRoot = process.cwd()): WorkspaceStatus {
   if (!id) throw new Error("change id is required");
   const config = loadConfig(repoRoot);
-  const metadata = readWorkspaceMetadataFromRoot(id, repoRoot);
-  const rootStatus = String(changeStatus(id, repoRoot));
+  const rootChangePath = findChangeFile(changesRoot(repoRoot, config), id);
+  const rootChangeId = rootChangePath ? String(parseFrontmatter(readFileSync(rootChangePath, "utf8")).frontmatter.id ?? id) : id;
+  const metadata = readWorkspaceMetadataFromRoot(rootChangeId, repoRoot) ?? readWorkspaceMetadataFromRoot(id, repoRoot);
+  const changeId = metadata?.changeId ?? rootChangeId;
+  const rootStatus = String(changeStatus(changeId, repoRoot));
   const activeWorkspaceStatus = metadata ? workspaceChangeStatus(metadata) : null;
   const status = activeWorkspaceStatus ?? rootStatus;
   if (!metadata) {
     return {
-      id,
+      id: changeId,
       status,
       rootStatus,
       workspaceStatus: null,
@@ -213,8 +218,8 @@ export function getWorkspaceStatus(id: string, repoRoot = process.cwd()): Worksp
       conflicts: false,
       landed: status === "merged",
       rootMismatch: false,
-      errors: [`Workspace metadata not found for ${id}`],
-      nextCommand: status === "merged" ? null : `cy start ${id}`,
+      errors: [`Workspace metadata not found for ${changeId}`],
+      nextCommand: status === "merged" ? null : `cy start ${changeId}`,
       targetRef: null,
       baseCommitId: null,
       currentTargetCommitId: null,
@@ -226,7 +231,7 @@ export function getWorkspaceStatus(id: string, repoRoot = process.cwd()): Worksp
       landingDescriptionValid: false,
       landingDescriptionError: null,
       landable: false,
-      landBlockers: status === "merged" ? [] : [`Workspace metadata not found for ${id}`],
+      landBlockers: status === "merged" ? [] : [`Workspace metadata not found for ${changeId}`],
     };
   }
 
@@ -251,13 +256,13 @@ export function getWorkspaceStatus(id: string, repoRoot = process.cwd()): Worksp
   const targetMoved = Boolean(metadata.baseCommitId && currentTargetCommitId && metadata.baseCommitId !== currentTargetCommitId);
   const landBlockers = [
     ...errors,
-    ...(dirtyState.conflicts ? [`Workspace ${id} has conflicts`] : []),
-    ...(metadata.engine === "jj" && !workspaceChangeId ? [`Workspace ${id} is missing workspaceChangeId metadata; recreate the workspace with cy start ${id}`] : []),
+    ...(dirtyState.conflicts ? [`Workspace ${changeId} has conflicts`] : []),
+    ...(metadata.engine === "jj" && !workspaceChangeId ? [`Workspace ${changeId} is missing workspaceChangeId metadata; recreate the workspace with cy start ${changeId}`] : []),
     ...(landingDescriptionError ? [landingDescriptionError] : []),
   ];
 
   return {
-    id,
+    id: changeId,
     status,
     rootStatus,
     workspaceStatus: activeWorkspaceStatus,
@@ -270,7 +275,7 @@ export function getWorkspaceStatus(id: string, repoRoot = process.cwd()): Worksp
     landed,
     rootMismatch,
     errors,
-    nextCommand: landed ? `cy workspace delete ${id}` : status === "ready_for_pr" ? `cy land ${id}` : status === "in_progress" ? `cd ${path.relative(repoRoot, metadata.path) || metadata.path} && cy verify ${id}` : null,
+    nextCommand: landed ? `cy workspace delete ${changeId}` : status === "ready_for_pr" ? `cy land ${changeId}` : status === "in_progress" ? `cd ${path.relative(repoRoot, metadata.path) || metadata.path} && cy verify ${changeId}` : null,
     targetRef: metadata.targetRef ?? null,
     baseCommitId: metadata.baseCommitId ?? null,
     currentTargetCommitId,
@@ -335,20 +340,21 @@ export function runWorkspaceList(repoRoot = process.cwd()): string {
 export function deleteWorkspace(id: string, options: WorkspaceDeleteOptions = {}, repoRoot = process.cwd()): string {
   if (!id) throw new Error("change id is required");
   const metadata = readWorkspaceMetadataFromRoot(id, repoRoot);
+  const changeId = metadata?.changeId ?? id;
   if (!metadata) return `Workspace metadata not found for ${id}`;
-  const status = getWorkspaceStatus(id, repoRoot);
+  const status = getWorkspaceStatus(changeId, repoRoot);
   if ((status.dirty || status.conflicts) && status.status !== "merged" && !options.force) {
-    throw new Error(`Workspace ${id} has dirty unlanded work; run cy land ${id}, or rerun with --force to delete it`);
+    throw new Error(`Workspace ${changeId} has dirty unlanded work; run cy land ${changeId}, or rerun with --force to delete it`);
   }
 
   const workspaceRoot = path.dirname(metadata.path);
-  if (options.dryRun) return `Dry-run: would delete workspace ${id} at ${workspaceRoot}`;
+  if (options.dryRun) return `Dry-run: would delete workspace ${changeId} at ${workspaceRoot}`;
 
   const kind = repositoryKind(metadata.engine);
   if (kind) {
     const result = deleteTaskWorkspace({ repositoryKind: kind, repoRoot, workspacePath: metadata.path, workspaceName: metadata.name });
-    if (!result.ok) throw new Error(result.error ?? `Failed to delete workspace ${id}`);
+    if (!result.ok) throw new Error(result.error ?? `Failed to delete workspace ${changeId}`);
   }
   rmSync(workspaceRoot, { recursive: true, force: true });
-  return `Deleted workspace ${id}`;
+  return `Deleted workspace ${changeId}`;
 }

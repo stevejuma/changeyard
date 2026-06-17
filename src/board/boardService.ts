@@ -137,6 +137,14 @@ export class ChangeyardBoardService {
     }));
   }
 
+  private canonicalId(id: string): string {
+    const config = loadConfig(this.repoRoot);
+    const filePath = findChangeFile(changesRoot(this.repoRoot, config), id);
+    if (!filePath) return id;
+    const rootParsed = readOverlayChangeDocument(filePath, null);
+    return String(rootParsed.frontmatter.id ?? id);
+  }
+
   getBoard(options?: BoardReadOptions): ChangeyardBoard {
     const config = loadConfig(this.repoRoot);
     const cards = this.readAllCards(options);
@@ -156,7 +164,8 @@ export class ChangeyardBoardService {
   }
 
   getCard(id: string): ChangeyardCardDetail {
-    const card = this.readAllCards().find((entry) => entry.id === id);
+    const changeId = this.canonicalId(id);
+    const card = this.readAllCards().find((entry) => entry.id === changeId);
     if (!card) throw new Error(`Change not found: ${id}`);
     return card;
   }
@@ -165,7 +174,7 @@ export class ChangeyardBoardService {
     const card = this.getCard(id);
     const metadata = card.workspace?.metadata;
     if (!metadata) throw new Error(`Workspace not started for ${id}`);
-    return readWorkspaceTerminalView(this.repoRoot, id, metadata);
+    return readWorkspaceTerminalView(this.repoRoot, card.id, metadata);
   }
 
   syncCard(id: string): ChangeyardCardDetail {

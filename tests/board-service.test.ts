@@ -155,6 +155,23 @@ test("board service links changes and derives reverse dependencies", () => {
   }
 });
 
+test("board service accepts partial task ids for card actions", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "agent-task", title: "First partial card" }, repo);
+    runCreate({ template: "agent-task", title: "Second partial card" }, repo);
+    const service = createChangeyardBoardService(repo);
+
+    assert.equal(service.getCard("001").id, "CY-0001");
+    assert.equal(service.updateCard("002", { priority: "high" }).priority, "high");
+    assert.deepEqual(service.linkCard("002", "001").dependencies.blockedBy, ["CY-0001"]);
+    assert.deepEqual(service.getCard("001").dependencies.blocks, ["CY-0002"]);
+  } finally {
+    cleanup(repo);
+  }
+});
+
 test("board service unlinks changes and removes empty links frontmatter", () => {
   const repo = tempRepo();
   try {

@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { taskIdMatches } from "../state/id.js";
 import type { WorkspaceMetadata } from "../types.js";
 
 export type WorkspaceMarker = {
@@ -22,7 +23,7 @@ export function readWorkspaceMetadata(id: string, cwd: string): WorkspaceMetadat
   const markerPath = findWorkspaceMarker(cwd);
   if (!markerPath) throw new Error("Current directory is not inside a Changeyard workspace");
   const marker = JSON.parse(readFileSync(markerPath, "utf8")) as WorkspaceMarker;
-  if (marker.changeId !== id) throw new Error(`Workspace marker is for ${marker.changeId}, not ${id}`);
+  if (!taskIdMatches(marker.changeId, id)) throw new Error(`Workspace marker is for ${marker.changeId}, not ${id}`);
   if (!existsSync(marker.metadataPath)) throw new Error(`Workspace metadata not found: ${marker.metadataPath}`);
   return JSON.parse(readFileSync(marker.metadataPath, "utf8")) as WorkspaceMetadata;
 }

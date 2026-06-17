@@ -69,26 +69,27 @@ export function runStart(id: string, repoRoot = process.cwd(), mutationOptions: 
   const root = storageRoot(repoRoot, config);
   const filePath = findChangeFile(changesRoot(repoRoot, config), id);
   if (!filePath) throw new Error(`Change not found: ${id}`);
+  const parsed = parseFrontmatter(readFileSync(filePath, "utf8"));
+  const changeId = String(parsed.frontmatter.id ?? id);
 
   const validation = validateChangeFile(filePath, root, { gate: "start", config });
   if (!validation.valid) throw new Error(validation.errors.join("\n"));
 
-  const parsed = parseFrontmatter(readFileSync(filePath, "utf8"));
   const quickValidation = validateQuickStart(parsed.frontmatter, config);
   if (!quickValidation.valid) throw new Error(quickValidation.errors.join("\n"));
   const status = String(parsed.frontmatter.status ?? "");
-  assertTransition(status, "in_progress", `Start ${id}`);
+  assertTransition(status, "in_progress", `Start ${changeId}`);
 
   const engineName = String(asRecord(parsed.frontmatter.workspace).engine ?? config.vcs.engine);
   const targetRef = String(asRecord(parsed.frontmatter.base).revision ?? config.project.defaultBase);
-  const seedDescription = `${id}: ${String(parsed.frontmatter.title ?? id)}`;
-  const workspacePath = path.resolve(repoRoot, config.storage.root, config.storage.workspacesDir, fillPattern(config.workspace.pathPattern, id));
-  const workspaceName = String(asRecord(parsed.frontmatter.workspace).name ?? config.workspace.namePattern.replace("{id}", id));
+  const seedDescription = `${changeId}: ${String(parsed.frontmatter.title ?? changeId)}`;
+  const workspacePath = path.resolve(repoRoot, config.storage.root, config.storage.workspacesDir, fillPattern(config.workspace.pathPattern, changeId));
+  const workspaceName = String(asRecord(parsed.frontmatter.workspace).name ?? config.workspace.namePattern.replace("{id}", changeId));
   const workspaceRelativePath = path.relative(repoRoot, workspacePath);
   const workspaceChangePath = path.join(workspacePath, path.relative(repoRoot, filePath));
-  const metadataSeedMessage = engineName === "jj" && !mutationOptions.dryRun ? seedJjChangeMetadata(repoRoot, id, targetRef, filePath) : null;
+  const metadataSeedMessage = engineName === "jj" && !mutationOptions.dryRun ? seedJjChangeMetadata(repoRoot, changeId, targetRef, filePath) : null;
   const metadata: WorkspaceMetadata = {
-    changeId: id,
+    changeId,
     engine: engineName,
     name: workspaceName,
     path: workspacePath,
@@ -96,7 +97,7 @@ export function runStart(id: string, repoRoot = process.cwd(), mutationOptions: 
     changePath: filePath,
     ...(engineName === "jj" ? { workspaceChangePath } : {}),
     createdAt: new Date().toISOString(),
-    branch: String(asRecord(parsed.frontmatter.branch).name ?? `cy/${id}`),
+    branch: String(asRecord(parsed.frontmatter.branch).name ?? `cy/${changeId}`),
     ...(engineName === "jj"
       ? {
           targetRef,
@@ -107,15 +108,15 @@ export function runStart(id: string, repoRoot = process.cwd(), mutationOptions: 
   };
 
   if (mutationOptions.dryRun) {
-    return `Dry-run: would start ${id} in ${workspaceRelativePath}`;
+    return `Dry-run: would start ${changeId} in ${workspaceRelativePath}`;
   }
 
   const engine = createWorkspaceEngine(engineName);
   const createdMetadata = engine.create({ repoRoot, workspacePath, metadata, neverCopy: config.workspace.hydrate.neverCopy });
-  const metadataPath = path.join(workspacesRoot(repoRoot, config), id, "metadata.json");
+  const metadataPath = path.join(workspacesRoot(repoRoot, config), changeId, "metadata.json");
   mkdirSync(path.dirname(metadataPath), { recursive: true });
   writeFileSync(metadataPath, `${JSON.stringify(createdMetadata, null, 2)}\n`);
-  writeFileSync(path.join(workspacePath, ".changeyard-workspace.json"), `${JSON.stringify({ changeId: id, metadataPath }, null, 2)}\n`);
+  writeFileSync(path.join(workspacePath, ".changeyard-workspace.json"), `${JSON.stringify({ changeId, metadataPath }, null, 2)}\n`);
   const hydrateResult = hydrateWorkspace(config, createdMetadata);
 
   const nextFrontmatter: Frontmatter = {
@@ -132,12 +133,12 @@ export function runStart(id: string, repoRoot = process.cwd(), mutationOptions: 
   writeFileSync(engineName === "jj" ? workspaceChangePath : filePath, writeFrontmatter(nextFrontmatter, parsed.body));
 
   return [
-    `Started ${id} in ${workspaceRelativePath}`,
+    `Started ${changeId} in ${workspaceRelativePath}`,
     ...(metadataSeedMessage ? [metadataSeedMessage] : []),
     ...(createdMetadata.targetRef ? [`Base: ${createdMetadata.targetRef} ${createdMetadata.baseCommitId ?? ""}`.trim()] : []),
     ...(createdMetadata.workspaceChangeId ? [`Workspace change: ${createdMetadata.workspaceChangeId}`] : []),
     `Next: cd ${workspaceRelativePath}`,
     `Hydration: copied ${hydrateResult.copied.length}, skipped ${hydrateResult.skipped.length}`,
-    `Then: cy verify ${id}`,
+    `Then: cy verify ${changeId}`,
   ].join("\n");
 }

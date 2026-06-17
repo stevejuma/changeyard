@@ -40,9 +40,66 @@ type LocalFolderIssueCache = {
 const reviewTerminalStatuses = new Set(["approved", "changes_requested", "rejected", "abandoned"]);
 const branchAwareStatuses = new Set(["ready_for_pr", "pr_open", "in_review", "changes_requested", "approved", "merged", "abandoned"]);
 const checksLogStatuses = new Set(["ready_for_pr", "pr_open", "in_review", "changes_requested", "approved", "merged", "abandoned"]);
+const defaultWrapWidth = 88;
+const minimumWrapWidth = 48;
 
 function asRecord(value: unknown): Frontmatter {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Frontmatter : {};
+}
+
+function terminalWrapWidth(): number {
+  const columns = Number(process.stdout?.columns ?? process.env.COLUMNS ?? 0);
+  if (!Number.isFinite(columns) || columns <= 0) return defaultWrapWidth;
+  return Math.max(minimumWrapWidth, columns);
+}
+
+function wrapText(value: string, width: number): string[] {
+  const words = value.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [""];
+
+  const lines: string[] = [];
+  let current = "";
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (candidate.length <= width || !current) {
+      current = candidate;
+      continue;
+    }
+    lines.push(current);
+    current = word;
+  }
+  if (current) lines.push(current);
+  return lines;
+}
+
+function pushWrapped(lines: string[], prefix: string, value: string, width: number): void {
+  const wrapped = wrapText(value, Math.max(20, width - prefix.length));
+  lines.push(`${prefix}${wrapped[0] ?? ""}`);
+  for (const line of wrapped.slice(1)) lines.push(`${" ".repeat(prefix.length)}${line}`);
+}
+
+function pushTextSection(lines: string[], title: string, items: string[], width: number): void {
+  if (lines.length > 0 && lines[lines.length - 1] !== "") lines.push("");
+  lines.push(`${title}:`);
+  if (items.length === 0) {
+    lines.push("  - No blocking problems found");
+    return;
+  }
+  for (const item of items) pushWrapped(lines, "  - ", item, width);
+}
+
+function renderPlainDoctorReport(report: DoctorReport, options: MutationOptions = {}): string {
+  const lines: string[] = [];
+  const width = terminalWrapWidth();
+
+  pushTextSection(lines, "Doctor ok", report.ok, width);
+  if (report.warnings.length > 0) pushTextSection(lines, "Warnings", report.warnings, width);
+  if (report.fixes.length > 0) pushTextSection(lines, "Fixes", report.fixes, width);
+  if (report.notes.length > 0 && (options.verbose || report.fixes.length > 0)) {
+    pushTextSection(lines, "Notes", report.notes, width);
+  }
+
+  return lines.join("\n");
 }
 
 function safeReadJson<T>(filePath: string, warnings: string[], relativeRoot: string): T | undefined {
@@ -550,7 +607,23 @@ export function doctorReport(repoRoot = process.cwd(), options: MutationOptions 
 
       if (metadata.engine === "jj" && metadata.branch) {
         const stateResult = jjWorkspaceState(metadata.path, metadata.branch);
-        if (!stateResult.exists && branchAwareStatuses.has(changeStatus)) warnings.push(`${workspaceId}: jj bookmark missing: ${metadata.branch}`);
+        if (!stateResult.exists && branchAwareStatuses.has(changeStatus)) {
+          warnings.push(`${workspaceId}: jj bookmark missing: ${metadata.branch}`);
+          if (changeStatus === "in_review" && matchingChange) {
+            if (options.dryRun) {
+              notes.push(`Would move ${matchingChange.id} to approved because its JJ bookmark is missing while in review`);
+            } else if (options.fix) {
+              const nextFrontmatter: Frontmatter = {
+                ...matchingChange.frontmatter,
+                status: "approved",
+                updatedAt: new Date().toISOString(),
+              };
+              writeYaml(matchingChange.filePath, nextFrontmatter, matchingChange.body);
+              matchingChange.frontmatter = nextFrontmatter;
+              fixes.push(`Moved ${matchingChange.id} to approved because its JJ bookmark is missing while in review`);
+            }
+          }
+        }
         if (stateResult.conflicts) warnings.push(`${workspaceId}: jj workspace reports conflicts`);
         if (stateResult.dirty && changeStatus !== "in_progress") notes.push(`${workspaceId}: jj workspace is dirty`);
       }
@@ -647,20 +720,5 @@ export function doctorReport(repoRoot = process.cwd(), options: MutationOptions 
 
 export function runDoctor(repoRoot = process.cwd(), options: MutationOptions = {}): string {
   const report = doctorReport(repoRoot, options);
-  const lines: string[] = [];
-
-  if (report.ok.length > 0) lines.push(`Doctor ok: ${report.ok.join(", ")}`);
-  else lines.push("Doctor ok");
-
-  if (report.warnings.length > 0) {
-    lines.push(...report.warnings.map((warning) => `Warning: ${warning}`));
-  }
-  if (report.fixes.length > 0) {
-    lines.push(...report.fixes.map((fix) => `Fix: ${fix}`));
-  }
-  if (report.notes.length > 0 && (options.verbose || report.fixes.length > 0)) {
-    lines.push(...report.notes.map((note) => `Note: ${note}`));
-  }
-
-  return lines.join("\n");
+  return renderPlainDoctorReport(report, options);
 }

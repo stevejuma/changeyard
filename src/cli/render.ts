@@ -10,6 +10,54 @@ export type RenderContext = {
   colors: CliColors;
 };
 
+const DEFAULT_WRAP_WIDTH = 88;
+const MIN_WRAP_WIDTH = 48;
+
+function terminalWrapWidth(): number {
+  const columns = Number(process.stdout?.columns ?? process.env.COLUMNS ?? 0);
+  if (!Number.isFinite(columns) || columns <= 0) return DEFAULT_WRAP_WIDTH;
+  return Math.max(MIN_WRAP_WIDTH, columns);
+}
+
+function stripAnsi(value: string): string {
+  return value.replace(/\u001b\[[0-9;]*m/g, "");
+}
+
+function wrapText(value: string, width: number): string[] {
+  const words = value.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [""];
+
+  const lines: string[] = [];
+  let current = "";
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (stripAnsi(candidate).length <= width || !current) {
+      current = candidate;
+      continue;
+    }
+    lines.push(current);
+    current = word;
+  }
+  if (current) lines.push(current);
+  return lines;
+}
+
+function pushWrapped(lines: string[], prefix: string, value: string, width: number, continuationPrefix = " ".repeat(stripAnsi(prefix).length)): void {
+  const wrapped = wrapText(value, Math.max(20, width - stripAnsi(prefix).length));
+  lines.push(`${prefix}${wrapped[0] ?? ""}`);
+  for (const line of wrapped.slice(1)) lines.push(`${continuationPrefix}${line}`);
+}
+
+function pushSection(lines: string[], title: string, items: string[], width: number): void {
+  if (lines.length > 0 && lines[lines.length - 1] !== "") lines.push("");
+  lines.push(`${title}:`);
+  if (items.length === 0) {
+    lines.push("  - No blocking problems found");
+    return;
+  }
+  for (const item of items) pushWrapped(lines, "  - ", item, width);
+}
+
 function statusColor(colors: CliColors, status: string): string {
   if (["merged", "approved", "ready_for_pr", "passed", "pass", "synced"].includes(status)) return colors.green(status);
   if (["blocked", "changes_requested", "failed", "fail", "abandoned"].includes(status)) return colors.red(status);
@@ -20,17 +68,24 @@ function statusColor(colors: CliColors, status: string): string {
 }
 
 function renderDoctor(report: DoctorReport, colors: CliColors): string {
+  const width = terminalWrapWidth();
   if (!colors.enabled) {
-    const lines = report.ok.length > 0 ? [`Doctor ok: ${report.ok.join(", ")}`] : ["Doctor ok"];
-    lines.push(...report.warnings.map((warning) => `Warning: ${warning}`));
-    lines.push(...report.fixes.map((fix) => `Fix: ${fix}`));
-    lines.push(...report.notes.map((note) => `Note: ${note}`));
+    const lines: string[] = [];
+    pushSection(lines, "Doctor ok", report.ok, width);
+    if (report.warnings.length > 0) pushSection(lines, "Warnings", report.warnings, width);
+    if (report.fixes.length > 0) pushSection(lines, "Fixes", report.fixes, width);
+    if (report.notes.length > 0) pushSection(lines, "Notes", report.notes, width);
     return lines.join("\n");
   }
-  const lines = [`${colors.green("✓")} ${colors.bold("Doctor ok")} ${report.ok.length > 0 ? report.ok.join(", ") : "No blocking problems found"}`];
-  for (const warning of report.warnings) lines.push(`${colors.yellow("!")} ${colors.yellow("Warning")} ${warning}`);
-  for (const fix of report.fixes) lines.push(`${colors.green("✓")} ${colors.green("Fix")} ${fix}`);
-  for (const note of report.notes) lines.push(`${colors.blue("i")} ${colors.blue("Note")} ${note}`);
+  const lines = [`${colors.green("✓")} ${colors.bold("Doctor ok")}`];
+  const okItems = report.ok.length > 0 ? report.ok : ["No blocking problems found"];
+  for (const ok of okItems) pushWrapped(lines, "  - ", ok, width);
+  if (report.warnings.length > 0) lines.push("");
+  for (const warning of report.warnings) pushWrapped(lines, `${colors.yellow("!")} ${colors.yellow("Warning")} `, warning, width);
+  if (report.fixes.length > 0) lines.push("");
+  for (const fix of report.fixes) pushWrapped(lines, `${colors.green("✓")} ${colors.green("Fix")} `, fix, width);
+  if (report.notes.length > 0) lines.push("");
+  for (const note of report.notes) pushWrapped(lines, `${colors.blue("i")} ${colors.blue("Note")} `, note, width);
   return lines.join("\n");
 }
 
@@ -113,10 +168,6 @@ function renderWorkspace(status: WorkspaceStatus, colors: CliColors): string {
   for (const blocker of status.landBlockers) lines.push(`  ${colors.red("blocker:")} ${blocker}`);
   if (status.nextCommand) lines.push(`  next: ${colors.green(status.nextCommand)}`);
   return lines.join("\n");
-}
-
-function stripAnsi(value: string): string {
-  return value.replace(/\u001b\[[0-9;]*m/g, "");
 }
 
 function renderTable(rows: string[][], colors: CliColors): string {

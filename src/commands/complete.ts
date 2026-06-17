@@ -65,11 +65,12 @@ function asRecord(value: unknown): Frontmatter {
 export function runComplete(id: string, options: CompleteOptions = {}, cwd = process.cwd()): string {
   if (!id) throw new Error("change id is required");
   const metadata = readWorkspaceMetadata(id, cwd);
+  const changeId = metadata.changeId;
   const config = loadConfig(metadata.repoRoot);
-  const changePath = metadata.engine === "jj" ? resolveWorkspaceChangePath(metadata) : findChangeFile(changesRoot(metadata.repoRoot, config), id) ?? metadata.changePath;
+  const changePath = metadata.engine === "jj" ? resolveWorkspaceChangePath(metadata) : findChangeFile(changesRoot(metadata.repoRoot, config), changeId) ?? metadata.changePath;
   const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
-  runVerify(id, cwd);
-  assertTransition(String(parsed.frontmatter.status ?? ""), "ready_for_pr", `Complete ${id}`);
+  runVerify(changeId, cwd);
+  assertTransition(String(parsed.frontmatter.status ?? ""), "ready_for_pr", `Complete ${changeId}`);
   const validation = validateChangeFile(changePath, storageRoot(metadata.repoRoot, config), { gate: "complete", config });
   if (!validation.valid) throw new Error(validation.errors.join("\n"));
   const planningValidation = validatePlanningForGate(parsed.frontmatter, parsed.body, "complete");
@@ -85,10 +86,10 @@ export function runComplete(id: string, options: CompleteOptions = {}, cwd = pro
     ?? quickCompletionProfile(parsed.frontmatter, config)
     ?? String(asRecord(parsed.frontmatter.checks).profile ?? "standard");
   const commands = config.checks[profile] ?? [];
-  const logPath = path.join(workspacesRoot(metadata.repoRoot, config), id, "logs", "checks.log");
+  const logPath = path.join(workspacesRoot(metadata.repoRoot, config), changeId, "logs", "checks.log");
 
   if (options.dryRun) {
-    return `Dry-run: would run ${commands.length} checks using ${profile} profile and complete ${id}`;
+    return `Dry-run: would run ${commands.length} checks using ${profile} profile and complete ${changeId}`;
   }
 
   const results = runChecks(commands, metadata.path, logPath);
@@ -110,10 +111,10 @@ export function runComplete(id: string, options: CompleteOptions = {}, cwd = pro
   if (!options.noPr) {
     const provider = createProvider(config.provider.type, config);
     if (!provider.createPullRequest) throw new Error(`Provider ${provider.name} does not support pull requests; use --no-pr`);
-    const branch = String(metadata.branch ?? asRecord(parsed.frontmatter.branch).name ?? `cy/${id}`);
+    const branch = String(metadata.branch ?? asRecord(parsed.frontmatter.branch).name ?? `cy/${changeId}`);
     createWorkspaceEngine(metadata.engine).publish({ cwd: metadata.path, metadata, branch });
     const base = String(asRecord(parsed.frontmatter.base).revision ?? config.project.defaultBase);
-    const pr = provider.createPullRequest({ repoRoot: metadata.repoRoot, storageRoot: path.join(metadata.repoRoot, config.storage.root), changePath, frontmatter: nextFrontmatter, body: parsed.body, title: `${id}: ${String(parsed.frontmatter.title ?? id)}`, branch, base, draft: true });
+    const pr = provider.createPullRequest({ repoRoot: metadata.repoRoot, storageRoot: path.join(metadata.repoRoot, config.storage.root), changePath, frontmatter: nextFrontmatter, body: parsed.body, title: `${changeId}: ${String(parsed.frontmatter.title ?? changeId)}`, branch, base, draft: true });
     nextFrontmatter = {
       ...nextFrontmatter,
       status: "pr_open",
@@ -127,6 +128,6 @@ export function runComplete(id: string, options: CompleteOptions = {}, cwd = pro
   }
 
   writeFileSync(changePath, writeFrontmatter(nextFrontmatter, parsed.body));
-  const followUp = nextFrontmatter.status === "ready_for_pr" ? `Next: cy land ${id}` : `Next: cy review start ${id}`;
-  return [`Completed ${id}: ${results.length} checks passed; status ${String(nextFrontmatter.status)}`, followUp].join("\n");
+  const followUp = nextFrontmatter.status === "ready_for_pr" ? `Next: cy land ${changeId}` : `Next: cy review start ${changeId}`;
+  return [`Completed ${changeId}: ${results.length} checks passed; status ${String(nextFrontmatter.status)}`, followUp].join("\n");
 }

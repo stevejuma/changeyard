@@ -53,7 +53,8 @@ function relativeOrAbsolute(repoRoot: string, targetPath: string | null): string
 export function getNextAction(id: string, repoRoot = process.cwd()): NextAction {
   if (!id) throw new Error("change id is required");
   const status = getStatus(id, repoRoot);
-  const workspace = workspaceOrNull(id, repoRoot);
+  const changeId = status.id;
+  const workspace = workspaceOrNull(changeId, repoRoot);
   const effectiveStatus = workspace?.status ?? status.status;
   const blockers: string[] = [];
   const planningNextAction = status.planning?.nextAction ?? null;
@@ -68,7 +69,7 @@ export function getNextAction(id: string, repoRoot = process.cwd()): NextAction 
   };
 
   let nextKind: NextCommandKind = "blocked";
-  let nextCommand = `cy status ${id}`;
+  let nextCommand = `cy status ${changeId}`;
   let expectedCwd = repoRoot;
 
   if (status.planning?.errors.length) {
@@ -78,28 +79,28 @@ export function getNextAction(id: string, repoRoot = process.cwd()): NextAction 
   switch (effectiveStatus) {
     case "draft":
       nextKind = "validate";
-      nextCommand = `cy validate ${id}`;
+      nextCommand = `cy validate ${changeId}`;
       ready.validate = true;
       break;
     case "ready":
       if (planningNextAction) {
         nextKind = "plan";
-        nextCommand = `cy plan status ${id}`;
+        nextCommand = `cy plan status ${changeId}`;
       } else {
         nextKind = "validate";
-        nextCommand = `cy validate ${id}`;
+        nextCommand = `cy validate ${changeId}`;
         ready.validate = true;
       }
       break;
     case "synced":
       nextKind = "start";
-      nextCommand = `cy start ${id}`;
+      nextCommand = `cy start ${changeId}`;
       ready.start = true;
       break;
     case "in_progress":
       if (!workspace?.exists) {
         nextKind = "start";
-        nextCommand = `cy start ${id}`;
+        nextCommand = `cy start ${changeId}`;
         ready.start = true;
         if (workspace?.errors.length) blockers.push(...workspace.errors);
         break;
@@ -107,23 +108,23 @@ export function getNextAction(id: string, repoRoot = process.cwd()): NextAction 
       expectedCwd = workspace.path ?? repoRoot;
       if (planningNextAction) {
         nextKind = "plan";
-        nextCommand = `cy plan status ${id}`;
+        nextCommand = `cy plan status ${changeId}`;
         blockers.push(planningNextAction);
       } else if (workspace.errors.length > 0 || workspace.conflicts) {
         nextKind = "verify";
-        nextCommand = `cd ${relativeOrAbsolute(repoRoot, workspace.path)} && cy verify ${id}`;
+        nextCommand = `cd ${relativeOrAbsolute(repoRoot, workspace.path)} && cy verify ${changeId}`;
         ready.verify = true;
         blockers.push(...workspace.errors);
       } else {
         nextKind = "complete";
-        nextCommand = `cd ${relativeOrAbsolute(repoRoot, workspace.path)} && cy complete ${id} --no-pr`;
+        nextCommand = `cd ${relativeOrAbsolute(repoRoot, workspace.path)} && cy complete ${changeId} --no-pr`;
         ready.verify = true;
         ready.complete = true;
       }
       break;
     case "ready_for_pr":
       nextKind = "land";
-      nextCommand = `cy land ${id}`;
+      nextCommand = `cy land ${changeId}`;
       ready.land = true;
       if (workspace?.errors.length) blockers.push(...workspace.errors);
       break;
@@ -132,12 +133,12 @@ export function getNextAction(id: string, repoRoot = process.cwd()): NextAction 
     case "changes_requested":
     case "approved":
       nextKind = "review";
-      nextCommand = `cy review start ${id}`;
+      nextCommand = `cy review start ${changeId}`;
       ready.review = true;
       break;
     case "merged":
       nextKind = workspace?.exists ? "cleanup" : "done";
-      nextCommand = workspace?.exists ? `cy workspace delete ${id}` : `cy status ${id}`;
+      nextCommand = workspace?.exists ? `cy workspace delete ${changeId}` : `cy status ${changeId}`;
       ready.cleanup = workspace?.exists ?? false;
       break;
     case "blocked":
@@ -145,7 +146,7 @@ export function getNextAction(id: string, repoRoot = process.cwd()): NextAction 
       break;
     case "abandoned":
       nextKind = "done";
-      nextCommand = `cy status ${id}`;
+      nextCommand = `cy status ${changeId}`;
       break;
     default:
       blockers.push(`No workflow recommendation for status ${effectiveStatus}`);

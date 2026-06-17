@@ -68,39 +68,41 @@ export function runLand(id: string, options: LandOptions = {}, repoRoot = proces
   const target = options.target ?? config.project.defaultBase;
   const rootChangePath = findChangeFile(changesRoot(repoRoot, config), id);
   if (!rootChangePath) throw new Error(`Change not found: ${id}`);
-  const metadata = readWorkspaceMetadataFromRoot(id, repoRoot);
+  const rootParsed = parseFrontmatter(readFileSync(rootChangePath, "utf8"));
+  const changeId = String(rootParsed.frontmatter.id ?? id);
+  const metadata = readWorkspaceMetadataFromRoot(changeId, repoRoot);
   const changePath = metadata?.engine === "jj" ? resolveWorkspaceChangePath(metadata) : rootChangePath;
   const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
   const currentStatus = String(parsed.frontmatter.status ?? "unknown");
   if (currentStatus === "merged") {
-    return `Already landed ${id}; Next: cy workspace delete ${id}`;
+    return `Already landed ${changeId}; Next: cy workspace delete ${changeId}`;
   }
   if (currentStatus !== "ready_for_pr") {
-    throw new Error(`Change ${id} must be ready_for_pr before landing; current status is ${currentStatus}`);
+    throw new Error(`Change ${changeId} must be ready_for_pr before landing; current status is ${currentStatus}`);
   }
-  assertTransition(currentStatus, "merged", `Land ${id}`);
+  assertTransition(currentStatus, "merged", `Land ${changeId}`);
 
-  if (!metadata) throw new Error(`Workspace metadata not found for ${id}; run cy workspace status ${id}`);
+  if (!metadata) throw new Error(`Workspace metadata not found for ${changeId}; run cy workspace status ${changeId}`);
   if (metadata.engine !== "jj") {
     throw new Error(`cy land currently supports JJ workspaces only; workspace engine ${metadata.engine} is not supported yet.`);
   }
   if (!existsSync(metadata.path)) throw new Error(`Workspace path does not exist: ${metadata.path}`);
 
-  let workspaceStatus = getWorkspaceStatus(id, repoRoot);
-  if (workspaceStatus.conflicts) throw new Error(`Workspace ${id} has conflicts; resolve them before landing`);
-  if (workspaceStatus.rootMismatch) throw new Error(`Workspace ${id} belongs to ${metadata.repoRoot}, not ${repoRoot}`);
+  let workspaceStatus = getWorkspaceStatus(changeId, repoRoot);
+  if (workspaceStatus.conflicts) throw new Error(`Workspace ${changeId} has conflicts; resolve them before landing`);
+  if (workspaceStatus.rootMismatch) throw new Error(`Workspace ${changeId} belongs to ${metadata.repoRoot}, not ${repoRoot}`);
   if (workspaceStatus.errors.length > 0) throw new Error(workspaceStatus.errors.join("\n"));
 
   const workspaceChangeId = metadata.workspaceChangeId ?? workspaceStatus.workspaceChangeId ?? jjWorkspaceChangeId(metadata.path);
   const description = jjDescription(metadata.path, workspaceChangeId);
-  const descriptionError = validateLandingDescription(id, description, metadata.seedDescription);
+  const descriptionError = validateLandingDescription(changeId, description, metadata.seedDescription);
   const workspaceFiles = jjWorkspaceChangedFiles(metadata.path);
   const currentTargetCommitId = workspaceStatus.currentTargetCommitId ?? jjCommitId(repoRoot, target);
   const targetMoved = Boolean(metadata.baseCommitId && metadata.baseCommitId !== currentTargetCommitId);
 
   if (options.dryRun) {
     const lines = [
-      `Dry-run: would land ${id} into ${target}`,
+      `Dry-run: would land ${changeId} into ${target}`,
       `workspaceChange: ${workspaceChangeId}`,
       `targetMoved: ${String(targetMoved)}`,
       `landingDescription: ${descriptionError ? "blocked" : "ok"}`,
@@ -109,7 +111,7 @@ export function runLand(id: string, options: LandOptions = {}, repoRoot = proces
       `description: ${description.split("\n")[0] ?? description}`,
     ];
     if (descriptionError) lines.push(`blocker: ${descriptionError}`);
-    if (!options.keepWorkspace) lines.push(`cleanup: would delete workspace ${id}`);
+    if (!options.keepWorkspace) lines.push(`cleanup: would delete workspace ${changeId}`);
     return lines.join("\n");
   }
   if (descriptionError) throw new Error(descriptionError);
@@ -121,8 +123,8 @@ export function runLand(id: string, options: LandOptions = {}, repoRoot = proces
   };
   if (targetMoved) {
     commandOutput("jj", ["rebase", "-r", workspaceChangeId, "-o", target], repoRoot);
-    workspaceStatus = getWorkspaceStatus(id, repoRoot);
-    if (workspaceStatus.conflicts) throw new Error(`Workspace ${id} has conflicts after rebasing onto ${target}; resolve them before landing`);
+    workspaceStatus = getWorkspaceStatus(changeId, repoRoot);
+    if (workspaceStatus.conflicts) throw new Error(`Workspace ${changeId} has conflicts after rebasing onto ${target}; resolve them before landing`);
     if (workspaceStatus.errors.length > 0) throw new Error(workspaceStatus.errors.join("\n"));
     nextMetadata = {
       ...nextMetadata,
@@ -136,13 +138,13 @@ export function runLand(id: string, options: LandOptions = {}, repoRoot = proces
     ...nextMetadata,
     workspaceCommitId: jjCommitId(metadata.path, workspaceChangeId),
   };
-  writeWorkspaceMetadata(repoRoot, id, nextMetadata);
+  writeWorkspaceMetadata(repoRoot, changeId, nextMetadata);
   commandOutput("jj", ["bookmark", "set", target, "-r", workspaceChangeId], repoRoot);
 
-  const cleanupMessage = options.keepWorkspace ? null : deleteWorkspace(id, { force: true }, repoRoot);
-  const lines = [`Landed ${id} into ${target}`, `Workspace change: ${workspaceChangeId}`, `Description: ${description.split("\n")[0] ?? description}`];
+  const cleanupMessage = options.keepWorkspace ? null : deleteWorkspace(changeId, { force: true }, repoRoot);
+  const lines = [`Landed ${changeId} into ${target}`, `Workspace change: ${workspaceChangeId}`, `Description: ${description.split("\n")[0] ?? description}`];
   if (options.keepWorkspace) {
-    lines.push(`Next: cy workspace delete ${id}`);
+    lines.push(`Next: cy workspace delete ${changeId}`);
   } else if (cleanupMessage) {
     lines.push(cleanupMessage);
   }

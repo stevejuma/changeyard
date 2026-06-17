@@ -25,12 +25,13 @@ export function runSync(id: string, repoRoot = process.cwd(), mutationOptions: M
   const root = storageRoot(repoRoot, config);
   const filePath = findChangeFile(changesRoot(repoRoot, config), id);
   if (!filePath) throw new Error(`Change not found: ${id}`);
+  const parsed = parseFrontmatter(readFileSync(filePath, "utf8"));
+  const changeId = String(parsed.frontmatter.id ?? id);
 
   const validation = validateChangeFile(filePath, root, { gate: "sync", config });
   if (!validation.valid) throw new Error(validation.errors.join("\n"));
 
-  const parsed = parseFrontmatter(readFileSync(filePath, "utf8"));
-  assertTransition(String(parsed.frontmatter.status ?? ""), "synced", `Sync ${id}`);
+  assertTransition(String(parsed.frontmatter.status ?? ""), "synced", `Sync ${changeId}`);
   const syncFrontmatter: Frontmatter = {
     ...parsed.frontmatter,
     status: "synced",
@@ -45,7 +46,7 @@ export function runSync(id: string, repoRoot = process.cwd(), mutationOptions: M
   });
   if (mutationOptions.dryRun) {
     const relativeChangePath = path.relative(repoRoot, filePath);
-    return `Dry-run: would sync ${String(parsed.frontmatter.id ?? id)} with ${provider.name}; updates ${relativeChangePath}`;
+    return `Dry-run: would sync ${changeId} with ${provider.name}; updates ${relativeChangePath}`;
   }
 
   const remote = provider.syncIssue({
@@ -70,7 +71,7 @@ export function runSync(id: string, repoRoot = process.cwd(), mutationOptions: M
 
   const relativeChangePath = path.relative(repoRoot, filePath);
   const target = remote.issueUrl ? ` -> ${remote.issueUrl}` : "";
-  const lines = [`Synced ${String(parsed.frontmatter.id ?? id)} with ${provider.name}${target}`];
+  const lines = [`Synced ${changeId} with ${provider.name}${target}`];
   if (isQuickChange(nextFrontmatter)) {
     const workflow = workflowMetadata(nextFrontmatter);
     lines.push(`Workflow: ${workflow?.mode ?? "quick"} | Planning: ${planningModel(nextFrontmatter)} | Risk: ${workflow?.risk ?? "low"}`);

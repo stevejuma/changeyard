@@ -91,6 +91,14 @@ function acquireLock(repoRoot: string, id: string): () => void {
   };
 }
 
+function resolveExistingChangeId(repoRoot: string, id: string, notFoundMessage = `Change not found: ${id}`): { id: string; filePath: string } {
+  const config = loadConfig(repoRoot);
+  const filePath = findChangeFile(changesRoot(repoRoot, config), id);
+  if (!filePath || !existsSync(filePath)) throw new Error(notFoundMessage);
+  const parsed = parseFrontmatter(readFileSync(filePath, "utf8"));
+  return { id: String(parsed.frontmatter.id ?? id), filePath };
+}
+
 function writeAtomic(filePath: string, contents: string): void {
   const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
   writeFileSync(tempPath, contents);
@@ -102,13 +110,11 @@ export function mutateChangeFrontmatter(
   id: string,
   mutate: (parsed: { frontmatter: Frontmatter; body: string }) => ParsedChangeMutation | void,
 ): { filePath: string; frontmatter: Frontmatter; body: string } {
-  const config = loadConfig(repoRoot);
-  const filePath = findChangeFile(changesRoot(repoRoot, config), id);
-  if (!filePath || !existsSync(filePath)) throw new Error(`Change not found: ${id}`);
+  const resolved = resolveExistingChangeId(repoRoot, id);
 
-  const release = acquireLock(repoRoot, id);
+  const release = acquireLock(repoRoot, resolved.id);
   try {
-    const raw = readFileSync(filePath, "utf8");
+    const raw = readFileSync(resolved.filePath, "utf8");
     const parsed = parseFrontmatter(raw);
     const next = mutate({
       frontmatter: { ...parsed.frontmatter },
@@ -120,15 +126,15 @@ export function mutateChangeFrontmatter(
     const previousStatus = parsed.frontmatter.status;
     const nextStatus = frontmatter.status;
     if (typeof previousStatus === "string" && typeof nextStatus === "string") {
-      assertTransition(previousStatus, nextStatus as ChangeStatus, `Change ${id}`);
+      assertTransition(previousStatus, nextStatus as ChangeStatus, `Change ${resolved.id}`);
     }
 
     if (frontmatter.updatedAt === undefined) {
       frontmatter.updatedAt = nowIso();
     }
 
-    writeAtomic(filePath, writeFrontmatter(frontmatter, body));
-    return { filePath, frontmatter, body };
+    writeAtomic(resolved.filePath, writeFrontmatter(frontmatter, body));
+    return { filePath: resolved.filePath, frontmatter, body };
   } finally {
     release();
   }
@@ -235,23 +241,24 @@ export function updateChangeStatus(repoRoot: string, id: string, input: UpdateCh
 }
 
 export function linkChanges(repoRoot: string, id: string, blockedByChangeId: string): string {
-  const targetId = blockedByChangeId.trim();
-  if (!targetId) throw new Error("blockedByChangeId is required");
-  if (id === targetId) throw new Error(`Change ${id} cannot depend on itself.`);
+  const rawTargetId = blockedByChangeId.trim();
+  if (!rawTargetId) throw new Error("blockedByChangeId is required");
+  const sourceId = resolveExistingChangeId(repoRoot, id).id;
+  const targetId = resolveExistingChangeId(repoRoot, rawTargetId, `Linked change not found: ${rawTargetId}`).id;
+  if (sourceId === targetId) throw new Error(`Change ${sourceId} cannot depend on itself.`);
 
   const dependencies = listChangeDependencies(repoRoot);
-  if (!dependencies.has(id)) throw new Error(`Change not found: ${id}`);
   if (!dependencies.has(targetId)) throw new Error(`Linked change not found: ${targetId}`);
 
-  const currentBlockedBy = dependencies.get(id) ?? [];
+  const currentBlockedBy = dependencies.get(sourceId) ?? [];
   if (currentBlockedBy.includes(targetId)) {
-    throw new Error(`Change ${id} is already blocked by ${targetId}.`);
+    throw new Error(`Change ${sourceId} is already blocked by ${targetId}.`);
   }
 
-  dependencies.set(id, [...currentBlockedBy, targetId]);
-  assertNoDependencyCycle(dependencies, id, targetId);
+  dependencies.set(sourceId, [...currentBlockedBy, targetId]);
+  assertNoDependencyCycle(dependencies, sourceId, targetId);
 
-  const result = mutateChangeFrontmatter(repoRoot, id, ({ frontmatter, body }) => {
+  const result = mutateChangeFrontmatter(repoRoot, sourceId, ({ frontmatter, body }) => {
     const nextFrontmatter = { ...frontmatter };
     const currentLinks = asFrontmatterRecord(frontmatter.links);
     const nextBlockedBy = [...parseChangeLinks(frontmatter).blockedBy, targetId];
@@ -270,13 +277,15 @@ export function linkChanges(repoRoot: string, id: string, blockedByChangeId: str
 }
 
 export function unlinkChanges(repoRoot: string, id: string, blockedByChangeId: string): string {
-  const targetId = blockedByChangeId.trim();
-  if (!targetId) throw new Error("blockedByChangeId is required");
+  const rawTargetId = blockedByChangeId.trim();
+  if (!rawTargetId) throw new Error("blockedByChangeId is required");
+  const sourceId = resolveExistingChangeId(repoRoot, id).id;
+  const targetId = resolveExistingChangeId(repoRoot, rawTargetId, `Linked change not found: ${rawTargetId}`).id;
 
-  const result = mutateChangeFrontmatter(repoRoot, id, ({ frontmatter, body }) => {
+  const result = mutateChangeFrontmatter(repoRoot, sourceId, ({ frontmatter, body }) => {
     const current = parseChangeLinks(frontmatter).blockedBy;
     if (!current.includes(targetId)) {
-      throw new Error(`Change ${id} is not blocked by ${targetId}.`);
+      throw new Error(`Change ${sourceId} is not blocked by ${targetId}.`);
     }
 
     const nextFrontmatter = { ...frontmatter };

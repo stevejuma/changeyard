@@ -10,9 +10,11 @@ export function getStatus(id: string, repoRoot = process.cwd()): ChangeSummary {
   const config = loadConfig(repoRoot);
   const filePath = findChangeFile(changesRoot(repoRoot, config), id);
   if (!filePath) throw new Error(`Change not found: ${id}`);
-  const parsed = readOverlayChangeDocument(filePath, readWorkspaceMetadataFromRoot(id, repoRoot));
+  const rootParsed = readOverlayChangeDocument(filePath, null);
+  const changeId = String(rootParsed.frontmatter.id ?? id);
+  const parsed = readOverlayChangeDocument(filePath, readWorkspaceMetadataFromRoot(changeId, repoRoot));
   return {
-    id: String(parsed.frontmatter.id ?? id),
+    id: String(parsed.frontmatter.id ?? changeId),
     title: String(parsed.frontmatter.title ?? "Untitled"),
     type: String(parsed.frontmatter.type ?? "unknown"),
     status: String(parsed.frontmatter.status ?? "unknown"),

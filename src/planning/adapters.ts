@@ -63,6 +63,7 @@ function nextStrictGateStatus(current: PlanningGateStatus | undefined, enabled: 
 }
 
 function resolveCanonicalChange(repoRoot: string, id: string): {
+  id: string;
   filePath: string;
   canonicalPath: string;
   frontmatter: ReturnType<typeof parseFrontmatter>["frontmatter"];
@@ -72,7 +73,9 @@ function resolveCanonicalChange(repoRoot: string, id: string): {
   const filePath = findChangeFile(changesRoot(repoRoot, config), id);
   if (!filePath) throw new Error(`Change not found: ${id}`);
   const parsed = parseFrontmatter(readFileSync(filePath, "utf8"));
+  const changeId = String(parsed.frontmatter.id ?? id);
   return {
+    id: changeId,
     filePath,
     canonicalPath: path.relative(repoRoot, filePath),
     frontmatter: parsed.frontmatter,
@@ -139,8 +142,8 @@ function appendMissingStrictSections(body: string): string {
 
 export function exportPlanningMirror(id: string, format: PlanningAdapterFormat, repoRoot = process.cwd(), options: { dryRun?: boolean } = {}) {
   const change = resolveCanonicalChange(repoRoot, id);
-  const planning = requirePlannedChange(id, change.frontmatter);
-  const directory = adapterDir(repoRoot, id, format);
+  const planning = requirePlannedChange(change.id, change.frontmatter);
+  const directory = adapterDir(repoRoot, change.id, format);
   const sections = parseMarkedSections(change.body);
   const adapter = PLANNING_ADAPTERS[format];
   const exportedSections = PLANNING_SECTION_ORDER.filter((sectionId) => sections.has(sectionId));
@@ -158,7 +161,7 @@ export function exportPlanningMirror(id: string, format: PlanningAdapterFormat, 
     [
       `# ${adapter.label} Planning Mirror`,
       "",
-      `Generated for ${id}.`,
+      `Generated for ${change.id}.`,
       "",
       `Canonical source: \`${change.canonicalPath}\``,
       "",
@@ -170,7 +173,7 @@ export function exportPlanningMirror(id: string, format: PlanningAdapterFormat, 
   writeFileSync(
     path.join(directory, "manifest.json"),
     JSON.stringify({
-      sourceChange: id,
+      sourceChange: change.id,
       canonicalPath: change.canonicalPath,
       format,
       strictness: planning.strictness,
@@ -182,7 +185,7 @@ export function exportPlanningMirror(id: string, format: PlanningAdapterFormat, 
   for (const sectionId of exportedSections) {
     writeFileSync(
       path.join(directory, adapter.files[sectionId]),
-      wrapAdapterContent(format, id, change.canonicalPath, sections.get(sectionId) ?? ""),
+      wrapAdapterContent(format, change.id, change.canonicalPath, sections.get(sectionId) ?? ""),
     );
   }
 
@@ -194,13 +197,13 @@ export function exportPlanningMirror(id: string, format: PlanningAdapterFormat, 
 
 export function importPlanningMirror(id: string, format: PlanningAdapterFormat, repoRoot = process.cwd(), options: { dryRun?: boolean } = {}) {
   const change = resolveCanonicalChange(repoRoot, id);
-  const planning = requirePlannedChange(id, change.frontmatter);
-  const directory = adapterDir(repoRoot, id, format);
+  const planning = requirePlannedChange(change.id, change.frontmatter);
+  const directory = adapterDir(repoRoot, change.id, format);
   const adapter = PLANNING_ADAPTERS[format];
   const importedSections = PLANNING_SECTION_ORDER.filter((sectionId) => existsSync(path.join(directory, adapter.files[sectionId])));
 
   if (importedSections.length === 0) {
-    throw new Error(`No ${adapter.label} planning mirror files found for ${id} in ${path.relative(repoRoot, directory)}`);
+    throw new Error(`No ${adapter.label} planning mirror files found for ${change.id} in ${path.relative(repoRoot, directory)}`);
   }
 
   const enablingStrict = importedSections.some((sectionId) => STRICT_PLANNING_SECTION_ORDER.includes(sectionId));
@@ -212,8 +215,8 @@ export function importPlanningMirror(id: string, format: PlanningAdapterFormat, 
     };
   }
 
-  mutateChangeFrontmatter(repoRoot, id, ({ frontmatter, body }) => {
-    const currentPlanning = requirePlannedChange(id, frontmatter);
+  mutateChangeFrontmatter(repoRoot, change.id, ({ frontmatter, body }) => {
+    const currentPlanning = requirePlannedChange(change.id, frontmatter);
     let nextBody = enablingStrict ? appendMissingStrictSections(body) : body;
 
     for (const sectionId of importedSections) {

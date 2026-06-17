@@ -9,10 +9,11 @@ type MutationOptions = {
 export function runHydrate(id: string, cwd = process.cwd(), mutationOptions: MutationOptions = {}): string {
   if (!id) throw new Error("change id is required");
   const metadata = readWorkspaceMetadata(id, cwd);
+  const changeId = metadata.changeId;
   const config = loadConfig(metadata.repoRoot);
   if (mutationOptions.dryRun) {
-    return `Dry-run: would hydrate ${id}`;
+    return `Dry-run: would hydrate ${changeId}`;
   }
   const result = hydrateWorkspace(config, metadata);
-  return `Hydrated ${id}: copied ${result.copied.length}, skipped ${result.skipped.length}`;
+  return `Hydrated ${changeId}: copied ${result.copied.length}, skipped ${result.skipped.length}`;
 }

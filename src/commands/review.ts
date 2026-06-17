@@ -294,7 +294,9 @@ function updateReviewBody(body: string, input: Omit<ReviewUpdateInput, "review" 
 
 export function listReviews(id: string, repoRoot = process.cwd()): ReviewSummary[] {
   const config = loadConfig(repoRoot);
-  const root = path.join(reviewsRoot(repoRoot, config), id);
+  const changePath = findChangeFile(changesRoot(repoRoot, config), id);
+  const changeId = changePath ? String(parseFrontmatter(readFileSync(changePath, "utf8")).frontmatter.id ?? id) : id;
+  const root = path.join(reviewsRoot(repoRoot, config), changeId);
   if (!existsSync(root)) return [];
   return readdirSync(root)
     .filter((file) => /^review-\d+\.md$/.test(file))
@@ -304,25 +306,29 @@ export function listReviews(id: string, repoRoot = process.cwd()): ReviewSummary
 
 export function getReview(id: string, review: number, repoRoot = process.cwd()): ReviewDetail {
   const config = loadConfig(repoRoot);
-  const root = path.join(reviewsRoot(repoRoot, config), id);
+  const changePath = findChangeFile(changesRoot(repoRoot, config), id);
+  const changeId = changePath ? String(parseFrontmatter(readFileSync(changePath, "utf8")).frontmatter.id ?? id) : id;
+  const root = path.join(reviewsRoot(repoRoot, config), changeId);
   const reviewPath = reviewPathForNumber(root, review);
-  if (!existsSync(reviewPath)) throw new Error(`Review not found for ${id}: ${review}`);
+  if (!existsSync(reviewPath)) throw new Error(`Review not found for ${changeId}: ${review}`);
   return reviewDetailFromPath(repoRoot, reviewPath);
 }
 
 export function updateReview(id: string, input: ReviewUpdateInput, repoRoot = process.cwd()): ReviewDetail {
   const config = loadConfig(repoRoot);
-  const root = path.join(reviewsRoot(repoRoot, config), id);
+  const changePath = findChangeFile(changesRoot(repoRoot, config), id);
+  const changeId = changePath ? String(parseFrontmatter(readFileSync(changePath, "utf8")).frontmatter.id ?? id) : id;
+  const root = path.join(reviewsRoot(repoRoot, config), changeId);
   const reviewPath = reviewPathForNumber(root, input.review);
-  if (!existsSync(reviewPath)) throw new Error(`Review not found for ${id}: ${input.review}`);
+  if (!existsSync(reviewPath)) throw new Error(`Review not found for ${changeId}: ${input.review}`);
   const currentLastModifiedAt = reviewLastModifiedAt(reviewPath);
   if (input.expectedLastModifiedAt !== undefined && input.expectedLastModifiedAt !== currentLastModifiedAt) {
-    throw new Error(`Review ${id} #${input.review} changed elsewhere. Reload the latest review and retry your edit.`);
+    throw new Error(`Review ${changeId} #${input.review} changed elsewhere. Reload the latest review and retry your edit.`);
   }
   const parsed = parseFrontmatter(readFileSync(reviewPath, "utf8"));
   const body = updateReviewBody(parsed.body, input);
   writeFileSync(reviewPath, writeFrontmatter({ ...parsed.frontmatter }, body));
-  return getReview(id, input.review, repoRoot);
+  return getReview(changeId, input.review, repoRoot);
 }
 
 type MutationOptions = {
@@ -335,20 +341,21 @@ export function runReviewStart(id: string, repoRoot = process.cwd(), mutationOpt
   const changePath = findChangeFile(changesRoot(repoRoot, config), id);
   if (!changePath) throw new Error(`Change not found: ${id}`);
   const parsedChange = parseFrontmatter(readFileSync(changePath, "utf8"));
+  const changeId = String(parsedChange.frontmatter.id ?? id);
   const currentStatus = String(parsedChange.frontmatter.status ?? "");
   const nextChangeStatus: ChangeStatus = (currentStatus === "ready_for_pr" || currentStatus === "pr_open")
     ? "in_review"
     : currentStatus as ChangeStatus;
   if (nextChangeStatus !== currentStatus) {
-    assertTransition(currentStatus, nextChangeStatus, `Review ${id}`);
+    assertTransition(currentStatus, nextChangeStatus, `Review ${changeId}`);
   }
 
-  const root = path.join(reviewsRoot(repoRoot, config), id);
+  const root = path.join(reviewsRoot(repoRoot, config), changeId);
   mkdirSync(root, { recursive: true });
   const review = nextReviewNumber(root);
   const reviewPath = path.join(root, `review-${String(review).padStart(3, "0")}.md`);
   const frontmatter: Frontmatter = {
-    change: id,
+    change: changeId,
     review,
     reviewer: process.env.USER ?? "review-agent",
     status: "in_review",
@@ -363,7 +370,7 @@ export function runReviewStart(id: string, repoRoot = process.cwd(), mutationOpt
   });
   const body = planningContext ? `${reviewBody.trim()}\n\n${planningContext}` : reviewBody;
   if (mutationOptions.dryRun) {
-    return `Dry-run: would start review ${review} for ${id}: ${path.relative(repoRoot, reviewPath)}`;
+    return `Dry-run: would start review ${review} for ${changeId}: ${path.relative(repoRoot, reviewPath)}`;
   }
 
   writeFileSync(reviewPath, writeFrontmatter(frontmatter, body));
@@ -372,23 +379,23 @@ export function runReviewStart(id: string, repoRoot = process.cwd(), mutationOpt
     status: nextChangeStatus,
     updatedAt: new Date().toISOString(),
   }, parsedChange.body));
-  return `Started review ${review} for ${id}: ${path.relative(repoRoot, reviewPath)}`;
+  return `Started review ${review} for ${changeId}: ${path.relative(repoRoot, reviewPath)}`;
 }
 
 export function runReviewComplete(id: string, decision: ReviewDecision, repoRoot = process.cwd(), mutationOptions: MutationOptions = {}): string {
   if (!id) throw new Error("change id is required");
   if (!decision) throw new Error("--decision is required");
   const config = loadConfig(repoRoot);
-  const root = path.join(reviewsRoot(repoRoot, config), id);
-  const reviewPath = latestReviewPath(root);
-  if (!reviewPath) throw new Error(`No review found for ${id}`);
-
-  const parsedReview = parseFrontmatter(readFileSync(reviewPath, "utf8"));
-  const status = reviewStatus(decision);
-
   const changePath = findChangeFile(changesRoot(repoRoot, config), id);
   if (!changePath) throw new Error(`Change not found: ${id}`);
   const parsedChange = parseFrontmatter(readFileSync(changePath, "utf8"));
+  const changeId = String(parsedChange.frontmatter.id ?? id);
+  const root = path.join(reviewsRoot(repoRoot, config), changeId);
+  const reviewPath = latestReviewPath(root);
+  if (!reviewPath) throw new Error(`No review found for ${changeId}`);
+
+  const parsedReview = parseFrontmatter(readFileSync(reviewPath, "utf8"));
+  const status = reviewStatus(decision);
 
   const inlineComments = parseInlineComments(parsedReview.body);
   if (decision === "comment") {
@@ -397,7 +404,7 @@ export function runReviewComplete(id: string, decision: ReviewDecision, repoRoot
     assertReviewBodyFilled(parsedReview.body);
   }
   if (mutationOptions.dryRun) {
-    return `Dry-run: would complete review for ${id}: ${status} (${inlineComments.length} inline comments)`;
+    return `Dry-run: would complete review for ${changeId}: ${status} (${inlineComments.length} inline comments)`;
   }
 
   const provider = createProvider(config.provider.type, config);
@@ -435,8 +442,8 @@ export function runReviewComplete(id: string, decision: ReviewDecision, repoRoot
 
   const nextStatus = changeStatus(decision) as ChangeStatus;
   if (decision !== "comment") {
-    assertTransition(String(parsedChange.frontmatter.status ?? ""), nextStatus, `Review ${id}`);
+    assertTransition(String(parsedChange.frontmatter.status ?? ""), nextStatus, `Review ${changeId}`);
     writeFileSync(changePath, writeFrontmatter({ ...parsedChange.frontmatter, status: nextStatus, updatedAt: new Date().toISOString() }, parsedChange.body));
   }
-  return `Completed review for ${id}: ${status}`;
+  return `Completed review for ${changeId}: ${status}`;
 }

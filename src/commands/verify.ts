@@ -10,18 +10,19 @@ import { readWorkspaceMetadata, resolveWorkspaceChangePath } from "../workspace/
 export function runVerify(id: string, cwd = process.cwd()): string {
   if (!id) throw new Error("change id is required");
   const metadata = readWorkspaceMetadata(id, cwd);
+  const changeId = metadata.changeId;
   const config = loadConfig(metadata.repoRoot);
-  const changePath = metadata.engine === "jj" ? resolveWorkspaceChangePath(metadata) : findChangeFile(changesRoot(metadata.repoRoot, config), id) ?? metadata.changePath;
+  const changePath = metadata.engine === "jj" ? resolveWorkspaceChangePath(metadata) : findChangeFile(changesRoot(metadata.repoRoot, config), changeId) ?? metadata.changePath;
   const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
   if (parsed.frontmatter.status !== "in_progress") {
-    throw new Error(`Change ${id} is not in progress: ${String(parsed.frontmatter.status ?? "unknown")}`);
+    throw new Error(`Change ${changeId} is not in progress: ${String(parsed.frontmatter.status ?? "unknown")}`);
   }
 
   const engine = createWorkspaceEngine(metadata.engine);
   const result = engine.verify({ cwd, metadata });
   if (!result.valid) throw new Error(result.errors.join("\n"));
   return [
-    `Verified ${id} in ${path.relative(metadata.repoRoot, cwd) || "."}`,
-    `Next: implement, update Completion Notes, then cy complete ${id} --no-pr`,
+    `Verified ${changeId} in ${path.relative(metadata.repoRoot, cwd) || "."}`,
+    `Next: implement, update Completion Notes, then cy complete ${changeId} --no-pr`,
   ].join("\n");
 }

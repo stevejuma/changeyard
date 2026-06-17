@@ -64,6 +64,8 @@ import { GitWorktreeEngine } from "../src/workspace/GitWorktreeEngine.js";
 import { JjWorkspaceEngine } from "../src/workspace/JjWorkspaceEngine.js";
 import { colorEnabled, createColors, parseColorChoice } from "../src/cli/color.js";
 import { readCliHelpEntry, readCliTopic, renderCliHelp } from "../src/cli/docs.js";
+import { renderHumanOutput } from "../src/cli/render.js";
+import type { WorkspaceMetadata } from "../src/types.js";
 
 function tempRepo(): string {
   return mkdtempSync(path.join(os.tmpdir(), "changeyard-test-"));
@@ -560,6 +562,24 @@ test("cli color detection honors flags and environment", () => {
   assert.equal(colorEnabled({ choice: "auto", env: { NO_COLOR: "1" }, stream: { isTTY: true } as NodeJS.WriteStream }), false);
   assert.equal(colorEnabled({ choice: "auto", env: { FORCE_COLOR: "1" }, stream: { isTTY: false } as NodeJS.WriteStream }), true);
   assert.equal(colorEnabled({ choice: "auto", env: { TERM: "dumb" }, stream: { isTTY: true } as NodeJS.WriteStream }), false);
+});
+
+test("doctor renderer groups and wraps console output", () => {
+  const longWarning = Array.from({ length: 30 }, (_, index) => `word${index}`).join(" ");
+  const output = renderHumanOutput({
+    command: "doctor",
+    positional: [],
+    colors: createColors(false),
+  }, {
+    ok: ["provider: noop", "workspace engine: plain-copy"],
+    warnings: [longWarning],
+    fixes: [],
+    notes: [],
+  });
+
+  assert.match(output, /^Doctor ok:\n  - provider: noop\n  - workspace engine: plain-copy/m);
+  assert.match(output, /^Warnings:\n  - word0/m);
+  assert.ok(output.split("\n").some((line) => /^\s+word\d+/.test(line)), "long warning should wrap to an indented continuation line");
 });
 
 test("cli help describes commands and hub lifecycle", () => {
@@ -1384,6 +1404,46 @@ test("doctor reports configured provider and recover rewrites workspace marker",
   }
 });
 
+test("doctor fix moves in-review jj changes with missing bookmarks to done", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "agent-task", title: "Missing review bookmark" }, repo);
+
+    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-missing-review-bookmark.md");
+    const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
+    writeFileSync(changePath, writeFrontmatter({ ...parsed.frontmatter, status: "in_review" }, parsed.body));
+
+    const workspaceRoot = path.join(repo, ".changeyard", "workspaces", "CY-0001");
+    const workspacePath = path.join(workspaceRoot, "repo");
+    const metadataPath = path.join(workspaceRoot, "metadata.json");
+    mkdirSync(workspacePath, { recursive: true });
+    const metadata: WorkspaceMetadata = {
+      changeId: "CY-0001",
+      engine: "jj",
+      name: "cy-CY-0001",
+      path: workspacePath,
+      repoRoot: repo,
+      changePath,
+      createdAt: new Date().toISOString(),
+      branch: "cy/CY-0001",
+    };
+    writeFileSync(metadataPath, `${JSON.stringify(metadata, null, 2)}\n`);
+    writeFileSync(path.join(workspacePath, ".changeyard-workspace.json"), `${JSON.stringify({ changeId: "CY-0001", metadataPath }, null, 2)}\n`);
+
+    const dryRunReport = doctorReport(repo, { fix: true, dryRun: true });
+    assert.match(dryRunReport.notes.join("\n"), /Would move CY-0001 to approved/);
+    assert.equal(parseFrontmatter(readFileSync(changePath, "utf8")).frontmatter.status, "in_review");
+
+    const report = doctorReport(repo, { fix: true });
+    assert.match(report.warnings.join("\n"), /CY-0001: jj bookmark missing: cy\/CY-0001/);
+    assert.match(report.fixes.join("\n"), /Moved CY-0001 to approved/);
+    assert.equal(parseFrontmatter(readFileSync(changePath, "utf8")).frontmatter.status, "approved");
+  } finally {
+    cleanup(repo);
+  }
+});
+
 test("review start and complete update review and change status", () => {
   const repo = tempRepo();
   try {
@@ -1704,6 +1764,43 @@ test("list and status summarize local changes", () => {
     runCreate({ template: "feature", title: "Add local provider" }, repo);
     assert.match(runList(repo), /CY-0001\tready\tfeature\tAdd local provider/);
     assert.match(runStatus("CY-0001", repo), /status: ready/);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("commands resolve partial task ids to canonical ids", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "feature", title: "Partial id task" }, repo);
+
+    assert.equal(getStatus("001", repo).id, "CY-0001");
+    assert.match(runStatus("001", repo), /id: CY-0001/);
+
+    assert.match(runStart("001", repo), /Started CY-0001 in \.changeyard\/workspaces\/CY-0001\/repo/);
+    const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
+    assert.match(runVerify("001", workspacePath), /Verified CY-0001/);
+    assert.equal(getWorkspaceStatus("001", repo).id, "CY-0001");
+
+    const marker = JSON.parse(readFileSync(path.join(workspacePath, ".changeyard-workspace.json"), "utf8"));
+    assert.equal(marker.changeId, "CY-0001");
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("ambiguous partial task ids fail with matching tasks", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "feature", title: "First ambiguous task" }, repo);
+    runCreate({ template: "feature", title: "Second ambiguous task" }, repo);
+
+    assert.throws(
+      () => getStatus("CY-000", repo),
+      /Ambiguous task id "CY-000" matched multiple tasks:[\s\S]*CY-0001[\s\S]*CY-0002[\s\S]*Use the full task id\./,
+    );
   } finally {
     cleanup(repo);
   }

@@ -143,21 +143,22 @@ export function runPlanPrompt(id: string, section: PlanningSectionId, repoRoot =
 
 function setPlanStrictness(id: string, enabled: boolean, repoRoot = process.cwd(), options: PlanMutationOptions = {}): string {
   const currentStatus = getStatus(id, repoRoot);
+  const changeId = currentStatus.id;
   if (!currentStatus.planning) {
-    throw new Error(`Planning is not enabled for ${id}`);
+    throw new Error(`Planning is not enabled for ${changeId}`);
   }
 
   const nextStrictness = enabled ? "strict" : "normal";
   if (currentStatus.planning.strictness === nextStrictness) {
-    return `Strict planning already ${enabled ? "enabled" : "disabled"} for ${id}`;
+    return `Strict planning already ${enabled ? "enabled" : "disabled"} for ${changeId}`;
   }
 
   if (options.dryRun) {
-    return `Dry-run: would ${enabled ? "enable" : "disable"} strict planning for ${id}`;
+    return `Dry-run: would ${enabled ? "enable" : "disable"} strict planning for ${changeId}`;
   }
 
-  mutateChangeFrontmatter(repoRoot, id, ({ frontmatter, body }) => {
-    const planning = requirePlannedChange(id, frontmatter);
+  mutateChangeFrontmatter(repoRoot, changeId, ({ frontmatter, body }) => {
+    const planning = requirePlannedChange(changeId, frontmatter);
     return {
       frontmatter: {
         ...frontmatter,
@@ -177,7 +178,7 @@ function setPlanStrictness(id: string, enabled: boolean, repoRoot = process.cwd(
     };
   });
 
-  return `${enabled ? "Enabled" : "Disabled"} strict planning for ${id}`;
+  return `${enabled ? "Enabled" : "Disabled"} strict planning for ${changeId}`;
 }
 
 export function runPlanStrictEnable(id: string, repoRoot = process.cwd(), options: PlanMutationOptions = {}): string {
@@ -191,17 +192,19 @@ export function runPlanStrictDisable(id: string, repoRoot = process.cwd(), optio
 export function runPlanExport(id: string, format: PlanningAdapterFormat, repoRoot = process.cwd(), options: PlanMutationOptions = {}): string {
   const result = exportPlanningMirror(id, format, repoRoot, options);
   const relativeDirectory = path.relative(repoRoot, result.directory);
+  const changeId = path.basename(path.dirname(result.directory));
   if (options.dryRun) {
-    return `Dry-run: would export ${id} ${format} planning mirror to ${relativeDirectory}`;
+    return `Dry-run: would export ${changeId} ${format} planning mirror to ${relativeDirectory}`;
   }
-  return `Exported ${id} ${format} planning mirror to ${relativeDirectory}`;
+  return `Exported ${changeId} ${format} planning mirror to ${relativeDirectory}`;
 }
 
 export function runPlanImport(id: string, format: PlanningAdapterFormat, repoRoot = process.cwd(), options: PlanMutationOptions = {}): string {
   const result = importPlanningMirror(id, format, repoRoot, options);
   const relativeDirectory = path.relative(repoRoot, result.directory);
+  const changeId = path.basename(path.dirname(result.directory));
   if (options.dryRun) {
-    return `Dry-run: would import ${id} ${format} planning mirror from ${relativeDirectory}`;
+    return `Dry-run: would import ${changeId} ${format} planning mirror from ${relativeDirectory}`;
   }
-  return `Imported ${id} ${format} planning mirror from ${relativeDirectory}`;
+  return `Imported ${changeId} ${format} planning mirror from ${relativeDirectory}`;
 }
