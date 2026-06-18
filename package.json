@@ -31,6 +31,7 @@
     "vcs:git-fixture": "node --import tsx scripts/create-vcs-git-fixture.ts",
     "vcs:jj-scenarios": "node --import tsx scripts/create-vcs-jj-scenarios.ts",
     "vcs:jj-scenario": "node --import tsx scripts/create-vcs-jj-scenarios.ts --scenario",
+    "kanban:scenarios": "node --import tsx scripts/create-kanban-scenarios.ts",
     "vcs:e2e": "pnpm --filter @changeyard/vcs run e2e",
     "cy:install": "pnpm run cy:dev -- install",
     "cy:uninstall": "pnpm run cy:dev -- uninstall",

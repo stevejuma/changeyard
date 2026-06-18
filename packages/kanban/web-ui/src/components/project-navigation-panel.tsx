@@ -2,6 +2,7 @@ import * as Collapsible from "@radix-ui/react-collapsible";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Ellipsis, ExternalLink, Info, Lightbulb, Plus, X } from "lucide-react";
 import { type MouseEvent as ReactMouseEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { ProjectWorkspaceList, resolveWorkspaceProjectPath } from "@changeyard/web-ui";
 import { canShowFeaturebaseFeedbackButton } from "@/components/featurebase-feedback-button";
 import { Button } from "@/components/ui/button";
 import { ClineIcon } from "@/components/ui/cline-icon";
@@ -49,6 +50,7 @@ export function ProjectNavigationPanel({
 	projects,
 	isLoadingProjects = false,
 	currentProjectId,
+	activeWorkspacePath,
 	removingProjectId,
 	activeSection,
 	onActiveSectionChange,
@@ -58,6 +60,7 @@ export function ProjectNavigationPanel({
 	clineProviderSettings,
 	featurebaseFeedbackState,
 	onSelectProject,
+	onSelectProjectWorkspace,
 	onRemoveProject,
 	onAddProject,
 	sidebarWidth,
@@ -68,6 +71,7 @@ export function ProjectNavigationPanel({
 	projects: RuntimeProjectSummary[];
 	isLoadingProjects?: boolean;
 	currentProjectId: string | null;
+	activeWorkspacePath?: string | null;
 	removingProjectId: string | null;
 	activeSection: "projects" | "agent";
 	onActiveSectionChange: (section: "projects" | "agent") => void;
@@ -77,6 +81,7 @@ export function ProjectNavigationPanel({
 	clineProviderSettings?: RuntimeClineProviderSettings | null;
 	featurebaseFeedbackState?: FeaturebaseFeedbackState;
 	onSelectProject: (projectId: string) => void;
+	onSelectProjectWorkspace?: (projectId: string, workspacePath: string) => void;
 	onRemoveProject: (projectId: string) => Promise<boolean>;
 	onAddProject: () => void;
 	sidebarWidth: number;
@@ -375,6 +380,7 @@ export function ProjectNavigationPanel({
 								key={project.id}
 								project={project}
 								isCurrent={currentProjectId === project.id}
+								activeWorkspacePath={activeWorkspacePath ?? null}
 								removingProjectId={removingProjectId}
 								onSelect={(projectId) => {
 									onSelectProject(projectId);
@@ -388,6 +394,12 @@ export function ProjectNavigationPanel({
 										return;
 									}
 									setPendingProjectRemoval(found);
+								}}
+								onSelectWorkspace={(projectId, workspacePath) => {
+									onSelectProjectWorkspace?.(projectId, workspacePath);
+									if (isMobile) {
+										setCollapsed(true);
+									}
 								}}
 							/>
 						))}
@@ -702,20 +714,39 @@ function ProjectRowSkeleton(): React.ReactElement {
 function ProjectRow({
 	project,
 	isCurrent,
+	activeWorkspacePath,
 	removingProjectId,
 	onSelect,
+	onSelectWorkspace,
 	onRemove,
 }: {
 	project: RuntimeProjectSummary;
 	isCurrent: boolean;
+	activeWorkspacePath: string | null;
 	removingProjectId: string | null;
 	onSelect: (id: string) => void;
+	onSelectWorkspace: (id: string, workspacePath: string) => void;
 	onRemove: (id: string) => void;
 }): React.ReactElement {
 	const displayPath = formatPathForDisplay(project.path);
 	const isRemovingProject = removingProjectId === project.id;
 	const hasAnyProjectRemoval = removingProjectId !== null;
 	const [isMenuOpen, setIsMenuOpen] = useState(false);
+	const [isWorkspacesOpen, setWorkspacesOpen] = useState(isCurrent);
+	const wasCurrentRef = useRef(isCurrent);
+	const workspaces = (project.workspaces ?? []).filter((workspace) => workspace.name !== "default");
+	const hasWorkspaces = workspaces.length > 0;
+	const hasActiveWorkspace = Boolean(
+		isCurrent &&
+			activeWorkspacePath &&
+			workspaces.some((workspace) => resolveWorkspaceProjectPath(project.path, workspace) === activeWorkspacePath),
+	);
+	useEffect(() => {
+		if (isCurrent && !wasCurrentRef.current && hasWorkspaces) {
+			setWorkspacesOpen(true);
+		}
+		wasCurrentRef.current = isCurrent;
+	}, [hasWorkspaces, isCurrent]);
 	const taskCountBadges: TaskCountBadge[] = [
 		{
 			id: "backlog",
@@ -748,37 +779,72 @@ function ProjectRow({
 	].filter((item) => item.count > 0);
 
 	return (
-		<div
-			role="button"
-			tabIndex={0}
-			onClick={() => onSelect(project.id)}
-			onKeyDown={(e) => {
-				if (e.key === "Enter" || e.key === " ") {
-					e.preventDefault();
+		<div className="min-w-0">
+			<div
+				role="button"
+				tabIndex={0}
+				onClick={() => {
+					if (isCurrent && hasWorkspaces) {
+						setWorkspacesOpen((open) => !open);
+						return;
+					}
 					onSelect(project.id);
-				}
-			}}
-			className={cn("kb-project-row cursor-pointer rounded-md", isCurrent && "kb-project-row-selected")}
-			style={{
-				display: "flex",
-				alignItems: "center",
-				gap: 6,
-				padding: "6px 8px",
-			}}
-		>
-			<div className="flex-1 min-w-0">
-				<div
-					className={cn(
-						"font-medium whitespace-nowrap overflow-hidden text-ellipsis text-sm",
-						isCurrent ? "kb-selected-fg" : "text-text-primary",
-					)}
-				>
-					{project.name}
-				</div>
+				}}
+				onKeyDown={(e) => {
+					if (e.key === "Enter" || e.key === " ") {
+						e.preventDefault();
+						if (isCurrent && hasWorkspaces) {
+							setWorkspacesOpen((open) => !open);
+						} else {
+							onSelect(project.id);
+						}
+					}
+				}}
+				className={cn(
+					"kb-project-row cursor-pointer rounded-md",
+					isCurrent && !hasActiveWorkspace && "kb-project-row-selected",
+					isCurrent && hasActiveWorkspace && "cy-project-row-parent-active",
+				)}
+				style={{
+					display: "flex",
+					alignItems: "center",
+					gap: 6,
+					padding: "6px 8px",
+				}}
+			>
+				<div className="flex-1 min-w-0">
+					<div className="flex min-w-0 items-center gap-2">
+						{hasWorkspaces ? (
+							<button
+								type="button"
+								aria-label={isWorkspacesOpen ? "Collapse workspaces" : "Expand workspaces"}
+								title={isWorkspacesOpen ? "Collapse workspaces" : "Expand workspaces"}
+								className={cn(
+									"cy-project-row-chevron",
+									isWorkspacesOpen && "is-open",
+									isCurrent && !hasActiveWorkspace && "is-selected",
+								)}
+								onClick={(event) => {
+									event.stopPropagation();
+									setWorkspacesOpen((open) => !open);
+								}}
+							>
+								<ChevronRight size={12} />
+							</button>
+						) : null}
+						<div
+							className={cn(
+								"min-w-0 flex-1 font-medium whitespace-nowrap overflow-hidden text-ellipsis text-sm",
+								isCurrent && !hasActiveWorkspace ? "kb-selected-fg" : "text-text-primary",
+							)}
+						>
+							{project.name}
+						</div>
+					</div>
 				<div
 					className={cn(
 						"font-mono text-[10px] whitespace-nowrap overflow-hidden text-ellipsis",
-						isCurrent ? "kb-selected-muted-fg" : "text-text-secondary",
+						isCurrent && !hasActiveWorkspace ? "kb-selected-muted-fg" : "text-text-secondary",
 					)}
 				>
 					{displayPath}
@@ -790,7 +856,7 @@ function ProjectRow({
 								key={badge.id}
 								className={cn(
 									"inline-flex items-center gap-1 rounded-full text-[10px] px-1.5 py-px font-medium",
-									isCurrent ? "kb-selected-subtle-bg kb-selected-fg" : badge.toneClassName,
+									isCurrent && !hasActiveWorkspace ? "kb-selected-subtle-bg kb-selected-fg" : badge.toneClassName,
 								)}
 								title={badge.title}
 							>
@@ -811,7 +877,7 @@ function ProjectRow({
 							icon={isRemovingProject ? <Spinner size={12} /> : <Ellipsis size={14} />}
 							disabled={hasAnyProjectRemoval && !isRemovingProject}
 							className={
-								isCurrent
+								isCurrent && !hasActiveWorkspace
 									? "text-accent-fg hover:bg-accent-fg/20 hover:text-accent-fg active:bg-accent-fg/30"
 									: undefined
 							}
@@ -839,6 +905,15 @@ function ProjectRow({
 					</DropdownMenu.Portal>
 				</DropdownMenu.Root>
 			</div>
+			</div>
+			{hasWorkspaces && isWorkspacesOpen ? (
+				<ProjectWorkspaceList
+					projectPath={project.path}
+					workspaces={workspaces}
+					activeWorkspacePath={activeWorkspacePath}
+					onSelectWorkspace={(workspacePath) => onSelectWorkspace(project.id, workspacePath)}
+				/>
+			) : null}
 		</div>
 	);
 }

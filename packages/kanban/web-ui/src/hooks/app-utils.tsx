@@ -6,6 +6,7 @@ export const TASK_START_IN_PLAN_MODE_STORAGE_KEY = LocalStorageKey.TaskStartInPl
 export const TASK_AUTO_REVIEW_ENABLED_STORAGE_KEY = LocalStorageKey.TaskAutoReviewEnabled;
 export const TASK_AUTO_REVIEW_MODE_STORAGE_KEY = LocalStorageKey.TaskAutoReviewMode;
 const DETAIL_TASK_QUERY_PARAM = "task";
+const WORKSPACE_PATH_QUERY_PARAM = "workspacePath";
 export const KANBAN_BASE_PATH = "/kanban";
 
 export function normalizeStoredTaskAutoReviewMode(value: string): TaskAutoReviewMode | null {
@@ -74,6 +75,22 @@ export function parseProjectIdFromPathname(pathname: string): string | null {
 
 export function buildProjectPathname(projectId: string): string {
 	return `${KANBAN_BASE_PATH}/${encodeURIComponent(projectId)}`;
+}
+
+export function parseWorkspacePathFromSearch(search: string): string | null {
+	const params = new URLSearchParams(search);
+	const workspacePath = params.get(WORKSPACE_PATH_QUERY_PARAM)?.trim();
+	return workspacePath ? workspacePath : null;
+}
+
+export function buildWorkspacePathSearch(search: string, workspacePath: string | null): string {
+	const params = new URLSearchParams(search);
+	if (workspacePath) {
+		params.set(WORKSPACE_PATH_QUERY_PARAM, workspacePath);
+	} else {
+		params.delete(WORKSPACE_PATH_QUERY_PARAM);
+	}
+	return params.toString();
 }
 
 export function parseDetailTaskIdFromSearch(search: string): string | null {

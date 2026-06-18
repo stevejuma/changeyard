@@ -1,9 +1,12 @@
+import { resolve } from "node:path";
+
 import { type RuntimeConfigState, toGlobalRuntimeConfigState } from "../config/runtime-config.js";
 import type {
 	RuntimeBoardColumnId,
 	RuntimeBoardData,
 	RuntimeProjectSummary,
 	RuntimeProjectTaskCounts,
+	RuntimeProjectWorkspaceSummary,
 	RuntimeWorkspaceStateResponse,
 } from "../core/api-contract.js";
 import {
@@ -16,6 +19,7 @@ import {
 	removeWorkspaceStateFiles,
 } from "../state/workspace-state.js";
 import { TerminalSessionManager } from "../terminal/session-manager.js";
+import { resolveProjectWorkspacePath } from "./project-workspaces.js";
 
 export interface WorkspaceRegistryScope {
 	workspaceId: string;
@@ -28,6 +32,7 @@ export interface CreateWorkspaceRegistryDependencies {
 	loadRuntimeConfig: (cwd: string) => Promise<RuntimeConfigState>;
 	hasWorkspaceRepository: (path: string) => boolean;
 	pathIsDirectory: (path: string) => Promise<boolean>;
+	summarizeProjectWorkspaces?: (repoPath: string) => Promise<RuntimeProjectWorkspaceSummary[]>;
 	onTerminalManagerReady?: (workspaceId: string, manager: TerminalSessionManager) => void;
 }
 
@@ -80,10 +85,15 @@ export interface WorkspaceRegistry {
 	}>;
 	resolveWorkspaceForStream: (
 		requestedWorkspaceId: string | null,
+		requestedWorkspacePath?: string | null,
 		options?: {
 			onRemovedWorkspace?: (workspace: RemovedWorkspaceNotice) => void;
 		},
 	) => Promise<ResolvedWorkspaceStreamTarget>;
+	resolveWorkspaceScope: (
+		requestedWorkspaceId: string,
+		requestedWorkspacePath?: string | null,
+	) => Promise<WorkspaceRegistryScope | null>;
 	listManagedWorkspaces: () => Array<{
 		workspaceId: string;
 		workspacePath: string | null;
@@ -207,6 +217,57 @@ export async function createWorkspaceRegistry(deps: CreateWorkspaceRegistryDepen
 
 	const rememberWorkspace = (workspaceId: string, repoPath: string): void => {
 		workspacePathsById.set(workspaceId, repoPath);
+	};
+
+	const resolveProjectWorkspaceById = async (
+		workspaceId: string,
+	): Promise<RuntimeWorkspaceIndexEntry | null> => {
+		const projects = await listWorkspaceIndexEntries();
+		return projects.find((project) => project.workspaceId === workspaceId) ?? null;
+	};
+
+	const resolveWorkspaceScope = async (
+		requestedWorkspaceId: string,
+		requestedWorkspacePath?: string | null,
+	): Promise<WorkspaceRegistryScope | null> => {
+		const requestedProject = await resolveProjectWorkspaceById(requestedWorkspaceId);
+		if (!requestedProject) {
+			return null;
+		}
+		if (!(await deps.pathIsDirectory(requestedProject.repoPath)) || !deps.hasWorkspaceRepository(requestedProject.repoPath)) {
+			return null;
+		}
+		rememberWorkspace(requestedProject.workspaceId, requestedProject.repoPath);
+		const normalizedRequestedPath = requestedWorkspacePath?.trim();
+		if (!normalizedRequestedPath || resolve(normalizedRequestedPath) === resolve(requestedProject.repoPath)) {
+			return {
+				workspaceId: requestedProject.workspaceId,
+				workspacePath: requestedProject.repoPath,
+			};
+		}
+
+		const childWorkspaces = deps.summarizeProjectWorkspaces
+			? await deps.summarizeProjectWorkspaces(requestedProject.repoPath)
+			: [];
+		const requestedPath = resolve(normalizedRequestedPath);
+		for (const childWorkspace of childWorkspaces) {
+			if (!childWorkspace.path) {
+				continue;
+			}
+			const childWorkspacePath = resolveProjectWorkspacePath(requestedProject.repoPath, childWorkspace.path);
+			if (resolve(childWorkspacePath) !== requestedPath) {
+				continue;
+			}
+			if (!(await deps.pathIsDirectory(childWorkspacePath)) || !deps.hasWorkspaceRepository(childWorkspacePath)) {
+				break;
+			}
+			return {
+				workspaceId: requestedProject.workspaceId,
+				workspacePath: childWorkspacePath,
+			};
+		}
+
+		throw new Error(`Unknown workspace path for project ${requestedProject.workspaceId}: ${normalizedRequestedPath}`);
 	};
 
 	const notifyTerminalManagerReady = (workspaceId: string, manager: TerminalSessionManager): void => {
@@ -338,11 +399,15 @@ export async function createWorkspaceRegistry(deps: CreateWorkspaceRegistryDepen
 		const projectSummaries = await Promise.all(
 			projects.map(async (project) => {
 				const taskCounts = await summarizeProjectTaskCounts(project.workspaceId, project.repoPath);
-				return toProjectSummary({
+				const summary = toProjectSummary({
 					workspaceId: project.workspaceId,
 					repoPath: project.repoPath,
 					taskCounts,
 				});
+				const workspaces = deps.summarizeProjectWorkspaces
+					? await deps.summarizeProjectWorkspaces(project.repoPath)
+					: [];
+				return workspaces.length > 0 ? { ...summary, workspaces } : summary;
 			}),
 		);
 		return {
@@ -353,6 +418,7 @@ export async function createWorkspaceRegistry(deps: CreateWorkspaceRegistryDepen
 
 	const resolveWorkspaceForStream = async (
 		requestedWorkspaceId: string | null,
+		requestedWorkspacePath?: string | null,
 		options?: {
 			onRemovedWorkspace?: (workspace: RemovedWorkspaceNotice) => void;
 		},
@@ -407,9 +473,13 @@ export async function createWorkspaceRegistry(deps: CreateWorkspaceRegistryDepen
 				) {
 					await setActiveWorkspace(requestedWorkspace.workspaceId, requestedWorkspace.repoPath);
 				}
+				const requestedWorkspaceScope = await resolveWorkspaceScope(
+					requestedWorkspace.workspaceId,
+					requestedWorkspacePath,
+				);
 				return {
 					workspaceId: requestedWorkspace.workspaceId,
-					workspacePath: requestedWorkspace.repoPath,
+					workspacePath: requestedWorkspaceScope?.workspacePath ?? requestedWorkspace.repoPath,
 					removedRequestedWorkspacePath,
 					didPruneProjects: removedProjects.length > 0,
 				};
@@ -464,6 +534,7 @@ export async function createWorkspaceRegistry(deps: CreateWorkspaceRegistryDepen
 		buildWorkspaceStateSnapshot,
 		buildProjectsPayload,
 		resolveWorkspaceForStream,
+		resolveWorkspaceScope,
 		listManagedWorkspaces: () => {
 			return Array.from(terminalManagersByWorkspaceId.entries()).map(([workspaceId, terminalManager]) => ({
 				workspaceId,

@@ -59,10 +59,12 @@ export type KanbanApiTag =
 
 type WorkspaceQueryArg = {
 	workspaceId: string;
+	workspacePath?: string | null;
 };
 
 type OptionalWorkspaceQueryArg = {
 	workspaceId?: string | null;
+	workspacePath?: string | null;
 };
 
 type ChangeQueryArg = WorkspaceQueryArg & RuntimeChangeyardChangeGetRequest;
@@ -252,12 +254,23 @@ export function tagsForRuntimeStreamMessage(
 	}
 }
 
-async function query<T>(path: string, input: unknown, workspaceId: string | null | undefined, signal?: AbortSignal) {
-	return await fetchTrpcQuery<T>(path, input, workspaceId ?? null, { signal });
+async function query<T>(
+	path: string,
+	input: unknown,
+	workspaceId: string | null | undefined,
+	signal?: AbortSignal,
+	workspacePath?: string | null,
+) {
+	return await fetchTrpcQuery<T>(path, input, workspaceId ?? null, { signal, workspacePath });
 }
 
-async function mutation<T>(path: string, input: unknown, workspaceId: string | null | undefined) {
-	return await postTrpcMutation<T>(path, input, workspaceId ?? null);
+async function mutation<T>(
+	path: string,
+	input: unknown,
+	workspaceId: string | null | undefined,
+	workspacePath?: string | null,
+) {
+	return await postTrpcMutation<T>(path, input, workspaceId ?? null, workspacePath);
 }
 
 export const kanbanApi = createApi({
@@ -341,9 +354,9 @@ export const kanbanApi = createApi({
 			providesTags: ["Directory"],
 		}),
 		getWorkspaceState: builder.query<RuntimeWorkspaceStateResponse, WorkspaceQueryArg>({
-			queryFn: async ({ workspaceId }, { signal }) => {
+			queryFn: async ({ workspaceId, workspacePath }, { signal }) => {
 				try {
-					return { data: await query<RuntimeWorkspaceStateResponse>("workspace.getState", {}, workspaceId, signal) };
+					return { data: await query<RuntimeWorkspaceStateResponse>("workspace.getState", {}, workspaceId, signal, workspacePath) };
 				} catch (error) {
 					return { error: toKanbanQueryError(error) };
 				}
@@ -351,9 +364,9 @@ export const kanbanApi = createApi({
 			providesTags: ["WorkspaceState"],
 		}),
 		saveWorkspaceState: builder.mutation<RuntimeWorkspaceStateResponse, SaveWorkspaceStateArg>({
-			queryFn: async ({ workspaceId, input }) => {
+			queryFn: async ({ workspaceId, workspacePath, input }) => {
 				try {
-					return { data: await mutation<RuntimeWorkspaceStateResponse>("workspace.saveState", input, workspaceId) };
+					return { data: await mutation<RuntimeWorkspaceStateResponse>("workspace.saveState", input, workspaceId, workspacePath) };
 				} catch (error) {
 					return { error: toKanbanQueryError(error) };
 				}
@@ -381,9 +394,9 @@ export const kanbanApi = createApi({
 			invalidatesTags: ["RuntimeConfig"],
 		}),
 		getChangeyardProjectConfig: builder.query<RuntimeChangeyardProjectConfig, WorkspaceQueryArg>({
-			queryFn: async ({ workspaceId }, { signal }) => {
+			queryFn: async ({ workspaceId, workspacePath }, { signal }) => {
 				try {
-					return { data: await query<RuntimeChangeyardProjectConfig>("changes.getProjectConfig", {}, workspaceId, signal) };
+					return { data: await query<RuntimeChangeyardProjectConfig>("changes.getProjectConfig", {}, workspaceId, signal, workspacePath) };
 				} catch (error) {
 					return { error: toKanbanQueryError(error) };
 				}
@@ -391,9 +404,9 @@ export const kanbanApi = createApi({
 			providesTags: ["ChangeyardProjectConfig"],
 		}),
 		saveChangeyardProjectConfig: builder.mutation<RuntimeChangeyardProjectConfig, UpdateChangeyardProjectConfigArg>({
-			queryFn: async ({ workspaceId, input }) => {
+			queryFn: async ({ workspaceId, workspacePath, input }) => {
 				try {
-					return { data: await mutation<RuntimeChangeyardProjectConfig>("changes.updateProjectConfig", input, workspaceId) };
+					return { data: await mutation<RuntimeChangeyardProjectConfig>("changes.updateProjectConfig", input, workspaceId, workspacePath) };
 				} catch (error) {
 					return { error: toKanbanQueryError(error) };
 				}
@@ -401,9 +414,9 @@ export const kanbanApi = createApi({
 			invalidatesTags: ["ChangeyardProjectConfig", "ChangeList", "Projects"],
 		}),
 		listChanges: builder.query<RuntimeChangeyardChangeListItem[], WorkspaceQueryArg>({
-			queryFn: async ({ workspaceId }, { signal }) => {
+			queryFn: async ({ workspaceId, workspacePath }, { signal }) => {
 				try {
-					const response = await query<{ changes: RuntimeChangeyardChangeListItem[] }>("changes.list", {}, workspaceId, signal);
+					const response = await query<{ changes: RuntimeChangeyardChangeListItem[] }>("changes.list", {}, workspaceId, signal, workspacePath);
 					return { data: response.changes };
 				} catch (error) {
 					return { error: toKanbanQueryError(error) };
@@ -412,9 +425,9 @@ export const kanbanApi = createApi({
 			providesTags: (result) => ["ChangeList", ...(result ?? []).map((change) => changeDetailTag(change.id))],
 		}),
 		getChange: builder.query<RuntimeChangeyardChangeDetail | null, ChangeQueryArg>({
-			queryFn: async ({ workspaceId, id }, { signal }) => {
+			queryFn: async ({ workspaceId, workspacePath, id }, { signal }) => {
 				try {
-					return { data: await query<RuntimeChangeyardChangeDetail | null>("changes.get", { id }, workspaceId, signal) };
+					return { data: await query<RuntimeChangeyardChangeDetail | null>("changes.get", { id }, workspaceId, signal, workspacePath) };
 				} catch (error) {
 					return { error: toKanbanQueryError(error) };
 				}
@@ -422,9 +435,9 @@ export const kanbanApi = createApi({
 			providesTags: (_result, _error, arg) => [changeDetailTag(arg.id)],
 		}),
 		getChangeWorkspaceChanges: builder.query<RuntimeWorkspaceChangesResponse, ChangeQueryArg>({
-			queryFn: async ({ workspaceId, id }, { signal }) => {
+			queryFn: async ({ workspaceId, workspacePath, id }, { signal }) => {
 				try {
-					return { data: await query<RuntimeWorkspaceChangesResponse>("changes.getWorkspaceChanges", { id }, workspaceId, signal) };
+					return { data: await query<RuntimeWorkspaceChangesResponse>("changes.getWorkspaceChanges", { id }, workspaceId, signal, workspacePath) };
 				} catch (error) {
 					return { error: toKanbanQueryError(error) };
 				}
@@ -432,9 +445,9 @@ export const kanbanApi = createApi({
 			providesTags: (_result, _error, arg) => [{ type: "ChangeWorkspaceChanges", id: arg.id }],
 		}),
 		createChange: builder.mutation<RuntimeChangeyardChangeDetail, ChangeMutationArg<RuntimeChangeyardChangeCreateRequest>>({
-			queryFn: async ({ workspaceId, input }) => {
+			queryFn: async ({ workspaceId, workspacePath, input }) => {
 				try {
-					return { data: await mutation<RuntimeChangeyardChangeDetail>("changes.create", input, workspaceId) };
+					return { data: await mutation<RuntimeChangeyardChangeDetail>("changes.create", input, workspaceId, workspacePath) };
 				} catch (error) {
 					return { error: toKanbanQueryError(error) };
 				}
@@ -442,9 +455,9 @@ export const kanbanApi = createApi({
 			invalidatesTags: (result) => result ? tagsForChangedChange(result.id) : ["ChangeList"],
 		}),
 		updateChangeStatus: builder.mutation<RuntimeChangeyardChangeDetail, ChangeMutationArg<RuntimeChangeyardChangeUpdateStatusRequest>>({
-			queryFn: async ({ workspaceId, input }) => {
+			queryFn: async ({ workspaceId, workspacePath, input }) => {
 				try {
-					return { data: await mutation<RuntimeChangeyardChangeDetail>("changes.updateStatus", input, workspaceId) };
+					return { data: await mutation<RuntimeChangeyardChangeDetail>("changes.updateStatus", input, workspaceId, workspacePath) };
 				} catch (error) {
 					return { error: toKanbanQueryError(error) };
 				}
@@ -452,9 +465,9 @@ export const kanbanApi = createApi({
 			invalidatesTags: (result, _error, arg) => tagsForChangedChange(result?.id ?? arg.input.id),
 		}),
 		validateChange: builder.mutation<RuntimeChangeyardChangeDetail, ChangeQueryArg>({
-			queryFn: async ({ workspaceId, id }) => {
+			queryFn: async ({ workspaceId, workspacePath, id }) => {
 				try {
-					return { data: await mutation<RuntimeChangeyardChangeDetail>("changes.validate", { id }, workspaceId) };
+					return { data: await mutation<RuntimeChangeyardChangeDetail>("changes.validate", { id }, workspaceId, workspacePath) };
 				} catch (error) {
 					return { error: toKanbanQueryError(error) };
 				}
@@ -462,9 +475,9 @@ export const kanbanApi = createApi({
 			invalidatesTags: (result, _error, arg) => tagsForChangedChange(result?.id ?? arg.id),
 		}),
 		syncChange: builder.mutation<RuntimeChangeyardChangeDetail, ChangeQueryArg>({
-			queryFn: async ({ workspaceId, id }) => {
+			queryFn: async ({ workspaceId, workspacePath, id }) => {
 				try {
-					return { data: await mutation<RuntimeChangeyardChangeDetail>("changes.sync", { id }, workspaceId) };
+					return { data: await mutation<RuntimeChangeyardChangeDetail>("changes.sync", { id }, workspaceId, workspacePath) };
 				} catch (error) {
 					return { error: toKanbanQueryError(error) };
 				}
@@ -472,9 +485,9 @@ export const kanbanApi = createApi({
 			invalidatesTags: (result, _error, arg) => tagsForChangedChange(result?.id ?? arg.id),
 		}),
 		startChange: builder.mutation<RuntimeChangeyardChangeDetail, ChangeQueryArg>({
-			queryFn: async ({ workspaceId, id }) => {
+			queryFn: async ({ workspaceId, workspacePath, id }) => {
 				try {
-					return { data: await mutation<RuntimeChangeyardChangeDetail>("changes.start", { id }, workspaceId) };
+					return { data: await mutation<RuntimeChangeyardChangeDetail>("changes.start", { id }, workspaceId, workspacePath) };
 				} catch (error) {
 					return { error: toKanbanQueryError(error) };
 				}
@@ -482,9 +495,9 @@ export const kanbanApi = createApi({
 			invalidatesTags: (result, _error, arg) => ["Projects", "WorkspaceState", ...tagsForChangedChange(result?.id ?? arg.id)],
 		}),
 		verifyChange: builder.mutation<RuntimeChangeyardChangeActionResponse, ChangeQueryArg>({
-			queryFn: async ({ workspaceId, id }) => {
+			queryFn: async ({ workspaceId, workspacePath, id }) => {
 				try {
-					return { data: await mutation<RuntimeChangeyardChangeActionResponse>("changes.verify", { id }, workspaceId) };
+					return { data: await mutation<RuntimeChangeyardChangeActionResponse>("changes.verify", { id }, workspaceId, workspacePath) };
 				} catch (error) {
 					return { error: toKanbanQueryError(error) };
 				}
@@ -492,9 +505,9 @@ export const kanbanApi = createApi({
 			invalidatesTags: (result, _error, arg) => tagsForChangedChange(result?.change.id ?? arg.id),
 		}),
 		completeChange: builder.mutation<RuntimeChangeyardChangeActionResponse, ChangeMutationArg<RuntimeChangeyardCompleteRequest>>({
-			queryFn: async ({ workspaceId, input }) => {
+			queryFn: async ({ workspaceId, workspacePath, input }) => {
 				try {
-					return { data: await mutation<RuntimeChangeyardChangeActionResponse>("changes.complete", input, workspaceId) };
+					return { data: await mutation<RuntimeChangeyardChangeActionResponse>("changes.complete", input, workspaceId, workspacePath) };
 				} catch (error) {
 					return { error: toKanbanQueryError(error) };
 				}
@@ -502,9 +515,9 @@ export const kanbanApi = createApi({
 			invalidatesTags: (result, _error, arg) => tagsForChangedChange(result?.change.id ?? arg.input.id),
 		}),
 		reviewStart: builder.mutation<RuntimeChangeyardChangeActionResponse, ChangeQueryArg>({
-			queryFn: async ({ workspaceId, id }) => {
+			queryFn: async ({ workspaceId, workspacePath, id }) => {
 				try {
-					return { data: await mutation<RuntimeChangeyardChangeActionResponse>("changes.reviewStart", { id }, workspaceId) };
+					return { data: await mutation<RuntimeChangeyardChangeActionResponse>("changes.reviewStart", { id }, workspaceId, workspacePath) };
 				} catch (error) {
 					return { error: toKanbanQueryError(error) };
 				}
@@ -512,9 +525,9 @@ export const kanbanApi = createApi({
 			invalidatesTags: (result, _error, arg) => [...tagsForChangedChange(result?.change.id ?? arg.id), "ChangeReviews"],
 		}),
 		reviewList: builder.query<RuntimeChangeyardReviewListResponse, ReviewListArg>({
-			queryFn: async ({ workspaceId, input }, { signal }) => {
+			queryFn: async ({ workspaceId, workspacePath, input }, { signal }) => {
 				try {
-					return { data: await query<RuntimeChangeyardReviewListResponse>("changes.reviewList", input, workspaceId, signal) };
+					return { data: await query<RuntimeChangeyardReviewListResponse>("changes.reviewList", input, workspaceId, signal, workspacePath) };
 				} catch (error) {
 					return { error: toKanbanQueryError(error) };
 				}
@@ -522,9 +535,9 @@ export const kanbanApi = createApi({
 			providesTags: (_result, _error, arg) => ["ChangeReviews", { type: "ChangeReviews", id: arg.input.id }],
 		}),
 		reviewGet: builder.query<RuntimeChangeyardReviewDetail, ReviewGetArg>({
-			queryFn: async ({ workspaceId, input }, { signal }) => {
+			queryFn: async ({ workspaceId, workspacePath, input }, { signal }) => {
 				try {
-					return { data: await query<RuntimeChangeyardReviewDetail>("changes.reviewGet", input, workspaceId, signal) };
+					return { data: await query<RuntimeChangeyardReviewDetail>("changes.reviewGet", input, workspaceId, signal, workspacePath) };
 				} catch (error) {
 					return { error: toKanbanQueryError(error) };
 				}
@@ -532,9 +545,9 @@ export const kanbanApi = createApi({
 			providesTags: (_result, _error, arg) => ["ChangeReviews", { type: "ChangeReviews", id: `${arg.input.id}:${arg.input.review}` }],
 		}),
 		reviewUpdate: builder.mutation<RuntimeChangeyardReviewDetail, ReviewMutationArg<RuntimeChangeyardReviewUpdateRequest>>({
-			queryFn: async ({ workspaceId, input }) => {
+			queryFn: async ({ workspaceId, workspacePath, input }) => {
 				try {
-					return { data: await mutation<RuntimeChangeyardReviewDetail>("changes.reviewUpdate", input, workspaceId) };
+					return { data: await mutation<RuntimeChangeyardReviewDetail>("changes.reviewUpdate", input, workspaceId, workspacePath) };
 				} catch (error) {
 					return { error: toKanbanQueryError(error) };
 				}
@@ -542,9 +555,9 @@ export const kanbanApi = createApi({
 			invalidatesTags: (_result, _error, arg) => ["ChangeReviews", { type: "ChangeReviews", id: arg.input.id }],
 		}),
 		reviewComplete: builder.mutation<RuntimeChangeyardChangeActionResponse, ReviewMutationArg<RuntimeChangeyardReviewCompleteRequest>>({
-			queryFn: async ({ workspaceId, input }) => {
+			queryFn: async ({ workspaceId, workspacePath, input }) => {
 				try {
-					return { data: await mutation<RuntimeChangeyardChangeActionResponse>("changes.reviewComplete", input, workspaceId) };
+					return { data: await mutation<RuntimeChangeyardChangeActionResponse>("changes.reviewComplete", input, workspaceId, workspacePath) };
 				} catch (error) {
 					return { error: toKanbanQueryError(error) };
 				}
@@ -552,9 +565,9 @@ export const kanbanApi = createApi({
 			invalidatesTags: (result, _error, arg) => [...tagsForChangedChange(result?.change.id ?? arg.input.id), "ChangeReviews"],
 		}),
 		linkChange: builder.mutation<RuntimeChangeyardChangeDetail, ChangeMutationArg<RuntimeChangeyardChangeDependencyRequest>>({
-			queryFn: async ({ workspaceId, input }) => {
+			queryFn: async ({ workspaceId, workspacePath, input }) => {
 				try {
-					return { data: await mutation<RuntimeChangeyardChangeDetail>("changes.link", input, workspaceId) };
+					return { data: await mutation<RuntimeChangeyardChangeDetail>("changes.link", input, workspaceId, workspacePath) };
 				} catch (error) {
 					return { error: toKanbanQueryError(error) };
 				}
@@ -565,9 +578,9 @@ export const kanbanApi = createApi({
 			],
 		}),
 		unlinkChange: builder.mutation<RuntimeChangeyardChangeDetail, ChangeMutationArg<RuntimeChangeyardChangeDependencyRequest>>({
-			queryFn: async ({ workspaceId, input }) => {
+			queryFn: async ({ workspaceId, workspacePath, input }) => {
 				try {
-					return { data: await mutation<RuntimeChangeyardChangeDetail>("changes.unlink", input, workspaceId) };
+					return { data: await mutation<RuntimeChangeyardChangeDetail>("changes.unlink", input, workspaceId, workspacePath) };
 				} catch (error) {
 					return { error: toKanbanQueryError(error) };
 				}
@@ -578,9 +591,9 @@ export const kanbanApi = createApi({
 			],
 		}),
 		updateChangeBody: builder.mutation<RuntimeChangeyardChangeDetail, ChangeMutationArg<RuntimeChangeyardChangeUpdateBodyRequest>>({
-			queryFn: async ({ workspaceId, input }) => {
+			queryFn: async ({ workspaceId, workspacePath, input }) => {
 				try {
-					return { data: await mutation<RuntimeChangeyardChangeDetail>("changes.updateBody", input, workspaceId) };
+					return { data: await mutation<RuntimeChangeyardChangeDetail>("changes.updateBody", input, workspaceId, workspacePath) };
 				} catch (error) {
 					return { error: toKanbanQueryError(error) };
 				}
@@ -588,9 +601,9 @@ export const kanbanApi = createApi({
 			invalidatesTags: (result, _error, arg) => tagsForChangedChange(result?.id ?? arg.input.id),
 		}),
 		getChangeBoardSummary: builder.query<RuntimeChangeyardBoardSummaryResponse, ChangeQueryArg>({
-			queryFn: async ({ workspaceId, id }, { signal }) => {
+			queryFn: async ({ workspaceId, workspacePath, id }, { signal }) => {
 				try {
-					return { data: await query<RuntimeChangeyardBoardSummaryResponse>("changes.getBoardSummary", { id }, workspaceId, signal) };
+					return { data: await query<RuntimeChangeyardBoardSummaryResponse>("changes.getBoardSummary", { id }, workspaceId, signal, workspacePath) };
 				} catch (error) {
 					return { error: toKanbanQueryError(error) };
 				}
@@ -598,9 +611,9 @@ export const kanbanApi = createApi({
 			providesTags: (_result, _error, arg) => [{ type: "ChangeBoardSummary", id: arg.id }],
 		}),
 		getChangeBoardFiles: builder.query<RuntimeChangeyardBoardFilesResponse, ChangeBoardFilesArg>({
-			queryFn: async ({ workspaceId, input }, { signal }) => {
+			queryFn: async ({ workspaceId, workspacePath, input }, { signal }) => {
 				try {
-					return { data: await query<RuntimeChangeyardBoardFilesResponse>("changes.getBoardFiles", input, workspaceId, signal) };
+					return { data: await query<RuntimeChangeyardBoardFilesResponse>("changes.getBoardFiles", input, workspaceId, signal, workspacePath) };
 				} catch (error) {
 					return { error: toKanbanQueryError(error) };
 				}
@@ -608,9 +621,9 @@ export const kanbanApi = createApi({
 			providesTags: (_result, _error, arg) => [{ type: "ChangeBoardFiles", id: arg.input.id }],
 		}),
 		getChangeBoardFileDiff: builder.query<RuntimeChangeyardBoardFileDiffResponse, ChangeBoardFileDiffArg>({
-			queryFn: async ({ workspaceId, input }, { signal }) => {
+			queryFn: async ({ workspaceId, workspacePath, input }, { signal }) => {
 				try {
-					return { data: await query<RuntimeChangeyardBoardFileDiffResponse>("changes.getBoardFileDiff", input, workspaceId, signal) };
+					return { data: await query<RuntimeChangeyardBoardFileDiffResponse>("changes.getBoardFileDiff", input, workspaceId, signal, workspacePath) };
 				} catch (error) {
 					return { error: toKanbanQueryError(error) };
 				}
@@ -653,6 +666,9 @@ export const {
 	useLinkChangeMutation,
 	useUnlinkChangeMutation,
 	useUpdateChangeBodyMutation,
+	useGetChangeBoardSummaryQuery,
+	useGetChangeBoardFilesQuery,
+	useGetChangeBoardFileDiffQuery,
 	useLazyGetChangeBoardSummaryQuery,
 	useLazyGetChangeBoardFilesQuery,
 	useLazyGetChangeBoardFileDiffQuery,

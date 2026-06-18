@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { notifyError, showAppToast } from "@/components/app-toaster";
-import { KANBAN_BASE_PATH, buildProjectPathname, parseProjectIdFromPathname } from "@/hooks/app-utils";
+import {
+	KANBAN_BASE_PATH,
+	buildProjectPathname,
+	buildWorkspacePathSearch,
+	parseProjectIdFromPathname,
+	parseWorkspacePathFromSearch,
+} from "@/hooks/app-utils";
 import { useAddProjectMutation, usePickProjectDirectoryMutation, useRemoveProjectMutation } from "@/runtime/kanban-api";
 import { useRuntimeStateStream } from "@/runtime/use-runtime-state-stream";
 import { isLocalhostAccess } from "@/utils/localhost-detection";
@@ -40,7 +46,9 @@ interface UseProjectNavigationInput {
 
 export interface UseProjectNavigationResult {
 	requestedProjectId: string | null;
+	requestedWorkspacePath: string | null;
 	navigationCurrentProjectId: string | null;
+	activeWorkspacePath: string | null;
 	removingProjectId: string | null;
 	isAddProjectDialogOpen: boolean;
 	setIsAddProjectDialogOpen: (open: boolean) => void;
@@ -61,6 +69,7 @@ export interface UseProjectNavigationResult {
 	hasNoProjects: boolean;
 	isProjectSwitching: boolean;
 	handleSelectProject: (projectId: string) => void;
+	handleSelectProjectWorkspace: (projectId: string, workspacePath: string) => void;
 	handleAddProject: () => void;
 	handleAddProjectSuccess: (projectId: string) => void;
 	handleRemoveProject: (projectId: string) => Promise<boolean>;
@@ -73,6 +82,12 @@ export function useProjectNavigation({ onProjectSwitchStart }: UseProjectNavigat
 			return null;
 		}
 		return parseProjectIdFromPathname(window.location.pathname);
+	});
+	const [requestedWorkspacePath, setRequestedWorkspacePath] = useState<string | null>(() => {
+		if (typeof window === "undefined") {
+			return null;
+		}
+		return parseWorkspacePathFromSearch(window.location.search);
 	});
 	const [pendingAddedProjectId, setPendingAddedProjectId] = useState<string | null>(null);
 	const [removingProjectId, setRemovingProjectId] = useState<string | null>(null);
@@ -96,21 +111,50 @@ export function useProjectNavigation({ onProjectSwitchStart }: UseProjectNavigat
 		streamError,
 		isRuntimeDisconnected,
 		hasReceivedSnapshot,
-	} = useRuntimeStateStream(requestedProjectId);
+	} = useRuntimeStateStream(requestedProjectId, requestedWorkspacePath);
 
 	const hasNoProjects = hasReceivedSnapshot && projects.length === 0 && currentProjectId === null;
 	const isProjectSwitching = requestedProjectId !== null && requestedProjectId !== currentProjectId && !hasNoProjects;
 	const navigationCurrentProjectId = requestedProjectId ?? currentProjectId;
+	const activeWorkspacePath = requestedWorkspacePath;
+
+	const updateProjectLocation = useCallback((projectId: string | null, workspacePath: string | null): void => {
+		if (typeof window === "undefined") {
+			return;
+		}
+		const nextUrl = new URL(window.location.href);
+		nextUrl.pathname = projectId ? buildProjectPathname(projectId) : KANBAN_BASE_PATH;
+		nextUrl.search = buildWorkspacePathSearch(nextUrl.search, workspacePath);
+		window.history.replaceState({}, "", `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
+	}, []);
 
 	const handleSelectProject = useCallback(
 		(projectId: string) => {
-			if (!projectId || projectId === currentProjectId) {
+			if (!projectId || (projectId === currentProjectId && requestedWorkspacePath === null)) {
 				return;
 			}
 			onProjectSwitchStart();
 			setRequestedProjectId(projectId);
+			setRequestedWorkspacePath(null);
+			updateProjectLocation(projectId, null);
 		},
-		[currentProjectId, onProjectSwitchStart],
+		[currentProjectId, onProjectSwitchStart, requestedWorkspacePath, updateProjectLocation],
+	);
+
+	const handleSelectProjectWorkspace = useCallback(
+		(projectId: string, workspacePath: string) => {
+			if (!projectId || !workspacePath) {
+				return;
+			}
+			if (projectId === currentProjectId && workspacePath === requestedWorkspacePath) {
+				return;
+			}
+			onProjectSwitchStart();
+			setRequestedProjectId(projectId);
+			setRequestedWorkspacePath(workspacePath);
+			updateProjectLocation(projectId, workspacePath);
+		},
+		[currentProjectId, onProjectSwitchStart, requestedWorkspacePath, updateProjectLocation],
 	);
 
 	const handleAddProjectSuccess = useCallback(
@@ -182,6 +226,7 @@ export function useProjectNavigation({ onProjectSwitchStart }: UseProjectNavigat
 				if (currentProjectId === projectId) {
 					onProjectSwitchStart();
 					setRequestedProjectId(null);
+					setRequestedWorkspacePath(null);
 				}
 				return true;
 			} catch (error) {
@@ -200,7 +245,9 @@ export function useProjectNavigation({ onProjectSwitchStart }: UseProjectNavigat
 			return;
 		}
 		const nextProjectId = parseProjectIdFromPathname(window.location.pathname);
+		const nextWorkspacePath = parseWorkspacePathFromSearch(window.location.search);
 		setRequestedProjectId(nextProjectId);
+		setRequestedWorkspacePath(nextWorkspacePath);
 	}, []);
 	useWindowEvent("popstate", handlePopState);
 
@@ -213,11 +260,12 @@ export function useProjectNavigation({ onProjectSwitchStart }: UseProjectNavigat
 		}
 		const nextUrl = new URL(window.location.href);
 		const nextPathname = buildProjectPathname(currentProjectId);
-		if (nextUrl.pathname === nextPathname) {
+		const nextSearch = buildWorkspacePathSearch(nextUrl.search, requestedWorkspacePath);
+		if (nextUrl.pathname === nextPathname && nextUrl.search === (nextSearch ? `?${nextSearch}` : "")) {
 			return;
 		}
-		window.history.replaceState({}, "", `${nextPathname}${nextUrl.search}${nextUrl.hash}`);
-	}, [currentProjectId]);
+		window.history.replaceState({}, "", `${nextPathname}${nextSearch ? `?${nextSearch}` : ""}${nextUrl.hash}`);
+	}, [currentProjectId, requestedWorkspacePath]);
 
 	useEffect(() => {
 		if (typeof window === "undefined") {
@@ -228,9 +276,11 @@ export function useProjectNavigation({ onProjectSwitchStart }: UseProjectNavigat
 		}
 		const nextUrl = new URL(window.location.href);
 		if (nextUrl.pathname !== KANBAN_BASE_PATH) {
-			window.history.replaceState({}, "", `${KANBAN_BASE_PATH}${nextUrl.search}${nextUrl.hash}`);
+			const nextSearch = buildWorkspacePathSearch(nextUrl.search, null);
+			window.history.replaceState({}, "", `${KANBAN_BASE_PATH}${nextSearch ? `?${nextSearch}` : ""}${nextUrl.hash}`);
 		}
 		setRequestedProjectId(null);
+		setRequestedWorkspacePath(null);
 	}, [hasNoProjects, requestedProjectId]);
 
 	useEffect(() => {
@@ -256,6 +306,7 @@ export function useProjectNavigation({ onProjectSwitchStart }: UseProjectNavigat
 			return;
 		}
 		setRequestedProjectId(currentProjectId);
+		setRequestedWorkspacePath(null);
 	}, [currentProjectId, pendingAddedProjectId, projects, requestedProjectId]);
 
 	const resetProjectNavigationState = useCallback(() => {
@@ -266,7 +317,9 @@ export function useProjectNavigation({ onProjectSwitchStart }: UseProjectNavigat
 
 	return {
 		requestedProjectId,
+		requestedWorkspacePath,
 		navigationCurrentProjectId,
+		activeWorkspacePath,
 		removingProjectId,
 		isAddProjectDialogOpen,
 		setIsAddProjectDialogOpen,
@@ -287,6 +340,7 @@ export function useProjectNavigation({ onProjectSwitchStart }: UseProjectNavigat
 		hasNoProjects,
 		isProjectSwitching,
 		handleSelectProject,
+		handleSelectProjectWorkspace,
 		handleAddProject,
 		handleAddProjectSuccess,
 		handleRemoveProject,

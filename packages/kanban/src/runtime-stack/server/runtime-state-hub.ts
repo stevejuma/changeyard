@@ -62,6 +62,7 @@ export interface RuntimeStateHub {
 		head: Buffer,
 		context: {
 			requestedWorkspaceId: string | null;
+			requestedWorkspacePath?: string | null;
 			streamMode?: "runtime" | "vcs";
 			surface?: RuntimeHubClientSurface;
 			userAgent?: string | null;
@@ -83,18 +84,57 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 	const clinePreviousSummaryByWorkspaceId = new Map<string, Map<string, RuntimeTaskSessionSummary>>();
 	const pendingTaskSessionSummariesByWorkspaceId = new Map<string, Map<string, RuntimeTaskSessionSummary>>();
 	const taskSessionBroadcastTimersByWorkspaceId = new Map<string, NodeJS.Timeout>();
-	const runtimeStateClientsByWorkspaceId = new Map<string, Set<WebSocket>>();
+	const runtimeStateClientsByWorkspaceScopeKey = new Map<string, Set<WebSocket>>();
 	const runtimeStateClients = new Set<WebSocket>();
-	const runtimeStateWorkspaceIdByClient = new Map<WebSocket, string>();
+	const runtimeStateWorkspaceScopeByClient = new Map<
+		WebSocket,
+		{ workspaceId: string; workspacePath: string | null; key: string }
+	>();
 	const runtimeStateMetadataClients = new Set<WebSocket>();
 	const runtimeHubClientSummaryByClient = new Map<WebSocket, RuntimeHubClientsSummary["clients"][number]>();
 	let nextRuntimeHubClientId = 1;
 	let clineSessionContextVersion = 0;
 	const runtimeStateWebSocketServer = new WebSocketServer({ noServer: true });
+	const workspaceScopeKey = (workspaceId: string, workspacePath: string | null): string =>
+		`${workspaceId}\0${workspacePath ?? ""}`;
+
+	const allRuntimeStateClientsForWorkspace = (workspaceId: string): Set<WebSocket> => {
+		const clients = new Set<WebSocket>();
+		const keyPrefix = `${workspaceId}\0`;
+		for (const [key, scopedClients] of runtimeStateClientsByWorkspaceScopeKey.entries()) {
+			if (!key.startsWith(keyPrefix)) {
+				continue;
+			}
+			for (const client of scopedClients) {
+				clients.add(client);
+			}
+		}
+		return clients;
+	};
+
+	const runtimeStateClientsForScope = (
+		workspaceId: string,
+		workspacePath: string | null,
+	): Set<WebSocket> | null => {
+		return runtimeStateClientsByWorkspaceScopeKey.get(workspaceScopeKey(workspaceId, workspacePath)) ?? null;
+	};
+
+	const registerRuntimeStateClient = (
+		client: WebSocket,
+		workspaceId: string,
+		workspacePath: string | null,
+	): void => {
+		const key = workspaceScopeKey(workspaceId, workspacePath);
+		const clients = runtimeStateClientsByWorkspaceScopeKey.get(key) ?? new Set<WebSocket>();
+		clients.add(client);
+		runtimeStateClientsByWorkspaceScopeKey.set(key, clients);
+		runtimeStateWorkspaceScopeByClient.set(client, { workspaceId, workspacePath, key });
+	};
+
 	const workspaceMetadataMonitor = createWorkspaceMetadataMonitor({
 		onMetadataUpdated: (workspaceId, workspaceMetadata) => {
-			const clients = runtimeStateClientsByWorkspaceId.get(workspaceId);
-			if (!clients || clients.size === 0) {
+			const clients = allRuntimeStateClientsForWorkspace(workspaceId);
+			if (clients.size === 0) {
 				return;
 			}
 			const payload: RuntimeStateStreamWorkspaceMetadataMessage = {
@@ -152,8 +192,8 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 
 	const vcsProjectWatcher = createChokidarVcsProjectWatcher();
 	const unsubscribeVcsProjectWatcher = vcsProjectWatcher.onEvent((event) => {
-		const clients = runtimeStateClientsByWorkspaceId.get(event.projectId);
-		if (!clients || clients.size === 0) {
+		const clients = allRuntimeStateClientsForWorkspace(event.projectId);
+		if (clients.size === 0) {
 			return;
 		}
 		const payload: RuntimeStateStreamVcsProjectEventMessage = {
@@ -179,8 +219,8 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 	};
 
 	const stopVcsWatcherIfIdle = (workspaceId: string): void => {
-		const clients = runtimeStateClientsByWorkspaceId.get(workspaceId);
-		if (clients && clients.size > 0) {
+		const clients = allRuntimeStateClientsForWorkspace(workspaceId);
+		if (clients.size > 0) {
 			return;
 		}
 		void vcsProjectWatcher.stop(workspaceId).catch(() => {
@@ -240,8 +280,8 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 		}
 		pendingTaskSessionSummariesByWorkspaceId.delete(workspaceId);
 		const summaries = Array.from(pending.values());
-		const runtimeClients = runtimeStateClientsByWorkspaceId.get(workspaceId);
-		if (runtimeClients && runtimeClients.size > 0) {
+		const runtimeClients = allRuntimeStateClientsForWorkspace(workspaceId);
+		if (runtimeClients.size > 0) {
 			const payload: RuntimeStateStreamTaskSessionsMessage = {
 				type: "task_sessions_updated",
 				workspaceId,
@@ -271,8 +311,8 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 	};
 
 	const broadcastTaskChatMessage = (workspaceId: string, taskId: string, message: ClineTaskMessage) => {
-		const runtimeClients = runtimeStateClientsByWorkspaceId.get(workspaceId);
-		if (!runtimeClients || runtimeClients.size === 0) {
+		const runtimeClients = allRuntimeStateClientsForWorkspace(workspaceId);
+		if (runtimeClients.size === 0) {
 			return;
 		}
 		const payload: RuntimeStateStreamTaskChatMessage = {
@@ -287,8 +327,8 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 	};
 
 	const broadcastTaskChatCleared = (workspaceId: string, taskId: string) => {
-		const runtimeClients = runtimeStateClientsByWorkspaceId.get(workspaceId);
-		if (!runtimeClients || runtimeClients.size === 0) {
+		const runtimeClients = allRuntimeStateClientsForWorkspace(workspaceId);
+		if (runtimeClients.size === 0) {
 			return;
 		}
 		const payload: RuntimeStateStreamTaskChatClearedMessage = {
@@ -311,22 +351,22 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 	};
 
 	const cleanupRuntimeStateClient = (client: WebSocket) => {
-		const workspaceId = runtimeStateWorkspaceIdByClient.get(client);
-		if (workspaceId) {
+		const scope = runtimeStateWorkspaceScopeByClient.get(client);
+		if (scope) {
 			if (runtimeStateMetadataClients.has(client)) {
-				workspaceMetadataMonitor.disconnectWorkspace(workspaceId);
+				workspaceMetadataMonitor.disconnectWorkspace(scope.workspaceId);
 				runtimeStateMetadataClients.delete(client);
 			}
-			const clients = runtimeStateClientsByWorkspaceId.get(workspaceId);
+			const clients = runtimeStateClientsByWorkspaceScopeKey.get(scope.key);
 			if (clients) {
 				clients.delete(client);
 				if (clients.size === 0) {
-					runtimeStateClientsByWorkspaceId.delete(workspaceId);
-					stopVcsWatcherIfIdle(workspaceId);
+					runtimeStateClientsByWorkspaceScopeKey.delete(scope.key);
+					stopVcsWatcherIfIdle(scope.workspaceId);
 				}
 			}
 		}
-		runtimeStateWorkspaceIdByClient.delete(client);
+		runtimeStateWorkspaceScopeByClient.delete(client);
 		runtimeStateClients.delete(client);
 		if (runtimeHubClientSummaryByClient.delete(client)) {
 			broadcastHubClientsUpdated();
@@ -372,9 +412,8 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 			return;
 		}
 
-		const runtimeClients = runtimeStateClientsByWorkspaceId.get(workspaceId);
-		if (!runtimeClients || runtimeClients.size === 0) {
-			runtimeStateClientsByWorkspaceId.delete(workspaceId);
+		const runtimeClients = allRuntimeStateClientsForWorkspace(workspaceId);
+		if (runtimeClients.size === 0) {
 			return;
 		}
 
@@ -392,11 +431,15 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 			}
 			cleanupRuntimeStateClient(runtimeClient);
 		}
-		runtimeStateClientsByWorkspaceId.delete(workspaceId);
+		for (const key of Array.from(runtimeStateClientsByWorkspaceScopeKey.keys())) {
+			if (key.startsWith(`${workspaceId}\0`)) {
+				runtimeStateClientsByWorkspaceScopeKey.delete(key);
+			}
+		}
 	};
 
 	const broadcastRuntimeWorkspaceStateUpdated = async (workspaceId: string, workspacePath: string): Promise<void> => {
-		const clients = runtimeStateClientsByWorkspaceId.get(workspaceId);
+		const clients = runtimeStateClientsForScope(workspaceId, workspacePath);
 		if (!clients || clients.size === 0) {
 			return;
 		}
@@ -421,8 +464,8 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 	};
 
 	const broadcastTaskReadyForReview = (workspaceId: string, taskId: string) => {
-		const runtimeClients = runtimeStateClientsByWorkspaceId.get(workspaceId);
-		if (!runtimeClients || runtimeClients.size === 0) {
+		const runtimeClients = allRuntimeStateClientsForWorkspace(workspaceId);
+		if (runtimeClients.size === 0) {
 			return;
 		}
 		const payload: RuntimeStateStreamTaskReadyForReviewMessage = {
@@ -462,8 +505,16 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 				HUB_CLIENT_SURFACES.includes((context as { surface?: RuntimeHubClientSurface }).surface ?? "unknown")
 					? ((context as { surface: RuntimeHubClientSurface }).surface)
 					: "unknown";
+			const requestedWorkspacePath =
+				typeof context === "object" &&
+				context !== null &&
+				"requestedWorkspacePath" in context &&
+				typeof (context as { requestedWorkspacePath?: unknown }).requestedWorkspacePath === "string"
+					? (context as { requestedWorkspacePath: string }).requestedWorkspacePath || null
+					: null;
 			const workspace: ResolvedWorkspaceStreamTarget = await deps.workspaceRegistry.resolveWorkspaceForStream(
 				requestedWorkspaceId,
+				requestedWorkspacePath,
 				{
 					onRemovedWorkspace: ({ workspaceId, message }) => {
 						disposeWorkspace(workspaceId, {
@@ -531,11 +582,7 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 				if (streamMode === "vcs") {
 					if (workspace.workspaceId && workspace.workspacePath) {
 						monitorWorkspaceId = workspace.workspaceId;
-						const workspaceClients =
-							runtimeStateClientsByWorkspaceId.get(monitorWorkspaceId) ?? new Set<WebSocket>();
-						workspaceClients.add(client);
-						runtimeStateClientsByWorkspaceId.set(monitorWorkspaceId, workspaceClients);
-						runtimeStateWorkspaceIdByClient.set(client, monitorWorkspaceId);
+						registerRuntimeStateClient(client, monitorWorkspaceId, workspace.workspacePath);
 						startVcsWatcher(monitorWorkspaceId, workspace.workspacePath);
 					}
 					if (workspace.removedRequestedWorkspacePath) {
@@ -599,11 +646,7 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 					return;
 				}
 				if (monitorWorkspaceId) {
-					const workspaceClients =
-						runtimeStateClientsByWorkspaceId.get(monitorWorkspaceId) ?? new Set<WebSocket>();
-					workspaceClients.add(client);
-					runtimeStateClientsByWorkspaceId.set(monitorWorkspaceId, workspaceClients);
-					runtimeStateWorkspaceIdByClient.set(client, monitorWorkspaceId);
+					registerRuntimeStateClient(client, monitorWorkspaceId, workspace.workspacePath ?? null);
 					if (workspace.workspacePath) {
 						startVcsWatcher(monitorWorkspaceId, workspace.workspacePath);
 					}
@@ -751,8 +794,8 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 				}
 			}
 			runtimeStateClients.clear();
-			runtimeStateClientsByWorkspaceId.clear();
-			runtimeStateWorkspaceIdByClient.clear();
+			runtimeStateClientsByWorkspaceScopeKey.clear();
+			runtimeStateWorkspaceScopeByClient.clear();
 			await new Promise<void>((resolveCloseWebSockets) => {
 				runtimeStateWebSocketServer.close(() => {
 					resolveCloseWebSockets();

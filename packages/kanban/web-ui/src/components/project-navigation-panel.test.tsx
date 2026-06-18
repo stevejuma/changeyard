@@ -173,6 +173,41 @@ describe("ProjectNavigationPanel width persistence", () => {
 		expect(row?.querySelector(".kb-selected-muted-fg")?.textContent).toBe("/tmp/kanban");
 	});
 
+	it("renders and selects child workspace rows without selecting the parent project row", () => {
+		const onSelectProjectWorkspace = vi.fn();
+		renderPanel({
+			activeWorkspacePath: "/tmp/kanban-child",
+			onSelectProjectWorkspace,
+			projects: [
+				{
+					...PROJECTS[0]!,
+					workspaces: [
+						{
+							id: "child",
+							title: "Child workspace",
+							name: "child",
+							path: "/tmp/kanban-child",
+						},
+					],
+				},
+			],
+		});
+
+		expect(container.querySelector(".cy-project-row-parent-active")).toBeInstanceOf(HTMLElement);
+		expect(container.querySelector(".kb-project-row-selected")).toBeNull();
+		const childWorkspaceButton = Array.from(container.querySelectorAll("button")).find(
+			(button) => button.textContent?.includes("child") ?? false,
+		);
+		expect(childWorkspaceButton).toBeInstanceOf(HTMLButtonElement);
+		expect(childWorkspaceButton?.className).toContain("is-active");
+
+		act(() => {
+			childWorkspaceButton?.click();
+		});
+
+		expect(onSelectProjectWorkspace).toHaveBeenCalledWith("project-1", "/tmp/kanban-child");
+	});
+
 	it("persists resized width and restores it on remount", () => {
 		renderPanel();
 		const initialWidth = getExpectedDefaultWidthPx(window.innerWidth);

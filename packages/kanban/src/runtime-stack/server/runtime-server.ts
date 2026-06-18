@@ -38,7 +38,6 @@ import {
 	validatePasscode,
 	validateSession,
 } from "../security/passcode-manager.js";
-import { loadWorkspaceContextById } from "../state/workspace-state.js";
 import type { TerminalSessionManager } from "../terminal/session-manager.js";
 import { createTerminalWebSocketBridge } from "../terminal/ws-server.js";
 import { type RuntimeTrpcContext, type RuntimeTrpcWorkspaceScope, runtimeAppRouter } from "../trpc/app-router.js";
@@ -110,6 +109,25 @@ function readWorkspaceIdFromRequest(request: IncomingMessage, requestUrl: URL): 
 	return null;
 }
 
+function readWorkspacePathFromRequest(request: IncomingMessage, requestUrl: URL): string | null {
+	const headerValue = request.headers["x-kanban-workspace-path"];
+	const headerWorkspacePath = Array.isArray(headerValue) ? headerValue[0] : headerValue;
+	if (typeof headerWorkspacePath === "string") {
+		const normalized = headerWorkspacePath.trim();
+		if (normalized) {
+			return normalized;
+		}
+	}
+	const queryWorkspacePath = requestUrl.searchParams.get("workspacePath");
+	if (typeof queryWorkspacePath === "string") {
+		const normalized = queryWorkspacePath.trim();
+		if (normalized) {
+			return normalized;
+		}
+	}
+	return null;
+}
+
 function shouldResolveWorkspaceScopeForRequest(requestUrl: URL): boolean {
 	const trpcPath = requestUrl.pathname.replace(/^\/api\/trpc\//, "");
 	return trpcPath !== "projects.list";
@@ -147,8 +165,12 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				workspaceScope: null,
 			};
 		}
-		const requestedWorkspaceContext = await loadWorkspaceContextById(requestedWorkspaceId);
-		if (!requestedWorkspaceContext) {
+		const requestedWorkspacePath = readWorkspacePathFromRequest(request, requestUrl);
+		const workspaceScope = await deps.workspaceRegistry.resolveWorkspaceScope(
+			requestedWorkspaceId,
+			requestedWorkspacePath,
+		);
+		if (!workspaceScope) {
 			return {
 				requestedWorkspaceId,
 				workspaceScope: null,
@@ -156,12 +178,9 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 		}
 		return {
 			requestedWorkspaceId,
-			workspaceScope: {
-				workspaceId: requestedWorkspaceContext.workspaceId,
-				workspacePath: requestedWorkspaceContext.repoPath,
-			},
+			workspaceScope,
+		};
 	};
-};
 
 function normalizeRuntimeClientSurface(value: string | null): RuntimeHubClientSurface {
 	if (
@@ -555,11 +574,13 @@ function writeAssetResponse(request: IncomingMessage, response: ServerResponse, 
 		// ── End passcode gate ─────────────────────────────────────────────────
 		(request as IncomingMessage & { __kanbanUpgradeHandled?: boolean }).__kanbanUpgradeHandled = true;
 		const requestedWorkspaceId = requestUrl.searchParams.get("workspaceId")?.trim() || null;
+		const requestedWorkspacePath = requestUrl.searchParams.get("workspacePath")?.trim() || null;
 		const streamMode = requestUrl.searchParams.get("stream") === "vcs" ? "vcs" : "runtime";
 		const surface = normalizeRuntimeClientSurface(requestUrl.searchParams.get("surface"));
 		const userAgent = request.headers["user-agent"];
 		deps.runtimeStateHub.handleUpgrade(request, socket, head, {
 			requestedWorkspaceId,
+			requestedWorkspacePath,
 			streamMode,
 			surface,
 			userAgent: typeof userAgent === "string" ? userAgent : null,

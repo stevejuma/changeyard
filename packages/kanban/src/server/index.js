@@ -18,6 +18,7 @@ import { disablePasscode, generateInternalToken, generatePasscode } from "../run
 import { openInBrowser } from "../runtime-stack/server/browser.js";
 import { pickDirectoryPathFromSystemDialog } from "../runtime-stack/server/directory-picker.js";
 import { terminateProcessForTimeout } from "../runtime-stack/server/process-termination.js";
+import { summarizeProjectWorkspaces } from "../runtime-stack/server/project-workspaces.js";
 import { createRuntimeServer } from "../runtime-stack/server/runtime-server.js";
 import { createRuntimeStateHub } from "../runtime-stack/server/runtime-state-hub.js";
 import { resolveInteractiveShellCommand } from "../runtime-stack/server/shell.js";
@@ -216,6 +217,12 @@ export async function startChangeyardRuntime(options) {
 		loadRuntimeConfig,
 		hasWorkspaceRepository,
 		pathIsDirectory,
+		summarizeProjectWorkspaces: async (repoPath) =>
+			await summarizeProjectWorkspaces(repoPath, {
+				detectWorkspaceRepositoryKind,
+				changeyardApi: options.changeyardApi ?? null,
+				warn,
+			}),
 		onTerminalManagerReady: (workspaceId, manager) => {
 			runtimeStateHub?.trackTerminalManager(workspaceId, manager);
 		},

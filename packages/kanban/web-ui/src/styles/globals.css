@@ -1387,6 +1387,17 @@ body.kb-dependency-link-mode {
 	border-radius: var(--radius-sm);
 }
 
+/* Radix modal dialogs disable outside pointer events; keep Sonner toasts dismissible above them. */
+[data-sonner-toaster] {
+	pointer-events: none;
+}
+
+[data-sonner-toast],
+[data-sonner-toast] [data-close-button],
+[data-sonner-toast] [data-button] {
+	pointer-events: auto;
+}
+
 /* -- Chat markdown -- */
 
 .kb-markdown > * {

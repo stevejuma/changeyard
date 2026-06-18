@@ -34,6 +34,8 @@ interface HookSnapshot {
 	changesCount: number;
 	selectedChangeId: string | null;
 	isLoading: boolean;
+	isSelectedChangeLoading: boolean;
+	isSelectedChangeFetching: boolean;
 }
 
 async function flushAsyncWork(): Promise<void> {
@@ -75,6 +77,8 @@ function HookHarness({
 			changesCount: changeyardChanges.changeyardChanges.length,
 			selectedChangeId: changeyardChanges.selectedChangeDetail?.id ?? null,
 			isLoading: changeyardChanges.isChangeyardChangesLoading,
+			isSelectedChangeLoading: changeyardChanges.isSelectedChangeLoading,
+			isSelectedChangeFetching: changeyardChanges.isSelectedChangeFetching,
 		});
 	}, [
 		changeyardChanges.changeyardChanges,
@@ -107,7 +111,8 @@ describe("useChangeyardChanges", () => {
 				return mockTrpcResponse({ changes: [createChange("chg-1")] });
 			}
 			if (url.startsWith("/api/trpc/changes.get")) {
-				return mockTrpcResponse(createChangeDetail("chg-1"));
+				const detailId = decodeURIComponent(url).includes('"id":"chg-2"') ? "chg-2" : "chg-1";
+				return mockTrpcResponse(createChangeDetail(detailId));
 			}
 			return new Response("Not found", { status: 404 });
 		});
@@ -219,6 +224,82 @@ describe("useChangeyardChanges", () => {
 			const getCalls = fetchMock.mock.calls.filter(([url]) => String(url).startsWith("/api/trpc/changes.get"));
 			expect(getCalls).toHaveLength(1);
 			expect(String(getCalls[0]?.[0])).toContain(encodeURIComponent(JSON.stringify({ id: "chg-1" })));
+		});
+	});
+
+	it("returns null selected detail while a new selected change is loading", async () => {
+		const snapshots: HookSnapshot[] = [];
+		let resolveChangeTwo: ((response: Response) => void) | null = null;
+		fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+			const url = String(input);
+			if (url.startsWith("/api/trpc/changes.list")) {
+				return mockTrpcResponse({ changes: [createChange("chg-1"), createChange("chg-2")] });
+			}
+			if (url.startsWith("/api/trpc/changes.get")) {
+				const decodedUrl = decodeURIComponent(url);
+				if (decodedUrl.includes('"id":"chg-2"')) {
+					return await new Promise<Response>((resolve) => {
+						resolveChangeTwo = resolve;
+					});
+				}
+				return mockTrpcResponse(createChangeDetail("chg-1"));
+			}
+			return new Response("Not found", { status: 404 });
+		});
+
+		await act(async () => {
+			root.render(
+				<Provider store={kanbanStore}>
+					<HookHarness
+						currentProjectId="project-1"
+						selectedChangeId="chg-1"
+						renderToken={1}
+						onSnapshot={(snapshot) => {
+							snapshots.push(snapshot);
+						}}
+					/>
+				</Provider>,
+			);
+		});
+
+		await waitForExpect(() => {
+			expect(snapshots.at(-1)).toMatchObject({
+				selectedChangeId: "chg-1",
+				isSelectedChangeLoading: false,
+			});
+		});
+
+		await act(async () => {
+			root.render(
+				<Provider store={kanbanStore}>
+					<HookHarness
+						currentProjectId="project-1"
+						selectedChangeId="chg-2"
+						renderToken={2}
+						onSnapshot={(snapshot) => {
+							snapshots.push(snapshot);
+						}}
+					/>
+				</Provider>,
+			);
+		});
+
+		await waitForExpect(() => {
+			expect(snapshots.some((snapshot) => snapshot.selectedChangeId === null && snapshot.isSelectedChangeLoading)).toBe(
+				true,
+			);
+		});
+
+		await act(async () => {
+			resolveChangeTwo?.(mockTrpcResponse(createChangeDetail("chg-2")));
+			await Promise.resolve();
+		});
+
+		await waitForExpect(() => {
+			expect(snapshots.at(-1)).toMatchObject({
+				selectedChangeId: "chg-2",
+				isSelectedChangeLoading: false,
+			});
 		});
 	});
 });

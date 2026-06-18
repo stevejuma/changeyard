@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { resolveWorkspaceProjectPath } from "@changeyard/web-ui";
 
 import { AddProjectDialog } from "@/components/add-project-dialog";
 import { notifyError, showAppToast } from "@/components/app-toaster";
@@ -47,18 +48,6 @@ const DIRECTORY_PICKER_UNAVAILABLE_MARKERS = [
 	'install powershell ("powershell" or "pwsh")',
 	'command "osascript" is not available',
 ] as const;
-
-function resolveWorkspaceProjectPath(projectPath: string, workspace: RuntimeProjectWorkspaceSummary): string | null {
-	if (!workspace.path) {
-		return null;
-	}
-	if (/^(?:\/|[a-zA-Z]:[\\/])/.test(workspace.path)) {
-		return workspace.path;
-	}
-	const basePath = projectPath.replace(/[\\/]+$/, "");
-	const relativePath = workspace.path.replace(/^[.][\\/]/, "");
-	return `${basePath}/${relativePath}`;
-}
 
 function findProjectWorkspaceByPath(
 	project: RuntimeProjectSummary | null,

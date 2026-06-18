@@ -244,7 +244,12 @@ describe("ChangeDetailDialog", () => {
 		});
 
 		expect(document.body.textContent).toContain("No workspace file changes recorded");
-		expect(mockUseRuntimeChangeWorkspaceChanges).toHaveBeenCalledWith("CY-9999", "project-1", expect.any(Number));
+		expect(mockUseRuntimeChangeWorkspaceChanges).toHaveBeenCalledWith(
+			"CY-9999",
+			"project-1",
+			expect.any(Number),
+			null,
+		);
 	});
 
 	it("renders planning gates as continuous property rows", () => {

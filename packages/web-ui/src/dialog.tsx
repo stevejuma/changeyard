@@ -5,6 +5,10 @@ import { type ComponentPropsWithoutRef, type ElementRef, forwardRef, type ReactN
 
 import { cn } from "./cn";
 
+function isToastInteractionTarget(target: EventTarget | null): boolean {
+	return target instanceof Element && Boolean(target.closest("[data-sonner-toast], [data-sonner-toaster]"));
+}
+
 export function Dialog({
 	open,
 	onOpenChange,
@@ -30,6 +34,11 @@ export function Dialog({
 				<RadixDialog.Content
 					aria-describedby={contentAriaDescribedBy}
 					onEscapeKeyDown={onEscapeKeyDown}
+					onInteractOutside={(event) => {
+						if (isToastInteractionTarget(event.target)) {
+							event.preventDefault();
+						}
+					}}
 					className={cn(
 						"kb-dialog-content fixed left-1/2 top-1/2 z-50 w-[90vw] max-w-lg max-h-[85vh] flex flex-col rounded-lg border border-border-bright bg-surface-1 shadow-2xl focus:outline-none",
 						contentClassName,

@@ -7,7 +7,9 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 
 import { notifyError, showAppToast } from "@/components/app-toaster";
 import { ChangeBoard, type ChangeBoardFilter, type ChangeColumnId } from "@/components/changeyard/change-board";
+import { ChangeDetailDialogSkeleton } from "@/components/changeyard/change-detail-dialog";
 import type { ChangeDetailAction } from "@/components/changeyard/change-detail-dialog";
+import { ChangeReviewModalSkeleton } from "@/components/changeyard/change-review-modal";
 import { ProjectNavigationPanel } from "@/components/project-navigation-panel";
 import type { RuntimeSettingsSection } from "@/components/runtime-settings-dialog";
 import { TaskInlineCreateCard } from "@/components/task-inline-create-card";
@@ -249,10 +251,12 @@ export default function App(): ReactElement {
 		isRuntimeDisconnected,
 		hasReceivedSnapshot,
 		navigationCurrentProjectId,
+		activeWorkspacePath: navigationActiveWorkspacePath,
 		removingProjectId,
 		hasNoProjects,
 		isProjectSwitching,
 		handleSelectProject,
+		handleSelectProjectWorkspace,
 		handleAddProject,
 		handleAddProjectSuccess,
 		handleRemoveProject,
@@ -415,7 +419,9 @@ export default function App(): ReactElement {
 		selectedChangeDetail,
 		refetchSelectedChangeDetail,
 		setSelectedChangeDetail,
-	} = useChangeyardChanges(currentProjectId, selectedChangeId);
+	} = useChangeyardChanges(currentProjectId, selectedChangeId, workspacePath ?? null);
+	const currentSelectedChangeDetail =
+		selectedChangeId !== null && selectedChangeDetail?.id === selectedChangeId ? selectedChangeDetail : null;
 	const [createChangeMutation] = useCreateChangeMutation();
 	const [updateChangeStatusMutation] = useUpdateChangeStatusMutation();
 	const [validateChangeMutation] = useValidateChangeMutation();
@@ -441,10 +447,10 @@ export default function App(): ReactElement {
 		}
 		return buildChangeSessionSelection({
 			change,
-			detail: selectedChangeDetail?.id === selectedSessionChangeId ? selectedChangeDetail : null,
+			detail: currentSelectedChangeDetail?.id === selectedSessionChangeId ? currentSelectedChangeDetail : null,
 			summary,
 		});
-	}, [changeyardChanges, selectedChangeDetail, selectedSessionChangeId, sessions]);
+	}, [changeyardChanges, currentSelectedChangeDetail, selectedSessionChangeId, sessions]);
 	const activeDetailSelection = selectedCard ?? selectedSessionChangeSelection;
 	const activeDetailTaskId = activeDetailSelection?.card.id ?? null;
 	const handleActiveDetailBack = useCallback(() => {
@@ -803,7 +809,7 @@ export default function App(): ReactElement {
 			setIsChangeActionPending(true);
 			setChangeActionError(null);
 			try {
-				const created = await createChangeMutation({ workspaceId: currentProjectId, input }).unwrap();
+				const created = await createChangeMutation({ workspaceId: currentProjectId, workspacePath: workspacePath ?? null, input }).unwrap();
 				setSelectedChangeId(created.id);
 				setSelectedChangeDetail(created);
 				await refetchChangeyardChanges();
@@ -824,7 +830,7 @@ export default function App(): ReactElement {
 				setIsChangeActionPending(false);
 			}
 		},
-		[currentProjectId, createChangeMutation, refetchChangeyardChanges, setSelectedChangeDetail],
+		[currentProjectId, createChangeMutation, refetchChangeyardChanges, setSelectedChangeDetail, workspacePath],
 	);
 
 	const handleReviewChanged = useCallback(
@@ -853,6 +859,7 @@ export default function App(): ReactElement {
 			try {
 				const nextDetail = await updateChangeStatusMutation({
 					workspaceId: currentProjectId,
+					workspacePath: workspacePath ?? null,
 					input: { id: changeId, status },
 				}).unwrap();
 				setSelectedChangeId(nextDetail.id);
@@ -873,7 +880,7 @@ export default function App(): ReactElement {
 				setIsChangeActionPending(false);
 			}
 		},
-		[currentProjectId, refetchChangeyardChanges, refetchSelectedChangeDetail, setSelectedChangeDetail, updateChangeStatusMutation],
+		[currentProjectId, refetchChangeyardChanges, refetchSelectedChangeDetail, setSelectedChangeDetail, updateChangeStatusMutation, workspacePath],
 	);
 
 	const runChangeAction = useCallback(
@@ -893,19 +900,19 @@ export default function App(): ReactElement {
 				let successMessage = "";
 				switch (action) {
 					case "validate":
-						nextDetail = await validateChangeMutation({ workspaceId: currentProjectId, id: changeId }).unwrap();
+						nextDetail = await validateChangeMutation({ workspaceId: currentProjectId, workspacePath: workspacePath ?? null, id: changeId }).unwrap();
 						successMessage = `Validated ${changeId}`;
 						break;
 					case "sync":
-						nextDetail = await syncChangeMutation({ workspaceId: currentProjectId, id: changeId }).unwrap();
+						nextDetail = await syncChangeMutation({ workspaceId: currentProjectId, workspacePath: workspacePath ?? null, id: changeId }).unwrap();
 						successMessage = `Synced ${changeId}`;
 						break;
 					case "start":
-						nextDetail = await startChangeMutation({ workspaceId: currentProjectId, id: changeId }).unwrap();
+						nextDetail = await startChangeMutation({ workspaceId: currentProjectId, workspacePath: workspacePath ?? null, id: changeId }).unwrap();
 						successMessage = `Started ${changeId}`;
 						break;
 					case "verify": {
-						const response = await verifyChangeMutation({ workspaceId: currentProjectId, id: changeId }).unwrap();
+						const response = await verifyChangeMutation({ workspaceId: currentProjectId, workspacePath: workspacePath ?? null, id: changeId }).unwrap();
 						nextDetail = response.change;
 						successMessage = response.message;
 						break;
@@ -913,6 +920,7 @@ export default function App(): ReactElement {
 					case "complete": {
 						const response = await completeChangeMutation({
 							workspaceId: currentProjectId,
+							workspacePath: workspacePath ?? null,
 							input: { id: changeId, noPr: true },
 						}).unwrap();
 						nextDetail = response.change;
@@ -922,6 +930,7 @@ export default function App(): ReactElement {
 					case "approve": {
 						const response = await reviewCompleteMutation({
 							workspaceId: currentProjectId,
+							workspacePath: workspacePath ?? null,
 							input: { id: changeId, decision: "approve" },
 						}).unwrap();
 						nextDetail = response.change;
@@ -931,6 +940,7 @@ export default function App(): ReactElement {
 					case "requestChanges": {
 						const response = await reviewCompleteMutation({
 							workspaceId: currentProjectId,
+							workspacePath: workspacePath ?? null,
 							input: { id: changeId, decision: "request-changes" },
 						}).unwrap();
 						nextDetail = response.change;
@@ -965,6 +975,7 @@ export default function App(): ReactElement {
 			syncChangeMutation,
 			validateChangeMutation,
 			verifyChangeMutation,
+			workspacePath,
 		],
 	);
 
@@ -974,7 +985,7 @@ export default function App(): ReactElement {
 				return;
 			}
 			const current =
-				(selectedChangeDetail?.id === changeId ? selectedChangeDetail : null)
+				(currentSelectedChangeDetail?.id === changeId ? currentSelectedChangeDetail : null)
 				?? changeyardChanges.find((change) => change.id === changeId)
 				?? null;
 			if (!current) {
@@ -991,13 +1002,14 @@ export default function App(): ReactElement {
 				switch (targetColumnId) {
 					case "in_progress":
 						if (status === "ready" || status === "synced") {
-							nextDetail = await startChangeMutation({ workspaceId: currentProjectId, id: changeId }).unwrap();
+							nextDetail = await startChangeMutation({ workspaceId: currentProjectId, workspacePath: workspacePath ?? null, id: changeId }).unwrap();
 							successMessage = `Started ${changeId}`;
 							break;
 						}
 						if (status === "blocked" || status === "changes_requested") {
 							nextDetail = await updateChangeStatusMutation({
 								workspaceId: currentProjectId,
+								workspacePath: workspacePath ?? null,
 								input: { id: changeId, status: "in_progress" },
 							}).unwrap();
 							successMessage = `Moved ${changeId} to in progress`;
@@ -1008,6 +1020,7 @@ export default function App(): ReactElement {
 						if (status === "in_progress") {
 							nextDetail = await updateChangeStatusMutation({
 								workspaceId: currentProjectId,
+								workspacePath: workspacePath ?? null,
 								input: { id: changeId, status: "blocked" },
 							}).unwrap();
 							successMessage = `Blocked ${changeId}`;
@@ -1018,6 +1031,7 @@ export default function App(): ReactElement {
 						if (status === "in_progress") {
 							const response = await completeChangeMutation({
 								workspaceId: currentProjectId,
+								workspacePath: workspacePath ?? null,
 								input: { id: changeId, noPr: true },
 							}).unwrap();
 							nextDetail = response.change;
@@ -1030,6 +1044,7 @@ export default function App(): ReactElement {
 						if (status === "in_review") {
 							const response = await reviewCompleteMutation({
 								workspaceId: currentProjectId,
+								workspacePath: workspacePath ?? null,
 								input: { id: changeId, decision: "approve" },
 							}).unwrap();
 							nextDetail = response.change;
@@ -1042,6 +1057,7 @@ export default function App(): ReactElement {
 						if (["ready", "in_progress", "ready_for_pr", "pr_open", "in_review", "changes_requested", "approved"].includes(status)) {
 							nextDetail = await updateChangeStatusMutation({
 								workspaceId: currentProjectId,
+								workspacePath: workspacePath ?? null,
 								input: { id: changeId, status: "abandoned" },
 							}).unwrap();
 							successMessage = `Abandoned ${changeId}`;
@@ -1079,13 +1095,14 @@ export default function App(): ReactElement {
 			changeyardChanges,
 			completeChangeMutation,
 			currentProjectId,
+			currentSelectedChangeDetail,
 			refetchChangeyardChanges,
 			refetchSelectedChangeDetail,
 			reviewCompleteMutation,
-			selectedChangeDetail,
 			setSelectedChangeDetail,
 			startChangeMutation,
 			updateChangeStatusMutation,
+			workspacePath,
 		],
 	);
 
@@ -1099,6 +1116,7 @@ export default function App(): ReactElement {
 			try {
 				const nextDetail = await linkChangeMutation({
 					workspaceId: currentProjectId,
+					workspacePath: workspacePath ?? null,
 					input: { changeId, blockedByChangeId },
 				}).unwrap();
 				setSelectedChangeId(nextDetail.id);
@@ -1124,7 +1142,7 @@ export default function App(): ReactElement {
 				setIsChangeActionPending(false);
 			}
 		},
-		[currentProjectId, linkChangeMutation, refetchChangeyardChanges, refetchSelectedChangeDetail, setSelectedChangeDetail],
+		[currentProjectId, linkChangeMutation, refetchChangeyardChanges, refetchSelectedChangeDetail, setSelectedChangeDetail, workspacePath],
 	);
 
 	const handleUnlinkChange = useCallback(
@@ -1137,6 +1155,7 @@ export default function App(): ReactElement {
 			try {
 				const nextDetail = await unlinkChangeMutation({
 					workspaceId: currentProjectId,
+					workspacePath: workspacePath ?? null,
 					input: { changeId, blockedByChangeId },
 				}).unwrap();
 				setSelectedChangeId(nextDetail.id);
@@ -1162,7 +1181,7 @@ export default function App(): ReactElement {
 				setIsChangeActionPending(false);
 			}
 		},
-		[currentProjectId, refetchChangeyardChanges, refetchSelectedChangeDetail, setSelectedChangeDetail, unlinkChangeMutation],
+		[currentProjectId, refetchChangeyardChanges, refetchSelectedChangeDetail, setSelectedChangeDetail, unlinkChangeMutation, workspacePath],
 	);
 
 	const handleSaveChangeBody = useCallback(
@@ -1179,6 +1198,7 @@ export default function App(): ReactElement {
 			try {
 				const nextDetail = await updateChangeBodyMutation({
 					workspaceId: currentProjectId,
+					workspacePath: workspacePath ?? null,
 					input: {
 						id: input.changeId,
 						body: input.body,
@@ -1216,7 +1236,7 @@ export default function App(): ReactElement {
 				setIsChangeActionPending(false);
 			}
 		},
-		[currentProjectId, refetchChangeyardChanges, refetchSelectedChangeDetail, setSelectedChangeDetail, updateChangeBodyMutation],
+		[currentProjectId, refetchChangeyardChanges, refetchSelectedChangeDetail, setSelectedChangeDetail, updateChangeBodyMutation, workspacePath],
 	);
 	useEffect(() => {
 		if (activeDetailSelection) {
@@ -1517,6 +1537,7 @@ export default function App(): ReactElement {
 						projects={displayedProjects}
 						isLoadingProjects={isProjectListLoading}
 						currentProjectId={navigationCurrentProjectId}
+						activeWorkspacePath={navigationActiveWorkspacePath}
 						removingProjectId={removingProjectId}
 						activeSection={homeSidebarSection}
 						onActiveSectionChange={setHomeSidebarSection}
@@ -1527,6 +1548,9 @@ export default function App(): ReactElement {
 						featurebaseFeedbackState={featurebaseFeedbackState}
 						onSelectProject={(projectId) => {
 							void handleSelectProject(projectId);
+						}}
+						onSelectProjectWorkspace={(projectId, selectedWorkspacePath) => {
+							void handleSelectProjectWorkspace(projectId, selectedWorkspacePath);
 						}}
 						onRemoveProject={handleRemoveProject}
 						onAddProject={() => {
@@ -1885,10 +1909,24 @@ export default function App(): ReactElement {
 				<Suspense fallback={null}>
 					{activeDetailSelection === null &&
 					selectedChangeId !== null &&
-					selectedChangeDetail !== null &&
+					currentSelectedChangeDetail === null &&
+					!isChangeReviewOpen ? (
+						<ChangeDetailDialogSkeleton
+							open
+							onOpenChange={(open) => {
+								if (!open) {
+									setSelectedSessionChangeId(null);
+									setSelectedChangeId(null);
+								}
+							}}
+						/>
+					) : null}
+					{activeDetailSelection === null &&
+					selectedChangeId !== null &&
+					currentSelectedChangeDetail !== null &&
 					!isChangeReviewOpen ? (
 						<ChangeDetailDialog
-							change={selectedChangeDetail}
+							change={currentSelectedChangeDetail}
 							open
 							workspaceId={currentProjectId}
 							repoRoot={workspacePath}
@@ -1909,12 +1947,31 @@ export default function App(): ReactElement {
 							}}
 						/>
 					) : null}
-					{isChangeReviewOpen && activeDetailSelection === null && selectedChangeId !== null ? (
+					{isChangeReviewOpen &&
+					activeDetailSelection === null &&
+					selectedChangeId !== null &&
+					currentSelectedChangeDetail === null ? (
+						<ChangeReviewModalSkeleton
+							open
+							onOpenChange={(open) => {
+								setIsChangeReviewOpen(open);
+								if (!open) {
+									setSelectedSessionChangeId(null);
+									setSelectedChangeId(null);
+								}
+							}}
+						/>
+					) : null}
+					{isChangeReviewOpen &&
+					activeDetailSelection === null &&
+					selectedChangeId !== null &&
+					currentSelectedChangeDetail !== null ? (
 						<ChangeReviewModal
 							open
-							change={selectedChangeDetail}
+							change={currentSelectedChangeDetail}
 							changes={changeyardChanges}
 							workspaceId={currentProjectId}
+							workspacePath={workspacePath ?? null}
 							onOpenChange={(open) => {
 								setIsChangeReviewOpen(open);
 							}}

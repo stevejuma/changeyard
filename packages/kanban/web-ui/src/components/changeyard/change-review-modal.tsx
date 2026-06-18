@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import * as RadixCheckbox from "@radix-ui/react-checkbox";
 import * as RadixRadioGroup from "@radix-ui/react-radio-group";
+import { skipToken } from "@reduxjs/toolkit/query";
 import {
 	type MouseEvent as ReactMouseEvent,
 	type ReactElement,
@@ -53,7 +54,6 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Dialog, DialogBody, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { MarkdownMessageEditor, MarkdownMessagePreview } from "@/components/ui/markdown-message-editor";
-import { Spinner } from "@/components/ui/spinner";
 import { ChangeStatusChip } from "@/components/ui/status-chip";
 import { ResizeHandle } from "@/resize/resize-handle";
 import { clampAtLeast, readPersistedResizeNumber, writePersistedResizeNumber } from "@/resize/resize-persistence";
@@ -62,7 +62,16 @@ import {
 	COLLAPSED_GIT_HISTORY_PANEL_WIDTH,
 	useGitHistoryLayout,
 } from "@/resize/use-git-history-layout";
-import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
+import {
+	useGetChangeBoardFileDiffQuery,
+	useGetChangeBoardFilesQuery,
+	useGetChangeBoardSummaryQuery,
+	useReviewCompleteMutation,
+	useReviewGetQuery,
+	useReviewListQuery,
+	useReviewStartMutation,
+	useReviewUpdateMutation,
+} from "@/runtime/kanban-api";
 import type {
 	RuntimeChangeyardBoardFileDiffResponse,
 	RuntimeChangeyardBoardFilesResponse,
@@ -631,7 +640,9 @@ function ReviewCommitTimelineCard({
 			{isExpanded ? (
 				<div className="border-t border-divider p-1">
 					{isLoading ? (
-						<div className="px-2 py-2 text-xs text-text-tertiary">Loading changed files...</div>
+						<div className="px-1 py-2">
+							<FileChangesSkeleton rows={3} />
+						</div>
 					) : error ? (
 						<div className="px-2 py-2 text-xs text-status-red">{error.message}</div>
 					) : files.length > 0 ? (
@@ -691,7 +702,7 @@ function ReviewCommitDiffPanel({
 			</div>
 			<div className="min-h-0 flex-1 overflow-auto p-3">
 				{isLoading ? (
-					<div className="text-sm text-text-tertiary">Loading diff...</div>
+					<FileDiffSkeleton />
 				) : error ? (
 					<div className="rounded-md border border-status-red/30 bg-status-red/10 px-3 py-2 text-sm text-status-red">
 						{error.message}
@@ -792,11 +803,121 @@ function GitPullRequestIcon(): ReactElement {
 	return <MessageSquare size={16} />;
 }
 
+function errorToMessage(error: unknown, fallback = "Request failed."): string {
+	if (error instanceof Error) {
+		return error.message;
+	}
+	if (typeof error === "object" && error && "message" in error && typeof error.message === "string") {
+		return error.message;
+	}
+	return fallback;
+}
+
+function errorToError(error: unknown, fallback = "Request failed."): Error {
+	return error instanceof Error ? error : new Error(errorToMessage(error, fallback));
+}
+
+function SkeletonLine({ className }: { className?: string }): ReactElement {
+	return <div className={cn("kb-skeleton h-3 rounded-sm", className)} />;
+}
+
+function FileChangesSkeleton({ rows = 7 }: { rows?: number }): ReactElement {
+	return (
+		<div className="space-y-2" role="status" aria-label="Loading file changes">
+			{Array.from({ length: rows }).map((_, index) => (
+				<div key={`file-changes-skeleton-${index}`} className="flex items-center gap-2 px-2 py-1.5">
+					<SkeletonLine className="h-5 w-5 shrink-0 rounded-full" />
+					<SkeletonLine
+						className={cn(
+							"min-w-0 flex-1",
+							index % 3 === 0 ? "w-9/12" : index % 3 === 1 ? "w-7/12" : "w-10/12",
+						)}
+					/>
+					<SkeletonLine className="h-2.5 w-8 shrink-0" />
+					<SkeletonLine className="h-2.5 w-7 shrink-0" />
+				</div>
+			))}
+		</div>
+	);
+}
+
+function FileDiffSkeleton(): ReactElement {
+	return (
+		<div className="min-h-0 flex-1 overflow-hidden p-3" role="status" aria-label="Loading file diff">
+			<div className="overflow-hidden rounded-md border border-border bg-surface-0">
+				<div className="border-b border-divider bg-surface-1 px-3 py-2">
+					<SkeletonLine className="h-3 w-48" />
+				</div>
+				<div className="space-y-2 p-3">
+					{Array.from({ length: 14 }).map((_, index) => (
+						<div key={`file-diff-skeleton-${index}`} className="flex items-center gap-3">
+							<SkeletonLine className="h-2.5 w-8 shrink-0" />
+							<SkeletonLine
+								className={cn(
+									"h-2.5",
+									index % 4 === 0 ? "w-7/12" : index % 4 === 1 ? "w-10/12" : "w-9/12",
+								)}
+							/>
+						</div>
+					))}
+				</div>
+			</div>
+		</div>
+	);
+}
+
+export function ChangeReviewModalSkeleton({
+	open,
+	onOpenChange,
+}: {
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+}): ReactElement | null {
+	if (!open) {
+		return null;
+	}
+	return (
+		<div className="fixed inset-0 z-50 flex min-h-0 min-w-0 flex-col bg-surface-0 text-text-primary">
+			<header className="flex h-12 shrink-0 items-center gap-3 border-b border-divider bg-surface-1 px-3">
+				<Button variant="ghost" size="sm" icon={<ArrowLeft size={15} />} onClick={() => onOpenChange(false)}>
+					Back
+				</Button>
+				<FileDiff size={16} className="shrink-0 text-text-secondary" />
+				<div className="min-w-0 flex-1">
+					<SkeletonLine className="mb-2 h-4 w-64" />
+					<SkeletonLine className="h-2.5 w-32" />
+				</div>
+			</header>
+			<div className="flex min-h-0 flex-1">
+				<aside className="w-[300px] shrink-0 border-r border-divider p-3">
+					{Array.from({ length: 5 }).map((_, index) => (
+						<div key={`review-change-skeleton-${index}`} className="mb-3 rounded-md border border-divider bg-surface-1 p-3">
+							<SkeletonLine className="mb-3 w-20" />
+							<SkeletonLine className="mb-2 w-full" />
+							<SkeletonLine className="w-2/3" />
+						</div>
+					))}
+				</aside>
+				<main className="min-w-0 flex-1 p-5" role="status" aria-label="Loading review">
+					<SkeletonLine className="mb-5 h-7 w-56" />
+					<SkeletonLine className="mb-3 w-full" />
+					<SkeletonLine className="mb-8 w-10/12" />
+					<SkeletonLine className="mb-5 h-6 w-48" />
+					{Array.from({ length: 4 }).map((_, index) => (
+						<SkeletonLine key={`review-body-skeleton-${index}`} className="mb-3 w-full" />
+					))}
+				</main>
+			</div>
+		</div>
+	);
+}
+
 export function ChangeReviewModal({
 	open,
 	change,
 	changes,
 	workspaceId,
+	workspacePath = null,
 	onOpenChange,
 	onSelectChange,
 	onReviewChanged,
@@ -806,19 +927,18 @@ export function ChangeReviewModal({
 	change: RuntimeChangeyardChangeDetail | null;
 	changes: RuntimeChangeyardChangeListItem[];
 	workspaceId: string | null;
+	workspacePath?: string | null;
 	onOpenChange: (open: boolean) => void;
 	onSelectChange: (changeId: string) => void;
 	onReviewChanged: (change: RuntimeChangeyardChangeDetail, message: string) => void;
 	onMarkDone?: (changeId: string, status: "approved" | "merged") => Promise<void> | void;
 }): ReactElement | null {
 	const [reviews, setReviews] = useState<RuntimeChangeyardReviewSummary[]>([]);
-	const [activeReview, setActiveReview] = useState<RuntimeChangeyardReviewDetail | null>(null);
 	const [summary, setSummary] = useState("");
 	const [requiredChanges, setRequiredChanges] = useState<RuntimeChangeyardReviewRequiredChange[]>([]);
 	const [comments, setComments] = useState<Map<string, DiffLineComment>>(new Map());
 	const [selectedPath, setSelectedPath] = useState<string | null>(null);
 	const [lineScrollTarget, setLineScrollTarget] = useState<DiffLineScrollTarget | null>(null);
-	const [isLoading, setIsLoading] = useState(false);
 	const [isSaving, setIsSaving] = useState(false);
 	const [isMarkingDone, setIsMarkingDone] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -832,16 +952,13 @@ export function ChangeReviewModal({
 	const [submitDecision, setSubmitDecision] = useState<ReviewDecision>("comment");
 	const [submitSummary, setSubmitSummary] = useState("");
 	const [boardSummary, setBoardSummary] = useState<RuntimeChangeyardBoardSummaryResponse | null>(null);
-	const [boardSummaryLoading, setBoardSummaryLoading] = useState(false);
 	const [boardSummaryError, setBoardSummaryError] = useState<Error | null>(null);
 	const [expandedCommitHash, setExpandedCommitHash] = useState<string | null>(null);
 	const [selectedCommitHash, setSelectedCommitHash] = useState<string | null>(null);
 	const [commitFiles, setCommitFiles] = useState<Record<string, RuntimeChangeyardBoardFilesResponse | null>>({});
-	const [commitFileLoading, setCommitFileLoading] = useState<Record<string, boolean>>({});
 	const [commitFileErrors, setCommitFileErrors] = useState<Record<string, Error | null>>({});
 	const [selectedCommitFile, setSelectedCommitFile] = useState<ReviewCommitFileSelection | null>(null);
 	const [commitFileDiff, setCommitFileDiff] = useState<RuntimeChangeyardBoardFileDiffResponse | null>(null);
-	const [commitFileDiffLoading, setCommitFileDiffLoading] = useState(false);
 	const [commitFileDiffError, setCommitFileDiffError] = useState<Error | null>(null);
 	const [reviewDraftPanelWidth, setReviewDraftPanelWidth] = useState(() =>
 		readPersistedResizeNumber({
@@ -856,8 +973,41 @@ export function ChangeReviewModal({
 		diffContentPanelWidth,
 		fileTreePanelWidth,
 	} = useGitHistoryLayout();
+	const [reviewStartMutation] = useReviewStartMutation();
+	const [reviewUpdateMutation] = useReviewUpdateMutation();
+	const [reviewCompleteMutation] = useReviewCompleteMutation();
 
 	const changeId = open && change ? change.id : null;
+	const reviewScope = changeId && workspaceId ? { workspaceId, workspacePath, input: { id: changeId } } : skipToken;
+	const reviewListQuery = useReviewListQuery(reviewScope);
+	const reviewsForCurrentChange = reviewListQuery.currentData?.reviews ?? [];
+	const latestReviewSummary = reviewsForCurrentChange[reviewsForCurrentChange.length - 1] ?? null;
+	const reviewGetQueryArg =
+		changeId && workspaceId && latestReviewSummary
+			? { workspaceId, workspacePath, input: { id: changeId, review: latestReviewSummary.review } }
+			: skipToken;
+	const reviewGetQuery = useReviewGetQuery(reviewGetQueryArg);
+	const boardSummaryQueryArg = changeId && workspaceId ? { workspaceId, workspacePath, id: changeId } : skipToken;
+	const boardSummaryQuery = useGetChangeBoardSummaryQuery(boardSummaryQueryArg);
+	const boardFilesQueryArg =
+		changeId && workspaceId && expandedCommitHash
+			? { workspaceId, workspacePath, input: { id: changeId, scope: { commitHash: expandedCommitHash } } }
+			: skipToken;
+	const boardFilesQuery = useGetChangeBoardFilesQuery(boardFilesQueryArg);
+	const boardFileDiffQueryArg =
+		changeId && workspaceId && selectedCommitFile
+			? {
+					workspaceId,
+					workspacePath,
+					input: {
+						id: changeId,
+						scope: { commitHash: selectedCommitFile.commitHash },
+						path: selectedCommitFile.path,
+					},
+				}
+			: skipToken;
+	const boardFileDiffQuery = useGetChangeBoardFileDiffQuery(boardFileDiffQueryArg);
+	const activeReview = reviewGetQuery.currentData ?? null;
 	const {
 		changes: workspaceChanges,
 		isLoading: isWorkspaceChangesLoading,
@@ -867,6 +1017,7 @@ export function ChangeReviewModal({
 		changeId,
 		workspaceId,
 		null,
+		workspacePath,
 	);
 	const workspaceFiles = workspaceChanges?.files ?? null;
 	const hasWorkspacePath = Boolean(change?.workspace?.path);
@@ -885,131 +1036,174 @@ export function ChangeReviewModal({
 				inlineComments: activeReview?.inlineComments ?? [],
 			});
 
-	const loadReviews = useCallback(async () => {
-		if (!open || !workspaceId || !change) {
-			setReviews([]);
-			setActiveReview(null);
-			return;
-		}
-		setIsLoading(true);
-		setError(null);
-		try {
-			const client = getRuntimeTrpcClient(workspaceId);
-			const list = await client.changes.reviewList.query({ id: change.id });
-			setReviews(list.reviews);
-			const latest = list.reviews[list.reviews.length - 1] ?? null;
-			if (!latest) {
-				setActiveReview(null);
-				setSummary("");
-				setSubmitSummary("");
-				setRequiredChanges([]);
-				setComments(new Map());
-				return;
-			}
-			const detail = await client.changes.reviewGet.query({ id: change.id, review: latest.review });
-			setActiveReview(detail);
-			setSummary(normalizeReviewSummary(detail.summary));
-			setSubmitSummary(normalizeReviewSummary(detail.summary));
-			setRequiredChanges(normalizeRequiredChanges(detail.requiredChanges));
-			setComments(reviewCommentsToDiffMap(detail));
-		} catch (loadError) {
-			setError(loadError instanceof Error ? loadError.message : String(loadError));
-		} finally {
-			setIsLoading(false);
-		}
-	}, [change, open, workspaceId]);
-
-	useEffect(() => {
-		void loadReviews();
-	}, [loadReviews]);
-
-	const loadBoardSummary = useCallback(async (): Promise<RuntimeChangeyardBoardSummaryResponse | null> => {
-		if (!open || !workspaceId || !change) {
-			setBoardSummary(null);
-			return null;
-		}
-		setBoardSummaryLoading(true);
-		setBoardSummaryError(null);
-		try {
-			const response = await getRuntimeTrpcClient(workspaceId).changes.getBoardSummary.query({ id: change.id });
-			setBoardSummary(response);
-			return response;
-		} catch (summaryError) {
-			const nextError = summaryError instanceof Error ? summaryError : new Error(String(summaryError));
-			setBoardSummaryError(nextError);
-			return null;
-		} finally {
-			setBoardSummaryLoading(false);
-		}
-	}, [change, open, workspaceId]);
-
 	const reloadReviewSurface = useCallback(async () => {
-		await Promise.all([loadReviews(), refreshWorkspaceChanges(), loadBoardSummary()]);
-	}, [loadBoardSummary, loadReviews, refreshWorkspaceChanges]);
+		const refreshes: Promise<unknown>[] = [refreshWorkspaceChanges()];
+		if (changeId && workspaceId) {
+			refreshes.push(reviewListQuery.refetch());
+			if (latestReviewSummary) {
+				refreshes.push(reviewGetQuery.refetch());
+			}
+			refreshes.push(boardSummaryQuery.refetch());
+			if (expandedCommitHash) {
+				refreshes.push(boardFilesQuery.refetch());
+			}
+			if (selectedCommitFile) {
+				refreshes.push(boardFileDiffQuery.refetch());
+			}
+		}
+		await Promise.all(refreshes);
+	}, [
+		boardFileDiffQuery,
+		boardFilesQuery,
+		boardSummaryQuery,
+		changeId,
+		expandedCommitHash,
+		latestReviewSummary,
+		refreshWorkspaceChanges,
+		reviewGetQuery,
+		reviewListQuery,
+		selectedCommitFile,
+		workspaceId,
+	]);
+
+	const reviewSurfaceKey = changeId && workspaceId ? `${workspaceId}:${workspacePath ?? ""}:${changeId}` : null;
+	const draftReviewKey = activeReview ? `${reviewSurfaceKey}:review-${activeReview.review}` : null;
+	const initializedDraftReviewKeyRef = useRef<string | null>(null);
 
 	useEffect(() => {
+		initializedDraftReviewKeyRef.current = null;
+		setReviews([]);
+		setSummary("");
+		setSubmitSummary("");
+		setRequiredChanges([]);
+		setComments(new Map());
 		setBoardSummary(null);
 		setBoardSummaryError(null);
 		setCommitFiles({});
 		setCommitFileErrors({});
-		setCommitFileLoading({});
 		setSelectedCommitHash(null);
 		setExpandedCommitHash(null);
 		setSelectedCommitFile(null);
 		setCommitFileDiff(null);
 		setCommitFileDiffError(null);
-		if (open && change) {
-			void loadBoardSummary();
-		}
-	}, [change?.id, loadBoardSummary, open]);
+	}, [reviewSurfaceKey]);
 
-	const loadCommitFiles = useCallback(
-		async (commitHash: string): Promise<RuntimeChangeyardBoardFilesResponse | null> => {
-			if (!workspaceId || !change) {
-				return null;
-			}
-			if (commitFileLoading[commitHash]) {
-				return commitFiles[commitHash] ?? null;
-			}
-			setCommitFileLoading((current) => ({ ...current, [commitHash]: true }));
-			setCommitFileErrors((current) => ({ ...current, [commitHash]: null }));
-			try {
-				const response = await getRuntimeTrpcClient(workspaceId).changes.getBoardFiles.query({
-					id: change.id,
-					scope: { commitHash },
-				});
-				setCommitFiles((current) => ({ ...current, [commitHash]: response }));
-				return response;
-			} catch (filesError) {
-				const nextError = filesError instanceof Error ? filesError : new Error(String(filesError));
-				setCommitFileErrors((current) => ({ ...current, [commitHash]: nextError }));
-				return null;
-			} finally {
-				setCommitFileLoading((current) => ({ ...current, [commitHash]: false }));
-			}
-		},
-		[change, commitFileLoading, commitFiles, workspaceId],
-	);
+	useEffect(() => {
+		if (!reviewSurfaceKey || !reviewListQuery.currentData) {
+			return;
+		}
+		setReviews(reviewListQuery.currentData.reviews);
+		if (reviewListQuery.currentData.reviews.length === 0) {
+			initializedDraftReviewKeyRef.current = null;
+			setSummary("");
+			setSubmitSummary("");
+			setRequiredChanges([]);
+			setComments(new Map());
+		}
+	}, [reviewListQuery.currentData, reviewSurfaceKey]);
+
+	useEffect(() => {
+		if (!reviewSurfaceKey || !activeReview || !draftReviewKey) {
+			return;
+		}
+		if (initializedDraftReviewKeyRef.current === draftReviewKey) {
+			return;
+		}
+		initializedDraftReviewKeyRef.current = draftReviewKey;
+		setSummary(normalizeReviewSummary(activeReview.summary));
+		setSubmitSummary(normalizeReviewSummary(activeReview.summary));
+		setRequiredChanges(normalizeRequiredChanges(activeReview.requiredChanges));
+		setComments(reviewCommentsToDiffMap(activeReview));
+	}, [activeReview, draftReviewKey, reviewSurfaceKey]);
+
+	useEffect(() => {
+		if (!reviewSurfaceKey) {
+			return;
+		}
+		if (reviewListQuery.isError) {
+			setError(errorToMessage(reviewListQuery.error, "Failed to load reviews."));
+			return;
+		}
+		if (reviewGetQuery.isError) {
+			setError(errorToMessage(reviewGetQuery.error, "Failed to load review."));
+			return;
+		}
+	}, [reviewGetQuery.error, reviewGetQuery.isError, reviewListQuery.error, reviewListQuery.isError, reviewSurfaceKey]);
+
+	useEffect(() => {
+		if (!reviewSurfaceKey || !boardSummaryQuery.currentData) {
+			return;
+		}
+		setBoardSummary(boardSummaryQuery.currentData);
+		setBoardSummaryError(null);
+	}, [boardSummaryQuery.currentData, reviewSurfaceKey]);
+
+	useEffect(() => {
+		if (!reviewSurfaceKey) {
+			return;
+		}
+		if (boardSummaryQuery.isError) {
+			setBoardSummaryError(errorToError(boardSummaryQuery.error, "Failed to load board summary."));
+		}
+	}, [boardSummaryQuery.error, boardSummaryQuery.isError, reviewSurfaceKey]);
+
+	useEffect(() => {
+		if (!reviewSurfaceKey || !expandedCommitHash || !boardFilesQuery.currentData) {
+			return;
+		}
+		setCommitFiles((current) => ({ ...current, [expandedCommitHash]: boardFilesQuery.currentData ?? null }));
+		setCommitFileErrors((current) => ({ ...current, [expandedCommitHash]: null }));
+	}, [boardFilesQuery.currentData, expandedCommitHash, reviewSurfaceKey]);
+
+	useEffect(() => {
+		if (!reviewSurfaceKey || !expandedCommitHash) {
+			return;
+		}
+		if (boardFilesQuery.isError) {
+			setCommitFileErrors((current) => ({
+				...current,
+				[expandedCommitHash]: errorToError(boardFilesQuery.error, "Failed to load commit files."),
+			}));
+		}
+	}, [boardFilesQuery.error, boardFilesQuery.isError, expandedCommitHash, reviewSurfaceKey]);
+
+	useEffect(() => {
+		if (!reviewSurfaceKey || !selectedCommitFile) {
+			setCommitFileDiff(null);
+			setCommitFileDiffError(null);
+			return;
+		}
+		if (boardFileDiffQuery.currentData) {
+			setCommitFileDiff(boardFileDiffQuery.currentData);
+			setCommitFileDiffError(null);
+		}
+	}, [boardFileDiffQuery.currentData, reviewSurfaceKey, selectedCommitFile]);
+
+	useEffect(() => {
+		if (!reviewSurfaceKey || !selectedCommitFile) {
+			return;
+		}
+		if (boardFileDiffQuery.isError) {
+			setCommitFileDiffError(errorToError(boardFileDiffQuery.error, "Failed to load commit file diff."));
+			setCommitFileDiff(null);
+		}
+	}, [boardFileDiffQuery.error, boardFileDiffQuery.isError, reviewSurfaceKey, selectedCommitFile]);
 
 	const toggleCommit = useCallback(
 		(commit: RuntimeGitCommit) => {
 			const nextExpanded = expandedCommitHash === commit.hash ? null : commit.hash;
 			setExpandedCommitHash(nextExpanded);
 			setSelectedCommitHash(commit.hash);
-			if (nextExpanded) {
-				void loadCommitFiles(commit.hash);
-			}
 		},
-		[expandedCommitHash, loadCommitFiles],
+		[expandedCommitHash],
 	);
 
 	const selectCommit = useCallback(
 		(commit: RuntimeGitCommit) => {
 			setSelectedCommitHash(commit.hash);
 			setExpandedCommitHash(commit.hash);
-			void loadCommitFiles(commit.hash);
 		},
-		[loadCommitFiles],
+		[],
 	);
 
 	const selectCommitFile = useCallback(
@@ -1020,41 +1214,6 @@ export function ChangeReviewModal({
 		},
 		[],
 	);
-
-	useEffect(() => {
-		if (!workspaceId || !change || !selectedCommitFile) {
-			setCommitFileDiff(null);
-			setCommitFileDiffError(null);
-			setCommitFileDiffLoading(false);
-			return;
-		}
-		let isCurrent = true;
-		setCommitFileDiffLoading(true);
-		setCommitFileDiffError(null);
-		void getRuntimeTrpcClient(workspaceId).changes.getBoardFileDiff.query({
-			id: change.id,
-			scope: { commitHash: selectedCommitFile.commitHash },
-			path: selectedCommitFile.path,
-		}).then((response) => {
-			if (!isCurrent) {
-				return;
-			}
-			setCommitFileDiff(response);
-		}).catch((diffError) => {
-			if (!isCurrent) {
-				return;
-			}
-			setCommitFileDiffError(diffError instanceof Error ? diffError : new Error(String(diffError)));
-			setCommitFileDiff(null);
-		}).finally(() => {
-			if (isCurrent) {
-				setCommitFileDiffLoading(false);
-			}
-		});
-		return () => {
-			isCurrent = false;
-		};
-	}, [change, selectedCommitFile, workspaceId]);
 
 	const handleDiffWheelCapture = useCallback((event: ReactWheelEvent<HTMLElement>) => {
 		if (Math.abs(event.deltaX) <= Math.abs(event.deltaY)) {
@@ -1153,29 +1312,30 @@ export function ChangeReviewModal({
 	}
 
 	const saveReview = async (summaryOverride?: string): Promise<RuntimeChangeyardReviewDetail | null> => {
-		if (!workspaceId || !activeReview) {
+		if (!workspaceId || !change || !activeReview) {
 			return null;
 		}
 		const nextSummary = normalizeReviewSummary(summaryOverride ?? summary);
 		setIsSaving(true);
 		setError(null);
 		try {
-			const next = await getRuntimeTrpcClient(workspaceId).changes.reviewUpdate.mutate({
-				id: change.id,
-				review: activeReview.review,
-				summary: nextSummary,
-				requiredChanges: normalizeRequiredChanges(requiredChanges),
-				inlineComments: diffMapToReviewComments(comments),
-				expectedLastModifiedAt: activeReview.lastModifiedAt,
-			});
-			setActiveReview(next);
-			setSummary(normalizeReviewSummary(next.summary));
-			setSubmitSummary(normalizeReviewSummary(next.summary));
-			setRequiredChanges(normalizeRequiredChanges(next.requiredChanges));
-			setComments(reviewCommentsToDiffMap(next));
+			const next = await reviewUpdateMutation({
+				workspaceId,
+				workspacePath,
+				input: {
+					id: change.id,
+					review: activeReview.review,
+					summary: nextSummary,
+					requiredChanges: normalizeRequiredChanges(requiredChanges),
+					inlineComments: diffMapToReviewComments(comments),
+					expectedLastModifiedAt: activeReview.lastModifiedAt,
+				},
+			}).unwrap();
+			initializedDraftReviewKeyRef.current = null;
+			await reviewGetQuery.refetch();
 			return next;
 		} catch (saveError) {
-			setError(saveError instanceof Error ? saveError.message : String(saveError));
+			setError(errorToMessage(saveError));
 			return null;
 		} finally {
 			setIsSaving(false);
@@ -1183,17 +1343,17 @@ export function ChangeReviewModal({
 	};
 
 	const startReview = async (): Promise<void> => {
-		if (!workspaceId) {
+		if (!workspaceId || !change) {
 			return;
 		}
 		setIsSaving(true);
 		setError(null);
 		try {
-			const response = await getRuntimeTrpcClient(workspaceId).changes.reviewStart.mutate({ id: change.id });
+			const response = await reviewStartMutation({ workspaceId, workspacePath, id: change.id }).unwrap();
 			onReviewChanged(response.change, response.message);
-			await loadReviews();
+			await reviewListQuery.refetch();
 		} catch (startError) {
-			setError(startError instanceof Error ? startError.message : String(startError));
+			setError(errorToMessage(startError));
 		} finally {
 			setIsSaving(false);
 		}
@@ -1207,7 +1367,7 @@ export function ChangeReviewModal({
 	};
 
 	const submitReview = async (): Promise<void> => {
-		if (!workspaceId || !activeReview) {
+		if (!workspaceId || !change || !activeReview) {
 			return;
 		}
 		const finalSummary = normalizeReviewSummary(submitSummary);
@@ -1230,15 +1390,19 @@ export function ChangeReviewModal({
 		setIsSaving(true);
 		setError(null);
 		try {
-			const response = await getRuntimeTrpcClient(workspaceId).changes.reviewComplete.mutate({
-				id: change.id,
-				decision: submitDecision,
-			});
+			const response = await reviewCompleteMutation({
+				workspaceId,
+				workspacePath,
+				input: {
+					id: change.id,
+					decision: submitDecision,
+				},
+			}).unwrap();
 			onReviewChanged(response.change, response.message);
 			setSubmitDialogOpen(false);
-			await loadReviews();
+			await reviewListQuery.refetch();
 		} catch (completeError) {
-			setError(completeError instanceof Error ? completeError.message : String(completeError));
+			setError(errorToMessage(completeError));
 		} finally {
 			setIsSaving(false);
 		}
@@ -1248,6 +1412,16 @@ export function ChangeReviewModal({
 		submitDecision === "comment"
 			? Boolean(normalizeReviewSummary(submitSummary) || persistedComments.length > 0 || normalizeRequiredChanges(requiredChanges).length > 0)
 			: Boolean(normalizeReviewSummary(submitSummary));
+	const isReviewSurfaceLoading =
+		!reviewSurfaceKey ||
+		reviewListQuery.isLoading ||
+		(Boolean(latestReviewSummary) && (reviewGetQuery.isLoading || (!activeReview && reviewGetQuery.isFetching)));
+	const boardSummaryLoading =
+		boardSummaryQuery.isLoading || (boardSummaryQuery.isFetching && boardSummaryQuery.currentData === undefined);
+	const expandedCommitFilesLoading =
+		boardFilesQuery.isLoading || (boardFilesQuery.isFetching && boardFilesQuery.currentData === undefined);
+	const selectedCommitFileDiffLoading =
+		boardFileDiffQuery.isLoading || (boardFileDiffQuery.isFetching && boardFileDiffQuery.currentData === undefined);
 	const visibleRequiredChanges = normalizeRequiredChanges(requiredChanges);
 	const visibleInlineComments = Array.from(comments.values()).filter((comment) => comment.comment.trim().length > 0);
 	const visibleCommits = boardSummary?.commits ?? [];
@@ -1323,7 +1497,7 @@ export function ChangeReviewModal({
 					size="sm"
 					icon={<RefreshCw size={14} />}
 					onClick={() => void reloadReviewSurface()}
-					disabled={isSaving || isLoading || isWorkspaceChangesLoading}
+					disabled={isSaving || isReviewSurfaceLoading || isWorkspaceChangesLoading}
 				>
 					Reload
 				</Button>
@@ -1442,7 +1616,7 @@ export function ChangeReviewModal({
 						>
 							<PanelHeader
 								title="Files"
-								subtitle={workspaceFiles ? `${workspaceFiles.length} changed` : "Loading"}
+								subtitle={workspaceFiles ? `${workspaceFiles.length} changed` : null}
 								onCollapse={() => setReviewFilesCollapsed(true)}
 							/>
 							{workspaceFiles && workspaceFiles.length > 0 ? (
@@ -1455,14 +1629,16 @@ export function ChangeReviewModal({
 									onViewModeChange={setPersistedReviewFileViewMode}
 									showViewModeToggle
 								/>
+							) : workspaceFiles === null && isWorkspaceChangesLoading ? (
+								<div className="min-h-0 flex-1 overflow-hidden p-3">
+									<FileChangesSkeleton />
+								</div>
 							) : (
 								<div className="flex flex-1 items-center justify-center px-4 text-center text-sm text-text-secondary">
 									{!hasWorkspacePath
 										? "Start this change to create a workspace before reviewing file changes."
 										: workspaceFiles === null
-											? isWorkspaceChangesLoading
-												? "Loading file changes..."
-												: "File changes are not loaded yet. Use Reload to try again."
+											? "File changes are not loaded yet. Use Reload to try again."
 											: "No workspace file changes recorded for this review."}
 								</div>
 							)}
@@ -1478,10 +1654,17 @@ export function ChangeReviewModal({
 							<div className="min-w-0 flex-1">
 								<div className="truncate text-sm font-semibold text-text-primary">{change.title}</div>
 								<div className="text-[11px] text-text-tertiary">
-									{workspaceFiles ? `${workspaceFiles.length} files` : hasWorkspacePath ? "Loading files" : "No workspace"}
+									{workspaceFiles ? (
+										`${workspaceFiles.length} files`
+									) : hasWorkspacePath && isWorkspaceChangesLoading ? (
+										<SkeletonLine className="mt-1 h-2.5 w-20" />
+									) : hasWorkspacePath ? (
+										"Files not loaded"
+									) : (
+										"No workspace"
+									)}
 								</div>
 							</div>
-							{isWorkspaceChangesLoading ? <Spinner size={14} /> : null}
 						</div>
 						{!hasWorkspacePath ? (
 							<div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-text-secondary">
@@ -1491,16 +1674,11 @@ export function ChangeReviewModal({
 							<div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-text-secondary">
 								Runtime workspace changes are not available for this project.
 							</div>
+						) : workspaceFiles === null && isWorkspaceChangesLoading ? (
+							<FileDiffSkeleton />
 						) : workspaceFiles === null ? (
 							<div className="flex flex-1 items-center justify-center text-sm text-text-secondary">
-								{isWorkspaceChangesLoading ? (
-									<>
-										<Spinner size={16} />
-										<span className="ml-2">Loading diff...</span>
-									</>
-								) : (
-									<span>Diff is not loaded yet. Use Reload to try again.</span>
-								)}
+								<span>Diff is not loaded yet. Use Reload to try again.</span>
 							</div>
 						) : workspaceFiles.length === 0 ? (
 							<div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-text-secondary">
@@ -1538,7 +1716,17 @@ export function ChangeReviewModal({
 								subtitle={activeReview ? `review-${String(activeReview.review).padStart(3, "0")}.md` : "No review file"}
 								onCollapse={() => setDraftCollapsed(true)}
 							/>
-							{!activeReview ? (
+							{isReviewSurfaceLoading ? (
+								<div className="space-y-4 p-3" role="status" aria-label="Loading review conversation">
+									{Array.from({ length: 4 }).map((_, index) => (
+										<div key={`review-conversation-skeleton-${index}`} className="rounded-md border border-divider bg-surface-1 p-3">
+											<SkeletonLine className="mb-3 w-1/2" />
+											<SkeletonLine className="mb-2 w-full" />
+											<SkeletonLine className="w-2/3" />
+										</div>
+									))}
+								</div>
+							) : !activeReview ? (
 								<div className="flex flex-1 flex-col items-center justify-center gap-3 px-5 text-center text-sm text-text-secondary">
 									<p>No local review exists for this change yet.</p>
 									{canMarkDoneWithoutReview ? (
@@ -1579,7 +1767,13 @@ export function ChangeReviewModal({
 
 										<ConversationEvent icon={<GitCommit size={14} />} title="Local file changes">
 											{workspaceFiles === null ? (
-												<span>{isWorkspaceChangesLoading ? "Loading file changes..." : "File changes are not loaded."}</span>
+												isWorkspaceChangesLoading ? (
+													<div role="status" aria-label="Loading file changes">
+														<SkeletonLine className="h-3 w-44" />
+													</div>
+												) : (
+													<span>File changes are not loaded.</span>
+												)
 											) : (
 												<span>
 													{workspaceFiles.length} {workspaceFiles.length === 1 ? "file" : "files"} changed ·{" "}
@@ -1599,13 +1793,13 @@ export function ChangeReviewModal({
 													{visibleCommits.map((commit) => (
 														<ReviewCommitTimelineCard
 															key={commit.hash}
-															commit={commit}
-															filesResponse={commitFiles[commit.hash] ?? null}
-															isExpanded={expandedCommitHash === commit.hash}
-															isSelected={selectedCommitHash === commit.hash}
-															isLoading={commitFileLoading[commit.hash] ?? false}
-															error={commitFileErrors[commit.hash] ?? null}
-															selectedFile={selectedCommitFile}
+														commit={commit}
+														filesResponse={commitFiles[commit.hash] ?? null}
+														isExpanded={expandedCommitHash === commit.hash}
+														isSelected={selectedCommitHash === commit.hash}
+														isLoading={expandedCommitHash === commit.hash && expandedCommitFilesLoading}
+														error={commitFileErrors[commit.hash] ?? null}
+														selectedFile={selectedCommitFile}
 															onSelectCommit={selectCommit}
 															onToggle={toggleCommit}
 															onSelectFile={selectCommitFile}
@@ -1707,12 +1901,12 @@ export function ChangeReviewModal({
 						/>
 					)}
 					{selectedCommitFile ? (
-						<ReviewCommitDiffPanel
-							selection={selectedCommitFile}
-							diff={commitFileDiff}
-							isLoading={commitFileDiffLoading}
-							error={commitFileDiffError}
-							onClose={() => setSelectedCommitFile(null)}
+							<ReviewCommitDiffPanel
+								selection={selectedCommitFile}
+								diff={commitFileDiff}
+								isLoading={selectedCommitFileDiffLoading}
+								error={commitFileDiffError}
+								onClose={() => setSelectedCommitFile(null)}
 						/>
 					) : null}
 					<div

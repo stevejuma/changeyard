@@ -1,6 +1,11 @@
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { ChevronLeft, ChevronRight, Ellipsis, Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import {
+	formatProjectPath,
+	ProjectWorkspaceList,
+	resolveWorkspaceProjectPath,
+} from "@changeyard/web-ui";
 
 import { Button } from "@/components/ui/button";
 import { ClineIcon } from "@/components/ui/cline-icon";
@@ -15,7 +20,7 @@ import {
 	AlertDialogTitle,
 } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
-import type { QueryState, RuntimeProjectSummary, RuntimeProjectWorkspaceSummary } from "@/runtime/types";
+import type { QueryState, RuntimeProjectSummary } from "@/runtime/types";
 
 const COLLAPSED_WIDTH = 52;
 const EXPANDED_WIDTH = 260;
@@ -30,34 +35,6 @@ interface TaskCountBadge {
 
 function projectBadgeCount(project: RuntimeProjectSummary): number {
 	return project.taskCounts.backlog + project.taskCounts.in_progress + project.taskCounts.review;
-}
-
-function formatProjectPath(path: string): string {
-	const home = typeof window !== "undefined" ? "" : "";
-	return home && path.startsWith(home) ? path.replace(home, "~") : path;
-}
-
-function workspaceDisplayName(workspace: RuntimeProjectWorkspaceSummary): string {
-	return workspace.name ?? workspace.branch ?? workspace.title;
-}
-
-function workspaceDetail(workspace: RuntimeProjectWorkspaceSummary): string {
-	if (workspace.path) {
-		return formatProjectPath(workspace.path);
-	}
-	return workspace.branch ?? workspace.engine ?? workspace.status ?? "";
-}
-
-function resolveWorkspaceProjectPath(projectPath: string, workspace: RuntimeProjectWorkspaceSummary): string | null {
-	if (!workspace.path) {
-		return null;
-	}
-	if (/^(?:\/|[a-zA-Z]:[\\/])/.test(workspace.path)) {
-		return workspace.path;
-	}
-	const basePath = projectPath.replace(/[\\/]+$/, "");
-	const relativePath = workspace.path.replace(/^[.][\\/]/, "");
-	return `${basePath}/${relativePath}`;
 }
 
 export function VcsProjectNavigationPanel({
@@ -480,7 +457,7 @@ function ProjectRow({
 				className={cn(
 					"kb-project-row cursor-pointer rounded-md",
 					isCurrent && !hasActiveWorkspace && "kb-project-row-selected",
-					isCurrent && hasActiveWorkspace && "vcs-project-row-parent-active",
+					isCurrent && hasActiveWorkspace && "cy-project-row-parent-active",
 				)}
 				style={{
 					display: "flex",
@@ -497,7 +474,7 @@ function ProjectRow({
 								aria-label={isWorkspacesOpen ? "Collapse workspaces" : "Expand workspaces"}
 								title={isWorkspacesOpen ? "Collapse workspaces" : "Expand workspaces"}
 								className={cn(
-									"vcs-project-row-chevron",
+									"cy-project-row-chevron",
 									isWorkspacesOpen && "is-open",
 									isCurrent && !hasActiveWorkspace && "is-selected",
 								)}
@@ -584,30 +561,12 @@ function ProjectRow({
 				</div>
 			</div>
 			{hasWorkspaces && isWorkspacesOpen ? (
-				<div className="vcs-project-workspace-list">
-					{workspaces.map((workspace) => {
-						const detail = workspaceDetail(workspace);
-						const projectPath = resolveWorkspaceProjectPath(project.path, workspace);
-						const isActiveWorkspace = Boolean(projectPath && projectPath === activeWorkspacePath);
-						return (
-							<button
-								type="button"
-								key={workspace.id}
-								className={cn("vcs-project-workspace-item", isActiveWorkspace && "is-active")}
-								disabled={!projectPath}
-								onClick={() => {
-									if (projectPath) {
-										onSelectWorkspace(project.id, projectPath);
-									}
-								}}
-								title={detail ? `${workspace.title} · ${detail}` : workspace.title}
-							>
-								<div className="vcs-project-workspace-name">{workspaceDisplayName(workspace)}</div>
-								{detail ? <div className="vcs-project-workspace-detail">{detail}</div> : null}
-							</button>
-						);
-					})}
-				</div>
+				<ProjectWorkspaceList
+					projectPath={project.path}
+					workspaces={workspaces}
+					activeWorkspacePath={activeWorkspacePath}
+					onSelectWorkspace={(projectPath) => onSelectWorkspace(project.id, projectPath)}
+				/>
 			) : null}
 		</div>
 		);

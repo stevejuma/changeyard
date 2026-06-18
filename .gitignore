@@ -20,3 +20,4 @@ dist/
 
 # Local VCS scenario fixtures
 vcs-jj-scenarios/
+kanban-jj-scenarios/

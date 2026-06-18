@@ -23,8 +23,15 @@ export class TrpcHttpError extends Error {
 	}
 }
 
-function trpcHeaders(workspaceId?: string | null): HeadersInit {
-	return workspaceId ? { "x-kanban-workspace-id": workspaceId } : {};
+function createClientKey(workspaceId?: string | null, workspacePath?: string | null): string {
+	return `${workspaceId ?? "__unscoped__"}:${workspacePath ?? "__base__"}`;
+}
+
+function trpcHeaders(workspaceId?: string | null, workspacePath?: string | null): HeadersInit {
+	return {
+		...(workspaceId ? { "x-kanban-workspace-id": workspaceId } : {}),
+		...(workspacePath ? { "x-kanban-workspace-path": workspacePath } : {}),
+	};
 }
 
 function readPayloadResult<T>(payload: unknown): T {
@@ -65,34 +72,42 @@ export async function fetchTrpcQuery<T>(
 	path: string,
 	input?: unknown,
 	workspaceId?: string | null,
-	options: { signal?: AbortSignal } = {},
+	options: { signal?: AbortSignal; workspacePath?: string | null } = {},
 ): Promise<T> {
 	const searchParams = new URLSearchParams();
 	searchParams.set("input", JSON.stringify(input ?? {}));
 	if (workspaceId) {
 		searchParams.set("workspaceId", workspaceId);
 	}
+	if (options.workspacePath) {
+		searchParams.set("workspacePath", options.workspacePath);
+	}
 	const response = await fetch(`/api/trpc/${path}?${searchParams.toString()}`, {
-		headers: trpcHeaders(workspaceId),
+		headers: trpcHeaders(workspaceId, options.workspacePath),
 		signal: options.signal,
 	});
 	return await parseTrpcResponse<T>(response);
 }
 
-export async function postTrpcMutation<T>(path: string, input: unknown, workspaceId?: string | null): Promise<T> {
+export async function postTrpcMutation<T>(
+	path: string,
+	input: unknown,
+	workspaceId?: string | null,
+	workspacePath?: string | null,
+): Promise<T> {
 	const response = await fetch(`/api/trpc/${path}`, {
 		method: "POST",
 		headers: {
 			"content-type": "application/json",
-			...trpcHeaders(workspaceId),
+			...trpcHeaders(workspaceId, workspacePath),
 		},
 		body: JSON.stringify(input),
 	});
 	return await parseTrpcResponse<T>(response);
 }
 
-export function getRuntimeTrpcClient(workspaceId: string | null): RuntimeTrpcClient {
-	const key = workspaceId ?? "__unscoped__";
+export function getRuntimeTrpcClient(workspaceId: string | null, workspacePath?: string | null): RuntimeTrpcClient {
+	const key = createClientKey(workspaceId, workspacePath);
 	const existing = clientByWorkspaceId.get(key);
 	if (existing) {
 		return existing;
@@ -101,7 +116,7 @@ export function getRuntimeTrpcClient(workspaceId: string | null): RuntimeTrpcCli
 		links: [
 			httpLink({
 				url: "/api/trpc",
-				headers: () => (workspaceId ? { "x-kanban-workspace-id": workspaceId } : {}),
+				headers: () => trpcHeaders(workspaceId, workspacePath),
 			}),
 		],
 	});

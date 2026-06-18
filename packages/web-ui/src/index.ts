@@ -32,5 +32,13 @@ export { Kbd } from "./kbd";
 export { Link } from "./link";
 export { NativeSelect } from "./native-select";
 export { getRepoRelativePath, PathDisplay } from "./path-display";
+export {
+	formatProjectPath,
+	ProjectWorkspaceList,
+	resolveWorkspaceProjectPath,
+	workspaceDetail,
+	workspaceDisplayName,
+	type ProjectWorkspaceNavigationWorkspace,
+} from "./project-workspace-navigation";
 export { Spinner } from "./spinner";
 export { Tooltip, TooltipProvider } from "./tooltip";

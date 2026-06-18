@@ -9,13 +9,25 @@ vi.mock("@uiw/react-markdown-preview", () => ({
 	default: ({ source }: { source: string }) => <article>{source}</article>,
 }));
 
-const mockReviewList = vi.fn();
-const mockReviewGet = vi.fn();
-const mockReviewUpdate = vi.fn();
-const mockReviewComplete = vi.fn();
-const mockGetBoardSummary = vi.fn();
-const mockGetBoardFiles = vi.fn();
-const mockGetBoardFileDiff = vi.fn();
+const {
+	mockReviewList,
+	mockReviewGet,
+	mockReviewStart,
+	mockReviewUpdate,
+	mockReviewComplete,
+	mockGetBoardSummary,
+	mockGetBoardFiles,
+	mockGetBoardFileDiff,
+} = vi.hoisted(() => ({
+	mockReviewList: vi.fn(),
+	mockReviewGet: vi.fn(),
+	mockReviewStart: vi.fn(),
+	mockReviewUpdate: vi.fn(),
+	mockReviewComplete: vi.fn(),
+	mockGetBoardSummary: vi.fn(),
+	mockGetBoardFiles: vi.fn(),
+	mockGetBoardFileDiff: vi.fn(),
+}));
 const mockUseRuntimeChangeWorkspaceChanges = vi.hoisted(() =>
 	vi.fn(() => ({
 		changes: {
@@ -38,19 +50,48 @@ const mockUseRuntimeChangeWorkspaceChanges = vi.hoisted(() =>
 	})),
 );
 
-vi.mock("@/runtime/trpc-client", () => ({
-	getRuntimeTrpcClient: () => ({
-		changes: {
-			reviewList: { query: mockReviewList },
-			reviewGet: { query: mockReviewGet },
-			reviewUpdate: { mutate: mockReviewUpdate },
-			reviewComplete: { mutate: mockReviewComplete },
-			getBoardSummary: { query: mockGetBoardSummary },
-			getBoardFiles: { query: mockGetBoardFiles },
-			getBoardFileDiff: { query: mockGetBoardFileDiff },
-		},
-	}),
-}));
+vi.mock("@/runtime/kanban-api", () => {
+	const skippedQuery = {
+		currentData: undefined,
+		data: undefined,
+		isLoading: false,
+		isFetching: false,
+		isError: false,
+		error: null,
+		refetch: vi.fn(async () => ({ data: undefined })),
+	};
+	const queryResult = (value: unknown) => ({
+		currentData: value,
+		data: value,
+		isLoading: false,
+		isFetching: false,
+		isError: false,
+		error: null,
+		refetch: vi.fn(async () => ({ data: value })),
+	});
+	const unwrapMutation =
+		(handler: (input: unknown) => unknown | Promise<unknown>) => (arg: { input?: unknown; id?: unknown }) => ({
+		unwrap: async () => await handler(arg.input ?? arg.id ?? arg),
+	});
+	const hasKey = (arg: unknown, key: string): arg is Record<string, unknown> =>
+		typeof arg === "object" && arg !== null && key in arg;
+
+	return {
+		useReviewListQuery: (arg: unknown) =>
+			hasKey(arg, "input") ? queryResult(mockReviewList(arg.input)) : skippedQuery,
+		useReviewGetQuery: (arg: unknown) =>
+			hasKey(arg, "input") ? queryResult(mockReviewGet(arg.input)) : skippedQuery,
+		useGetChangeBoardSummaryQuery: (arg: unknown) =>
+			hasKey(arg, "id") ? queryResult(mockGetBoardSummary({ id: arg.id })) : skippedQuery,
+		useGetChangeBoardFilesQuery: (arg: unknown) =>
+			hasKey(arg, "input") ? queryResult(mockGetBoardFiles(arg.input)) : skippedQuery,
+		useGetChangeBoardFileDiffQuery: (arg: unknown) =>
+			hasKey(arg, "input") ? queryResult(mockGetBoardFileDiff(arg.input)) : skippedQuery,
+		useReviewStartMutation: () => [unwrapMutation(mockReviewStart), { isLoading: false }],
+		useReviewUpdateMutation: () => [unwrapMutation(mockReviewUpdate), { isLoading: false }],
+		useReviewCompleteMutation: () => [unwrapMutation(mockReviewComplete), { isLoading: false }],
+	};
+});
 
 vi.mock("@/runtime/use-runtime-change-workspace-changes", () => ({
 	useRuntimeChangeWorkspaceChanges: (...args: Parameters<typeof mockUseRuntimeChangeWorkspaceChanges>) =>
@@ -99,11 +140,12 @@ beforeEach(() => {
 	previousActEnvironment = (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
 		.IS_REACT_ACT_ENVIRONMENT;
 	(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-	mockReviewList.mockResolvedValue({ reviews: [reviewDetail()] });
-	mockReviewGet.mockResolvedValue(reviewDetail());
+	mockReviewList.mockReturnValue({ reviews: [reviewDetail()] });
+	mockReviewGet.mockReturnValue(reviewDetail());
+	mockReviewStart.mockResolvedValue(reviewDetail());
 	mockReviewUpdate.mockImplementation(async (_input: unknown) => reviewDetail({ requiredChanges: [] }));
 	mockReviewComplete.mockResolvedValue({ message: "Completed review", change });
-	mockGetBoardSummary.mockResolvedValue({
+	mockGetBoardSummary.mockReturnValue({
 		ok: true,
 		changeId: "CY-0001",
 		version: "test",
@@ -122,7 +164,7 @@ beforeEach(() => {
 		],
 		files: { count: 1, additions: 1, deletions: 1 },
 	});
-	mockGetBoardFiles.mockResolvedValue({
+	mockGetBoardFiles.mockReturnValue({
 		ok: true,
 		changeId: "CY-0001",
 		version: "test",
@@ -136,7 +178,7 @@ beforeEach(() => {
 			},
 		],
 	});
-	mockGetBoardFileDiff.mockResolvedValue({
+	mockGetBoardFileDiff.mockReturnValue({
 		ok: true,
 		changeId: "CY-0001",
 		version: "test",
@@ -152,6 +194,25 @@ beforeEach(() => {
 		},
 		patch: "@@ -1 +1 @@\n-const value = 1;\n+const value = 2;\n",
 	});
+	mockUseRuntimeChangeWorkspaceChanges.mockImplementation(() => ({
+		changes: {
+			repoRoot: "/repo",
+			generatedAt: 1,
+			files: [
+				{
+					path: "src/example.ts",
+					status: "modified",
+					additions: 1,
+					deletions: 1,
+					oldText: "const value = 1;\n",
+					newText: "const value = 2;\n",
+				},
+			],
+		},
+		isLoading: false,
+		isRuntimeAvailable: true,
+		refresh: vi.fn(),
+	}));
 	mockUseRuntimeChangeWorkspaceChanges.mockClear();
 	container = document.createElement("div");
 	document.body.appendChild(container);
@@ -201,7 +262,34 @@ describe("ChangeReviewModal", () => {
 			/>,
 		);
 
-		expect(mockUseRuntimeChangeWorkspaceChanges).toHaveBeenCalledWith("CY-0001", "changeyard", null);
+		expect(mockUseRuntimeChangeWorkspaceChanges).toHaveBeenCalledWith("CY-0001", "changeyard", null, null);
+	});
+
+	it("shows skeletons instead of visible file loading text while workspace changes load", async () => {
+		mockUseRuntimeChangeWorkspaceChanges.mockImplementation(() => ({
+			changes: null as never,
+			isLoading: true,
+			isRuntimeAvailable: true,
+			refresh: vi.fn(),
+		}));
+
+		const element = await renderReview(
+			<ChangeReviewModal
+				open
+				change={change}
+				changes={[change]}
+				workspaceId="changeyard"
+				onOpenChange={() => {}}
+				onSelectChange={() => {}}
+				onReviewChanged={() => {}}
+			/>,
+		);
+
+		expect(element.textContent).not.toContain("Loading file changes");
+		expect(element.textContent).not.toContain("Loading diff");
+		expect(element.textContent).not.toContain("Loading files");
+		expect(element.querySelector('[aria-label="Loading file changes"]')).not.toBeNull();
+		expect(element.querySelector('[aria-label="Loading file diff"]')).not.toBeNull();
 	});
 
 	it("renders required changes as deleteable Radix checkbox rows", async () => {
@@ -239,8 +327,8 @@ describe("ChangeReviewModal", () => {
 		const detail = reviewDetail({
 			requiredChanges: [{ checked: false, text: "src/example.ts:1: **Tighten** this value." }],
 		});
-		mockReviewList.mockResolvedValue({ reviews: [detail] });
-		mockReviewGet.mockResolvedValue(detail);
+		mockReviewList.mockReturnValue({ reviews: [detail] });
+		mockReviewGet.mockReturnValue(detail);
 		mockReviewUpdate.mockImplementation(async (input: { requiredChanges: RuntimeChangeyardReviewDetail["requiredChanges"] }) =>
 			reviewDetail({ requiredChanges: input.requiredChanges }),
 		);
@@ -328,8 +416,8 @@ describe("ChangeReviewModal", () => {
 
 	it("offers to mark a no-workspace reviewable change done without a review", async () => {
 		const onMarkDone = vi.fn();
-		mockReviewList.mockResolvedValue({ reviews: [] });
-		mockGetBoardSummary.mockResolvedValue({
+		mockReviewList.mockReturnValue({ reviews: [] });
+		mockGetBoardSummary.mockReturnValue({
 			ok: true,
 			changeId: "CY-0001",
 			version: "test",
@@ -370,8 +458,8 @@ describe("ChangeReviewModal", () => {
 
 	it("offers to mark a reviewable change done when no commit is available", async () => {
 		const onMarkDone = vi.fn();
-		mockReviewList.mockResolvedValue({ reviews: [] });
-		mockGetBoardSummary.mockResolvedValue({
+		mockReviewList.mockReturnValue({ reviews: [] });
+		mockGetBoardSummary.mockReturnValue({
 			ok: true,
 			changeId: "CY-0001",
 			version: "test",
@@ -434,8 +522,8 @@ describe("ChangeReviewModal", () => {
 			requiredChanges: [],
 			inlineComments: [{ path: "src/example.ts", line: 1, body: "Check this value." }],
 		});
-		mockReviewList.mockResolvedValue({ reviews: [detail] });
-		mockReviewGet.mockResolvedValue(detail);
+		mockReviewList.mockReturnValue({ reviews: [detail] });
+		mockReviewGet.mockReturnValue(detail);
 
 		const element = await renderReview(
 			<ChangeReviewModal

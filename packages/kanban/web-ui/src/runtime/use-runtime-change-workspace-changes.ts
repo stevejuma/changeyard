@@ -15,9 +15,10 @@ export function useRuntimeChangeWorkspaceChanges(
 	changeId: string | null,
 	workspaceId: string | null,
 	pollIntervalMs: number | null = null,
+	workspacePath: string | null = null,
 ): UseRuntimeChangeWorkspaceChangesResult {
 	const hasWorkspaceScope = changeId !== null && workspaceId !== null;
-	const queryArg = hasWorkspaceScope ? { workspaceId, id: changeId } : skipToken;
+	const queryArg = hasWorkspaceScope ? { workspaceId, workspacePath, id: changeId } : skipToken;
 	const changesQuery = useGetChangeWorkspaceChangesQuery(queryArg, {
 		pollingInterval: pollIntervalMs ?? 0,
 		skipPollingIfUnfocused: true,
@@ -49,8 +50,8 @@ export function useRuntimeChangeWorkspaceChanges(
 	}
 
 	return {
-		changes: changesQuery.data ?? null,
-		isLoading: changesQuery.isLoading || (changesQuery.isFetching && changesQuery.data === undefined),
+		changes: changesQuery.currentData ?? null,
+		isLoading: changesQuery.isLoading || (changesQuery.isFetching && changesQuery.currentData === undefined),
 		isRuntimeAvailable: !changesQuery.isError,
 		refresh,
 	};

@@ -42,11 +42,14 @@ function mergeTaskSessionSummaries(
 	return nextSessions;
 }
 
-function getRuntimeStreamUrl(workspaceId: string | null): string {
+function getRuntimeStreamUrl(workspaceId: string | null, workspacePath: string | null): string {
 	const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
 	const url = new URL(`${protocol}//${window.location.host}/api/runtime/ws`);
 	if (workspaceId) {
 		url.searchParams.set("workspaceId", workspaceId);
+	}
+	if (workspacePath) {
+		url.searchParams.set("workspacePath", workspacePath);
 	}
 	url.searchParams.set("surface", detectRuntimeClientSurface(window.location.pathname));
 	return url.toString();
@@ -341,7 +344,10 @@ function runtimeStateStreamReducer(
 	return state;
 }
 
-export function useRuntimeStateStream(requestedWorkspaceId: string | null): UseRuntimeStateStreamResult {
+export function useRuntimeStateStream(
+	requestedWorkspaceId: string | null,
+	requestedWorkspacePath: string | null = null,
+): UseRuntimeStateStreamResult {
 	const [state, dispatch] = useReducer(
 		runtimeStateStreamReducer,
 		requestedWorkspaceId,
@@ -354,6 +360,7 @@ export function useRuntimeStateStream(requestedWorkspaceId: string | null): UseR
 		let reconnectAttempt = 0;
 		let activeWorkspaceId = requestedWorkspaceId;
 		let requestedWorkspaceForConnection = requestedWorkspaceId;
+		let requestedWorkspacePathForConnection = requestedWorkspacePath;
 
 		dispatch({ type: "requested_workspace_changed" });
 
@@ -392,7 +399,7 @@ export function useRuntimeStateStream(requestedWorkspaceId: string | null): UseR
 			}
 			cleanupSocket();
 			try {
-				socket = new WebSocket(getRuntimeStreamUrl(requestedWorkspaceForConnection));
+				socket = new WebSocket(getRuntimeStreamUrl(requestedWorkspaceForConnection, requestedWorkspacePathForConnection));
 			} catch (error) {
 				dispatch({
 					type: "stream_disconnected",
@@ -428,6 +435,7 @@ export function useRuntimeStateStream(requestedWorkspaceId: string | null): UseR
 						});
 						if (nextProjectId && nextProjectId !== previousWorkspaceId) {
 							requestedWorkspaceForConnection = nextProjectId;
+							requestedWorkspacePathForConnection = null;
 							dispatch({ type: "requested_workspace_changed" });
 							connect();
 						}
@@ -564,7 +572,7 @@ export function useRuntimeStateStream(requestedWorkspaceId: string | null): UseR
 			}
 			cleanupSocket();
 		};
-	}, [requestedWorkspaceId]);
+	}, [requestedWorkspaceId, requestedWorkspacePath]);
 
 	return {
 		currentProjectId: state.currentProjectId,

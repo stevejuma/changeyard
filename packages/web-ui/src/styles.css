@@ -88,6 +88,110 @@
 	box-shadow: inset 2px 0 0 var(--color-status-red);
 }
 
+/* -- Project workspace navigation rows -- */
+
+.cy-project-row-parent-active {
+	background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+
+.cy-project-row-chevron {
+	display: inline-grid;
+	width: 16px;
+	height: 16px;
+	flex: 0 0 auto;
+	place-items: center;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: transparent;
+	color: var(--color-text-tertiary);
+	cursor: pointer;
+	padding: 0;
+	transform: rotate(0deg);
+	transition: transform 120ms ease;
+}
+
+.cy-project-row-chevron:hover {
+	background: var(--color-surface-3);
+	color: var(--color-text-primary);
+}
+
+.cy-project-row-chevron.is-open {
+	transform: rotate(90deg);
+}
+
+.cy-project-row-chevron.is-selected {
+	color: var(--kb-selected-fg);
+}
+
+.cy-project-row-chevron.is-selected:hover {
+	background: color-mix(in srgb, var(--kb-selected-fg) 20%, transparent);
+	color: var(--kb-selected-fg);
+}
+
+.cy-project-workspace-list {
+	display: grid;
+	gap: 3px;
+	margin: 3px 0 6px 12px;
+	padding-left: 8px;
+	border-left: 1px solid var(--color-border);
+}
+
+.cy-project-workspace-item {
+	min-width: 0;
+	width: 100%;
+	border: 0;
+	border-radius: 4px;
+	background: transparent;
+	color: inherit;
+	cursor: pointer;
+	font: inherit;
+	padding: 4px 6px;
+	text-align: left;
+}
+
+.cy-project-workspace-item:hover {
+	background: var(--color-surface-2);
+}
+
+.cy-project-workspace-item.is-active,
+.cy-project-workspace-item.is-active:hover {
+	background: var(--kb-selected-bg);
+	color: var(--kb-selected-fg);
+}
+
+.cy-project-workspace-item:disabled {
+	cursor: default;
+	opacity: 0.7;
+}
+
+.cy-project-workspace-name {
+	overflow: hidden;
+	color: var(--color-text-primary);
+	font-size: 11px;
+	font-weight: 500;
+	line-height: 15px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.cy-project-workspace-detail {
+	overflow: hidden;
+	color: var(--color-text-tertiary);
+	font-family: var(--font-mono);
+	font-size: 10px;
+	line-height: 14px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.cy-project-workspace-item.is-active .cy-project-workspace-name {
+	color: var(--kb-selected-fg);
+}
+
+.cy-project-workspace-item.is-active .cy-project-workspace-detail {
+	color: var(--kb-selected-muted-fg);
+}
+
 @keyframes kb-overlay-show {
 	from { opacity: 0; }
 	to { opacity: 1; }

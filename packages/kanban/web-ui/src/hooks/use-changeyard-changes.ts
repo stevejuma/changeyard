@@ -11,6 +11,8 @@ export interface UseChangeyardChangesResult {
 	isChangeyardChangesLoading: boolean;
 	refetchChangeyardChanges: () => Promise<RuntimeChangeyardChangeListItem[] | null>;
 	selectedChangeDetail: RuntimeChangeyardChangeDetail | null;
+	isSelectedChangeLoading: boolean;
+	isSelectedChangeFetching: boolean;
 	refetchSelectedChangeDetail: () => Promise<RuntimeChangeyardChangeDetail | null>;
 	setSelectedChangeDetail: (nextData: RuntimeChangeyardChangeDetail | null) => void;
 }
@@ -18,11 +20,12 @@ export interface UseChangeyardChangesResult {
 export function useChangeyardChanges(
 	currentProjectId: string | null,
 	selectedChangeId: string | null,
+	workspacePath: string | null = null,
 ): UseChangeyardChangesResult {
 	const dispatch = useDispatch<KanbanStoreDispatch>();
-	const listQueryArg = currentProjectId ? { workspaceId: currentProjectId } : skipToken;
+	const listQueryArg = currentProjectId ? { workspaceId: currentProjectId, workspacePath } : skipToken;
 	const selectedChangeQueryArg =
-		currentProjectId && selectedChangeId ? { workspaceId: currentProjectId, id: selectedChangeId } : skipToken;
+		currentProjectId && selectedChangeId ? { workspaceId: currentProjectId, workspacePath, id: selectedChangeId } : skipToken;
 	const listQuery = useListChangesQuery(listQueryArg);
 	const selectedChangeQuery = useGetChangeQuery(selectedChangeQueryArg);
 
@@ -57,7 +60,7 @@ export function useChangeyardChanges(
 				dispatch(
 					kanbanApi.util.updateQueryData(
 						"getChange",
-						{ workspaceId: currentProjectId, id: selectedChangeId },
+						{ workspaceId: currentProjectId, workspacePath, id: selectedChangeId },
 						() => nextData,
 					),
 				);
@@ -66,20 +69,22 @@ export function useChangeyardChanges(
 				dispatch(
 					kanbanApi.util.upsertQueryData(
 						"getChange",
-						{ workspaceId: currentProjectId, id: nextData.id },
+						{ workspaceId: currentProjectId, workspacePath, id: nextData.id },
 						nextData,
 					),
 				);
 			}
 		},
-		[currentProjectId, dispatch, selectedChangeId],
+		[currentProjectId, dispatch, selectedChangeId, workspacePath],
 	);
 
 	return {
 		changeyardChanges: listQuery.data ?? [],
 		isChangeyardChangesLoading: listQuery.isLoading,
 		refetchChangeyardChanges,
-		selectedChangeDetail: selectedChangeQuery.data ?? null,
+		selectedChangeDetail: selectedChangeQuery.currentData ?? null,
+		isSelectedChangeLoading: selectedChangeQuery.isLoading,
+		isSelectedChangeFetching: selectedChangeQuery.isFetching,
 		refetchSelectedChangeDetail,
 		setSelectedChangeDetail,
 	};
