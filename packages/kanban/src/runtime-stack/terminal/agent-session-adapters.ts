@@ -1443,26 +1443,34 @@ const clineAdapter: AgentSessionAdapter = {
 	},
 };
 
-async function addToWorktreeGitExclude(worktreePath: string, pattern: string): Promise<void> {
+const KANBAN_EXCLUDE_HEADER = "# Changeyard runtime hook artifacts";
+
+async function appendManagedExcludePattern(excludePath: string, pattern: string): Promise<void> {
+	await mkdir(dirname(excludePath), { recursive: true });
+	let existing = "";
+	try {
+		existing = await readFile(excludePath, "utf8");
+	} catch {
+		// Missing exclude files are created below.
+	}
+	if (existing.split("\n").some((line) => line.trim() === pattern)) {
+		return;
+	}
+	const prefix = existing === "" ? `${KANBAN_EXCLUDE_HEADER}\n` : existing.endsWith("\n") ? "" : "\n";
+	const header = existing.includes(KANBAN_EXCLUDE_HEADER) || existing === "" ? "" : `${KANBAN_EXCLUDE_HEADER}\n`;
+	await writeFile(excludePath, `${existing}${prefix}${header}${pattern}\n`, "utf8");
+}
+
+async function addToWorktreeVcsExclude(worktreePath: string, pattern: string): Promise<void> {
 	try {
 		const excludePathOutput = await getGitStdout(["rev-parse", "--git-path", "info/exclude"], worktreePath);
 		if (!excludePathOutput) {
 			return;
 		}
 		const excludePath = isAbsolute(excludePathOutput) ? excludePathOutput : join(worktreePath, excludePathOutput);
-		await mkdir(dirname(excludePath), { recursive: true });
-		let existing = "";
-		try {
-			existing = await readFile(excludePath, "utf8");
-		} catch {
-			// Missing exclude files are created below.
-		}
-		if (!existing.split("\n").some((line) => line.trim() === pattern)) {
-			const separator = existing !== "" && !existing.endsWith("\n") ? "\n" : "";
-			await writeFile(excludePath, `${existing}${separator}${pattern}\n`, "utf8");
-		}
+		await appendManagedExcludePattern(excludePath, pattern);
 	} catch {
-		// Git exclude updates are best-effort; the hook file is still cleaned up on session end.
+		// Local VCS exclude updates are best-effort; hook files are still cleaned up on session end.
 	}
 }
 
@@ -1693,11 +1701,7 @@ async function ensureCursorKanbanHooks(
 		hooksFilePath,
 		`${JSON.stringify({ version: previousConfig.version ?? 1, hooks: mergedHooks }, null, 2)}\n`,
 	);
-	await addToWorktreeGitExclude(cwd, ".cursor/hooks/kanban-stop");
-	await addToWorktreeGitExclude(cwd, ".cursor/hooks/kanban-before-submit-prompt");
-	await addToWorktreeGitExclude(cwd, ".cursor/hooks/kanban-pre-tool-use");
-	await addToWorktreeGitExclude(cwd, ".cursor/hooks/kanban-post-tool-use");
-	await addToWorktreeGitExclude(cwd, ".cursor/hooks/kanban-subagent-stop");
+	await addToWorktreeVcsExclude(cwd, ".cursor/hooks/kanban-*");
 
 	return {
 		hooksFilePath,
@@ -1781,7 +1785,7 @@ const copilotAdapter: AgentSessionAdapter = {
 				},
 			};
 			await Promise.all([ensureTextFile(hooksFilePath, JSON.stringify(hooksConfig, null, 2)), trustPromise]);
-			await addToWorktreeGitExclude(input.cwd, ".github/hooks/kanban.json");
+			await addToWorktreeVcsExclude(input.cwd, ".github/hooks/kanban.json");
 			Object.assign(
 				env,
 				createHookRuntimeEnv({

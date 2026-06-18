@@ -15,7 +15,7 @@
     "cy": "./scripts/cy.mjs"
   },
   "scripts": {
-    "build:cli": "tsc -p tsconfig.json && mkdir -p dist/src/templates dist/src/planning/templates/prompts && cp src/templates/*.md dist/src/templates/ && cp src/planning/templates/prompts/*.md dist/src/planning/templates/prompts/",
+    "build:cli": "tsc -p tsconfig.json && mkdir -p dist/src/templates dist/src/planning/templates/prompts dist/src/docs && cp src/templates/*.md dist/src/templates/ && cp src/planning/templates/prompts/*.md dist/src/planning/templates/prompts/ && cp -R docs/cli dist/src/docs/",
     "build:merge": "pnpm --filter @changeyard/merge run build",
     "build:vcs": "pnpm --filter @changeyard/vcs run build",
     "build:kanban": "pnpm --filter @changeyard/kanban run build",

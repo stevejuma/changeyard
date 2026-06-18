@@ -34,6 +34,9 @@ import { deleteWorkspace, getWorkspaceStatus, listWorkspaceStatuses, runWorkspac
 import { runInstallCli, runUninstallCli } from "./commands/install-cli.js";
 import { findRepoRoot } from "./config/loadConfig.js";
 import { errorCode, errorExitCode } from "./errors.js";
+import { colorEnabled, createColors, parseColorChoice } from "./cli/color.js";
+import { readCliHelpEntry, readCliTopic, renderCliHelp, renderCliTopic } from "./cli/docs.js";
+import { renderHumanOutput } from "./cli/render.js";
 import type { PlanningModel } from "./planning/types.js";
 import type { ValidationGate } from "./planning/validation.js";
 import type { CreateOptions } from "./commands/create.js";
@@ -62,9 +65,12 @@ function normalizeRootArg(arg: string): string {
 
 function parseArgs(argv: string[]): ParsedArgs {
   const normalizedArgv = argv.map(normalizeRootArg);
-  const startsWithFlag = normalizedArgv[0]?.startsWith("-") ?? false;
-  const explicitCommand = normalizedArgv.length > 0 && !startsWithFlag;
-  const [command = "help", ...rest] = startsWithFlag ? ["help", ...normalizedArgv] : normalizedArgv;
+  const commandIndex = findCommandIndex(normalizedArgv);
+  const explicitCommand = commandIndex !== -1;
+  const command = explicitCommand ? normalizedArgv[commandIndex] : "help";
+  const rest = explicitCommand
+    ? [...normalizedArgv.slice(0, commandIndex), ...normalizedArgv.slice(commandIndex + 1)]
+    : normalizedArgv;
   const positional: string[] = [];
   const flags: Record<string, string | boolean | string[]> = {};
 
@@ -88,6 +94,22 @@ function parseArgs(argv: string[]): ParsedArgs {
   }
 
   return { command, positional, flags, explicitCommand };
+}
+
+const GLOBAL_FLAGS_WITH_VALUES = new Set(["color", "connect", "host", "port", "project"]);
+
+function findCommandIndex(argv: string[]): number {
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (!arg.startsWith("-")) return i;
+    if (arg.startsWith("--")) {
+      const [rawKey, rawValue] = arg.slice(2).split("=", 2);
+      if (rawValue === undefined && GLOBAL_FLAGS_WITH_VALUES.has(rawKey) && argv[i + 1] && !argv[i + 1].startsWith("-")) {
+        i += 1;
+      }
+    }
+  }
+  return -1;
 }
 
 function isTrue(value: unknown): boolean {
@@ -129,165 +151,6 @@ function createOptionsFromFlags(
   };
 }
 
-function commandExamples(entries: string[]): string {
-  return entries.map((entry) => `  $ ${entry}`).join("\n");
-}
-
-function usage(): string {
-  return `Changeyard: markdown-first local change workflow manager
-
-Usage:
-  cy [-i|--tui] [--connect <url>] [--host <host>] [--port <port|auto>] [--project <path>] [--debug]
-  cy --dashboard [--host <host>] [--port <port|auto>] [--open|--no-open]
-  cy hub start [--host <host>] [--port <port|auto>] [--project <path>] [--open|--no-open] [--json]
-  cy hub stop [--project <path>] [--json]
-  cy hub status [--project <path>] [--json]
-  cy hub restart [--host <host>] [--port <port|auto>] [--project <path>] [--open|--no-open] [--json]
-  cy --kanban [--host <host>] [--port <port|auto>] [--open|--no-open]
-  cy --vcs [--host <host>] [--port <port|auto>] [--open|--no-open]
-  cy init [--dry-run] [--tools all|none|<tool-id>[,<tool-id>...]]
-  cy update [--dry-run] [--tools all|none|<tool-id>[,<tool-id>...]]
-  cy create --template <name> --title <title> [--priority <priority>] [--label <label>...] [--author <name>] [--plan-file <path>] [--planning <none|openspec-lite>] [--strict] [--no-planning] [--dry-run]
-  cy create --quick --title <title> [--priority <priority>] [--label <label>...] [--author <name>] [--dry-run]
-  cy quick --title <title> [--priority <priority>] [--label <label>...] [--author <name>] [--dry-run]
-  cy validate CY-0001 [--gate document|sync|start|complete]
-  cy sync CY-0001 [--dry-run]
-  cy start CY-0001 [--dry-run]
-  cy verify CY-0001
-  cy hydrate CY-0001 [--dry-run]
-  cy complete CY-0001 [--profile <name>] [--no-pr] [--no-code-change] [--dry-run]
-  cy next CY-0001 [--json]
-  cy land CY-0001 [--target <ref>] [--dry-run] [--keep-workspace]
-  cy workspace status CY-0001 [--json]
-  cy workspace list [--json]
-  cy workspace delete CY-0001 [--dry-run] [--force]
-  cy review start CY-0001
-  cy review complete CY-0001 --decision approve|request-changes|reject [--dry-run]
-  cy doctor [--json] [--fix] [--dry-run] [--verbose]
-  cy recover CY-0001 [--dry-run]
-  cy completions
-  cy list [--json]
-  cy status CY-0001 [--json]
-  cy plan status CY-0001 [--json]
-  cy plan prompt CY-0001 proposal [--json]
-  cy plan strict enable CY-0001 [--dry-run]
-  cy plan strict disable CY-0001 [--dry-run]
-  cy plan export CY-0001 --format openspec [--dry-run]
-  cy plan import CY-0001 --format speckit [--dry-run]
-  cy config --json [--project <path>]
-  cy hooks ingest --event to_review|to_in_progress|activity
-  cy install [--dir <path>] [--dry-run]
-  cy uninstall [--dir <path>] [--dry-run]
-
-Global options:
-  -i, --tui     start the OpenTUI terminal interface
-  --dashboard   open the dashboard browser client
-  --kanban      open the Kanban browser client
-  --vcs         open the VCS browser client
-  --json         print machine-readable output
-  --dry-run      simulate mutating commands without writing
-  --verbose      print additional diagnostic output
-  --quiet        suppress success output (errors still reported)
-  --fix          doctor: apply supported repairs
-
-Aliases:
-  cy new      -> create
-  cy begin    -> start
-  cy check    -> verify
-  cy done     -> complete
-
-Commands:
-  cy create      create a local markdown change
-  cy sync        sync change metadata to the configured provider
-  cy start       create a task workspace
-  cy verify      verify a task workspace
-  cy complete    validate and mark work ready to land
-  cy next        show the next actionable workflow command
-  cy land        land ready workspace work locally
-  cy workspace   inspect or clean task workspaces
-  cy review      manage review artifacts
-  cy plan        inspect and update planning sections
-  cy hub         manage the shared UI/runtime hub
-  cy --dashboard open the dashboard browser client
-  cy --kanban    open the Kanban browser client
-  cy --vcs       open the VCS browser client
-  cy --tui       open the terminal client
-`;
-}
-
-function commandUsage(command: string): string {
-  const lines: Record<string, string> = {
-    init: `${"init".padEnd(12)}create .changeyard, templates, and agent skills/commands for detected tools.\n\nExamples:\n${commandExamples([
-      "cy init",
-      "cy init --tools cursor,claude",
-      "cy init --tools all --dry-run",
-    ])}`,
-    update: `${"update".padEnd(12)}refresh bundled templates, skills, and agent slash commands.\n\nExamples:\n${commandExamples([
-      "cy update",
-      "cy update --tools cursor",
-      "cy update --dry-run",
-    ])}`,
-    create: `${"create".padEnd(12)}create a new change from a template.\n\nExamples:\n${commandExamples([
-      "cy create --template agent-task --title \"Add workspace verification\"",
-      "cy create --template feature --title \"Add export command\" --label api --priority high",
-      "cy create --template feature --title \"Add plugin permissions UI\" --planning openspec-lite --strict",
-      "cy create --quick --title \"Fix broken link\"",
-    ])}`,
-    quick: `${"quick".padEnd(12)}create a low-risk quick change.\n\nExamples:\n${commandExamples([
-      "cy quick --title \"Fix typo in README\"",
-      "cy quick --title \"Update docs wording\" --label docs",
-      "cy quick --dry-run --title \"Tighten release note copy\"",
-    ])}`,
-    validate: `${"validate".padEnd(12)}validate one change against templates and schema.\n\nExamples:\n${commandExamples(["cy validate CY-0001", "cy validate CY-0001 --gate complete"])}`,
-    sync: `${"sync".padEnd(12)}sync change metadata to remote provider.\n\nExample:\n${commandExamples(["cy sync CY-0001", "cy sync CY-0001 --dry-run"])}`,
-    start: `${"start".padEnd(12)}create a workspace and set status to in_progress.\n\nExample:\n${commandExamples(["cy start CY-0001"])}`,
-    verify: `${"verify".padEnd(12)}verify current directory is a writable workspace.\n\nExample:\n${commandExamples(["cy verify CY-0001"])}`,
-    hydrate: `${"hydrate".padEnd(12)}sync configured hydration files into workspace.\n\nExample:\n${commandExamples(["cy hydrate CY-0001"])}`,
-    complete: `${"complete".padEnd(12)}run checks and move change to ready_for_pr.\n\nExamples:\n${commandExamples([
-      "cy complete CY-0001 --no-pr",
-      "cy complete CY-0001 --profile full",
-    ])}`,
-    next: `${"next".padEnd(12)}show the next actionable Changeyard command for a change.\n\nExamples:\n${commandExamples(["cy next CY-0001", "cy next CY-0001 --json"])}`,
-    land: `${"land".padEnd(12)}land ready workspace work into the default local workflow.\n\nExamples:\n${commandExamples(["cy land CY-0001", "cy land CY-0001 --target main --dry-run", "cy land CY-0001 --keep-workspace"])}`,
-    workspace: `${"workspace".padEnd(12)}inspect or clean Changeyard workspaces.\n\nExamples:\n${commandExamples(["cy workspace status CY-0001", "cy workspace list --json", "cy workspace delete CY-0001 --dry-run"])}`,
-    review: `${"review".padEnd(12)}manage markdown + provider review artifacts.\n\nExamples:\n${commandExamples([
-      "cy review start CY-0001",
-      "cy review start CY-0001 --dry-run",
-      "cy review complete CY-0001 --decision request-changes",
-    ])}`,
-    doctor: `${"doctor".padEnd(12)}check changeyard state, stale markers, and drift.\n\nExamples:\n${commandExamples([
-      "cy doctor",
-      "cy doctor --fix",
-      "cy doctor --json",
-    ])}`,
-    recover: `${"recover".padEnd(12)}recreate missing workspace markers.\n\nExamples:\n${commandExamples(["cy recover CY-0001", "cy recover all --dry-run"])}`,
-    completions: `${"completions".padEnd(12)}install shell completion helper.\n\nExample:\n${commandExamples(["cy completions"])}`,
-    list: `${"list".padEnd(12)}list all local changes.\n\nExample:\n${commandExamples(["cy list"])}`,
-    status: `${"status".padEnd(12)}print one change summary.\n\nExample:\n${commandExamples(["cy status CY-0001"])}`,
-    plan: `${"plan".padEnd(12)}inspect planning status, generate planning prompts, toggle strict mode, or manage adapter mirrors.\n\nExamples:\n${commandExamples(["cy plan status CY-0001", "cy plan status CY-0001 --json", "cy plan prompt CY-0001 proposal", "cy plan strict enable CY-0001", "cy plan export CY-0001 --format openspec", "cy plan import CY-0001 --format speckit --dry-run"])}`,
-    ui: `${"ui".padEnd(12)}removed. Use cy --kanban instead.\n\nExamples:\n${commandExamples(["cy --kanban --no-open", "cy --kanban --host 127.0.0.1 --port 4310"])}`,
-    dashboard: `${"dashboard".padEnd(12)}removed. Use cy --dashboard to open the dashboard or cy hub to manage the runtime.\n\nExamples:\n${commandExamples(["cy --dashboard", "cy hub status", "cy hub restart"])}`,
-    hub: `${"hub".padEnd(12)}manage the shared Changeyard UI/runtime hub used by dashboard, Kanban, VCS, and TUI clients.\n\nExamples:\n${commandExamples(["cy hub start --no-open", "cy hub status", "cy hub restart", "cy hub stop", "cy --dashboard", "cy --kanban", "cy --vcs"])}`,
-    server: `${"server".padEnd(12)}removed. Use cy hub instead.\n\nExamples:\n${commandExamples(["cy hub start --no-open", "cy hub status", "cy --dashboard"])}`,
-    tui: `${"tui".padEnd(12)}removed. Use cy --tui or cy -i instead.\n\nExamples:\n${commandExamples(["cy --tui", "cy --tui --connect http://127.0.0.1:4310", "cy --tui --project /path/to/repo --debug"])}`,
-    config: `${"config".padEnd(12)}print config as JSON. Interactive config lives inside the TUI at /config.\n\nExamples:\n${commandExamples([
-      "cy config --json",
-      "cy config --json --project /path/to/repo",
-    ])}`,
-    hooks: `${"hooks".padEnd(12)}forward terminal-agent hook events to the local Changeyard runtime.\n\nExamples:\n${commandExamples(["cy hooks ingest --event to_review", "cy hooks notify --event activity --activity-text \"Waiting for input\""])}`,
-    install: `${"install".padEnd(12)}symlink cy and changeyard into a local bin directory (default: ~/.local/bin).\n\nExamples:\n${commandExamples([
-      "cy install",
-      "cy install --dir ~/.local/bin --dry-run",
-    ])}`,
-    uninstall: `${"uninstall".padEnd(12)}remove Changeyard symlinks installed by cy install.\n\nExamples:\n${commandExamples([
-      "cy uninstall",
-      "cy uninstall --dir ~/.local/bin",
-    ])}`,
-    help: usage(),
-  };
-  return lines[command] ?? usage();
-}
-
 function commandBaseName(command: string): CommandName {
   if (command === "new") return "create";
   if (command === "begin") return "start";
@@ -324,6 +187,14 @@ function jsonPayload(command: string, output: unknown): { command: string; messa
   return typeof output === "string" ? { command, message: output } : { command, data: output };
 }
 
+function helpCommandPath(command: CommandName, positional: string[]): string[] {
+  if (command === "help") {
+    if (positional[0] === "-k") return [];
+    return positional.filter((entry) => !entry.startsWith("-"));
+  }
+  return [command, ...positional.filter((entry) => !entry.startsWith("-"))];
+}
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const command = commandBaseName(args.command);
@@ -332,6 +203,9 @@ async function main(): Promise<void> {
   const verbose = asBooleanFlag(args.flags, "verbose");
   const dryRun = asBooleanFlag(args.flags, "dry-run");
   const fix = asBooleanFlag(args.flags, "fix");
+  const colorChoice = parseColorChoice(stringFlag(args.flags, "color"));
+  const colors = createColors(!json && colorEnabled({ choice: colorChoice, stream: process.stdout }));
+  const errorColors = createColors(!json && colorEnabled({ choice: colorChoice, stream: process.stderr }));
   const shouldShowText = !(quiet && !json);
   const mutationOptions: MutationOptions = { dryRun, fix, verbose };
   const projectRoot = stringFlag(args.flags, "project");
@@ -347,7 +221,10 @@ async function main(): Promise<void> {
   const rootLaunchFlags = countRootLaunchFlags(args.flags);
 
   if (asBooleanFlag(args.flags, "help") || asBooleanFlag(args.flags, "h")) {
-    const output = commandUsage(command);
+    const output = renderCliHelp(
+      readCliHelpEntry(helpCommandPath(command, args.positional)) ?? readCliHelpEntry([command]) ?? readCliHelpEntry([])!,
+      colors,
+    );
     if (json) console.log(JSON.stringify({ ok: true, ...jsonPayload("help", output) }, null, 2));
     else if (shouldShowText) outputLine("help", output);
     return;
@@ -439,7 +316,7 @@ async function main(): Promise<void> {
         }, process.cwd());
         break;
       case "next":
-        output = json ? getNextAction(args.positional[0] ?? "", rootForChange(args.positional[0] ?? "")) : runNext(args.positional[0] ?? "", rootForChange(args.positional[0] ?? ""));
+        output = json || colors.enabled ? getNextAction(args.positional[0] ?? "", rootForChange(args.positional[0] ?? "")) : runNext(args.positional[0] ?? "", rootForChange(args.positional[0] ?? ""));
         break;
       case "land":
         output = runLand(args.positional[0] ?? "", {
@@ -452,7 +329,7 @@ async function main(): Promise<void> {
         const subcommand = args.positional[0] ?? "";
         const id = args.positional[1] ?? "";
         const workspaceRepoRoot = id ? rootForChange(id) : repoRoot;
-        if (subcommand === "status") output = json ? getWorkspaceStatus(id, workspaceRepoRoot) : runWorkspaceStatus(id, workspaceRepoRoot);
+        if (subcommand === "status") output = json || colors.enabled ? getWorkspaceStatus(id, workspaceRepoRoot) : runWorkspaceStatus(id, workspaceRepoRoot);
         else if (subcommand === "list") output = json ? listWorkspaceStatuses(repoRoot) : runWorkspaceList(repoRoot);
         else if (subcommand === "delete") output = deleteWorkspace(id, { dryRun, force: asBooleanFlag(args.flags, "force") }, workspaceRepoRoot);
         else throw new Error("Unknown workspace command. Expected: cy workspace status <id>, cy workspace list, or cy workspace delete <id>");
@@ -460,7 +337,12 @@ async function main(): Promise<void> {
       }
       case "doctor": {
         const includeJson = asBooleanFlag(args.flags, "json");
-        output = includeJson ? doctorReport(repoRoot, mutationOptions) : runDoctor(repoRoot, mutationOptions);
+        if (includeJson || colors.enabled) {
+          const report = doctorReport(repoRoot, mutationOptions);
+          output = verbose || report.fixes.length > 0 ? report : { ...report, notes: [] };
+        } else {
+          output = runDoctor(repoRoot, mutationOptions);
+        }
         break;
       }
       case "completions":
@@ -481,12 +363,12 @@ async function main(): Promise<void> {
         output = json ? listChanges(repoRoot) : runList(repoRoot, { planning: asBooleanFlag(args.flags, "planning") });
         break;
       case "status":
-        output = json ? getStatus(args.positional[0] ?? "", rootForChange(args.positional[0] ?? "")) : runStatus(args.positional[0] ?? "", rootForChange(args.positional[0] ?? ""));
+        output = json || colors.enabled ? getStatus(args.positional[0] ?? "", rootForChange(args.positional[0] ?? "")) : runStatus(args.positional[0] ?? "", rootForChange(args.positional[0] ?? ""));
         break;
       case "plan": {
         const subcommand = args.positional[0] ?? "";
         const id = args.positional[1] ?? "";
-        if (subcommand === "status") output = json ? getPlanStatus(id, rootForChange(id)) : runPlanStatus(id, rootForChange(id));
+        if (subcommand === "status") output = json || colors.enabled ? getPlanStatus(id, rootForChange(id)) : runPlanStatus(id, rootForChange(id));
         else if (subcommand === "prompt") {
           const section = args.positional[2] as import("./planning/types.js").PlanningSectionId | undefined;
           if (!section) throw new Error("Missing planning section. Expected: cy plan prompt <id> <section>");
@@ -536,7 +418,7 @@ async function main(): Promise<void> {
         } else if (hubAction) {
           throw new Error("Unknown hub command. Expected: cy hub start, cy hub stop, cy hub status, or cy hub restart.");
         } else {
-          output = commandUsage("hub");
+          output = renderCliHelp(readCliHelpEntry(["hub"]) ?? readCliHelpEntry([])!, colors);
         }
         break;
       }
@@ -578,14 +460,25 @@ async function main(): Promise<void> {
         break;
       case "help":
       default:
-        if (command === "help") output = usage();
-        else throw new Error(`Unknown command: ${args.command}\n\n${usage()}`);
+        if (command === "help") {
+          if (args.positional[0] === "-k") {
+            const topic = args.positional[1] ?? "";
+            if (!topic) throw new Error("Missing help topic. Expected: cy help -k <topic>");
+            const helpTopic = readCliTopic(topic);
+            if (!helpTopic) throw new Error(`Unknown help topic: ${topic}`);
+            output = renderCliTopic(helpTopic, colors);
+          } else {
+            const entry = readCliHelpEntry(helpCommandPath(command, args.positional)) ?? readCliHelpEntry([])!;
+            output = renderCliHelp(entry, colors);
+          }
+        }
+        else throw new Error(`Unknown command: ${args.command}\n\n${renderCliHelp(readCliHelpEntry([])!, createColors(false))}`);
     }
 
     if (json) {
       console.log(JSON.stringify({ ok: true, ...jsonPayload(command, output) }, null, 2));
     } else if (shouldShowText) {
-      outputLine(command, output);
+      outputLine(command, renderHumanOutput({ command, positional: args.positional, colors }, output));
     }
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
@@ -594,7 +487,7 @@ async function main(): Promise<void> {
     if (json) {
       console.error(JSON.stringify({ ok: false, error: { code, message } }, null, 2));
     } else if (!quiet) {
-      console.error(codeLine);
+      console.error(errorColors.enabled ? `${errorColors.red(code)}: ${message}` : codeLine);
     }
     process.exitCode = errorExitCode(error);
   }

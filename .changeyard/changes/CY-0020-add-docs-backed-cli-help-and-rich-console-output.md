@@ -2,13 +2,13 @@
 id: CY-0020
 title: Add docs-backed CLI help and rich console output
 type: agent-task
-status: synced
+status: merged
 priority: medium
 labels:
   - agent-ready
 author: stevejuma
 createdAt: 2026-06-17T16:25:11.177Z
-updatedAt: 2026-06-17T16:25:57.829Z
+updatedAt: 2026-06-17T17:04:11.642Z
 base:
   vcs: unknown
   revision: main
@@ -24,10 +24,11 @@ remote:
   issueUrl: null
   pullRequestNumber: null
   pullRequestUrl: null
+  mergedLocally: true
 checks:
   profile: standard
-  lastRun: null
-  lastStatus: null
+  lastRun: 2026-06-17T16:45:52.222Z
+  lastStatus: passed
 planning:
   model: openspec-lite
   storage: inline
@@ -43,6 +44,7 @@ planning:
     strictClarifications: skipped
     strictChecklist: skipped
     strictAnalysis: skipped
+mergedAt: 2026-06-17T17:04:11.638Z
 ---
 
 # Summary
@@ -55,11 +57,11 @@ Changeyard's current CLI help is manually assembled in `src/cli.ts`, which makes
 
 # Plan
 
-- [ ] Add `docs/cli` markdown docs and a CLI help loader/renderer that supports nested command help and topics.
-- [ ] Add color detection, global color flags, and richer human output renderers for high-value command surfaces.
-- [ ] Update `cy update` messaging and docs to distinguish static scaffold artifacts from runtime session hooks.
-- [ ] Add VCS-aware ignore handling for generated runtime hook files and cover Git/JJ behavior.
-- [ ] Run focused build and tests, then update completion notes.
+- [x] Add `docs/cli` markdown docs and a CLI help loader/renderer that supports nested command help and topics.
+- [x] Add color detection, global color flags, and richer human output renderers for high-value command surfaces.
+- [x] Update `cy update` messaging and docs to distinguish static scaffold artifacts from runtime session hooks.
+- [x] Add VCS-aware ignore handling for generated runtime hook files and cover Git/JJ behavior.
+- [x] Run focused build and tests, then update completion notes.
 
 <!-- cy:proposal:start -->
 # Proposal
@@ -72,12 +74,12 @@ Make Changeyard CLI documentation docs-backed and easier to maintain, while impr
 
 ### In Scope
 
-- [ ] Markdown-backed command and topic docs under `docs/cli`.
-- [ ] Help lookup for root, command, nested subcommand, and `help -k` topic forms.
-- [ ] Global `--color <always|never|auto>` handling with terminal/environment detection.
-- [ ] Rich human renderers for help, errors, doctor, status, next, plan status, workspace status, list, and workspace list.
-- [ ] Runtime generated hook file ignore support for Git and JJ workspaces.
-- [ ] Focused tests for docs loading, help, color, rich output, and hook ignore behavior.
+- [x] Markdown-backed command and topic docs under `docs/cli`.
+- [x] Help lookup for root, command, nested subcommand, and `help -k` topic forms.
+- [x] Global `--color <always|never|auto>` handling with terminal/environment detection.
+- [x] Rich human renderers for help, errors, doctor, status, next, plan status, workspace status, list, and workspace list.
+- [x] Runtime generated hook file ignore support for Git and JJ workspaces.
+- [x] Focused tests for docs loading, help, color, rich output, and hook ignore behavior.
 
 ### Out of Scope
 
@@ -151,15 +153,15 @@ Runtime hook files generated for agent sessions should no longer appear as works
 
 ## 2. Implementation
 
-- [ ] Add docs-backed help loader and markdown docs
-- [ ] Add color detection and terminal renderer
-- [ ] Add rich output renderers for selected commands
-- [ ] Add VCS-aware generated hook ignore handling
+- [x] Add docs-backed help loader and markdown docs
+- [x] Add color detection and terminal renderer
+- [x] Add rich output renderers for selected commands
+- [x] Add VCS-aware generated hook ignore handling
 
 ## 3. Verification
 
-- [ ] Run focused build and tests
-- [ ] Record results and residual risk
+- [x] Run focused build and tests
+- [x] Record results and residual risk
 <!-- cy:tasks:end -->
 
 <!-- cy:verification:start -->
@@ -179,18 +181,23 @@ Runtime hook files generated for agent sessions should no longer appear as works
 
 ## Result
 
-_Not run yet._
+- `pnpm run build:cli` passed.
+- `node --test --test-force-exit dist/tests/changeyard.test.js` passed: 91 tests.
+- `pnpm --filter @changeyard/kanban run runtime:typecheck` passed.
+- `pnpm --filter @kanban/web exec vitest run src/runtime/agent-session-adapters.cursor.test.ts` passed: 5 tests.
+- `pnpm run check` passed.
+- Manual smoke checks passed for `cy --help`, `cy hub --help`, `cy hooks ingest --help`, `cy help -k hooks`, `cy --color always help hooks`, `cy --color always doctor`, and `cy --color never doctor`.
 <!-- cy:verification:end -->
 
 # Acceptance Criteria
-- [ ] CLI help docs live under `docs/cli` and are copied into built CLI output.
-- [ ] Root, command, nested command, and topic help are docs-backed and show possible values.
-- [ ] Global `--color <always|never|auto>` works with flag/env/TTY detection.
-- [ ] Human console output is richer for doctor, status, next, plan status, workspace status, list, workspace list, and error output.
-- [ ] JSON and machine-oriented output remain uncolored.
-- [ ] `cy update` docs/output clarify static artifacts versus runtime session hooks.
-- [ ] Generated runtime hook files are ignored for Git/JJ workspace change detection where supported.
-- [ ] Focused verification commands pass or blockers are documented.
+- [x] CLI help docs live under `docs/cli` and are copied into built CLI output.
+- [x] Root, command, nested command, and topic help are docs-backed and show possible values.
+- [x] Global `--color <always|never|auto>` works with flag/env/TTY detection.
+- [x] Human console output is richer for doctor, status, next, plan status, workspace status, list, workspace list, and error output.
+- [x] JSON and machine-oriented output remain uncolored.
+- [x] `cy update` docs/output clarify static artifacts versus runtime session hooks.
+- [x] Generated runtime hook files are ignored for Git/JJ workspace change detection where supported.
+- [x] Focused verification commands pass or blockers are documented.
 
 # Agent Plan
 
@@ -198,4 +205,17 @@ Use the Changeyard lifecycle gates before product edits, then implement inside t
 
 # Completion Notes
 
-Summarize what changed, what checks ran, and what risks remain.
+Implemented docs-backed CLI help with markdown command/topic files under `docs/cli`, copied during `build:cli`. Added a docs loader/renderer for root, command, nested command, and `help -k` topic help, including possible values.
+
+Added `--color <always|never|auto>` with TTY/env detection (`NO_COLOR`, `FORCE_COLOR`, `TERM=dumb`) and rich human renderers for help, errors, doctor, status, next, plan status, workspace status, list, and workspace list while preserving JSON output.
+
+Clarified `cy update` help/docs around static scaffold artifacts versus runtime session hooks. Added managed local VCS exclude entries for generated Cursor and Copilot runtime hook files, with Git and colocated JJ coverage.
+
+Verification passed:
+- `pnpm run build:cli`
+- `node --test --test-force-exit dist/tests/changeyard.test.js`
+- `pnpm --filter @changeyard/kanban run runtime:typecheck`
+- `pnpm --filter @kanban/web exec vitest run src/runtime/agent-session-adapters.cursor.test.ts`
+- `pnpm run check`
+
+Residual risk: help docs are now canonical prose, so future command routing changes need matching `docs/cli` updates.

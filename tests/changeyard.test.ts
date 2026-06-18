@@ -60,6 +60,8 @@ import { LocalFolderProvider } from "../src/providers/LocalFolderProvider.js";
 import { curlJson, setHttpTransportForTests, type HttpRequest } from "../src/providers/http.js";
 import { GitWorktreeEngine } from "../src/workspace/GitWorktreeEngine.js";
 import { JjWorkspaceEngine } from "../src/workspace/JjWorkspaceEngine.js";
+import { colorEnabled, createColors, parseColorChoice } from "../src/cli/color.js";
+import { readCliHelpEntry, readCliTopic, renderCliHelp } from "../src/cli/docs.js";
 
 function tempRepo(): string {
   return mkdtempSync(path.join(os.tmpdir(), "changeyard-test-"));
@@ -462,6 +464,29 @@ test("cli quick --help shows quick-mode examples", () => {
   assert.match(result.stdout, /cy quick --dry-run --title "Tighten release note copy"/);
 });
 
+test("cli docs loader reads command docs, topics, and possible values", () => {
+  const hooks = readCliHelpEntry(["hooks"]);
+  assert.ok(hooks);
+  assert.equal(hooks.command, "cy hooks");
+  assert.equal(hooks.options.find((option) => option.flags === "--event <event>")?.possibleValues.join(","), "to_review,to_in_progress,activity");
+  assert.match(renderCliHelp(hooks, createColors(false)), /possible values: to_review, to_in_progress, activity/);
+
+  const topic = readCliTopic("color");
+  assert.ok(topic);
+  assert.match(topic.body, /`--color <always\|never\|auto>`/);
+});
+
+test("cli color detection honors flags and environment", () => {
+  assert.equal(parseColorChoice(undefined), "auto");
+  assert.equal(parseColorChoice("always"), "always");
+  assert.throws(() => parseColorChoice("sometimes"), /Invalid color value/);
+  assert.equal(colorEnabled({ choice: "always", env: {}, stream: { isTTY: false } as NodeJS.WriteStream }), true);
+  assert.equal(colorEnabled({ choice: "never", env: { FORCE_COLOR: "1" }, stream: { isTTY: true } as NodeJS.WriteStream }), false);
+  assert.equal(colorEnabled({ choice: "auto", env: { NO_COLOR: "1" }, stream: { isTTY: true } as NodeJS.WriteStream }), false);
+  assert.equal(colorEnabled({ choice: "auto", env: { FORCE_COLOR: "1" }, stream: { isTTY: false } as NodeJS.WriteStream }), true);
+  assert.equal(colorEnabled({ choice: "auto", env: { TERM: "dumb" }, stream: { isTTY: true } as NodeJS.WriteStream }), false);
+});
+
 test("cli help describes commands and hub lifecycle", () => {
   const help = spawnSync(nodeBinary(), [cliBinPath(), "--help"], {
     cwd: process.cwd(),
@@ -469,9 +494,9 @@ test("cli help describes commands and hub lifecycle", () => {
   });
   assert.equal(help.status, 0, help.stderr);
   assert.match(help.stdout, /Commands:/);
-  assert.match(help.stdout, /cy create\s+create a local markdown change/);
-  assert.match(help.stdout, /cy hub\s+manage the shared UI\/runtime hub/);
-  assert.match(help.stdout, /cy --kanban\s+open the Kanban browser client/);
+  assert.match(help.stdout, /create\s+Create a local markdown change/);
+  assert.match(help.stdout, /hub\s+Manage the shared UI\/runtime hub/);
+  assert.match(help.stdout, /--kanban\s+Open the Kanban browser client/);
 
   const result = spawnSync(nodeBinary(), [cliBinPath(), "hub", "--help"], {
     cwd: process.cwd(),
@@ -483,6 +508,37 @@ test("cli help describes commands and hub lifecycle", () => {
   assert.match(result.stdout, /cy hub status/);
   assert.match(result.stdout, /cy hub restart/);
   assert.match(result.stdout, /cy hub stop/);
+});
+
+test("cli help supports nested docs, topics, and forced color", () => {
+  const nested = spawnSync(nodeBinary(), [cliBinPath(), "hooks", "ingest", "--help"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+  });
+  assert.equal(nested.status, 0, nested.stderr);
+  assert.match(nested.stdout, /cy hooks ingest --event <event>/);
+  assert.match(nested.stdout, /possible values: to_review, to_in_progress, activity/);
+
+  const topic = spawnSync(nodeBinary(), [cliBinPath(), "help", "-k", "hooks"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+  });
+  assert.equal(topic.status, 0, topic.stderr);
+  assert.match(topic.stdout, /Runtime hooks connect terminal agents/);
+
+  const colored = spawnSync(nodeBinary(), [cliBinPath(), "--color", "always", "help", "hooks"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+  });
+  assert.equal(colored.status, 0, colored.stderr);
+  assert.match(colored.stdout, /\u001b\[[0-9;]*m/);
+
+  const plain = spawnSync(nodeBinary(), [cliBinPath(), "--color", "never", "help", "hooks"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+  });
+  assert.equal(plain.status, 0, plain.stderr);
+  assert.doesNotMatch(plain.stdout, /\u001b\[[0-9;]*m/);
 });
 
 test("cli dashboard command is removed", () => {
