@@ -221,7 +221,7 @@ async function loadTaskWorkspaceMetadata(
 	}
 
 	try {
-		const probe = await probeGitWorkspaceState(pathInfo.path);
+		const probe = await probeGitWorkspaceState(pathInfo.path, { includeSyncCounts: false });
 		if (
 			current &&
 			current.stateToken === probe.stateToken &&

@@ -32,6 +32,10 @@ export interface GitWorkspaceProbe {
 	stateToken: string;
 }
 
+interface ProbeGitWorkspaceStateOptions {
+	includeSyncCounts?: boolean;
+}
+
 function countLines(text: string): number {
 	if (!text) {
 		return 0;
@@ -134,6 +138,87 @@ async function hasLocalJjBookmark(cwd: string, bookmarkName: string): Promise<bo
 	return output.split("\n").some((line) => parseJjBookmarkName(line) === bookmarkName);
 }
 
+async function listLocalJjBookmarks(cwd: string): Promise<string[]> {
+	const output = await getJjStdout(["bookmark", "list", "--ignore-working-copy", "--at-op=@"], cwd).catch(() => "");
+	const names = new Set<string>();
+	for (const line of output.split("\n")) {
+		const name = parseJjBookmarkName(line);
+		if (name) {
+			names.add(name);
+		}
+	}
+	return Array.from(names).sort((left, right) => left.localeCompare(right));
+}
+
+function chooseJjSyncBookmark(currentBranch: string | null, bookmarks: string[]): string | null {
+	const current = normalizeOptionalRef(currentBranch);
+	if (current && bookmarks.includes(current)) {
+		return current;
+	}
+	if (bookmarks.includes("main")) {
+		return "main";
+	}
+	if (bookmarks.includes("master")) {
+		return "master";
+	}
+	return bookmarks[0] ?? null;
+}
+
+function quoteJjRevsetString(value: string): string {
+	return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+async function hasJjRevision(cwd: string, revset: string): Promise<boolean> {
+	const result = await runJj(cwd, [
+		"log",
+		"--ignore-working-copy",
+		"--at-op=@",
+		"-r",
+		revset,
+		"--no-graph",
+		"-T",
+		"commit_id",
+	]);
+	return result.ok && result.stdout.trim().length > 0;
+}
+
+async function countJjRevset(cwd: string, revset: string): Promise<number> {
+	const output = await getJjStdout([
+		"log",
+		"--ignore-working-copy",
+		"--at-op=@",
+		"-r",
+		revset,
+		"--count",
+	], cwd).catch(() => "");
+	const count = Number.parseInt(output.trim(), 10);
+	return Number.isFinite(count) ? count : 0;
+}
+
+async function getJjBookmarkAheadBehind(
+	cwd: string,
+	bookmarkName: string | null,
+): Promise<{ aheadCount: number; behindCount: number }> {
+	if (!bookmarkName) {
+		return { aheadCount: 0, behindCount: 0 };
+	}
+	const quotedBookmark = quoteJjRevsetString(bookmarkName);
+	const localRevset = `bookmarks(exact:${quotedBookmark})`;
+	const remoteRevset = `remote_bookmarks(exact:${quotedBookmark}, exact:"origin")`;
+	const [hasLocalBookmarkRev, hasRemoteBookmarkRev] = await Promise.all([
+		hasJjRevision(cwd, localRevset),
+		hasJjRevision(cwd, remoteRevset),
+	]);
+	if (!hasLocalBookmarkRev || !hasRemoteBookmarkRev) {
+		return { aheadCount: 0, behindCount: 0 };
+	}
+	const [aheadCount, behindCount] = await Promise.all([
+		countJjRevset(cwd, `${remoteRevset}..${localRevset}`),
+		countJjRevset(cwd, `${localRevset}..${remoteRevset}`),
+	]);
+	return { aheadCount, behindCount };
+}
+
 export async function detectWorkspaceEngine(cwd: string): Promise<"git" | "jj"> {
 	const jjRoot = await getJjStdout(["workspace", "root"], cwd).catch(() => null);
 	if (jjRoot) {
@@ -168,15 +253,24 @@ function parseJjDiffStatTotals(output: string): { additions: number; deletions: 
 	};
 }
 
-async function probeJjWorkspaceState(cwd: string): Promise<GitWorkspaceProbe> {
+async function probeJjWorkspaceState(
+	cwd: string,
+	options: ProbeGitWorkspaceStateOptions = {},
+): Promise<GitWorkspaceProbe> {
+	const includeSyncCounts = options.includeSyncCounts ?? true;
 	const repoRoot = await getJjStdout(["workspace", "root"], cwd);
-	const [summaryOutput, diffStatOutput, headCommit, currentBranch, jjChangeId] = await Promise.all([
+	const [summaryOutput, diffStatOutput, headCommit, currentBranch, jjChangeId, bookmarkNames] = await Promise.all([
 		getJjStdout(["diff", "--ignore-working-copy", "--summary"], repoRoot).catch(() => ""),
 		getJjStdout(["diff", "--ignore-working-copy", "--stat"], repoRoot).catch(() => ""),
 		getJjStdout(["log", "--ignore-working-copy", "--at-op=@", "-r", "@", "--no-graph", "-T", "commit_id"], repoRoot).catch(() => null),
 		getJjCurrentBookmark(repoRoot),
 		getJjCurrentChangeId(repoRoot),
+		includeSyncCounts ? listLocalJjBookmarks(repoRoot) : Promise.resolve([]),
 	]);
+	const syncBookmark = includeSyncCounts ? chooseJjSyncBookmark(currentBranch, bookmarkNames) : null;
+	const { aheadCount, behindCount } = includeSyncCounts
+		? await getJjBookmarkAheadBehind(repoRoot, syncBookmark)
+		: { aheadCount: 0, behindCount: 0 };
 	const changedPaths = parseJjSummaryPaths(summaryOutput);
 	const fingerprints = await buildPathFingerprints(repoRoot, changedPaths);
 	return {
@@ -186,8 +280,8 @@ async function probeJjWorkspaceState(cwd: string): Promise<GitWorkspaceProbe> {
 		currentBranch,
 		jjChangeId,
 		upstreamBranch: null,
-		aheadCount: 0,
-		behindCount: 0,
+		aheadCount,
+		behindCount,
 		changedFiles: changedPaths.length,
 		untrackedPaths: [],
 		stateToken: [
@@ -195,7 +289,11 @@ async function probeJjWorkspaceState(cwd: string): Promise<GitWorkspaceProbe> {
 			repoRoot,
 			headCommit ?? "no-head",
 			currentBranch ?? "no-bookmark",
+			includeSyncCounts ? (syncBookmark ?? "no-sync-bookmark") : "sync-counts-skipped",
 			jjChangeId ?? "no-change-id",
+			bookmarkNames.join("\n"),
+			String(aheadCount),
+			String(behindCount),
 			summaryOutput,
 			diffStatOutput,
 			buildFingerprintToken(fingerprints),
@@ -295,9 +393,12 @@ async function probeGitWorkspaceStateInternal(cwd: string): Promise<GitWorkspace
 	};
 }
 
-export async function probeGitWorkspaceState(cwd: string): Promise<GitWorkspaceProbe> {
+export async function probeGitWorkspaceState(
+	cwd: string,
+	options: ProbeGitWorkspaceStateOptions = {},
+): Promise<GitWorkspaceProbe> {
 	const engine = await detectWorkspaceEngine(cwd);
-	return engine === "jj" ? await probeJjWorkspaceState(cwd) : await probeGitWorkspaceStateInternal(cwd);
+	return engine === "jj" ? await probeJjWorkspaceState(cwd, options) : await probeGitWorkspaceStateInternal(cwd);
 }
 
 async function resolveRepoRoot(cwd: string): Promise<string> {
@@ -342,8 +443,8 @@ export async function getGitSyncSummary(
 			changedFiles: probe.changedFiles,
 			additions: totals.additions,
 			deletions: totals.deletions,
-			aheadCount: 0,
-			behindCount: 0,
+			aheadCount: probe.aheadCount,
+			behindCount: probe.behindCount,
 		};
 	}
 	const diffResult = await runGit(probe.repoRoot, ["diff", "--numstat", "HEAD", "--"]);

@@ -73,6 +73,10 @@ function createStateRunner(calls: string[] = []): VcsCommandRunner {
 			case 'jj bookmark list --ignore-working-copy --at-op=@ --revisions all() ~ ::main@origin --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
 			case 'jj bookmark list --ignore-working-copy --at-op=@ --revisions all() ~ ::trunk() --template name ++ "\\t" ++ self.normal_target().change_id().shortest(12) ++ "\\t" ++ self.normal_target().commit_id().shortest(12) ++ "\\t" ++ if(self.synced(), "1", "0") ++ "\\t" ++ if(self.tracked(), "1", "0") ++ "\\n"':
 				return ok("feature/api\tapi222\t22222222\t1\t1");
+			case 'jj log --ignore-working-copy --at-op=@ -r main@origin.."main" --count':
+				return ok("2");
+			case 'jj log --ignore-working-copy --at-op=@ -r "main"..main@origin --count':
+				return ok("0");
 			case "jj diff --ignore-working-copy --summary -r @":
 				return ok("M src/api.ts\nA src/new.ts");
 			case "jj --color=never diff --ignore-working-copy --git -- src/api.ts":
@@ -197,6 +201,12 @@ test("loadJjWorkspaceState maps JJ stacks and working copy into neutral state", 
 	assert.equal(state.stacks[0]?.commits[1]?.description, "Detailed PR body\n- keeps markdown");
 	assert.equal(state.workingCopy.summary.modified, 1);
 	assert.equal(state.workingCopy.summary.added, 1);
+	assert.deepEqual(state.sync, {
+		targetRef: "main",
+		remoteRef: "main@origin",
+		aheadCount: 2,
+		behindCount: 0,
+	});
 	assert.ok(calls.includes("jj diff --ignore-working-copy --summary -r @"));
 });
 

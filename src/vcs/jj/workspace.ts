@@ -11,9 +11,10 @@ import type {
 	VcsPreviewOperationResult,
 } from "../types.js";
 import { applyJjOperation } from "./apply.js";
+import { normalizeRemoteTargetToLocalBookmark, remoteNameFromTarget } from "./bookmark-utils.js";
 import { loadJjDiff } from "./diff.js";
 import { previewJjOperation } from "./preview.js";
-import { createJjSymbolRevset } from "./read.js";
+import { createJjRemoteBookmarkRevset, createJjSymbolRevset } from "./read.js";
 import { loadJjState, type LoadJjStateOptions } from "./state.js";
 import type { NeutralFileStatus, NeutralOperation, NeutralOperationContext, NeutralOperationRequest, NeutralSelection } from "../workspace-types.js";
 
@@ -412,6 +413,52 @@ async function readJjWorkspaceConflictPaths(cwd: string, runner: VcsCommandRunne
 		.sort((left, right) => left.localeCompare(right));
 }
 
+async function countJjWorkspaceRevset(cwd: string, runner: VcsCommandRunner, revset: string): Promise<number> {
+	const result = await runner({
+		command: "jj",
+		args: ["log", "--ignore-working-copy", "--at-op=@", "-r", revset, "--count"],
+		cwd,
+	});
+	if (!result.ok) {
+		return 0;
+	}
+	const count = Number.parseInt(result.stdout.trim(), 10);
+	return Number.isFinite(count) ? count : 0;
+}
+
+async function readJjWorkspaceSyncSummary(
+	cwd: string,
+	runner: VcsCommandRunner,
+	state: Pick<VcsJjStateResult, "git" | "jj">,
+	options: LoadJjStateOptions,
+) {
+	const detectedBase = state.jj.defaultBase ?? state.git.defaultBranch ?? null;
+	const defaultTarget = state.git.remoteName && detectedBase ? `${state.git.remoteName}/${detectedBase}` : detectedBase;
+	const configuredTarget = options.targetBranch?.trim() || defaultTarget;
+	const bookmarkName = normalizeRemoteTargetToLocalBookmark(configuredTarget, state.git.remoteName) ?? detectedBase;
+	const remoteName = remoteNameFromTarget(configuredTarget, state.git.remoteName) ?? state.git.remoteName;
+	if (!bookmarkName || !remoteName) {
+		return {
+			targetRef: bookmarkName,
+			remoteRef: null,
+			aheadCount: 0,
+			behindCount: 0,
+		};
+	}
+	const localRevset = createJjSymbolRevset(bookmarkName);
+	const remoteRevset = createJjRemoteBookmarkRevset(bookmarkName, remoteName);
+	const [aheadCount, behindCount] = await Promise.all([
+		countJjWorkspaceRevset(cwd, runner, `${remoteRevset}..${localRevset}`),
+		countJjWorkspaceRevset(cwd, runner, `${localRevset}..${remoteRevset}`),
+	]);
+	return {
+		targetRef: bookmarkName,
+		remoteRef: `${bookmarkName}@${remoteName}`,
+		aheadCount,
+		behindCount,
+	};
+}
+
 export async function loadJjWorkspaceState(
 	cwd: string,
 	runner: VcsCommandRunner,
@@ -421,9 +468,10 @@ export async function loadJjWorkspaceState(
 	const repoCwd = state.repository.root ?? cwd;
 	const appliedStackIds = options.appliedStackIds ?? [];
 	const conflictRevset = createWorkspaceConflictRevset(appliedStackIds);
-	const [conflictChanges, workspaceConflictPaths] = await Promise.all([
+	const [conflictChanges, workspaceConflictPaths, sync] = await Promise.all([
 		readJjWorkspaceConflicts(repoCwd, runner, conflictRevset),
 		readJjWorkspaceConflictPaths(repoCwd, runner),
+		readJjWorkspaceSyncSummary(repoCwd, runner, state, options),
 	]);
 	const conflictPathEntries = await Promise.all(
 		conflictChanges.map(async (conflict) => [conflict.changeId, await readJjWorkspaceConflictPaths(repoCwd, runner, conflict.changeId)] as const),
@@ -474,6 +522,7 @@ export async function loadJjWorkspaceState(
 			summary: workingCopySummary(workingCopyFiles),
 		},
 		conflicts,
+		sync,
 	};
 }
 

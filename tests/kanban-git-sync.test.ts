@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { runGitSyncAction } from "../packages/kanban/src/runtime-stack/workspace/git-sync.js";
+import { getGitSyncSummary, runGitSyncAction } from "../packages/kanban/src/runtime-stack/workspace/git-sync.js";
 
 function hasCommand(command: string): boolean {
 	return spawnSync(command, normalizeCommandArgs(command, ["--version"]), { encoding: "utf8" }).status === 0;
@@ -85,9 +85,16 @@ test(
 			runCommand("jj", ["new", "main", "-m", "local main update"], repo);
 			writeFileSync(path.join(repo, "README.md"), "# changeyard\n\nlocal main update\n");
 			runCommand("jj", ["bookmark", "set", "main", "-r", "@"], repo);
+			runCommand("jj", ["new", "main", "-m", "second local main update"], repo);
+			writeFileSync(path.join(repo, "README.md"), "# changeyard\n\nlocal main update\n\nsecond local main update\n");
+			runCommand("jj", ["bookmark", "set", "main", "-r", "@"], repo);
 			const localMainHead = runCommand("jj", ["log", "-r", "main", "--no-graph", "-T", "commit_id"], repo);
 			runCommand("jj", ["new", "main", "-m", "empty child"], repo);
 			assert.equal(runCommand("jj", ["bookmark", "list", "-r", "@"], repo), "");
+			const aheadSummary = await getGitSyncSummary(repo);
+			assert.equal(aheadSummary.currentBranch, null);
+			assert.equal(aheadSummary.aheadCount, 2);
+			assert.equal(aheadSummary.behindCount, 0);
 
 			const missing = await runGitSyncAction({ cwd: repo, action: "push", targetRef: "missing-target-bookmark" });
 			assert.equal(missing.ok, false);
@@ -113,6 +120,8 @@ test(
 			const pull = await runGitSyncAction({ cwd: repo, action: "pull" });
 			assert.equal(pull.ok, true);
 			assert.equal(pull.action, "pull");
+			assert.equal(pull.summary.aheadCount, 0);
+			assert.equal(pull.summary.behindCount, 0);
 			assert.equal(runCommand("jj", ["log", "-r", "main@origin", "--no-graph", "-T", "commit_id"], repo), updatedRemoteHead);
 		} finally {
 			rmSync(root, { recursive: true, force: true });

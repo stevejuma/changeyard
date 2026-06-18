@@ -61,6 +61,27 @@ export type VcsDetectResponse = {
 	diagnostics: VcsDiagnostic[];
 };
 
+export type RuntimeGitSyncAction = "fetch" | "pull" | "push";
+
+export type RuntimeGitSyncSummary = {
+	currentBranch: string | null;
+	jjChangeId: string | null;
+	upstreamBranch: string | null;
+	changedFiles: number;
+	additions: number;
+	deletions: number;
+	aheadCount: number;
+	behindCount: number;
+};
+
+export type RuntimeGitSyncResponse = {
+	ok: boolean;
+	action: RuntimeGitSyncAction;
+	summary: RuntimeGitSyncSummary;
+	output: string;
+	error?: string;
+};
+
 export type VcsJjStateResponse = VcsDetectResponse & {
 	bookmarks: Array<{
 		name: string;

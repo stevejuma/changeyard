@@ -534,6 +534,14 @@ export const runtimeVcsWorkspaceConflictSchema = z.object({
 });
 export type RuntimeVcsWorkspaceConflict = z.infer<typeof runtimeVcsWorkspaceConflictSchema>;
 
+export const runtimeVcsWorkspaceSyncSummarySchema = z.object({
+	targetRef: z.string().nullable(),
+	remoteRef: z.string().nullable(),
+	aheadCount: z.number().int().nonnegative(),
+	behindCount: z.number().int().nonnegative(),
+});
+export type RuntimeVcsWorkspaceSyncSummary = z.infer<typeof runtimeVcsWorkspaceSyncSummarySchema>;
+
 export const runtimeVcsActiveWorkspaceRequestSchema = z.object({
 	workspacePath: z.string().min(1).optional(),
 });
@@ -557,6 +565,7 @@ export const runtimeVcsWorkspaceStateResponseSchema = z.object({
 	appliedStackIds: z.array(z.string()),
 	workingCopy: runtimeVcsWorkingCopyStateSchema,
 	conflicts: z.array(runtimeVcsWorkspaceConflictSchema),
+	sync: runtimeVcsWorkspaceSyncSummarySchema.optional(),
 });
 export type RuntimeVcsWorkspaceStateResponse = z.infer<typeof runtimeVcsWorkspaceStateResponseSchema>;
 

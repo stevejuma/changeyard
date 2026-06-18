@@ -8,6 +8,8 @@ import type {
 	RuntimeGitCommitDiffResponse,
 	RuntimeGitLogRequest,
 	RuntimeGitLogResponse,
+	RuntimeGitSyncAction,
+	RuntimeGitSyncResponse,
 	RuntimeProjectAddRequest,
 	RuntimeProjectAddResponse,
 	RuntimeProjectDirectoryPickerResponse,
@@ -159,6 +161,11 @@ type JjOperationRevertArg = ActiveWorkspaceQueryArg & {
 
 type RepositoryLogQueryArg = ActiveWorkspaceQueryArg & {
 	input: RuntimeGitLogRequest;
+};
+
+type GitSyncActionArg = ActiveWorkspaceQueryArg & {
+	action: RuntimeGitSyncAction;
+	targetRef?: string | null;
 };
 
 function withActiveWorkspaceInput<T extends Record<string, unknown>>(
@@ -712,6 +719,28 @@ export const vcsApi = createApi({
 			onCacheEntryAdded: ({ workspaceId }, { dispatch, cacheDataLoaded, cacheEntryRemoved }) =>
 				subscribeToWorkspaceEvents(workspaceId, dispatch, cacheDataLoaded, cacheEntryRemoved),
 		}),
+		runGitSyncAction: builder.mutation<RuntimeGitSyncResponse, GitSyncActionArg>({
+			queryFn: async ({ workspaceId, workspacePath, action, targetRef }) => {
+				try {
+					return {
+						data: await postTrpcMutation<RuntimeGitSyncResponse>(
+							"workspace.runGitSyncAction",
+							withActiveWorkspaceInput(
+								{
+									action,
+									targetRef: targetRef ?? undefined,
+								},
+								workspacePath,
+							),
+							workspaceId,
+						),
+					};
+				} catch (error) {
+					return { error };
+				}
+			},
+			invalidatesTags: VCS_WORKSPACE_OPERATION_INVALIDATION_TAGS,
+		}),
 		getVcsConflictFile: builder.query<VcsConflictFileResult, VcsConflictFileQueryArg>({
 			queryFn: async ({ workspaceId, workspacePath, input }, { signal }) => {
 				try {
@@ -1012,6 +1041,7 @@ export const {
 	useGetVcsWorkspaceStateQuery,
 	useGetVcsStacksQuery,
 	useGetVcsDiffQuery,
+	useRunGitSyncActionMutation,
 	useGetVcsConflictFileQuery,
 	useResolveVcsConflictFileMutation,
 	usePreviewVcsOperationQuery,

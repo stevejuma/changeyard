@@ -20,6 +20,13 @@ export interface VcsWorkspaceCapabilities {
 	supportsWorkingCopyCommit: boolean;
 }
 
+export interface VcsWorkspaceSyncSummary {
+	targetRef: string | null;
+	remoteRef: string | null;
+	aheadCount: number;
+	behindCount: number;
+}
+
 export interface VcsWorkspaceState {
 	projectId: string;
 	provider: VcsProviderKind;
@@ -32,6 +39,7 @@ export interface VcsWorkspaceState {
 	appliedStackIds: string[];
 	workingCopy: VcsWorkingCopyState;
 	conflicts: VcsWorkspaceConflict[];
+	sync?: VcsWorkspaceSyncSummary;
 }
 
 export interface VcsWorkspaceStack {

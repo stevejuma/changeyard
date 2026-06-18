@@ -6,6 +6,7 @@ import { notifyError, showAppToast } from "@/components/app-toaster";
 import { FModeNavigation } from "@/components/f-mode-navigation";
 import { resolveVcsRoute } from "@/routes";
 import type {
+	RuntimeGitSyncAction,
 	RuntimeProjectAddRequest,
 	RuntimeProjectSummary,
 	RuntimeProjectWorkspaceSummary,
@@ -22,6 +23,7 @@ import {
 	useGetVcsWorkspaceStateQuery,
 	usePickProjectDirectoryMutation,
 	useRemoveProjectMutation,
+	useRunGitSyncActionMutation,
 } from "@/runtime/vcs-api";
 import type { VcsDiffResult, VcsWorkspaceState } from "@/vcs-workspace-contracts";
 import { BranchesView } from "@/views/branches-view";
@@ -100,6 +102,7 @@ export default function App(): React.ReactElement {
 	const [isAddProjectDialogOpen, setAddProjectDialogOpen] = useState(false);
 	const [isSettingsOpen, setSettingsOpen] = useState(false);
 	const [pendingNativeGitInitPath, setPendingNativeGitInitPath] = useState<string | null>(null);
+	const [runningGitAction, setRunningGitAction] = useState<RuntimeGitSyncAction | null>(null);
 
 	useEffect(() => {
 		setSelectedProjectId(urlWorkspaceId);
@@ -109,6 +112,7 @@ export default function App(): React.ReactElement {
 	const [pickProjectDirectory] = usePickProjectDirectoryMutation();
 	const [addProjectMutation] = useAddProjectMutation();
 	const [removeProjectMutation] = useRemoveProjectMutation();
+	const [runGitSyncActionMutation] = useRunGitSyncActionMutation();
 	const projectsQuery = {
 		state: toRuntimeQueryState<RuntimeProjectsResponse>(projectsResult, "Failed to load projects."),
 		refresh: () => void projectsResult.refetch(),
@@ -341,6 +345,36 @@ export default function App(): React.ReactElement {
 	const workspaceStateQuery = {
 		state: toRuntimeCurrentQueryState<VcsWorkspaceState>(workspaceStateResult, "Failed to load workspace state."),
 	};
+
+	async function runHeaderGitAction(action: RuntimeGitSyncAction): Promise<void> {
+		if (!workspaceId || runningGitAction) {
+			return;
+		}
+		const currentWorkspaceState = workspaceStateQuery.state.status === "ready" ? workspaceStateQuery.state.data : null;
+		const targetRef =
+			action === "push"
+				? currentWorkspaceState?.sync?.targetRef ?? currentWorkspaceState?.targetRef ?? null
+				: null;
+		setRunningGitAction(action);
+		try {
+			const result = await runGitSyncActionMutation({
+				workspaceId,
+				workspacePath: activeWorkspacePath,
+				action,
+				targetRef,
+			}).unwrap();
+			if (!result.ok) {
+				notifyError(result.error ?? `${action} failed.`);
+				return;
+			}
+			await Promise.all([workspaceStateResult.refetch(), workspaceDiffResult.refetch()]);
+		} catch (error) {
+			notifyError(error instanceof Error ? error.message : String(error));
+		} finally {
+			setRunningGitAction(null);
+		}
+	}
+
 	const projectState = {
 		projectsState: visibleProjectsState,
 		currentProject,
@@ -355,6 +389,10 @@ export default function App(): React.ReactElement {
 		onRemoveProject: removeProject,
 		onClearOtherProjects: clearOtherProjects,
 		onOpenSettings: () => setSettingsOpen(true),
+		runningGitAction,
+		onGitFetch: () => void runHeaderGitAction("fetch"),
+		onGitPull: () => void runHeaderGitAction("pull"),
+		onGitPush: () => void runHeaderGitAction("push"),
 		repositoryStatus: {
 			workspacePath: effectiveWorkspacePath,
 			workspaceState: workspaceStateQuery.state,

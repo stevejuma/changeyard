@@ -33,7 +33,7 @@ import { VcsConsolePanel } from "@/components/vcs-console-panel";
 import { KeyValue } from "@/components/vcs-panels";
 import { useOpenWorkspace } from "@/hooks/use-open-workspace";
 import { ResizableBottomPane } from "@/resize/resizable-bottom-pane";
-import type { QueryState, RuntimeGitCommit, RuntimeProjectSummary, RuntimeProjectsResponse } from "@/runtime/types";
+import type { QueryState, RuntimeGitCommit, RuntimeGitSyncAction, RuntimeProjectSummary, RuntimeProjectsResponse } from "@/runtime/types";
 import {
 	toRuntimeQueryState,
 	useApplyVcsOperationMutation,
@@ -123,6 +123,10 @@ export type VcsShellProjectState = {
 	onRemoveProject: (projectId: string) => Promise<boolean>;
 	onClearOtherProjects: () => Promise<boolean>;
 	onOpenSettings: () => void;
+	runningGitAction?: RuntimeGitSyncAction | null;
+	onGitFetch?: () => void;
+	onGitPull?: () => void;
+	onGitPush?: () => void;
 	repositoryStatus?: VcsRepositoryStatusState;
 };
 
@@ -415,11 +419,19 @@ function VcsRepositoryStatus({
 	isGraphOpen,
 	onToggleGraph,
 	openWorkspaceControl,
+	runningGitAction,
+	onGitFetch,
+	onGitPull,
+	onGitPush,
 }: {
 	status?: VcsRepositoryStatusState;
 	isGraphOpen: boolean;
 	onToggleGraph: () => void;
 	openWorkspaceControl: ReturnType<typeof useOpenWorkspace>;
+	runningGitAction?: RuntimeGitSyncAction | null;
+	onGitFetch?: () => void;
+	onGitPull?: () => void;
+	onGitPush?: () => void;
 }): React.ReactElement | null {
 	if (!status?.workspacePath || status.workspaceState.status !== "ready") {
 		return null;
@@ -431,6 +443,9 @@ function VcsRepositoryStatus({
 			? status.diffState.data.files
 			: state.workingCopy.files;
 	const summary = summarizeFiles(files);
+	const pullCount = state.sync?.behindCount ?? 0;
+	const pushCount = state.sync?.aheadCount ?? 0;
+	const isGitActionRunning = Boolean(runningGitAction);
 	const modeTone =
 		state.mode === "conflicted"
 			? "border-status-red/40 bg-status-red/10 text-status-red"
@@ -475,12 +490,36 @@ function VcsRepositoryStatus({
 				<span className="text-status-red"> -{summary.deletions}</span>)
 			</span>
 			<div className="flex shrink-0 items-center gap-0 text-text-tertiary">
-				<Button variant="ghost" size="sm" icon={<CircleArrowDown size={16} />} aria-label="Fetch from upstream" title="Fetch from upstream" disabled />
-				<Button variant="ghost" size="sm" icon={<ArrowDown size={13} />} aria-label="Pull from upstream" title="Pull from upstream" disabled>
-					0
+				<Button
+					variant="ghost"
+					size="sm"
+					icon={runningGitAction === "fetch" ? <Spinner size={13} /> : <CircleArrowDown size={16} />}
+					aria-label="Fetch from upstream"
+					title="Fetch from upstream"
+					onClick={onGitFetch}
+					disabled={!onGitFetch || isGitActionRunning}
+				/>
+				<Button
+					variant="ghost"
+					size="sm"
+					icon={runningGitAction === "pull" ? <Spinner size={13} /> : <ArrowDown size={13} />}
+					aria-label="Pull from upstream"
+					title="Pull from upstream"
+					onClick={onGitPull}
+					disabled={!onGitPull || isGitActionRunning}
+				>
+					{pullCount}
 				</Button>
-				<Button variant="ghost" size="sm" icon={<ArrowUp size={13} />} aria-label="Push to upstream" title="Push to upstream" disabled>
-					0
+				<Button
+					variant="ghost"
+					size="sm"
+					icon={runningGitAction === "push" ? <Spinner size={13} /> : <ArrowUp size={13} />}
+					aria-label="Push to upstream"
+					title="Push to upstream"
+					onClick={onGitPush}
+					disabled={!onGitPush || isGitActionRunning}
+				>
+					{pushCount}
 				</Button>
 			</div>
 		</div>
@@ -1356,6 +1395,10 @@ export function VcsShell({
 									isGraphOpen={isRepositoryGraphOpen}
 									onToggleGraph={() => setRepositoryGraphOpen((current) => !current)}
 									openWorkspaceControl={openWorkspaceControl}
+									runningGitAction={projectState.runningGitAction}
+									onGitFetch={projectState.onGitFetch}
+									onGitPull={projectState.onGitPull}
+									onGitPush={projectState.onGitPush}
 								/>
 						</div>
 					</div>
