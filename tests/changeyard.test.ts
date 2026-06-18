@@ -63,7 +63,7 @@ import { curlJson, setHttpTransportForTests, type HttpRequest } from "../src/pro
 import { GitWorktreeEngine } from "../src/workspace/GitWorktreeEngine.js";
 import { JjWorkspaceEngine } from "../src/workspace/JjWorkspaceEngine.js";
 import { colorEnabled, createColors, parseColorChoice } from "../src/cli/color.js";
-import { readCliHelpEntry, readCliTopic, renderCliHelp } from "../src/cli/docs.js";
+import { readCliHelpEntry, readCliTopic, renderCliHelp, renderCliTopic } from "../src/cli/docs.js";
 import { renderHumanOutput } from "../src/cli/render.js";
 import type { WorkspaceMetadata } from "../src/types.js";
 
@@ -81,6 +81,10 @@ function cliBinPath(): string {
 
 function nodeBinary(): string {
   return process.argv[0] ?? "node";
+}
+
+function maxVisibleLineLength(output: string): number {
+  return Math.max(0, ...output.split(/\r?\n/).map((line) => line.replace(/\u001b\[[0-9;]*m/g, "").length));
 }
 
 function updatePlannedSection(changePath: string, sectionId: "proposal" | "spec-deltas" | "design" | "tasks" | "verification" | "clarifications" | "requirements-checklist" | "analysis", content: string): void {
@@ -553,6 +557,45 @@ test("cli docs loader reads command docs, topics, and possible values", () => {
   assert.match(topic.body, /`--color <always\|never\|auto>`/);
 });
 
+test("cli help and topic rendering wrap to terminal width", () => {
+  const previousColumns = process.env.COLUMNS;
+  process.env.COLUMNS = "56";
+  try {
+    const help = renderCliHelp({
+      name: "test",
+      command: "cy test",
+      summary: "This summary is intentionally long enough to wrap using the same terminal width semantics as regular command output.",
+      usage: ["cy test"],
+      aliases: [],
+      commands: [
+        { name: "extra-long-command", description: "This command description is intentionally long enough to wrap onto a continuation line with aligned indentation." },
+      ],
+      options: [
+        { flags: "--long-option <value>", description: "This option description is intentionally long enough to wrap onto a continuation line.", possibleValues: [] },
+      ],
+      examples: [],
+      body: "",
+    }, createColors(false));
+    assert.ok(maxVisibleLineLength(help) <= 56, help);
+    assert.match(help, /\n\s+aligned indentation/);
+
+    const topic = renderCliTopic({
+      name: "topic",
+      body: [
+        "# Topic",
+        "",
+        "This topic paragraph is intentionally long enough to wrap in the same way as doctor and other shell-oriented command output.",
+      ].join("\n"),
+    }, createColors(false));
+    assert.ok(maxVisibleLineLength(topic) <= 56, topic);
+    assert.ok(topic.split(/\r?\n/).length > 2, topic);
+    assert.match(topic, /shell-oriented\ncommand output\./);
+  } finally {
+    if (previousColumns === undefined) delete process.env.COLUMNS;
+    else process.env.COLUMNS = previousColumns;
+  }
+});
+
 test("cli color detection honors flags and environment", () => {
   assert.equal(parseColorChoice(undefined), "auto");
   assert.equal(parseColorChoice("always"), "always");
@@ -580,6 +623,24 @@ test("doctor renderer groups and wraps console output", () => {
   assert.match(output, /^Doctor ok:\n  - provider: noop\n  - workspace engine: plain-copy/m);
   assert.match(output, /^Warnings:\n  - word0/m);
   assert.ok(output.split("\n").some((line) => /^\s+word\d+/.test(line)), "long warning should wrap to an indented continuation line");
+});
+
+test("generic command renderer wraps plain shell output", () => {
+  const previousColumns = process.env.COLUMNS;
+  process.env.COLUMNS = "52";
+  try {
+    const output = renderHumanOutput({
+      command: "create",
+      positional: [],
+      colors: createColors(false),
+    }, `Created CY-0001: ${Array.from({ length: 20 }, (_, index) => `word${index}`).join(" ")}`);
+
+    assert.ok(maxVisibleLineLength(output) <= 52, output);
+    assert.ok(output.split("\n").length > 1, "long command output should wrap");
+  } finally {
+    if (previousColumns === undefined) delete process.env.COLUMNS;
+    else process.env.COLUMNS = previousColumns;
+  }
 });
 
 test("cli help describes commands and hub lifecycle", () => {
@@ -620,6 +681,183 @@ test("cli version prints the package version", () => {
   assert.equal(flag.status, 0, flag.stderr);
   assert.equal(command.stdout.trim(), packageJson.version);
   assert.equal(flag.stdout.trim(), packageJson.version);
+});
+
+test("cli unknown command suggests matching commands with descriptions", () => {
+  const closeMatch = spawnSync(nodeBinary(), [cliBinPath(), "statsu"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+  });
+  assert.notEqual(closeMatch.status, 0);
+  assert.match(closeMatch.stderr, /Unknown command: statsu/);
+  assert.match(closeMatch.stderr, /tip: similar commands exist: 'cy status'/);
+  assert.match(closeMatch.stderr, /Matching commands:\n  cy status\s+Print one change summary/);
+  assert.match(closeMatch.stderr, /Run cy help status for details/);
+  assert.doesNotMatch(closeMatch.stderr, /cy create\s+Create a local markdown change/);
+  assert.doesNotMatch(closeMatch.stderr, /Changeyard is a markdown-first local change workflow manager/);
+
+  const prefixMatch = spawnSync(nodeBinary(), [cliBinPath(), "stat"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+  });
+  assert.notEqual(prefixMatch.status, 0);
+  assert.match(prefixMatch.stderr, /tip: similar commands exist: 'cy status'/);
+  assert.match(prefixMatch.stderr, /cy status\s+Print one change summary/);
+
+  const noCloseMatch = spawnSync(nodeBinary(), [cliBinPath(), "frobnicate"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+  });
+  assert.notEqual(noCloseMatch.status, 0);
+  assert.match(noCloseMatch.stderr, /Unknown command: frobnicate/);
+  assert.match(noCloseMatch.stderr, /no similar commands were found/);
+  assert.match(noCloseMatch.stderr, /cy --help/);
+  assert.doesNotMatch(noCloseMatch.stderr, /Available commands:/);
+});
+
+test("cli unknown command suggestions are included in json errors", () => {
+  const result = spawnSync(nodeBinary(), [cliBinPath(), "--json", "statsu"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+  });
+  assert.notEqual(result.status, 0);
+  const payload = JSON.parse(result.stderr) as { ok: boolean; error: { message: string } };
+  assert.equal(payload.ok, false);
+  assert.match(payload.error.message, /Unknown command: statsu/);
+  assert.match(payload.error.message, /tip: similar commands exist: 'cy status'/);
+  assert.match(payload.error.message, /Matching commands:\n  cy status\s+Print one change summary/);
+  assert.doesNotMatch(payload.error.message, /\u001b\[[0-9;]*m/);
+});
+
+test("cli guidance suggests help topics and stays json-safe", () => {
+  const result = spawnSync(nodeBinary(), [cliBinPath(), "--json", "help", "-k", "hook"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+  });
+
+  assert.notEqual(result.status, 0);
+  const payload = JSON.parse(result.stderr) as { ok: boolean; error: { message: string } };
+  assert.equal(payload.ok, false);
+  assert.match(payload.error.message, /Invalid help topic: hook/);
+  assert.match(payload.error.message, /tip: similar values exist: 'hooks'/);
+  assert.match(payload.error.message, /Available values:/);
+  assert.match(payload.error.message, /color, config, hooks, planning, tools, workflow/);
+  assert.doesNotMatch(payload.error.message, /\u001b\[[0-9;]*m/);
+});
+
+test("cli nested command errors suggest matching subcommands", () => {
+  const result = spawnSync(nodeBinary(), [cliBinPath(), "workspace", "stats", "001"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Unknown cy workspace command: stats/);
+  assert.match(result.stderr, /tip: similar commands exist: 'cy workspace status'/);
+  assert.match(result.stderr, /Available commands:/);
+  assert.match(result.stderr, /cy workspace status\s+Show one workspace status/);
+  assert.match(result.stderr, /Run cy workspace --help for details/);
+});
+
+test("cli finite option errors suggest valid values", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "agent-task", title: "Guided finite values" }, repo);
+
+    const gate = spawnSync(nodeBinary(), [cliBinPath(), "validate", "001", "--gate", "starts"], {
+      cwd: repo,
+      encoding: "utf8",
+    });
+    assert.notEqual(gate.status, 0);
+    assert.match(gate.stderr, /Invalid --gate: starts/);
+    assert.match(gate.stderr, /tip: similar values exist: 'start'/);
+    assert.match(gate.stderr, /Available values:/);
+    assert.match(gate.stderr, /document, sync, start, complete/);
+
+    const format = spawnSync(nodeBinary(), [cliBinPath(), "plan", "export", "001", "--format", "openspecs"], {
+      cwd: repo,
+      encoding: "utf8",
+    });
+    assert.notEqual(format.status, 0);
+    assert.match(format.stderr, /Invalid --format: openspecs/);
+    assert.match(format.stderr, /tip: similar values exist: 'openspec'/);
+
+    const event = spawnSync(nodeBinary(), [cliBinPath(), "hooks", "ingest", "--event", "review", "--task-id", "001"], {
+      cwd: repo,
+      encoding: "utf8",
+    });
+    assert.notEqual(event.status, 0);
+    assert.match(event.stderr, /Invalid --event: review/);
+    assert.match(event.stderr, /to_review, to_in_progress, activity/);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("cli invalid review decision is rejected before mutation", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "agent-task", title: "Guided review decision" }, repo);
+    runReviewStart("CY-0001", repo);
+    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-guided-review-decision.md");
+    const reviewPath = path.join(repo, ".changeyard", "reviews", "CY-0001", "review-001.md");
+    const beforeChange = readFileSync(changePath, "utf8");
+    const beforeReview = readFileSync(reviewPath, "utf8");
+
+    const result = spawnSync(nodeBinary(), [cliBinPath(), "review", "complete", "001", "--decision", "approvee"], {
+      cwd: repo,
+      encoding: "utf8",
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /Invalid --decision: approvee/);
+    assert.match(result.stderr, /tip: similar values exist: 'approve'/);
+    assert.equal(readFileSync(changePath, "utf8"), beforeChange);
+    assert.equal(readFileSync(reviewPath, "utf8"), beforeReview);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("cli task id errors include usage and list guidance", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "agent-task", title: "Guided task ids" }, repo);
+
+    const missing = spawnSync(nodeBinary(), [cliBinPath(), "status"], {
+      cwd: repo,
+      encoding: "utf8",
+    });
+    assert.notEqual(missing.status, 0);
+    assert.match(missing.stderr, /Missing task id/);
+    assert.match(missing.stderr, /Usage: cy status <id>/);
+    assert.match(missing.stderr, /cy list/);
+
+    const unknown = spawnSync(nodeBinary(), [cliBinPath(), "status", "999"], {
+      cwd: repo,
+      encoding: "utf8",
+    });
+    assert.notEqual(unknown.status, 0);
+    assert.match(unknown.stderr, /Change not found: 999/);
+    assert.match(unknown.stderr, /cy list/);
+    assert.match(unknown.stderr, /full or partial task id/);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("cli unknown command suggestions honor forced color", () => {
+  const result = spawnSync(nodeBinary(), [cliBinPath(), "--color", "always", "stat"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /\u001b\[[0-9;]*m/);
+  assert.match(result.stderr, /tip:/);
+  assert.match(result.stderr, /cy status/);
 });
 
 test("cli help supports nested docs, topics, and forced color", () => {
@@ -768,6 +1006,7 @@ test("cli dashboard command is removed", () => {
 
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /cy dashboard was removed/);
+  assert.doesNotMatch(result.stderr, /Available commands:/);
 });
 
 test("create can generate an openspec-lite planned change", () => {

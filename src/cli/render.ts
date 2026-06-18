@@ -3,50 +3,13 @@ import type { NextAction } from "../commands/next.js";
 import type { WorkspaceStatus } from "../commands/workspace.js";
 import type { ChangeSummary } from "../types.js";
 import type { CliColors } from "./color.js";
+import { pushWrapped, terminalWrapWidth, wrapRenderedText } from "./text.js";
 
 export type RenderContext = {
   command: string;
   positional: string[];
   colors: CliColors;
 };
-
-const DEFAULT_WRAP_WIDTH = 88;
-const MIN_WRAP_WIDTH = 48;
-
-function terminalWrapWidth(): number {
-  const columns = Number(process.stdout?.columns ?? process.env.COLUMNS ?? 0);
-  if (!Number.isFinite(columns) || columns <= 0) return DEFAULT_WRAP_WIDTH;
-  return Math.max(MIN_WRAP_WIDTH, columns);
-}
-
-function stripAnsi(value: string): string {
-  return value.replace(/\u001b\[[0-9;]*m/g, "");
-}
-
-function wrapText(value: string, width: number): string[] {
-  const words = value.trim().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return [""];
-
-  const lines: string[] = [];
-  let current = "";
-  for (const word of words) {
-    const candidate = current ? `${current} ${word}` : word;
-    if (stripAnsi(candidate).length <= width || !current) {
-      current = candidate;
-      continue;
-    }
-    lines.push(current);
-    current = word;
-  }
-  if (current) lines.push(current);
-  return lines;
-}
-
-function pushWrapped(lines: string[], prefix: string, value: string, width: number, continuationPrefix = " ".repeat(stripAnsi(prefix).length)): void {
-  const wrapped = wrapText(value, Math.max(20, width - stripAnsi(prefix).length));
-  lines.push(`${prefix}${wrapped[0] ?? ""}`);
-  for (const line of wrapped.slice(1)) lines.push(`${continuationPrefix}${line}`);
-}
 
 function pushSection(lines: string[], title: string, items: string[], width: number): void {
   if (lines.length > 0 && lines[lines.length - 1] !== "") lines.push("");
@@ -171,10 +134,10 @@ function renderWorkspace(status: WorkspaceStatus, colors: CliColors): string {
 }
 
 function renderTable(rows: string[][], colors: CliColors): string {
-  const widths = rows[0].map((_, index) => Math.max(...rows.map((row) => stripAnsi(row[index] ?? "").length)));
+  const widths = rows[0].map((_, index) => Math.max(...rows.map((row) => row[index]?.replace(/\u001b\[[0-9;]*m/g, "").length ?? 0)));
   return rows.map((row, rowIndex) => row.map((cell, index) => {
     const value = rowIndex === 0 ? colors.bold(cell) : cell;
-    return value + " ".repeat(Math.max(0, widths[index] - stripAnsi(value).length));
+    return value + " ".repeat(Math.max(0, widths[index] - value.replace(/\u001b\[[0-9;]*m/g, "").length));
   }).join("  ").trimEnd()).join("\n");
 }
 
@@ -185,16 +148,17 @@ function renderTabTable(output: string, headers: string[], colors: CliColors): s
 }
 
 function renderSuccessString(output: string, colors: CliColors): string {
-  if (!colors.enabled) return output;
-  if (/^(Created|Updated|Synced|Started|Verified|Completed|Landed|Deleted|Installed|Uninstalled|Valid change)/.test(output)) {
-    return output.split(/\r?\n/).map((line, index) => {
+  let rendered = output;
+  if (colors.enabled && /^(Created|Updated|Synced|Started|Verified|Completed|Landed|Deleted|Installed|Uninstalled|Valid change)/.test(output)) {
+    rendered = output.split(/\r?\n/).map((line, index) => {
       if (index === 0) return `${colors.green("✓")} ${line}`;
       if (line.startsWith("Next:")) return `${colors.green("→")} ${colors.green(line)}`;
       return line;
     }).join("\n");
+    return wrapRenderedText(rendered);
   }
-  if (output.startsWith("Dry-run:")) return colors.yellow(output);
-  return output;
+  if (colors.enabled && output.startsWith("Dry-run:")) rendered = colors.yellow(output);
+  return wrapRenderedText(rendered);
 }
 
 export function renderHumanOutput(context: RenderContext, output: unknown): string {

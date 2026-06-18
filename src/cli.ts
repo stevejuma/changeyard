@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { existsSync, readdirSync } from "node:fs";
+import path from "node:path";
 import { runCompletions } from "./commands/completions.js";
 import { runComplete } from "./commands/complete.js";
 import { doctorReport, runDoctor } from "./commands/doctor.js";
@@ -21,7 +23,7 @@ import { runUpdate } from "./commands/update.js";
 import { listChanges, runList } from "./commands/list.js";
 import { getNextAction, runNext } from "./commands/next.js";
 import { runRecover } from "./commands/recover.js";
-import { runReviewComplete, runReviewStart } from "./commands/review.js";
+import { runReviewComplete, runReviewStart, type ReviewDecision } from "./commands/review.js";
 import { attachSession, runSession } from "./commands/session.js";
 import { runStart } from "./commands/start.js";
 import { getStatus, runStatus } from "./commands/status.js";
@@ -34,15 +36,28 @@ import { runVerify } from "./commands/verify.js";
 import { runVersion } from "./commands/version.js";
 import { deleteWorkspace, getWorkspaceStatus, listWorkspaceStatuses, runWorkspaceList, runWorkspaceStatus } from "./commands/workspace.js";
 import { runInstallCli, runUninstallCli } from "./commands/install-cli.js";
-import { findRepoRoot } from "./config/loadConfig.js";
+import { findRepoRoot, loadConfig } from "./config/loadConfig.js";
 import { errorCode, errorExitCode } from "./errors.js";
-import { colorEnabled, createColors, parseColorChoice } from "./cli/color.js";
-import { readCliHelpEntry, readCliTopic, renderCliHelp, renderCliTopic } from "./cli/docs.js";
+import { colorEnabled, createColors, parseColorChoice, type CliColors } from "./cli/color.js";
+import { listCliTopics, readCliHelpEntry, readCliTopic, renderCliHelp, renderCliTopic, type CliHelpEntry } from "./cli/docs.js";
+import {
+  appendFallbackGuidance,
+  appendTip,
+  formatChoiceGuidance,
+  formatMissingGuidance,
+  formatQuotedList,
+  suggestValues,
+  type GuidanceChoice,
+} from "./cli/guidance.js";
 import { renderHumanOutput } from "./cli/render.js";
-import type { PlanningModel } from "./planning/types.js";
+import { pushWrapped, terminalWrapWidth } from "./cli/text.js";
+import { PLANNING_MODELS, PLANNING_SECTION_IDS, type PlanningModel } from "./planning/types.js";
+import { PLANNING_ADAPTER_FORMATS, type PlanningAdapterFormat } from "./planning/adapters.js";
 import type { ValidationGate } from "./planning/validation.js";
 import type { CreateOptions } from "./commands/create.js";
+import { AGENT_TOOL_IDS } from "./scaffold/agent-tools.js";
 import { readWorkspaceMetadata } from "./workspace/marker.js";
+import { storageRoot } from "./paths.js";
 
 type CommandName = "init" | "update" | "create" | "quick" | "validate" | "sync" | "start" | "verify" | "hydrate" | "complete" | "next" | "land" | "workspace" | "review" | "doctor" | "completions" | "recover" | "list" | "status" | "plan" | "ui" | "server" | "dashboard" | "hub" | "tui" | "config" | "hooks" | "session" | "install" | "uninstall" | "version" | "help";
 
@@ -58,6 +73,36 @@ type MutationOptions = {
   fix?: boolean;
   verbose?: boolean;
 };
+
+const BOOLEAN_FLAGS = new Set([
+  "dashboard",
+  "debug",
+  "dry-run",
+  "fix",
+  "force",
+  "h",
+  "help",
+  "json",
+  "kanban",
+  "no-code-change",
+  "no-open",
+  "no-planning",
+  "no-pr",
+  "open",
+  "quiet",
+  "quick",
+  "smoke-create-all",
+  "smoke-test",
+  "strict",
+  "tui",
+  "vcs",
+  "verbose",
+  "version",
+]);
+const VALIDATION_GATES = ["document", "sync", "start", "complete"] as const;
+const REVIEW_DECISIONS = ["approve", "request-changes", "reject", "comment"] as const;
+const HOOK_EVENTS = ["to_review", "to_in_progress", "activity"] as const;
+const ROOT_LAUNCH_TARGETS = ["--tui", "--dashboard", "--kanban", "--vcs"] as const;
 
 function normalizeRootArg(arg: string): string {
   if (arg === "-i") return "--tui";
@@ -85,7 +130,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 
     const [rawKey, rawValue] = arg.slice(2).split("=", 2);
     const next = rest[i + 1];
-    const value = rawValue ?? (next !== undefined && !next.startsWith("--") ? rest[++i] : true);
+    const value = rawValue ?? (BOOLEAN_FLAGS.has(rawKey) ? true : next !== undefined && !next.startsWith("--") ? rest[++i] : true);
 
     if (rawKey === "label") {
       const existing = flags.label;
@@ -153,12 +198,15 @@ function createOptionsFromFlags(
   };
 }
 
+const COMMAND_ALIASES: Record<string, CommandName> = {
+  new: "create",
+  begin: "start",
+  check: "verify",
+  done: "complete",
+};
+
 function commandBaseName(command: string): CommandName {
-  if (command === "new") return "create";
-  if (command === "begin") return "start";
-  if (command === "check") return "verify";
-  if (command === "done") return "complete";
-  return command as CommandName;
+  return COMMAND_ALIASES[command] ?? (command as CommandName);
 }
 
 function removedInvocationMessage(command: string): string | null {
@@ -168,6 +216,188 @@ function removedInvocationMessage(command: string): string | null {
   if (command === "server") return "cy server was removed. Use `cy hub` instead.";
   if (command === "view" || command === "menu") return `cy ${command} was removed. Use \`cy --tui\` or \`cy -i\` instead.`;
   return null;
+}
+
+type CommandSuggestion = {
+  name: string;
+  description: string;
+};
+
+function commandDescriptions(rootHelp: CliHelpEntry): Map<string, string> {
+  return new Map(rootHelp.commands.map((entry) => [entry.name, entry.description]));
+}
+
+function commandSuggestionCandidates(rootHelp: CliHelpEntry): Array<GuidanceChoice & { command?: string }> {
+  const descriptions = commandDescriptions(rootHelp);
+  return [
+    ...rootHelp.commands.map((command) => ({ value: command.name, description: command.description })),
+    ...Object.entries(COMMAND_ALIASES).map(([input, command]) => ({
+      value: input,
+      description: descriptions.get(command) ?? "",
+      command,
+    })),
+  ];
+}
+
+function suggestedCommands(input: string, rootHelp: CliHelpEntry): CommandSuggestion[] {
+  const descriptions = commandDescriptions(rootHelp);
+  const suggestions: CommandSuggestion[] = [];
+  const seen = new Set<string>();
+  for (const candidate of suggestValues(input, commandSuggestionCandidates(rootHelp))) {
+    const command = "command" in candidate && typeof candidate.command === "string" ? candidate.command : candidate.value;
+    if (seen.has(command)) continue;
+    seen.add(command);
+    suggestions.push({ name: command, description: descriptions.get(command) ?? candidate.description ?? "" });
+  }
+  return suggestions.slice(0, 3);
+}
+
+function formatUnknownCommandMessage(input: string, rootHelp: CliHelpEntry, colors: CliColors): string {
+  const suggestions = suggestedCommands(input, rootHelp);
+  const width = terminalWrapWidth();
+  const lines = [`Unknown command: ${colors.yellow(input)}`];
+  if (suggestions.length > 0) {
+    lines.push("");
+    pushWrapped(lines, `${colors.green("tip:")} `, `similar commands exist: ${formatQuotedList(suggestions.map((suggestion) => `cy ${suggestion.name}`), colors)}`, width);
+    lines.push("");
+    lines.push(`${colors.bold("Matching commands:")}`);
+    for (const suggestion of suggestions) {
+      pushWrapped(lines, `  ${colors.green(`cy ${suggestion.name}`)}  `, suggestion.description, width);
+    }
+    lines.push("");
+    pushWrapped(lines, "", `Run ${colors.bold(`cy help ${suggestions[0].name}`)} for details.`, width);
+  } else {
+    lines.push("");
+    pushWrapped(lines, `${colors.green("tip:")} `, `no similar commands were found. Run ${colors.bold("cy --help")} to list commands.`, width);
+  }
+  return lines.join("\n");
+}
+
+function choiceValues(values: readonly string[]): GuidanceChoice[] {
+  return values.map((value) => ({ value }));
+}
+
+function validateChoice<T extends string>(value: string | undefined, label: string, values: readonly T[], colors: CliColors, helpCommand?: string): T | undefined {
+  if (value === undefined || value === "") return undefined;
+  if ((values as readonly string[]).includes(value)) return value as T;
+  throw new Error(formatChoiceGuidance({
+    label,
+    value,
+    choices: choiceValues(values),
+    colors,
+    helpCommand,
+  }));
+}
+
+function requireChoice<T extends string>(value: string | undefined, label: string, values: readonly T[], colors: CliColors, helpCommand?: string): T {
+  const validated = validateChoice(value, label, values, colors, helpCommand);
+  if (validated) return validated;
+  throw new Error(formatMissingGuidance({
+    message: `Missing ${label}.`,
+    tips: [`use one of: ${values.join(", ")}.`, helpCommand ? `Run ${helpCommand} for details.` : ""].filter(Boolean),
+    colors,
+  }));
+}
+
+function validateCommaChoices(value: string | undefined, label: string, values: readonly string[], colors: CliColors, helpCommand?: string): void {
+  if (value === undefined || value.trim() === "") return;
+  const aliases = ["all", "none"];
+  const allowed = [...values, ...aliases];
+  for (const part of value.split(",")) {
+    const trimmed = part.trim().toLowerCase();
+    if (!trimmed) continue;
+    if (!allowed.includes(trimmed)) {
+      throw new Error(formatChoiceGuidance({
+        label,
+        value: trimmed,
+        choices: choiceValues(allowed),
+        colors,
+        helpCommand,
+      }));
+    }
+  }
+}
+
+function validateSubcommand(input: {
+  commandPath: string;
+  value: string;
+  subcommands: readonly GuidanceChoice[];
+  colors: CliColors;
+  helpCommand: string;
+}): string {
+  if (input.value && input.subcommands.some((choice) => choice.value === input.value)) return input.value;
+  const message = input.value ? `Unknown ${input.commandPath} command: ${input.value}` : `Missing ${input.commandPath} command.`;
+  const suggestions = input.value ? suggestValues(input.value, input.subcommands) : [];
+  const lines = [message, ""];
+  if (suggestions.length > 0) {
+    appendTip(lines, `similar commands exist: ${formatQuotedList(suggestions.map((choice) => `${input.commandPath} ${choice.value}`), input.colors)}`, input.colors);
+  } else {
+    appendTip(lines, `use one of: ${input.subcommands.map((choice) => choice.value).join(", ")}.`, input.colors);
+  }
+  lines.push("");
+  lines.push(input.colors.bold("Available commands:"));
+  for (const subcommand of input.subcommands) {
+    pushWrapped(lines, `  ${input.colors.green(`${input.commandPath} ${subcommand.value}`)}  `, subcommand.description ?? "", terminalWrapWidth());
+  }
+  lines.push("");
+  pushWrapped(lines, "", `Run ${input.colors.bold(input.helpCommand)} for details.`, terminalWrapWidth());
+  throw new Error(lines.join("\n"));
+}
+
+function formatUnknownHelpTopic(topic: string, colors: CliColors): string {
+  const topics = listCliTopics();
+  return formatChoiceGuidance({
+    label: "help topic",
+    value: topic,
+    choices: choiceValues(topics),
+    colors,
+    helpCommand: "cy help --help",
+  });
+}
+
+function requireTaskId(commandUsage: string, id: string | undefined, colors: CliColors): string {
+  const value = id?.trim() ?? "";
+  if (value) return value;
+  throw new Error(formatMissingGuidance({
+    message: "Missing task id.",
+    tips: [
+      `Usage: ${commandUsage}`,
+      "Run cy list to see available tasks, then retry with the full or partial task id.",
+    ],
+    colors,
+  }));
+}
+
+function availableTemplateChoices(repoRoot: string): GuidanceChoice[] {
+  try {
+    const config = loadConfig(repoRoot);
+    const templatesDir = path.join(storageRoot(repoRoot, config), "templates");
+    if (!existsSync(templatesDir)) return [];
+    return readdirSync(templatesDir)
+      .filter((entry) => entry.endsWith(".md"))
+      .map((entry) => ({ value: path.basename(entry, ".md") }))
+      .sort((left, right) => left.value.localeCompare(right.value));
+  } catch {
+    return [];
+  }
+}
+
+function validateTemplate(value: string | undefined, repoRoot: string, colors: CliColors, helpCommand: string): void {
+  if (value === undefined || value === "") return;
+  const choices = availableTemplateChoices(repoRoot);
+  if (choices.length === 0 || choices.some((choice) => choice.value === value)) return;
+  throw new Error(formatChoiceGuidance({
+    label: "--template",
+    value,
+    choices,
+    colors,
+    helpCommand,
+  }));
+}
+
+function validateCreateFlags(flags: Record<string, string | boolean | string[]>, repoRoot: string, colors: CliColors, helpCommand: string): void {
+  validateTemplate(stringFlag(flags, "template"), repoRoot, colors, helpCommand);
+  validateChoice(stringFlag(flags, "planning"), "--planning", PLANNING_MODELS, colors, helpCommand);
 }
 
 function countRootLaunchFlags(flags: Record<string, string | boolean | string[]>): number {
@@ -209,9 +439,27 @@ async function main(): Promise<void> {
   const verbose = asBooleanFlag(args.flags, "verbose");
   const dryRun = asBooleanFlag(args.flags, "dry-run");
   const fix = asBooleanFlag(args.flags, "fix");
-  const colorChoice = parseColorChoice(stringFlag(args.flags, "color"));
+  const rawColorChoice = stringFlag(args.flags, "color");
+  let colorChoice: ReturnType<typeof parseColorChoice>;
+  try {
+    colorChoice = parseColorChoice(rawColorChoice);
+  } catch {
+    const colors = createColors(false);
+    const message = formatChoiceGuidance({
+      label: "--color",
+      value: rawColorChoice ?? "",
+      choices: choiceValues(["always", "never", "auto"]),
+      colors,
+      helpCommand: "cy --help",
+    });
+    if (json) console.error(JSON.stringify({ ok: false, error: { code: "CHANGEYARD_ERROR", message } }, null, 2));
+    else if (!quiet) console.error(`CHANGEYARD_ERROR: ${message}`);
+    process.exitCode = 1;
+    return;
+  }
   const colors = createColors(!json && colorEnabled({ choice: colorChoice, stream: process.stdout }));
   const errorColors = createColors(!json && colorEnabled({ choice: colorChoice, stream: process.stderr }));
+  const guidanceColors = json ? createColors(false) : errorColors;
   const shouldShowText = !(quiet && !json);
   const mutationOptions: MutationOptions = { dryRun, fix, verbose };
   const projectRoot = stringFlag(args.flags, "project");
@@ -250,7 +498,11 @@ async function main(): Promise<void> {
       throw new Error(removedMessage);
     }
     if (rootLaunchFlags > 1) {
-      throw new Error("Choose only one launch target: --tui, --dashboard, --kanban, or --vcs.");
+      throw new Error(formatMissingGuidance({
+        message: "Choose only one launch target.",
+        tips: [`Use one of: ${ROOT_LAUNCH_TARGETS.join(", ")}.`],
+        colors: guidanceColors,
+      }));
     }
     if (args.explicitCommand && rootLaunchFlags > 0) {
       throw new Error("Launch flags must be used without a subcommand. Use `cy --tui`, `cy --dashboard`, `cy --kanban`, or `cy --vcs`.");
@@ -292,60 +544,90 @@ async function main(): Promise<void> {
 
     switch (command) {
       case "init":
+        validateCommaChoices(stringFlag(args.flags, "tools"), "--tools", AGENT_TOOL_IDS, guidanceColors, "cy init --help");
         output = runInit(repoRoot, { dryRun, tools: stringFlag(args.flags, "tools") });
         break;
       case "update":
+        validateCommaChoices(stringFlag(args.flags, "tools"), "--tools", AGENT_TOOL_IDS, guidanceColors, "cy update --help");
         output = runUpdate(repoRoot, { dryRun, tools: stringFlag(args.flags, "tools") });
         break;
       case "create": {
+        validateCreateFlags(args.flags, repoRoot, guidanceColors, "cy create --help");
         output = json ? createChange(createOptionsFromFlags(args.flags), repoRoot, { dryRun }) : runCreate(createOptionsFromFlags(args.flags), repoRoot, { dryRun });
         break;
       }
       case "quick": {
+        validateCreateFlags(args.flags, repoRoot, guidanceColors, "cy quick --help");
         output = json ? createChange(createOptionsFromFlags(args.flags, { template: "quick" }), repoRoot, { dryRun }) : runCreate(createOptionsFromFlags(args.flags, { template: "quick" }), repoRoot, { dryRun });
         break;
       }
-      case "validate":
-        output = runValidate(args.positional[0] ?? "", rootForChange(args.positional[0] ?? ""), { gate: stringFlag(args.flags, "gate") as ValidationGate | undefined });
+      case "validate": {
+        const id = requireTaskId("cy validate <id> [--gate <document|sync|start|complete>]", args.positional[0], guidanceColors);
+        const gate = validateChoice(stringFlag(args.flags, "gate"), "--gate", VALIDATION_GATES, guidanceColors, "cy validate --help") as ValidationGate | undefined;
+        output = runValidate(id, rootForChange(id), { gate });
         break;
-      case "sync":
-        output = runSync(args.positional[0] ?? "", rootForChange(args.positional[0] ?? ""), { dryRun });
+      }
+      case "sync": {
+        const id = requireTaskId("cy sync <id>", args.positional[0], guidanceColors);
+        output = runSync(id, rootForChange(id), { dryRun });
         break;
-      case "start":
-        output = runStart(args.positional[0] ?? "", rootForChange(args.positional[0] ?? ""), { dryRun });
+      }
+      case "start": {
+        const id = requireTaskId("cy start <id>", args.positional[0], guidanceColors);
+        output = runStart(id, rootForChange(id), { dryRun });
         break;
-      case "verify":
-        output = runVerify(args.positional[0] ?? "", process.cwd());
+      }
+      case "verify": {
+        const id = requireTaskId("cy verify <id>", args.positional[0], guidanceColors);
+        output = runVerify(id, process.cwd());
         break;
-      case "hydrate":
-        output = runHydrate(args.positional[0] ?? "", process.cwd(), { dryRun });
+      }
+      case "hydrate": {
+        const id = requireTaskId("cy hydrate <id>", args.positional[0], guidanceColors);
+        output = runHydrate(id, process.cwd(), { dryRun });
         break;
-      case "complete":
-        output = runComplete(args.positional[0] ?? "", {
+      }
+      case "complete": {
+        const id = requireTaskId("cy complete <id>", args.positional[0], guidanceColors);
+        output = runComplete(id, {
           noPr: args.flags["no-pr"] === true || args.flags["no-pr"] === "true",
           noCodeChange: args.flags["no-code-change"] === true || args.flags["no-code-change"] === "true",
           profile: stringFlag(args.flags, "profile"),
           dryRun,
         }, process.cwd());
         break;
-      case "next":
-        output = json || colors.enabled ? getNextAction(args.positional[0] ?? "", rootForChange(args.positional[0] ?? "")) : runNext(args.positional[0] ?? "", rootForChange(args.positional[0] ?? ""));
+      }
+      case "next": {
+        const id = requireTaskId("cy next <id>", args.positional[0], guidanceColors);
+        output = json || colors.enabled ? getNextAction(id, rootForChange(id)) : runNext(id, rootForChange(id));
         break;
-      case "land":
-        output = runLand(args.positional[0] ?? "", {
+      }
+      case "land": {
+        const id = requireTaskId("cy land <id>", args.positional[0], guidanceColors);
+        output = runLand(id, {
           target: stringFlag(args.flags, "target"),
           dryRun,
           keepWorkspace: asBooleanFlag(args.flags, "keep-workspace"),
-        }, rootForChange(args.positional[0] ?? ""));
+        }, rootForChange(id));
         break;
+      }
       case "workspace": {
-        const subcommand = args.positional[0] ?? "";
-        const id = args.positional[1] ?? "";
+        const subcommand = validateSubcommand({
+          commandPath: "cy workspace",
+          value: args.positional[0] ?? "",
+          subcommands: [
+            { value: "status", description: "Show one workspace status." },
+            { value: "list", description: "List workspace statuses." },
+            { value: "delete", description: "Delete a workspace." },
+          ],
+          colors: guidanceColors,
+          helpCommand: "cy workspace --help",
+        });
+        const id = subcommand === "list" ? "" : requireTaskId(`cy workspace ${subcommand} <id>`, args.positional[1], guidanceColors);
         const workspaceRepoRoot = id ? rootForChange(id) : repoRoot;
         if (subcommand === "status") output = json || colors.enabled ? getWorkspaceStatus(id, workspaceRepoRoot) : runWorkspaceStatus(id, workspaceRepoRoot);
         else if (subcommand === "list") output = json ? listWorkspaceStatuses(repoRoot) : runWorkspaceList(repoRoot);
         else if (subcommand === "delete") output = deleteWorkspace(id, { dryRun, force: asBooleanFlag(args.flags, "force") }, workspaceRepoRoot);
-        else throw new Error("Unknown workspace command. Expected: cy workspace status <id>, cy workspace list, or cy workspace delete <id>");
         break;
       }
       case "doctor": {
@@ -361,50 +643,72 @@ async function main(): Promise<void> {
       case "completions":
         output = runCompletions();
         break;
-      case "recover":
-        output = runRecover(args.positional[0] ?? "", repoRoot, { dryRun });
+      case "recover": {
+        const id = requireTaskId("cy recover <id|all>", args.positional[0], guidanceColors);
+        output = runRecover(id, repoRoot, { dryRun });
         break;
+      }
       case "review": {
-        const subcommand = args.positional[0] ?? "";
-        const id = args.positional[1] ?? "";
+        const subcommand = validateSubcommand({
+          commandPath: "cy review",
+          value: args.positional[0] ?? "",
+          subcommands: [
+            { value: "start", description: "Open a review document for a task." },
+            { value: "complete", description: "Complete the active review with a decision." },
+          ],
+          colors: guidanceColors,
+          helpCommand: "cy review --help",
+        });
+        const id = requireTaskId(`cy review ${subcommand} <id>`, args.positional[1], guidanceColors);
         if (subcommand === "start") output = runReviewStart(id, repoRoot, { dryRun });
-        else if (subcommand === "complete") output = runReviewComplete(id, stringFlag(args.flags, "decision") as "approve" | "request-changes" | "reject", repoRoot, { dryRun });
-        else throw new Error("Unknown review command. Expected: cy review start <id> or cy review complete <id> --decision <approve|request-changes|reject>");
+        else if (subcommand === "complete") {
+          const decision = requireChoice(stringFlag(args.flags, "decision"), "--decision", REVIEW_DECISIONS, guidanceColors, "cy review complete --help") as ReviewDecision;
+          output = runReviewComplete(id, decision, repoRoot, { dryRun });
+        }
         break;
       }
       case "list":
         output = json ? listChanges(repoRoot) : runList(repoRoot, { planning: asBooleanFlag(args.flags, "planning") });
         break;
-      case "status":
-        output = json || colors.enabled ? getStatus(args.positional[0] ?? "", rootForChange(args.positional[0] ?? "")) : runStatus(args.positional[0] ?? "", rootForChange(args.positional[0] ?? ""));
+      case "status": {
+        const id = requireTaskId("cy status <id>", args.positional[0], guidanceColors);
+        output = json || colors.enabled ? getStatus(id, rootForChange(id)) : runStatus(id, rootForChange(id));
         break;
+      }
       case "plan": {
-        const subcommand = args.positional[0] ?? "";
-        const id = args.positional[1] ?? "";
+        const subcommand = validateSubcommand({
+          commandPath: "cy plan",
+          value: args.positional[0] ?? "",
+          subcommands: [
+            { value: "status", description: "Show planning status for a task." },
+            { value: "prompt", description: "Print a planning prompt section." },
+            { value: "strict", description: "Enable or disable strict planning." },
+            { value: "export", description: "Export planning mirrors." },
+            { value: "import", description: "Import planning mirrors." },
+          ],
+          colors: guidanceColors,
+          helpCommand: "cy plan --help",
+        });
+        const id = subcommand === "strict" ? "" : requireTaskId(`cy plan ${subcommand} <id>`, args.positional[1], guidanceColors);
         if (subcommand === "status") output = json || colors.enabled ? getPlanStatus(id, rootForChange(id)) : runPlanStatus(id, rootForChange(id));
         else if (subcommand === "prompt") {
-          const section = args.positional[2] as import("./planning/types.js").PlanningSectionId | undefined;
-          if (!section) throw new Error("Missing planning section. Expected: cy plan prompt <id> <section>");
+          const section = requireChoice(args.positional[2], "planning section", PLANNING_SECTION_IDS, guidanceColors, "cy plan prompt --help");
           output = json ? getPlanPrompt(id, section, rootForChange(id)) : runPlanPrompt(id, section, rootForChange(id));
         }
         else if (subcommand === "export") {
-          const format = stringFlag(args.flags, "format") as import("./planning/adapters.js").PlanningAdapterFormat | undefined;
-          if (!format) throw new Error("Missing adapter format. Expected: cy plan export <id> --format <openspec|speckit>");
+          const format = requireChoice(stringFlag(args.flags, "format"), "--format", PLANNING_ADAPTER_FORMATS, guidanceColors, "cy plan export --help") as PlanningAdapterFormat;
           output = runPlanExport(id, format, rootForChange(id), { dryRun });
         }
         else if (subcommand === "import") {
-          const format = stringFlag(args.flags, "format") as import("./planning/adapters.js").PlanningAdapterFormat | undefined;
-          if (!format) throw new Error("Missing adapter format. Expected: cy plan import <id> --format <openspec|speckit>");
+          const format = requireChoice(stringFlag(args.flags, "format"), "--format", PLANNING_ADAPTER_FORMATS, guidanceColors, "cy plan import --help") as PlanningAdapterFormat;
           output = runPlanImport(id, format, rootForChange(id), { dryRun });
         }
         else if (subcommand === "strict") {
-          const strictAction = args.positional[1] ?? "";
-          const strictId = args.positional[2] ?? "";
+          const strictAction = requireChoice(args.positional[1], "strict action", ["enable", "disable"] as const, guidanceColors, "cy plan strict --help");
+          const strictId = requireTaskId(`cy plan strict ${strictAction} <id>`, args.positional[2], guidanceColors);
           if (strictAction === "enable") output = runPlanStrictEnable(strictId, rootForChange(strictId), { dryRun });
           else if (strictAction === "disable") output = runPlanStrictDisable(strictId, rootForChange(strictId), { dryRun });
-          else throw new Error("Unknown strict plan command. Expected: cy plan strict <enable|disable> <id>");
         }
-        else throw new Error("Unknown plan command. Expected: cy plan status <id>, cy plan prompt <id> <section>, cy plan strict <enable|disable> <id>, cy plan export <id> --format <openspec|speckit>, or cy plan import <id> --format <openspec|speckit>");
         break;
       }
       case "ui": {
@@ -418,18 +722,29 @@ async function main(): Promise<void> {
           port: parsePortFlag(args.flags),
           project: projectRoot,
         };
-        if (hubAction === "start") {
+        const validatedHubAction = hubAction ? validateSubcommand({
+          commandPath: "cy hub",
+          value: hubAction,
+          subcommands: [
+            { value: "start", description: "Start the shared UI/runtime hub." },
+            { value: "stop", description: "Stop the hub." },
+            { value: "status", description: "Show hub status." },
+            { value: "restart", description: "Restart the hub." },
+            { value: "run", description: "Run the hub in the foreground." },
+          ],
+          colors: guidanceColors,
+          helpCommand: "cy hub --help",
+        }) : "";
+        if (validatedHubAction === "start") {
           output = await runHubStart(repoRoot, hubOptions);
-        } else if (hubAction === "stop") {
+        } else if (validatedHubAction === "stop") {
           output = await runHubStop(repoRoot);
-        } else if (hubAction === "status") {
+        } else if (validatedHubAction === "status") {
           output = json ? getHubStatus(repoRoot) : runHubStatus(repoRoot);
-        } else if (hubAction === "restart") {
+        } else if (validatedHubAction === "restart") {
           output = await runHubRestart(repoRoot, hubOptions);
-        } else if (hubAction === "run") {
+        } else if (validatedHubAction === "run") {
           output = await runHubForeground(repoRoot, hubOptions);
-        } else if (hubAction) {
-          throw new Error("Unknown hub command. Expected: cy hub start, cy hub stop, cy hub status, or cy hub restart.");
         } else {
           output = renderCliHelp(readCliHelpEntry(["hub"]) ?? readCliHelpEntry([])!, colors);
         }
@@ -456,12 +771,54 @@ async function main(): Promise<void> {
         }, process.cwd());
         break;
       }
-      case "hooks":
+      case "hooks": {
+        validateSubcommand({
+          commandPath: "cy hooks",
+          value: args.positional[0] ?? "",
+          subcommands: [
+            { value: "ingest", description: "Ingest a hook event." },
+            { value: "notify", description: "Notify the hub about a hook event." },
+            { value: "codex-hook", description: "Run the Codex hook adapter." },
+          ],
+          colors: guidanceColors,
+          helpCommand: "cy hooks --help",
+        });
+        requireChoice(stringFlag(args.flags, "event"), "--event", HOOK_EVENTS, guidanceColors, "cy hooks --help");
         output = await runHooks(args.positional, args.flags);
         break;
-      case "session":
+      }
+      case "session": {
+        const sessionAction = validateSubcommand({
+          commandPath: "cy session",
+          value: args.positional[0] ?? "",
+          subcommands: [
+            { value: "attach", description: "Attach an agent session to a task." },
+          ],
+          colors: guidanceColors,
+          helpCommand: "cy session --help",
+        });
+        if (sessionAction === "attach") {
+          if (!stringFlag(args.flags, "task-id")) {
+            throw new Error(formatMissingGuidance({
+              message: "Missing required option: --task-id <id>",
+              tips: [
+                "Pass --task-id <id> to identify the task session.",
+                "Run cy list to see available tasks.",
+              ],
+              colors: guidanceColors,
+            }));
+          }
+          if (!stringFlag(args.flags, "provider")) {
+            throw new Error(formatMissingGuidance({
+              message: "Missing required option: --provider <name>",
+              tips: ["Pass --provider codex or another provider name for the external agent session."],
+              colors: guidanceColors,
+            }));
+          }
+        }
         output = json ? await attachSession(args.positional, args.flags) : await runSession(args.positional, args.flags);
         break;
+      }
       case "install":
         output = runInstallCli({
           dir: stringFlag(args.flags, "dir"),
@@ -482,16 +839,25 @@ async function main(): Promise<void> {
         if (command === "help") {
           if (args.positional[0] === "-k") {
             const topic = args.positional[1] ?? "";
-            if (!topic) throw new Error("Missing help topic. Expected: cy help -k <topic>");
+            if (!topic) {
+              throw new Error(formatMissingGuidance({
+                message: "Missing help topic.",
+                tips: [
+                  "Use cy help -k <topic>.",
+                  `Available topics: ${listCliTopics().join(", ")}.`,
+                ],
+                colors: guidanceColors,
+              }));
+            }
             const helpTopic = readCliTopic(topic);
-            if (!helpTopic) throw new Error(`Unknown help topic: ${topic}`);
+            if (!helpTopic) throw new Error(formatUnknownHelpTopic(topic, guidanceColors));
             output = renderCliTopic(helpTopic, colors);
           } else {
             const entry = readCliHelpEntry(helpCommandPath(command, args.positional)) ?? readCliHelpEntry([])!;
             output = renderCliHelp(entry, colors);
           }
         }
-        else throw new Error(`Unknown command: ${args.command}\n\n${renderCliHelp(readCliHelpEntry([])!, createColors(false))}`);
+        else throw new Error(formatUnknownCommandMessage(args.command, readCliHelpEntry([])!, json ? createColors(false) : errorColors));
     }
 
     if (json) {
@@ -500,8 +866,11 @@ async function main(): Promise<void> {
       outputLine(command, renderHumanOutput({ command, positional: args.positional, colors }, output));
     }
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
     const code = errorCode(error);
+    const rawMessage = error instanceof Error ? error.message : String(error);
+    const message = code === "CHANGEYARD_ERROR"
+      ? appendFallbackGuidance(rawMessage, { command, positional: args.positional, colors: guidanceColors })
+      : rawMessage;
     const codeLine = `${code}: ${message}`;
     if (json) {
       console.error(JSON.stringify({ ok: false, error: { code, message } }, null, 2));

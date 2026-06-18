@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseFrontmatter } from "../documents/frontmatter.js";
 import type { CliColors } from "./color.js";
+import { pushWrapped, stripAnsi, terminalWrapWidth } from "./text.js";
 
 export type CliHelpEntry = {
   name: string;
@@ -131,12 +132,21 @@ function optionName(colors: CliColors, value: string): string {
 }
 
 function renderRows(rows: Array<[string, string]>): string[] {
-  const width = Math.max(0, ...rows.map(([left]) => left.replace(/\u001b\[[0-9;]*m/g, "").length));
-  return rows.map(([left, right]) => `  ${left}${" ".repeat(Math.max(2, width - left.replace(/\u001b\[[0-9;]*m/g, "").length + 2))}${right}`);
+  const terminalWidth = terminalWrapWidth();
+  const leftWidth = Math.max(0, ...rows.map(([left]) => stripAnsi(left).length));
+  const rendered: string[] = [];
+  for (const [left, right] of rows) {
+    const prefix = `  ${left}${" ".repeat(Math.max(2, leftWidth - stripAnsi(left).length + 2))}`;
+    pushWrapped(rendered, prefix, right, terminalWidth);
+  }
+  return rendered;
 }
 
 export function renderCliHelp(entry: CliHelpEntry, colors: CliColors): string {
-  const lines: string[] = [entry.summary || "Changeyard command help", ""];
+  const width = terminalWrapWidth();
+  const lines: string[] = [];
+  pushWrapped(lines, "", entry.summary || "Changeyard command help", width);
+  lines.push("");
   if (entry.usage.length > 0) {
     lines.push(heading(colors, "Usage:"));
     lines.push(...entry.usage.map((line) => `  ${line}`));
@@ -151,8 +161,8 @@ export function renderCliHelp(entry: CliHelpEntry, colors: CliColors): string {
     lines.push(heading(colors, "Options:"));
     for (const option of entry.options) {
       lines.push(`  ${optionName(colors, option.flags)}`);
-      if (option.description) lines.push(`          ${option.description}`);
-      if (option.possibleValues.length > 0) lines.push(`          [possible values: ${option.possibleValues.map((value) => colors.cyan(value)).join(", ")}]`);
+      if (option.description) pushWrapped(lines, "          ", option.description, width);
+      if (option.possibleValues.length > 0) pushWrapped(lines, "          ", `[possible values: ${option.possibleValues.map((value) => colors.cyan(value)).join(", ")}]`, width);
       lines.push("");
     }
   }
@@ -165,15 +175,29 @@ export function renderCliHelp(entry: CliHelpEntry, colors: CliColors): string {
     lines.push(...entry.examples.map((example) => `  ${colors.dim("$")} ${example}`), "");
   }
   const topics = listCliTopics();
-  if (topics.length > 0) lines.push(`${colors.bold("cy help --help")} lists help options. Use ${colors.bold("cy help -k <topic>")} for: ${topics.join(", ")}.`);
+  if (topics.length > 0) pushWrapped(lines, "", `${colors.bold("cy help --help")} lists help options. Use ${colors.bold("cy help -k <topic>")} for: ${topics.join(", ")}.`, width);
   return lines.join("\n").replace(/\n+$/u, "");
 }
 
 export function renderCliTopic(topic: { name: string; body: string }, colors: CliColors): string {
-  return topic.body.split(/\r?\n/).map((line) => {
-    if (line.startsWith("# ")) return heading(colors, line.slice(2));
-    if (line.startsWith("## ")) return heading(colors, line.slice(3));
-    return line;
-  }).join("\n");
+  const width = terminalWrapWidth();
+  const lines: string[] = [];
+  let inFence = false;
+  for (const line of topic.body.split(/\r?\n/)) {
+    if (line.startsWith("```")) {
+      inFence = !inFence;
+      lines.push(line);
+    } else if (inFence || line.trim() === "") {
+      lines.push(line);
+    } else if (line.startsWith("# ")) {
+      lines.push(heading(colors, line.slice(2)));
+    } else if (line.startsWith("## ")) {
+      lines.push(heading(colors, line.slice(3)));
+    } else if (line.startsWith("- ")) {
+      pushWrapped(lines, "- ", line.slice(2), width);
+    } else {
+      pushWrapped(lines, "", line, width);
+    }
+  }
+  return lines.join("\n");
 }
-
