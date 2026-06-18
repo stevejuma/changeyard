@@ -163,6 +163,16 @@ describe("ProjectNavigationPanel width persistence", () => {
 		expect(sidebar.style.width).toBe(`${getExpectedDefaultWidthPx(window.innerWidth)}px`);
 	});
 
+	it("uses selected-state classes for the active project row text", () => {
+		renderPanel();
+
+		const row = container.querySelector(".kb-project-row-selected");
+		expect(row).toBeInstanceOf(HTMLElement);
+		expect(row?.textContent).toContain("Kanban");
+		expect(row?.querySelector(".kb-selected-fg")?.textContent).toBe("Kanban");
+		expect(row?.querySelector(".kb-selected-muted-fg")?.textContent).toBe("/tmp/kanban");
+	});
+
 	it("persists resized width and restores it on remount", () => {
 		renderPanel();
 		const initialWidth = getExpectedDefaultWidthPx(window.innerWidth);

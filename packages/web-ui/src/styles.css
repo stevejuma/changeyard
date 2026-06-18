@@ -36,8 +36,8 @@
 }
 
 .kb-file-tree-row-selected .kb-file-type-icon {
-	background: color-mix(in srgb, var(--color-accent-fg) 92%, var(--color-accent) 8%);
-	box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent-fg) 48%, transparent);
+	background: color-mix(in srgb, var(--kb-selected-fg) 92%, var(--kb-selected-bg) 8%);
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--kb-selected-fg) 48%, transparent);
 }
 
 .kb-file-tree-row-conflict.kb-file-tree-row-selected .kb-file-type-icon {
@@ -51,7 +51,8 @@
 
 .kb-file-tree-row-selected .kb-file-status-glyph {
 	background: var(--color-surface-0);
-	box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent-fg) 48%, transparent);
+	color: var(--color-text-primary);
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--kb-selected-fg) 48%, transparent);
 }
 
 .kb-file-tree-row-conflict.kb-file-tree-row-selected .kb-file-status-glyph {
@@ -59,13 +60,13 @@
 }
 
 .kb-file-tree-row-selected {
-	background: var(--color-accent);
-	color: var(--color-accent-fg);
+	background: var(--kb-selected-bg);
+	color: var(--kb-selected-fg);
 }
 
 .kb-file-tree-row.kb-file-tree-row-selected:hover {
-	background: var(--color-accent);
-	color: var(--color-accent-fg);
+	background: var(--kb-selected-bg);
+	color: var(--kb-selected-fg);
 }
 
 .kb-file-tree-row-conflict {

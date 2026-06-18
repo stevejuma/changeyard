@@ -944,6 +944,7 @@ function ChangeCard({
 					className={cn(
 						"overflow-hidden rounded-lg border text-left transition-colors",
 						selected && selectedCommitHash === null ? "border-divider bg-surface-2" : "border-divider bg-surface-0 hover:bg-surface-2",
+						selected && selectedCommitHash === null ? "kb-change-card-selected" : null,
 						isDependencySource ? "kb-board-card-dependency-source" : null,
 						isDependencyTarget ? "kb-board-card-dependency-target" : null,
 					)}

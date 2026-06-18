@@ -2,13 +2,13 @@
 id: CY-0025
 title: Fix Kanban theme contrast and selected states
 type: agent-task
-status: synced
+status: merged
 priority: medium
 labels:
   - agent-ready
 author: stevejuma
 createdAt: 2026-06-18T15:04:18.175Z
-updatedAt: 2026-06-18T15:05:56.247Z
+updatedAt: 2026-06-18T15:35:58.697Z
 base:
   vcs: unknown
   revision: main
@@ -24,10 +24,11 @@ remote:
   issueUrl: null
   pullRequestNumber: null
   pullRequestUrl: null
+  mergedLocally: true
 checks:
   profile: standard
-  lastRun: null
-  lastStatus: null
+  lastRun: 2026-06-18T15:35:11.834Z
+  lastStatus: passed
 planning:
   model: openspec-lite
   storage: inline
@@ -43,6 +44,7 @@ planning:
     strictClarifications: pending
     strictChecklist: pending
     strictAnalysis: pending
+mergedAt: 2026-06-18T15:35:58.696Z
 ---
 
 # Summary
@@ -55,13 +57,13 @@ CY-0016 improved light-theme contrast but did not enforce dark/default accent co
 
 # Plan
 
-- [ ] Preserve unrelated working-copy changes and avoid CLI/schema/runtime/config edits.
-- [ ] Align theme tokens and metadata for Kanban and VCS where token parity requires it.
-- [ ] Add selected-state CSS variables and apply them to Kanban rows, cards, badges, icons, and Git panels.
-- [ ] Remove or align stale Kanban file-tree CSS so shared selected glyph/conflict styling applies.
-- [ ] Extend theme contract tests and focused component tests.
-- [ ] Add Playwright coverage for rendered theme contrast and selected-state borders.
-- [ ] Run the requested build, unit, e2e, and check commands.
+- [x] Preserve unrelated working-copy changes and avoid CLI/schema/runtime/config edits.
+- [x] Align theme tokens and metadata for Kanban and VCS where token parity requires it.
+- [x] Add selected-state CSS variables and apply them to Kanban rows, cards, badges, icons, and Git panels.
+- [x] Remove or align stale Kanban file-tree CSS so shared selected glyph/conflict styling applies.
+- [x] Extend theme contract tests and focused component tests.
+- [x] Add Playwright coverage for rendered theme contrast and selected-state borders.
+- [x] Run the requested build, unit, e2e, and check commands.
 
 <!-- cy:proposal:start -->
 # Proposal
@@ -151,14 +153,14 @@ Implementation must occur only inside the verified Changeyard workspace for CY-0
 
 ## 2. Implementation
 
-- [ ] Update theme tokens, metadata, and selected-state variables.
-- [ ] Fix Kanban selected rows/cards/badges/icons and stale file-tree overrides.
-- [ ] Fix terminal selected contrast.
-- [ ] Add/extend root contract, component, and Playwright tests.
+- [x] Update theme tokens, metadata, and selected-state variables.
+- [x] Fix Kanban selected rows/cards/badges/icons and stale file-tree overrides.
+- [x] Fix terminal selected contrast.
+- [x] Add/extend root contract, component, and Playwright tests.
 
 ## 3. Verification
 
-- [ ] Run requested checks and record results.
+- [x] Run requested checks and record results.
 <!-- cy:tasks:end -->
 
 <!-- cy:verification:start -->
@@ -179,7 +181,12 @@ Implementation must occur only inside the verified Changeyard workspace for CY-0
 
 ## Result
 
-_Not run yet._
+- Passed: `pnpm run build:cli && node --test dist/tests/theme-contract.test.js` (7 tests).
+- Passed: `pnpm --filter @changeyard/kanban run web:typecheck`.
+- Passed: `pnpm --dir packages/kanban/web-ui run test` (95 files, 587 tests; existing Node localStorage experimental warnings).
+- Partial: `pnpm --dir packages/kanban/web-ui run e2e` passed the 11 new theme contrast tests but failed the existing `tests/smoke.spec.ts` cases because the plain Vite server renders the dashboard at `/` and `/kanban` shows the runtime-disconnected fallback without a Changeyard runtime/mock harness.
+- Passed: `pnpm --dir packages/kanban/web-ui run e2e -- tests/theme-contrast.spec.ts` (11 themes).
+- Passed: `pnpm run check`.
 <!-- cy:verification:end -->
 
 <!-- cy:clarifications:start -->
@@ -219,11 +226,11 @@ Pending implementation after lifecycle gates pass.
 <!-- cy:analysis:end -->
 
 # Acceptance Criteria
-- [ ] Kanban selected text, muted selected metadata, badges, and icons meet contrast thresholds in every theme.
-- [ ] Selected borders and focus/selection boundaries are visible in dark and light modes.
-- [ ] Kanban file-tree selected/conflict styling matches shared UI behavior and no stale local override regresses it.
-- [ ] High-contrast-dark terminal selection meets contrast requirements.
-- [ ] Theme contract, Kanban component, Playwright, typecheck, and repo check commands pass or unrelated blockers are documented.
+- [x] Kanban selected text, muted selected metadata, badges, and icons meet contrast thresholds in every theme.
+- [x] Selected borders and focus/selection boundaries are visible in dark and light modes.
+- [x] Kanban file-tree selected/conflict styling matches shared UI behavior and no stale local override regresses it.
+- [x] High-contrast-dark terminal selection meets contrast requirements.
+- [x] Theme contract, Kanban component, Playwright, typecheck, and repo check commands pass or unrelated blockers are documented.
 
 # Agent Plan
 
@@ -235,4 +242,19 @@ Pending implementation after lifecycle gates pass.
 
 # Completion Notes
 
-Not started.
+Implemented in the CY-0025 workspace.
+
+Changed areas:
+- Kanban and VCS theme CSS/metadata now use contrast-safe accent foreground pairs, root `color-scheme`, selected-state tokens, and high-contrast terminal selection colors.
+- Kanban selected project rows, Git refs, Git commits, board/change cards, badges, file rows, status glyphs, and shared file-listing styles now use selected-state tokens instead of low-contrast translucent foregrounds.
+- Theme contract, Kanban component, shared file-listing, and Playwright theme contrast coverage now assert selected-state contrast and source-pattern regressions.
+
+Checks:
+- `pnpm run build:cli && node --test dist/tests/theme-contract.test.js` passed.
+- `pnpm --filter @changeyard/kanban run web:typecheck` passed.
+- `pnpm --dir packages/kanban/web-ui run test` passed.
+- `pnpm --dir packages/kanban/web-ui run e2e -- tests/theme-contrast.spec.ts` passed.
+- `pnpm run check` passed.
+- `pnpm --dir packages/kanban/web-ui run e2e` is blocked by existing smoke-spec runtime assumptions; the new theme spec passed within that run.
+
+Remaining risk: the pre-existing Playwright smoke spec still needs a runtime/mock harness or updated route assumptions to pass under the package's plain Vite web server.

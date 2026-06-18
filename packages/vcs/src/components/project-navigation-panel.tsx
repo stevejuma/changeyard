@@ -512,7 +512,7 @@ function ProjectRow({
 						<div
 							className={cn(
 								"min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-sm font-medium",
-								isCurrent && !hasActiveWorkspace ? "text-accent-fg" : "text-text-primary",
+								isCurrent && !hasActiveWorkspace ? "kb-selected-fg" : "text-text-primary",
 							)}
 						>
 							{project.name}
@@ -521,7 +521,7 @@ function ProjectRow({
 					<div
 						className={cn(
 							"overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[10px]",
-							isCurrent && !hasActiveWorkspace ? "text-accent-fg/60" : "text-text-secondary",
+							isCurrent && !hasActiveWorkspace ? "kb-selected-muted-fg" : "text-text-secondary",
 						)}
 					>
 						{displayPath}
@@ -533,7 +533,7 @@ function ProjectRow({
 									key={badge.id}
 									className={cn(
 										"inline-flex items-center gap-1 rounded-full px-1.5 py-px text-[10px] font-medium",
-										isCurrent && !hasActiveWorkspace ? "bg-accent-fg/20 text-accent-fg" : badge.toneClassName,
+										isCurrent && !hasActiveWorkspace ? "kb-selected-subtle-bg kb-selected-fg" : badge.toneClassName,
 									)}
 									title={badge.title}
 								>

@@ -212,6 +212,17 @@ describe("BoardCard", () => {
 		expect(trashButton?.querySelector("svg.animate-spin")).toBeTruthy();
 	});
 
+	it("marks the selected card shell for tokenized selected styling", async () => {
+		await act(async () => {
+			root.render(<BoardCard card={createCard()} index={0} columnId="backlog" selected />);
+		});
+
+		const shell = container.querySelector('[data-task-id="task-1"]');
+		expect(shell).toBeInstanceOf(HTMLElement);
+		expect(shell?.classList.contains("kb-board-card-shell")).toBe(true);
+		expect(shell?.getAttribute("data-selected")).toBe("true");
+	});
+
 	it("shows inline see more and less controls for long descriptions", async () => {
 		const description =
 			"Alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau final hidden segment";

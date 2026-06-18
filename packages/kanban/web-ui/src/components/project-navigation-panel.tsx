@@ -770,7 +770,7 @@ function ProjectRow({
 				<div
 					className={cn(
 						"font-medium whitespace-nowrap overflow-hidden text-ellipsis text-sm",
-						isCurrent ? "text-accent-fg" : "text-text-primary",
+						isCurrent ? "kb-selected-fg" : "text-text-primary",
 					)}
 				>
 					{project.name}
@@ -778,7 +778,7 @@ function ProjectRow({
 				<div
 					className={cn(
 						"font-mono text-[10px] whitespace-nowrap overflow-hidden text-ellipsis",
-						isCurrent ? "text-accent-fg/60" : "text-text-secondary",
+						isCurrent ? "kb-selected-muted-fg" : "text-text-secondary",
 					)}
 				>
 					{displayPath}
@@ -790,7 +790,7 @@ function ProjectRow({
 								key={badge.id}
 								className={cn(
 									"inline-flex items-center gap-1 rounded-full text-[10px] px-1.5 py-px font-medium",
-									isCurrent ? "bg-accent-fg/20 text-accent-fg" : badge.toneClassName,
+									isCurrent ? "kb-selected-subtle-bg kb-selected-fg" : badge.toneClassName,
 								)}
 								title={badge.title}
 							>

@@ -8,17 +8,17 @@ import { Tooltip } from "@/components/ui/tooltip";
 import type { RuntimeGitRef } from "@/runtime/types";
 
 const ROW_HEIGHT = 30;
-const SELECTED_SUBTLE_TEXT_COLOR = "color-mix(in srgb, var(--color-accent-fg) 64%, transparent)";
+const SELECTED_SUBTLE_TEXT_COLOR = "var(--kb-selected-muted-fg)";
 const MATCHED_TEXT_STYLE = {
 	color: "var(--color-status-blue)",
 	fontWeight: 600,
 } as const;
 const MATCHED_TEXT_STYLE_SELECTED = {
-	color: "color-mix(in srgb, var(--color-accent-fg) 92%, transparent)",
+	color: "var(--kb-selected-fg)",
 	fontWeight: 600,
 } as const;
 const HEAD_BADGE_BACKGROUND = "color-mix(in srgb, var(--color-status-blue) 15%, transparent)";
-const HEAD_BADGE_BACKGROUND_SELECTED = "color-mix(in srgb, var(--color-accent-fg) 18%, transparent)";
+const HEAD_BADGE_BACKGROUND_SELECTED = "color-mix(in srgb, var(--kb-selected-fg) 18%, transparent)";
 const isMacPlatform =
 	typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent);
 
@@ -367,6 +367,8 @@ function RefRow({
 	children: React.ReactNode;
 }): React.ReactElement {
 	const resolvedSelectedClass = selectedClassName ?? "kb-git-ref-row-selected";
+	const selectedColor =
+		resolvedSelectedClass === "kb-git-ref-row-selected" ? "var(--kb-selected-fg)" : "var(--color-text-primary)";
 	return (
 		<div
 			className={isSelected ? `kb-git-ref-row ${resolvedSelectedClass}` : "kb-git-ref-row"}
@@ -380,7 +382,7 @@ function RefRow({
 				paddingRight: 4,
 				overflow: "hidden",
 				borderRadius: 4,
-				color: isSelected ? "var(--color-text-primary)" : "var(--color-text-secondary)",
+				color: isSelected ? selectedColor : "var(--color-text-secondary)",
 			}}
 		>
 			<button

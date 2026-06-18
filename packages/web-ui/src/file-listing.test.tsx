@@ -82,6 +82,26 @@ describe("FileListing", () => {
 		}
 	});
 
+	it("marks selected rows and rendered status glyphs for selected-state CSS", async () => {
+		await act(async () => {
+			root.render(
+				<FileListing
+					files={files}
+					mode="list"
+					selectedPath="src/app.tsx"
+					onSelectPath={() => {}}
+					renderFileMeta={({ isSelected }) => (
+						<span className={isSelected ? "kb-file-status-glyph" : undefined}>+3</span>
+					)}
+				/>,
+			);
+		});
+
+		const row = findButton(container, "src/app.tsx");
+		expect(row.classList.contains("kb-file-tree-row-selected")).toBe(true);
+		expect(row.querySelector(".kb-file-status-glyph")?.textContent).toBe("+3");
+	});
+
 	it("compacts nested folders in package mode", async () => {
 		await act(async () => {
 			root.render(

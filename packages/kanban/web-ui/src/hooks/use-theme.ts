@@ -46,8 +46,8 @@ export const THEMES: readonly ThemeDefinition[] = [
 		accent: "#0084FF",
 		accent2: "#7C5CFF",
 		surface: "#1F2428",
-		accentFg: "#FFFFFF",
-		accent2Fg: "#FFFFFF",
+		accentFg: "#000000",
+		accent2Fg: "#000000",
 	},
 	{
 		id: "graphite",
@@ -56,8 +56,8 @@ export const THEMES: readonly ThemeDefinition[] = [
 		accent: "#D4915C",
 		accent2: "#7A8F9C",
 		surface: "#1E1E1E",
-		accentFg: "#FFFFFF",
-		accent2Fg: "#FFFFFF",
+		accentFg: "#000000",
+		accent2Fg: "#000000",
 	},
 	{
 		id: "midnight",
@@ -66,8 +66,8 @@ export const THEMES: readonly ThemeDefinition[] = [
 		accent: "#6366F1",
 		accent2: "#EC4899",
 		surface: "#121214",
-		accentFg: "#FFFFFF",
-		accent2Fg: "#FFFFFF",
+		accentFg: "#000000",
+		accent2Fg: "#000000",
 	},
 	{
 		id: "pitch",
@@ -86,8 +86,8 @@ export const THEMES: readonly ThemeDefinition[] = [
 		accent: "#268BD2",
 		accent2: "#2AA198",
 		surface: "#002B36",
-		accentFg: "#FFFFFF",
-		accent2Fg: "#FFFFFF",
+		accentFg: "#000000",
+		accent2Fg: "#000000",
 	},
 	/* Light */
 	{
@@ -139,7 +139,7 @@ export const THEMES: readonly ThemeDefinition[] = [
 		accent2: "#FF4081",
 		surface: "#000000",
 		accentFg: "#000000",
-		accent2Fg: "#FFFFFF",
+		accent2Fg: "#000000",
 	},
 	{
 		id: "high-contrast-light",
@@ -266,7 +266,7 @@ const TERMINAL_COLORS_BY_THEME: Record<ThemeId, ThemeTerminalColors> = {
 		textPrimary: "#FFFFFF",
 		surfacePrimary: "#000000",
 		surfaceRaised: "#0A0A0A",
-		selectionBackground: "#FFFFFF4D",
+		selectionBackground: "#FFFFFF",
 		selectionForeground: "#000000",
 		selectionInactiveBackground: "#1A1A1A66",
 		isLightBackground: false,

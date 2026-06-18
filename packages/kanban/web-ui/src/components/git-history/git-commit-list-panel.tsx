@@ -57,7 +57,7 @@ const GRAPH_LANE_COLORS = [
 ];
 const REMOTE_LANE_COLOR = "color-mix(in srgb, var(--color-status-blue) 78%, var(--color-surface-0))";
 
-const REF_BADGE_BACKGROUND_SELECTED = "color-mix(in srgb, white 20%, transparent)";
+const REF_BADGE_BACKGROUND_SELECTED = "color-mix(in srgb, var(--kb-selected-fg) 20%, transparent)";
 const REF_BADGE_BACKGROUND_HEAD = "color-mix(in srgb, var(--color-status-blue) 15%, transparent)";
 const REF_BADGE_BACKGROUND_REMOTE = "color-mix(in srgb, var(--color-status-blue) 12%, transparent)";
 const REF_BADGE_BACKGROUND_DEFAULT = "color-mix(in srgb, white 6%, transparent)";
@@ -257,7 +257,7 @@ function getRefBadgeBackground(ref: RuntimeGitRef, isSelected: boolean): string 
 
 function getRefBadgeColor(ref: RuntimeGitRef, isSelected: boolean): string {
 	if (isSelected) {
-		return "var(--color-text-primary)";
+		return "var(--kb-selected-fg)";
 	}
 	if (ref.isHead) {
 		return "var(--color-status-blue)";
@@ -546,7 +546,7 @@ export function GitCommitListPanel({
 													className="inline-flex items-center shrink-0"
 													style={{
 														color: isSelected
-															? "var(--color-text-primary)"
+															? "var(--kb-selected-fg)"
 															: "var(--color-text-tertiary)",
 													}}
 												>
@@ -557,7 +557,7 @@ export function GitCommitListPanel({
 													className="inline-flex items-center shrink-0"
 													style={{
 														color: isSelected
-															? "var(--color-text-primary)"
+															? "var(--kb-selected-fg)"
 															: "var(--color-text-tertiary)",
 													}}
 												>
@@ -621,7 +621,7 @@ export function GitCommitListPanel({
 													className="kb-git-commit-row-meta font-mono"
 													style={{
 														flexShrink: 0,
-														opacity: 0.72,
+														opacity: isSelected ? 1 : 0.72,
 													}}
 												>
 													{commit.shortHash}

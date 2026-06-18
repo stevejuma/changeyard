@@ -23,10 +23,10 @@
 	/* Accent / brand */
 	--color-accent: #0084FF;
 	--color-accent-hover: #339DFF;
-	--color-accent-fg: #FFFFFF;
+	--color-accent-fg: #000000;
 	--color-accent-2: #7C5CFF;
 	--color-accent-2-hover: #9B82FF;
-	--color-accent-2-fg: #FFFFFF;
+	--color-accent-2-fg: #000000;
 
 	/* Status colors */
 	--color-status-blue: #4C9AFF;
@@ -53,8 +53,13 @@
 }
 
 :root {
+	color-scheme: dark;
 	--kb-open-target-icon-filter: brightness(0) invert(1);
 	--kb-open-target-icon-opacity: 0.9;
+	--kb-selected-bg: var(--color-accent);
+	--kb-selected-fg: var(--color-accent-fg);
+	--kb-selected-muted-fg: var(--color-accent-fg);
+	--kb-selected-border: var(--color-accent-hover);
 }
 
 /* -- Theme overrides -------------------------------------------------- */
@@ -80,10 +85,10 @@
 	--color-text-tertiary: #6B6B6B;
 	--color-accent: #D4915C;
 	--color-accent-hover: #E0A574;
-	--color-accent-fg: #FFFFFF;
+	--color-accent-fg: #000000;
 	--color-accent-2: #7A8F9C;
 	--color-accent-2-hover: #8FA3AF;
-	--color-accent-2-fg: #FFFFFF;
+	--color-accent-2-fg: #000000;
 }
 
 [data-theme="midnight"] {
@@ -101,10 +106,10 @@
 	--color-text-tertiary: #6B6B74;
 	--color-accent: #6366F1;
 	--color-accent-hover: #818CF8;
-	--color-accent-fg: #FFFFFF;
+	--color-accent-fg: #000000;
 	--color-accent-2: #EC4899;
 	--color-accent-2-hover: #F472B6;
-	--color-accent-2-fg: #FFFFFF;
+	--color-accent-2-fg: #000000;
 }
 
 [data-theme="pitch"] {
@@ -143,15 +148,16 @@
 	--color-text-tertiary: #657B83;
 	--color-accent: #268BD2;
 	--color-accent-hover: #439EE0;
-	--color-accent-fg: #FFFFFF;
+	--color-accent-fg: #000000;
 	--color-accent-2: #2AA198;
 	--color-accent-2-hover: #3DBDB4;
-	--color-accent-2-fg: #FFFFFF;
+	--color-accent-2-fg: #000000;
 }
 
 /* --- Light themes ---------------------------------------------------- */
 
 [data-theme="light"] {
+	color-scheme: light;
 	--color-surface-0: #FFFFFF;
 	--color-surface-1: #F6F8FA;
 	--color-surface-2: #EEF2F6;
@@ -185,6 +191,7 @@
 }
 
 [data-theme="overcast"] {
+	color-scheme: light;
 	--color-surface-0: #FFFFFF;
 	--color-surface-1: #F3F6FA;
 	--color-surface-2: #EAF0F6;
@@ -218,6 +225,7 @@
 }
 
 [data-theme="solarized-light"] {
+	color-scheme: light;
 	--color-surface-0: #FDF6E3;
 	--color-surface-1: #F8EFD2;
 	--color-surface-2: #EEE8D5;
@@ -251,6 +259,7 @@
 }
 
 [data-theme="latte"] {
+	color-scheme: light;
 	--color-surface-0: #FFFCF8;
 	--color-surface-1: #F8F1EA;
 	--color-surface-2: #EEE5DC;
@@ -286,6 +295,7 @@
 /* --- High contrast --------------------------------------------------- */
 
 [data-theme="high-contrast-dark"] {
+	color-scheme: dark;
 	--color-surface-0: #000000;
 	--color-surface-1: #0A0A0A;
 	--color-surface-2: #1A1A1A;
@@ -303,10 +313,11 @@
 	--color-accent-fg: #000000;
 	--color-accent-2: #FF4081;
 	--color-accent-2-hover: #FF6699;
-	--color-accent-2-fg: #FFFFFF;
+	--color-accent-2-fg: #000000;
 }
 
 [data-theme="high-contrast-light"] {
+	color-scheme: light;
 	--color-surface-0: #FFFFFF;
 	--color-surface-1: #FFFFFF;
 	--color-surface-2: #F2F2F2;
@@ -564,8 +575,13 @@ body,
 }
 
 .kb-board-card-shell[data-selected="true"] {
-	outline: 1px solid var(--color-accent);
+	outline: 2px solid var(--kb-selected-border);
 	border-radius: var(--radius-md);
+}
+
+.kb-board-card-shell[data-selected="true"] > div {
+	border-color: var(--kb-selected-border);
+	box-shadow: 0 0 0 1px var(--kb-selected-border);
 }
 
 .kb-board-card-dependency-source {
@@ -574,6 +590,11 @@ body,
 
 .kb-board-card-dependency-target {
 	box-shadow: inset 0 0 0 1px var(--color-accent);
+}
+
+.kb-change-card-selected {
+	border-color: var(--kb-selected-border);
+	box-shadow: inset 2px 0 0 var(--kb-selected-border);
 }
 
 /* -- Dependency overlay -- */
@@ -701,8 +722,21 @@ body.kb-dependency-link-mode {
 
 .kb-project-row-selected,
 .kb-project-row-selected:hover {
-	background: var(--color-accent);
-	color: var(--color-accent-fg);
+	background: var(--kb-selected-bg);
+	color: var(--kb-selected-fg);
+}
+
+.kb-selected-fg {
+	color: var(--kb-selected-fg);
+}
+
+.kb-selected-muted-fg {
+	color: var(--kb-selected-muted-fg);
+}
+
+.kb-selected-subtle-bg {
+	background: var(--kb-selected-bg);
+	box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--kb-selected-fg) 36%, transparent);
 }
 
 .kb-project-count-tag {
@@ -727,22 +761,23 @@ body.kb-dependency-link-mode {
 	color: var(--color-text-secondary);
 }
 
-.kb-file-tree-row:hover {
+.kb-file-tree-row:hover:not(.kb-file-tree-row-directory) {
 	background: var(--color-surface-3);
 }
 
 .kb-file-tree-row-directory {
+	cursor: pointer;
 	color: var(--color-text-tertiary);
 }
 
 .kb-file-tree-row-selected {
-	background: var(--color-accent);
-	color: var(--color-accent-fg);
+	background: var(--kb-selected-bg);
+	color: var(--kb-selected-fg);
 }
 
 .kb-file-tree-row.kb-file-tree-row-selected:hover {
-	background: var(--color-accent);
-	color: var(--color-accent-fg);
+	background: var(--kb-selected-bg);
+	color: var(--kb-selected-fg);
 }
 
 .kb-file-type-icon {
@@ -756,12 +791,27 @@ body.kb-dependency-link-mode {
 }
 
 .kb-file-tree-row-selected .kb-file-type-icon {
-	background: color-mix(in srgb, var(--color-accent-fg) 92%, var(--color-accent) 8%);
-	box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent-fg) 48%, transparent);
+	background: color-mix(in srgb, var(--kb-selected-fg) 92%, var(--kb-selected-bg) 8%);
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--kb-selected-fg) 48%, transparent);
+}
+
+.kb-file-tree-row-conflict.kb-file-tree-row-selected .kb-file-type-icon {
+	background: var(--color-surface-0);
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-status-red) 42%, transparent);
 }
 
 .kb-file-tree-row-selected .kb-file-type-icon .text-text-tertiary {
 	color: var(--color-text-secondary);
+}
+
+.kb-file-tree-row-selected .kb-file-status-glyph {
+	background: var(--color-surface-0);
+	color: var(--color-text-primary);
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--kb-selected-fg) 48%, transparent);
+}
+
+.kb-file-tree-row-conflict.kb-file-tree-row-selected .kb-file-status-glyph {
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-status-red) 42%, transparent);
 }
 
 .kb-file-tree-row-conflict {
@@ -1149,8 +1199,8 @@ body.kb-dependency-link-mode {
 
 .kb-git-ref-row-selected,
 .kb-git-ref-row-selected:hover {
-	background: var(--color-accent);
-	color: var(--color-accent-fg);
+	background: var(--kb-selected-bg);
+	color: var(--kb-selected-fg);
 }
 
 .kb-git-ref-row-selected-warning,
@@ -1173,15 +1223,15 @@ body.kb-dependency-link-mode {
 
 .kb-git-commit-row-selected,
 .kb-git-commit-row-selected:hover {
-	background: var(--color-accent);
-	color: var(--color-accent-fg);
+	background: var(--kb-selected-bg);
+	color: var(--kb-selected-fg);
 }
 
 .kb-git-commit-row-selected .kb-git-commit-row-meta,
 .kb-git-commit-row-selected:hover .kb-git-commit-row-meta,
 .kb-git-commit-row-selected .kb-git-commit-row-message,
 .kb-git-commit-row-selected:hover .kb-git-commit-row-message {
-	color: var(--color-accent-fg) !important;
+	color: var(--kb-selected-fg) !important;
 }
 
 /* -- Terminal scrollbar -- */
