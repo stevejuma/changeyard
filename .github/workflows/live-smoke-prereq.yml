@@ -29,9 +29,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          corepack: true
           cache: pnpm
-      - name: Enable package manager
-        run: corepack enable
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Prepare pnpm
+        run: corepack prepare pnpm@10.32.1 --activate
       - name: Install jj for deeper local checks
         run: |
           sudo apt-get update

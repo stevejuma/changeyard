@@ -36,17 +36,17 @@ planning:
   model: openspec-lite
   storage: inline
   schema: changeyard-openspec-lite@1
-  strictness: normal
+  strictness: strict
   phase: draft
   gates:
-    proposal: pending
-    specDeltas: pending
-    design: pending
-    tasks: pending
-    verification: pending
-    strictClarifications: skipped
-    strictChecklist: skipped
-    strictAnalysis: skipped
+    proposal: pass
+    specDeltas: pass
+    design: pass
+    tasks: pass
+    verification: pass
+    strictClarifications: pending
+    strictChecklist: pending
+    strictAnalysis: pending
 ---
 
 # Summary
@@ -237,3 +237,35 @@ Checks run:
 - Browser QA screenshots captured at `/tmp/vcs-jj-branches-verified.png`, `/tmp/vcs-jj-history-verified.png`, and `/tmp/vcs-settings-verified.png`
 
 Remaining risk is follow-up polish only: the settings screen is still informational in this pass, and non-GitHub stacked PR providers remain out of scope.
+
+<!-- cy:clarifications:start -->
+# Clarifications
+
+## Session YYYY-MM-DD
+
+- Q: Replace with clarification question
+  A: Replace with clarification answer
+<!-- cy:clarifications:end -->
+
+<!-- cy:requirements-checklist:start -->
+# Requirements Checklist
+
+- [ ] Requirements are testable.
+- [ ] Success criteria are measurable.
+- [ ] Edge cases are documented.
+- [ ] Scope boundaries are explicit.
+- [ ] Implementation details are not mixed into behavior requirements.
+<!-- cy:requirements-checklist:end -->
+
+<!-- cy:analysis:start -->
+# Consistency Analysis
+
+## Findings
+
+| ID | Severity | Summary | Recommendation | Status |
+|----|----------|---------|----------------|--------|
+
+## Gate Result
+
+Pending.
+<!-- cy:analysis:end -->
