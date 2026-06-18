@@ -2,13 +2,13 @@
 id: CY-0011
 title: Implement remaining TUI workflow follow-ups
 type: agent-task
-status: ready_for_pr
+status: approved
 priority: medium
 labels:
   - agent-ready
 author: stevejuma
 createdAt: 2026-06-14T12:01:27.967Z
-updatedAt: 2026-06-14T12:10:35.227Z
+updatedAt: 2026-06-18T14:57:20.544Z
 base:
   vcs: unknown
   revision: main

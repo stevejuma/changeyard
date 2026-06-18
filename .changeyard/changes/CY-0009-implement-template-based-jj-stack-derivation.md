@@ -2,13 +2,13 @@
 id: CY-0009
 title: Implement template-based JJ stack derivation
 type: agent-task
-status: ready_for_pr
+status: approved
 priority: medium
 labels:
   - agent-ready
 author: stevejuma
 createdAt: 2026-06-12T17:42:11.694Z
-updatedAt: 2026-06-12T17:57:10.094Z
+updatedAt: 2026-06-18T14:56:00.068Z
 base:
   vcs: unknown
   revision: main

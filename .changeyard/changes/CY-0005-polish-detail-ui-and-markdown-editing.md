@@ -2,14 +2,14 @@
 id: CY-0005
 title: Polish detail UI and markdown editing
 type: agent-task
-status: ready_for_pr
+status: approved
 priority: medium
 labels:
   - ui
   - kanban
 author: stevejuma
 createdAt: 2026-06-11T13:51:40.983Z
-updatedAt: 2026-06-11T14:10:16.000Z
+updatedAt: 2026-06-18T14:54:50.550Z
 base:
   vcs: unknown
   revision: main

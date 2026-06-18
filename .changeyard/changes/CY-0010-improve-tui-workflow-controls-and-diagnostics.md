@@ -2,13 +2,13 @@
 id: CY-0010
 title: Improve TUI workflow controls and diagnostics
 type: agent-task
-status: ready_for_pr
+status: approved
 priority: medium
 labels:
   - agent-ready
 author: stevejuma
 createdAt: 2026-06-14T11:45:40.452Z
-updatedAt: 2026-06-14T11:57:46.180Z
+updatedAt: 2026-06-18T14:56:38.548Z
 base:
   vcs: unknown
   revision: main

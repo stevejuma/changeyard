@@ -2,13 +2,13 @@
 id: CY-0002
 title: Add dev install and uninstall package scripts
 type: agent-task
-status: ready_for_pr
+status: approved
 priority: medium
 labels:
   - agent-ready
 author: stevejuma
 createdAt: 2026-06-11T09:24:26.857Z
-updatedAt: 2026-06-11T09:28:42.296Z
+updatedAt: 2026-06-18T14:53:59.285Z
 base:
   vcs: unknown
   revision: main

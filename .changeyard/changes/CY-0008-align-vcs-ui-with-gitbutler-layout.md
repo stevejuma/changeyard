@@ -2,13 +2,13 @@
 id: CY-0008
 title: Align VCS UI with GitButler layout
 type: agent-task
-status: ready_for_pr
+status: approved
 priority: medium
 labels:
   - agent-ready
 author: stevejuma
 createdAt: 2026-06-12T10:01:13.917Z
-updatedAt: 2026-06-12T10:36:53.888Z
+updatedAt: 2026-06-18T14:55:36.874Z
 base:
   vcs: unknown
   revision: main

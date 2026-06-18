@@ -2,13 +2,13 @@
 id: CY-0003
 title: Unify canonical change board and detail workflow
 type: agent-task
-status: ready_for_pr
+status: approved
 priority: medium
 labels:
   - agent-ready
 author: stevejuma
 createdAt: 2026-06-11T10:05:22.531Z
-updatedAt: 2026-06-11T10:21:41.237Z
+updatedAt: 2026-06-18T14:54:23.893Z
 base:
   vcs: unknown
   revision: main

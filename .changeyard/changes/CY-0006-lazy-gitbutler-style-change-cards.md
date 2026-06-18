@@ -2,13 +2,13 @@
 id: CY-0006
 title: Lazy GitButler-style change cards
 type: agent-task
-status: ready_for_pr
+status: approved
 priority: medium
 labels:
   - agent-ready
 author: stevejuma
 createdAt: 2026-06-11T16:22:08.629Z
-updatedAt: 2026-06-11T16:33:30.604Z
+updatedAt: 2026-06-18T14:55:13.891Z
 base:
   vcs: unknown
   revision: main
