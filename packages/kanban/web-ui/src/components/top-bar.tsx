@@ -208,6 +208,7 @@ function TopBarGitStatusSection({
 	showHomeGitSummary,
 	selectedTaskId,
 	selectedTaskBaseRef,
+	homeRepositoryEngine,
 	onToggleGitHistory,
 	isGitHistoryOpen,
 	runningGitAction,
@@ -218,6 +219,7 @@ function TopBarGitStatusSection({
 	showHomeGitSummary: boolean;
 	selectedTaskId: string | null;
 	selectedTaskBaseRef: string | null;
+	homeRepositoryEngine?: "git" | "jj" | null;
 	onToggleGitHistory?: () => void;
 	isGitHistoryOpen?: boolean;
 	runningGitAction?: RuntimeGitSyncAction | null;
@@ -237,8 +239,11 @@ function TopBarGitStatusSection({
 		});
 		const pullCount = homeGitSummary.behindCount ?? 0;
 		const pushCount = homeGitSummary.aheadCount ?? 0;
+		const isJjRepository = homeRepositoryEngine === "jj";
 		const pullTooltip =
-			pullCount > 0
+			isJjRepository
+				? "Fetch remote bookmark updates for this JJ workspace. No rebase, merge, or bookmark movement is run."
+				: pullCount > 0
 				? `Pull ${pullCount} commit${pullCount === 1 ? "" : "s"} from upstream into your local branch.`
 				: "Pull from upstream. Branch is already up to date.";
 		const pushTooltip =
@@ -332,6 +337,7 @@ export function TopBar({
 	runtimeHint,
 	selectedTaskId,
 	selectedTaskBaseRef,
+	homeRepositoryEngine,
 	showHomeGitSummary,
 	runningGitAction,
 	onGitFetch,
@@ -367,6 +373,7 @@ export function TopBar({
 	runtimeHint?: string;
 	selectedTaskId?: string | null;
 	selectedTaskBaseRef?: string | null;
+	homeRepositoryEngine?: "git" | "jj" | null;
 	showHomeGitSummary?: boolean;
 	runningGitAction?: RuntimeGitSyncAction | null;
 	onGitFetch?: () => void;
@@ -550,6 +557,7 @@ export function TopBar({
 									showHomeGitSummary={showHomeGitSummary === true}
 									selectedTaskId={selectedTaskId ?? null}
 									selectedTaskBaseRef={selectedTaskBaseRef ?? null}
+									homeRepositoryEngine={homeRepositoryEngine ?? null}
 									onToggleGitHistory={onToggleGitHistory}
 									isGitHistoryOpen={isGitHistoryOpen}
 									runningGitAction={runningGitAction}

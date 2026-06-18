@@ -295,6 +295,7 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 				return await runGitSyncAction({
 					cwd: workspaceScope.workspacePath,
 					action: input.action,
+					targetRef: input.targetRef,
 				});
 			} catch (error) {
 				return createEmptyGitSyncErrorResponse(input.action, error);

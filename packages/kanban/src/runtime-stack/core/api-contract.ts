@@ -212,6 +212,12 @@ export type RuntimeGitRepositoryInfo = z.infer<typeof runtimeGitRepositoryInfoSc
 export const runtimeGitSyncActionSchema = z.enum(["fetch", "pull", "push"]);
 export type RuntimeGitSyncAction = z.infer<typeof runtimeGitSyncActionSchema>;
 
+export const runtimeGitSyncRequestSchema = z.object({
+	action: runtimeGitSyncActionSchema,
+	targetRef: z.string().optional(),
+});
+export type RuntimeGitSyncRequest = z.infer<typeof runtimeGitSyncRequestSchema>;
+
 export const runtimeGitSyncSummarySchema = z.object({
 	currentBranch: z.string().nullable(),
 	jjChangeId: z.string().nullable(),
@@ -1184,6 +1190,9 @@ export type RuntimeTaskSessionState = z.infer<typeof runtimeTaskSessionStateSche
 
 export const runtimeTaskSessionModeSchema = z.enum(["act", "plan"]);
 export type RuntimeTaskSessionMode = z.infer<typeof runtimeTaskSessionModeSchema>;
+
+export const runtimeTaskSessionLaunchModeSchema = z.enum(["task-worktree", "changeyard-workflow"]);
+export type RuntimeTaskSessionLaunchMode = z.infer<typeof runtimeTaskSessionLaunchModeSchema>;
 
 export const runtimeTaskSessionReviewReasonSchema = z
 	.enum(["attention", "exit", "error", "interrupted", "hook"])
@@ -2374,6 +2383,7 @@ export const runtimeTaskSessionStartRequestSchema = z.object({
 	resumeFromTrash: z.boolean().optional(),
 	resumeSessionId: z.string().optional(),
 	baseRef: z.string(),
+	launchMode: runtimeTaskSessionLaunchModeSchema.optional(),
 	cols: z.number().int().positive().optional(),
 	rows: z.number().int().positive().optional(),
 	agentId: runtimeAgentIdSchema.optional(),

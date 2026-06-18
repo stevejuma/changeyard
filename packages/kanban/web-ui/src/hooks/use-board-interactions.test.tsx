@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useBoardInteractions } from "@/hooks/use-board-interactions";
 import type { UseTaskSessionsResult } from "@/hooks/use-task-sessions";
-import type { RuntimeTaskSessionSummary } from "@/runtime/types";
+import type { RuntimeTaskSessionLaunchMode, RuntimeTaskSessionSummary } from "@/runtime/types";
 import type { BoardCard, BoardData } from "@/types";
 
 const notifyErrorMock = vi.hoisted(() => vi.fn());
@@ -90,6 +90,7 @@ function HookHarness({
 	setBoard,
 	ensureTaskWorkspace,
 	startTaskSession,
+	codingAgentLaunchMode,
 	selectedCard = null,
 	setSelectedTaskIdOverride,
 	onSnapshot,
@@ -98,6 +99,7 @@ function HookHarness({
 	setBoard: Dispatch<SetStateAction<BoardData>>;
 	ensureTaskWorkspace: UseTaskSessionsResult["ensureTaskWorkspace"];
 	startTaskSession: UseTaskSessionsResult["startTaskSession"];
+	codingAgentLaunchMode?: RuntimeTaskSessionLaunchMode;
 	selectedCard?: { card: BoardCard; column: { id: "backlog" | "in_progress" | "review" | "trash" } } | null;
 	setSelectedTaskIdOverride?: Dispatch<SetStateAction<string | null>>;
 	onSnapshot?: (snapshot: HookSnapshot) => void;
@@ -124,6 +126,7 @@ function HookHarness({
 		startTaskSession,
 		fetchTaskWorkspaceInfo: NOOP_FETCH_WORKSPACE_INFO,
 		sendTaskSessionInput: NOOP_SEND_TASK_INPUT,
+		codingAgentLaunchMode,
 		readyForReviewNotificationsEnabled: false,
 		taskGitActionLoadingByTaskId: {},
 		runAutoReviewGitAction: NOOP_RUN_AUTO_REVIEW,
@@ -253,6 +256,77 @@ describe("useBoardInteractions", () => {
 		expect(started).toBe(true);
 		expect(ensureTaskWorkspace).toHaveBeenCalledWith(backlogTask);
 		expect(startTaskSession).toHaveBeenCalledWith(backlogTask);
+	});
+
+	it("starts Changeyard workflow sessions without creating a task workspace", async () => {
+		let startBacklogTaskWithAnimation: ((task: BoardCard) => Promise<boolean>) | null = null;
+
+		useProgrammaticCardMovesMock.mockReturnValue({
+			handleProgrammaticCardMoveReady: () => {},
+			setRequestMoveTaskToTrashHandler: () => {},
+			tryProgrammaticCardMove: () => "unavailable",
+			consumeProgrammaticCardMove: () => ({}),
+			resolvePendingProgrammaticTrashMove: () => {},
+			waitForProgrammaticCardMoveAvailability: async () => {},
+			resetProgrammaticCardMoves: () => {},
+			requestMoveTaskToTrashWithAnimation: async () => {},
+			programmaticCardMoveCycle: 0,
+		});
+
+		useLinkedBacklogTaskActionsMock.mockImplementation(
+			(input: { startBacklogTaskWithAnimation?: (task: BoardCard) => Promise<boolean> }) => {
+				startBacklogTaskWithAnimation = input.startBacklogTaskWithAnimation ?? null;
+				return {
+					handleCreateDependency: () => {},
+					handleDeleteDependency: () => {},
+					confirmMoveTaskToTrash: async () => {},
+					requestMoveTaskToTrash: async () => {},
+				};
+			},
+		);
+
+		const board = createBoard();
+		const setBoard = vi.fn<Dispatch<SetStateAction<BoardData>>>(() => {});
+		const ensureTaskWorkspace = vi.fn(async () => ({
+			ok: true as const,
+			response: {
+				ok: true as const,
+				path: "/tmp/task-1",
+				baseRef: "main",
+				baseCommit: "abc123",
+			},
+		}));
+		const startTaskSession = vi.fn(async () => ({ ok: true as const }));
+
+		await act(async () => {
+			root.render(
+				<HookHarness
+					board={board}
+					setBoard={setBoard}
+					ensureTaskWorkspace={ensureTaskWorkspace}
+					startTaskSession={startTaskSession}
+					codingAgentLaunchMode="changeyard-workflow"
+				/>,
+			);
+		});
+
+		if (!startBacklogTaskWithAnimation) {
+			throw new Error("Expected startBacklogTaskWithAnimation to be provided.");
+		}
+
+		const backlogTask = board.columns[0]?.cards[0];
+		if (!backlogTask) {
+			throw new Error("Expected a backlog task.");
+		}
+
+		let started = false;
+		await act(async () => {
+			started = await startBacklogTaskWithAnimation!(backlogTask);
+		});
+
+		expect(started).toBe(true);
+		expect(ensureTaskWorkspace).not.toHaveBeenCalled();
+		expect(startTaskSession).toHaveBeenCalledWith(backlogTask, { launchMode: "changeyard-workflow" });
 	});
 
 	it("waits for a new backlog card height to settle before starting animation", async () => {

@@ -11,6 +11,7 @@ import type {
 } from "../core/api-contract.js";
 import { isHomeAgentSessionId } from "../core/home-agent-session.js";
 import { resolveHomeAgentAppendSystemPrompt } from "../prompts/append-system-prompt.js";
+import { detectWorkspaceEngine } from "../workspace/git-sync.js";
 import { captureTaskTurnCheckpoint, deleteTaskTurnCheckpointRef } from "../workspace/turn-checkpoints.js";
 import {
 	compactPersistedMessagesForContextOverflow,
@@ -410,7 +411,12 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 						providerId,
 						rules: runtimeSetup.loadRules(),
 					}));
-				const appendedSystemPrompt = resolveHomeAgentAppendSystemPrompt(request.taskId);
+				const appendedSystemPrompt = isHomeAgentSessionId(request.taskId)
+					? resolveHomeAgentAppendSystemPrompt(request.taskId, {
+							cwd: request.cwd,
+							vcsEngine: await detectWorkspaceEngine(request.cwd).catch(() => null),
+						})
+					: null;
 				if (appendedSystemPrompt) {
 					systemPrompt = `${systemPrompt}\n\n${appendedSystemPrompt}`;
 				}

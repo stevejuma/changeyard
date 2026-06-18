@@ -277,6 +277,7 @@ export default function App(): ReactElement {
 		isLoading: isRuntimeProjectConfigLoading,
 		refresh: refreshRuntimeProjectConfig,
 	} = useRuntimeProjectConfig(currentProjectId);
+	const { config: changeyardProjectConfig } = useChangeyardProjectConfig(currentProjectId !== null, currentProjectId);
 	const { isBlocked: isKanbanAccessBlocked, refresh: refreshKanbanAccess } = useKanbanAccessGate({
 		workspaceId: currentProjectId,
 	});
@@ -473,6 +474,11 @@ export default function App(): ReactElement {
 	});
 
 	const { createTaskBranchOptions, defaultTaskBranchRef } = useTaskBranchOptions({ workspaceGit });
+	const homeGitSyncTargetRef =
+		changeyardProjectConfig?.projectDefaultBase.trim() ||
+		workspaceGit?.defaultBranch?.trim() ||
+		defaultTaskBranchRef.trim() ||
+		null;
 	const queueTaskStartAfterEdit = useCallback((taskId: string) => {
 		setPendingTaskStartAfterEditId(taskId);
 	}, []);
@@ -1305,6 +1311,7 @@ export default function App(): ReactElement {
 		startTaskSession,
 		fetchTaskWorkspaceInfo,
 		sendTaskSessionInput,
+		codingAgentLaunchMode: "changeyard-workflow",
 		readyForReviewNotificationsEnabled,
 		taskGitActionLoadingByTaskId,
 		runAutoReviewGitAction,
@@ -1572,6 +1579,7 @@ export default function App(): ReactElement {
 						runtimeHint={navbarRuntimeHint}
 						selectedTaskId={activeDetailSelection?.card.id ?? null}
 						selectedTaskBaseRef={activeDetailSelection?.card.baseRef ?? null}
+						homeRepositoryEngine={workspaceGit?.engine ?? null}
 						showHomeGitSummary={!hasNoProjects && !activeDetailSelection}
 						runningGitAction={activeDetailSelection || hasNoProjects ? null : runningGitAction}
 						onGitFetch={
@@ -1592,7 +1600,7 @@ export default function App(): ReactElement {
 							activeDetailSelection
 								? undefined
 								: () => {
-										void runGitAction("push");
+										void runGitAction("push", { targetRef: homeGitSyncTargetRef });
 									}
 						}
 						onToggleTerminal={

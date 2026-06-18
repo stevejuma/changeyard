@@ -75,6 +75,7 @@ vi.mock("@hello-pangea/dnd", async () => {
 		Draggable: ({
 			children,
 			draggableId,
+			isDragDisabled,
 		}: {
 			children: (provided: {
 				innerRef: () => void;
@@ -82,8 +83,9 @@ vi.mock("@hello-pangea/dnd", async () => {
 				dragHandleProps: Record<string, string>;
 			}, snapshot: { isDragging: boolean }) => ReactNode;
 			draggableId: string;
+			isDragDisabled?: boolean;
 		}): React.ReactElement => (
-			<div data-draggable-id={draggableId}>
+			<div data-draggable-id={draggableId} data-drag-disabled={isDragDisabled ? "true" : "false"}>
 				{children({
 					innerRef: () => {},
 					draggableProps: { "data-draggable-props": draggableId },
@@ -114,6 +116,15 @@ function createChange(
 		dependencies: { blockedBy: [], blocks: [] },
 		workspace: { path: `.changeyard/workspaces/${id}/repo`, branch: `cy/${id}` },
 	};
+}
+
+function setNativeInputValue(input: HTMLInputElement, value: string): void {
+	const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+	if (!setter) {
+		throw new Error("Expected native input value setter.");
+	}
+	setter.call(input, value);
+	input.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
 function createSessionSummary(taskId: string, overrides: Partial<RuntimeTaskSessionSummary> = {}): RuntimeTaskSessionSummary {
@@ -234,6 +245,82 @@ describe("ChangeBoard", () => {
 		expect(plannedButton).toBeTruthy();
 		plannedButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 		expect(onFilterChange).toHaveBeenCalledWith("planned");
+	});
+
+	it("filters visible board cards from the header search and clears inline", async () => {
+		const board: BoardData = {
+			columns: [
+				{
+					id: "backlog",
+					title: "Backlog",
+					cards: [
+						{
+							id: "task-1",
+							title: "Legacy parser task",
+							prompt: "Update parser fixtures",
+							startInPlanMode: false,
+							baseRef: "main",
+							createdAt: 1,
+							updatedAt: 1,
+						},
+						{
+							id: "task-2",
+							title: "Billing task",
+							prompt: "Billing task",
+							startInPlanMode: false,
+							baseRef: "main",
+							createdAt: 1,
+							updatedAt: 2,
+						},
+					],
+				},
+			],
+			dependencies: [],
+		};
+
+		act(() => {
+			root.render(
+				<ChangeBoard
+					board={board}
+					changes={[
+						createChange("CY-0001", "Parser validation", null),
+						createChange("CY-0002", "Billing update", null),
+					]}
+					filter="all"
+					selectedChangeId={null}
+					selectedTaskId={null}
+					onFilterChange={vi.fn()}
+					onSelectChange={vi.fn()}
+					onSelectTask={vi.fn()}
+				/>,
+			);
+		});
+
+		const searchInput = container.querySelector<HTMLInputElement>('input[aria-label="Search board cards"]');
+		expect(searchInput).toBeTruthy();
+
+		await act(async () => {
+			setNativeInputValue(searchInput!, "parser");
+			await Promise.resolve();
+		});
+
+		expect(container.querySelector('[data-task-id="task-1"]')).toBeTruthy();
+		expect(container.querySelector('[data-change-id="CY-0001"]')).toBeTruthy();
+		expect(container.querySelector('[data-task-id="task-2"]')).toBeNull();
+		expect(container.querySelector('[data-change-id="CY-0002"]')).toBeNull();
+		expect(container.querySelector('[data-draggable-id="task:task-1"]')?.getAttribute("data-drag-disabled")).toBe("true");
+
+		const clearButton = container.querySelector<HTMLButtonElement>('button[aria-label="Clear board search"]');
+		expect(clearButton).toBeTruthy();
+
+		await act(async () => {
+			clearButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+			await Promise.resolve();
+		});
+
+		expect(searchInput!.value).toBe("");
+		expect(container.querySelector('[data-task-id="task-2"]')).toBeTruthy();
+		expect(container.querySelector('[data-change-id="CY-0002"]')).toBeTruthy();
 	});
 
 	it("forwards drag moves for canonical changes", () => {

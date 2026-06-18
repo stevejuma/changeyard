@@ -113,6 +113,27 @@ function parseStatusPath(line: string): string | null {
 	return tokens[tokens.length - 1] ?? null;
 }
 
+function normalizeOptionalRef(value: string | null | undefined): string | null {
+	const normalized = value?.trim() ?? "";
+	return normalized || null;
+}
+
+function parseJjBookmarkName(line: string): string | null {
+	const trimmed = line.trimEnd();
+	if (!trimmed) {
+		return null;
+	}
+	const match = /^([^\s:][^:]*)\s*:/.exec(trimmed);
+	return match?.[1]?.trim() || null;
+}
+
+async function hasLocalJjBookmark(cwd: string, bookmarkName: string): Promise<boolean> {
+	const output = await getJjStdout(["bookmark", "list", "--ignore-working-copy", "--at-op=@", bookmarkName], cwd).catch(
+		() => "",
+	);
+	return output.split("\n").some((line) => parseJjBookmarkName(line) === bookmarkName);
+}
+
 export async function detectWorkspaceEngine(cwd: string): Promise<"git" | "jj"> {
 	const jjRoot = await getJjStdout(["workspace", "root"], cwd).catch(() => null);
 	if (jjRoot) {
@@ -344,35 +365,41 @@ export async function getGitSyncSummary(
 export async function runGitSyncAction(options: {
 	cwd: string;
 	action: RuntimeGitSyncAction;
+	targetRef?: string | null;
 }): Promise<RuntimeGitSyncResponse> {
 	const engine = await detectWorkspaceEngine(options.cwd);
 	if (engine === "jj") {
 		const initialSummary = await getGitSyncSummary(options.cwd);
 		const currentBranch = initialSummary.currentBranch?.trim() || "";
-		if (options.action === "pull") {
-			return {
-				ok: false,
-				action: options.action,
-				summary: initialSummary,
-				output: "",
-				error:
-					"Pull is not available for JJ workspaces in ChangeYard Kanban yet. Fetch in the UI, then rebase or merge from the command line.",
-			};
+		let commandResult: Awaited<ReturnType<typeof runJj>>;
+		if (options.action === "fetch" || options.action === "pull") {
+			commandResult = await runJj(options.cwd, ["git", "fetch"]);
+		} else {
+			const requestedBookmark = normalizeOptionalRef(options.targetRef);
+			const targetBookmark = requestedBookmark ?? currentBranch;
+			if (!targetBookmark) {
+				commandResult = {
+					ok: false,
+					stdout: "",
+					stderr: "",
+					output: "",
+					error:
+						"Push is only available for JJ workspaces that already have a local bookmark. Configure a project default base bookmark or select a bookmark first, then push again.",
+					exitCode: 1,
+				};
+			} else if (!(await hasLocalJjBookmark(options.cwd, targetBookmark))) {
+				commandResult = {
+					ok: false,
+					stdout: "",
+					stderr: "",
+					output: "",
+					error: `Push target bookmark "${targetBookmark}" was not found in this JJ workspace. Choose an existing local bookmark or update the project default base, then push again.`,
+					exitCode: 1,
+				};
+			} else {
+				commandResult = await runJj(options.cwd, ["git", "push", "--bookmark", targetBookmark]);
+			}
 		}
-		const commandResult =
-			options.action === "fetch"
-				? await runJj(options.cwd, ["git", "fetch"])
-				: currentBranch
-					? await runJj(options.cwd, ["git", "push", "--bookmark", currentBranch])
-					: {
-							ok: false,
-							stdout: "",
-							stderr: "",
-							output: "",
-							error:
-								"Push is only available for JJ workspaces that already have a bookmark. Create or select a bookmark first, then push again.",
-							exitCode: 1,
-						};
 		const nextSummary = await getGitSyncSummary(options.cwd);
 		if (!commandResult.ok) {
 			return {

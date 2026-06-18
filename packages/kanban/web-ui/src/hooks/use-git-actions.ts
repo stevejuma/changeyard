@@ -63,7 +63,7 @@ export interface UseGitActionsResult {
 	gitActionErrorTitle: string;
 	clearGitActionError: () => void;
 	gitHistory: UseGitHistoryDataResult;
-	runGitAction: (action: RuntimeGitSyncAction) => Promise<void>;
+	runGitAction: (action: RuntimeGitSyncAction, options?: { targetRef?: string | null }) => Promise<void>;
 	switchHomeBranch: (branch: string) => Promise<void>;
 	discardHomeWorkingChanges: () => Promise<void>;
 	handleCommitTask: (taskId: string) => void;
@@ -357,14 +357,17 @@ export function useGitActions({
 	);
 
 	const runGitAction = useCallback(
-		async (action: RuntimeGitSyncAction) => {
+		async (action: RuntimeGitSyncAction, options?: { targetRef?: string | null }) => {
 			if (!currentProjectId || runningGitAction || isSwitchingHomeBranch) {
 				return;
 			}
 			setRunningGitAction(action);
 			try {
 				const trpcClient = getRuntimeTrpcClient(currentProjectId);
-				const payload = await trpcClient.workspace.runGitSyncAction.mutate({ action });
+				const payload = await trpcClient.workspace.runGitSyncAction.mutate({
+					action,
+					targetRef: options?.targetRef ?? undefined,
+				});
 				if (!payload.ok || !payload.summary) {
 					const errorMessage = payload.error ?? `${action} failed.`;
 					const output = payload.output ?? "";

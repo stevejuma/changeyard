@@ -6,6 +6,7 @@ import {
 	type DropResult,
 } from "@hello-pangea/dnd";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 import { FileListing, FileListingViewModeToggle } from "@changeyard/web-ui";
 import {
 	Bot,
@@ -18,9 +19,12 @@ import {
 	GitPullRequest,
 	MoreHorizontal,
 	Plus,
+	Search,
+	X,
 } from "lucide-react";
 import {
 	useCallback,
+	useDeferredValue,
 	useEffect,
 	Fragment,
 	useMemo,
@@ -165,6 +169,48 @@ function filterChanges(changes: RuntimeChangeyardChangeListItem[], filter: Chang
 		default:
 			return changes;
 	}
+}
+
+function tokenizeBoardSearch(value: string): string[] {
+	return value
+		.trim()
+		.toLowerCase()
+		.split(/\s+/)
+		.filter(Boolean);
+}
+
+function matchesBoardSearch(parts: Array<string | number | null | undefined>, tokens: string[]): boolean {
+	if (tokens.length === 0) {
+		return true;
+	}
+	const haystack = parts
+		.filter((part): part is string | number => part !== null && part !== undefined)
+		.map((part) => String(part).toLowerCase())
+		.join(" ");
+	return tokens.every((token) => haystack.includes(token));
+}
+
+function changeMatchesBoardSearch(change: RuntimeChangeyardChangeListItem, tokens: string[]): boolean {
+	return matchesBoardSearch(
+		[
+			change.id,
+			change.title,
+			change.type,
+			change.status,
+			change.path,
+			change.base?.revision,
+			change.planning?.model,
+			change.planning?.phase,
+			change.workspace?.path,
+			change.workspace?.branch,
+			...change.labels,
+		],
+		tokens,
+	);
+}
+
+function taskMatchesBoardSearch(task: BoardCardModel, tokens: string[]): boolean {
+	return matchesBoardSearch([task.id, task.title, task.prompt, task.baseRef, task.agentId], tokens);
 }
 
 function parseSortTimestamp(value: string | number | null | undefined): number {
@@ -636,6 +682,7 @@ function ChangeCard({
 	isDependencySource,
 	isDependencyTarget,
 	isDependencyLinking,
+	isDragDisabled = false,
 }: {
 	change: RuntimeChangeyardChangeListItem;
 	index: number;
@@ -656,6 +703,7 @@ function ChangeCard({
 	isDependencySource?: boolean;
 	isDependencyTarget?: boolean;
 	isDependencyLinking?: boolean;
+	isDragDisabled?: boolean;
 }): ReactElement {
 	const [summary, setSummary] = useState<RuntimeChangeyardBoardSummaryResponse | null>(null);
 	const [summaryLoading, setSummaryLoading] = useState(false);
@@ -937,7 +985,7 @@ function ChangeCard({
 	const isCardSelected = selected && selectedCommitHash === null;
 
 	return (
-		<Draggable draggableId={encodeChangeDraggableId(change.id)} index={index}>
+		<Draggable draggableId={encodeChangeDraggableId(change.id)} index={index} isDragDisabled={isDragDisabled}>
 			{(provided, snapshot) => (
 				<div
 					ref={provided.innerRef}
@@ -1291,9 +1339,19 @@ export function ChangeBoard({
 	const [fileDiffLoading, setFileDiffLoading] = useState(false);
 	const [fileDiffError, setFileDiffError] = useState<Error | null>(null);
 	const [diffPanelWidth, setDiffPanelWidth] = useState(DEFAULT_DIFF_PANEL_WIDTH);
+	const [boardSearchText, setBoardSearchText] = useState("");
+	const deferredBoardSearchText = useDeferredValue(boardSearchText);
 	const [getBoardFileDiffForPanel] = useLazyGetChangeBoardFileDiffQuery();
 	const boardSurfaceRef = useRef<HTMLDivElement | null>(null);
-	const filteredChanges = filterChanges(changes, filter);
+	const boardSearchTokens = useMemo(() => tokenizeBoardSearch(deferredBoardSearchText), [deferredBoardSearchText]);
+	const isBoardSearchActive = boardSearchTokens.length > 0;
+	const filteredChanges = useMemo(() => {
+		const nextChanges = filterChanges(changes, filter);
+		if (!isBoardSearchActive) {
+			return nextChanges;
+		}
+		return nextChanges.filter((change) => changeMatchesBoardSearch(change, boardSearchTokens));
+	}, [boardSearchTokens, changes, filter, isBoardSearchActive]);
 	const changeDependencyEdges = useMemo(() => buildChangeDependencyEdges(filteredChanges), [filteredChanges]);
 	const dependencyLinking = useDependencyLinking({
 		canLinkNodes: (fromNodeId, toNodeId) => {
@@ -1325,7 +1383,10 @@ export function ChangeBoard({
 	}
 	if (filter === "all") {
 		for (const column of board.columns) {
-			groupedTasks.get(mapTaskColumnToChangeColumn(column.id))?.push(...column.cards);
+			const visibleCards = isBoardSearchActive
+				? column.cards.filter((task) => taskMatchesBoardSearch(task, boardSearchTokens))
+				: column.cards;
+			groupedTasks.get(mapTaskColumnToChangeColumn(column.id))?.push(...visibleCards);
 		}
 	}
 
@@ -1372,6 +1433,9 @@ export function ChangeBoard({
 
 	const handleDragEnd = (result: DropResult) => {
 		setActiveDragKind(null);
+		if (isBoardSearchActive) {
+			return;
+		}
 		const destination = result.destination;
 		if (!destination) {
 			return;
@@ -1531,9 +1595,48 @@ export function ChangeBoard({
 	return (
 		<section className="flex min-h-0 min-w-0 flex-1 flex-col bg-surface-0 px-3 py-3">
 			<div className="mb-3 flex flex-wrap items-center gap-2">
-				<div className="flex items-center gap-2">
-					<FileText size={14} className="text-text-secondary" />
-					<h2 className="text-xs font-semibold uppercase tracking-wide text-text-secondary">Board</h2>
+				<div className="flex min-w-[220px] flex-1 items-center gap-2">
+					<div className="relative flex h-8 w-full max-w-[440px] items-center">
+						<Search
+							size={14}
+							aria-hidden
+							className="pointer-events-none absolute left-2.5 text-text-tertiary"
+						/>
+						<input
+							type="search"
+							value={boardSearchText}
+							onChange={(event) => setBoardSearchText(event.currentTarget.value)}
+							placeholder="Search board cards"
+							aria-label="Search board cards"
+							className="h-full w-full rounded-md border border-divider bg-surface-1 pl-8 pr-8 text-sm text-text-primary outline-none transition-colors placeholder:text-text-tertiary focus:border-border-focus [&::-webkit-search-cancel-button]:appearance-none"
+						/>
+						{boardSearchText.trim().length > 0 ? (
+							<TooltipPrimitive.Provider delayDuration={300}>
+								<TooltipPrimitive.Root>
+									<TooltipPrimitive.Trigger asChild>
+										<button
+											type="button"
+											aria-label="Clear board search"
+											className="absolute right-1.5 inline-flex h-5 w-5 items-center justify-center rounded text-text-tertiary transition-colors hover:bg-surface-2 hover:text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
+											onClick={() => setBoardSearchText("")}
+										>
+											<X size={13} aria-hidden />
+										</button>
+									</TooltipPrimitive.Trigger>
+									<TooltipPrimitive.Portal>
+										<TooltipPrimitive.Content
+											side="bottom"
+											sideOffset={6}
+											className="z-50 rounded-md border border-border bg-surface-2 px-2 py-1 text-xs text-text-primary shadow-lg"
+										>
+											Clear search
+											<TooltipPrimitive.Arrow className="fill-surface-2" />
+										</TooltipPrimitive.Content>
+									</TooltipPrimitive.Portal>
+								</TooltipPrimitive.Root>
+							</TooltipPrimitive.Provider>
+						) : null}
+					</div>
 					{isLoading ? (
 						<span role="status" className="text-xs text-text-tertiary">
 							Loading changes...
@@ -1579,7 +1682,8 @@ export function ChangeBoard({
 						{columnModels.map((column) => {
 							const canCreateTask = filter === "all" && column.id === "backlog" && onCreateTask;
 							const taskDropColumnId = mapChangeColumnToTaskColumn(column.id);
-							const isDropDisabled = activeDragKind === "task" && taskDropColumnId === null;
+							const isDropDisabled =
+								isBoardSearchActive || (activeDragKind === "task" && taskDropColumnId === null);
 							if (column.collapsed) {
 								return (
 									<CollapsedChangeColumn
@@ -1656,6 +1760,7 @@ export function ChangeBoard({
 															isMoveToTrashLoading={moveToTrashLoadingById?.[task.id] ?? false}
 															workspacePath={workspacePath}
 															defaultClineModelId={defaultClineModelId}
+															isDragDisabled={isBoardSearchActive}
 														/>
 													))}
 													{column.changes.map((change, index) => (
@@ -1678,6 +1783,7 @@ export function ChangeBoard({
 															isDependencySource={dependencyLinking.draft?.sourceNodeId === encodeChangeNodeId(change.id)}
 															isDependencyTarget={dependencyLinking.draft?.targetNodeId === encodeChangeNodeId(change.id)}
 															isDependencyLinking={dependencyLinking.draft !== null}
+															isDragDisabled={isBoardSearchActive}
 														/>
 													))}
 													{column.count === 0 ? (

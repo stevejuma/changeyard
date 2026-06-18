@@ -7,7 +7,11 @@ import { useLinkedBacklogTaskActions } from "@/hooks/use-linked-backlog-task-act
 import { useProgrammaticCardMoves } from "@/hooks/use-programmatic-card-moves";
 import { useReviewAutoActions } from "@/hooks/use-review-auto-actions";
 import type { UseTaskSessionsResult } from "@/hooks/use-task-sessions";
-import type { RuntimeTaskSessionSummary, RuntimeTaskWorkspaceInfoResponse } from "@/runtime/types";
+import type {
+	RuntimeTaskSessionLaunchMode,
+	RuntimeTaskSessionSummary,
+	RuntimeTaskWorkspaceInfoResponse,
+} from "@/runtime/types";
 import {
 	applyDragResult,
 	clearColumnTasks,
@@ -66,6 +70,7 @@ interface UseBoardInteractionsInput {
 		input: string,
 		options?: SendTerminalInputOptions,
 	) => Promise<{ ok: boolean; message?: string }>;
+	codingAgentLaunchMode?: RuntimeTaskSessionLaunchMode;
 	readyForReviewNotificationsEnabled: boolean;
 	taskGitActionLoadingByTaskId: Record<string, TaskGitActionLoadingStateLike>;
 	runAutoReviewGitAction: (taskId: string, action: TaskGitAction) => Promise<boolean>;
@@ -110,6 +115,7 @@ export function useBoardInteractions({
 	startTaskSession,
 	fetchTaskWorkspaceInfo,
 	sendTaskSessionInput,
+	codingAgentLaunchMode = "task-worktree",
 	readyForReviewNotificationsEnabled,
 	taskGitActionLoadingByTaskId,
 	runAutoReviewGitAction,
@@ -278,48 +284,53 @@ export function useBoardInteractions({
 			options?: { optimisticMove?: boolean },
 		): Promise<boolean> => {
 			const optimisticMove = options?.optimisticMove ?? true;
-			const ensured = await ensureTaskWorkspace(task);
-			if (!ensured.ok) {
-				notifyError(ensured.message ?? "Could not set up task workspace.");
-				if (optimisticMove) {
-					setBoard((currentBoard) => {
-						const currentColumnId = getTaskColumnId(currentBoard, taskId);
-						if (currentColumnId !== "in_progress") {
-							return currentBoard;
-						}
-						const reverted = moveTaskToColumn(currentBoard, taskId, fromColumnId);
-						return reverted.moved ? reverted.board : currentBoard;
+			if (codingAgentLaunchMode === "task-worktree") {
+				const ensured = await ensureTaskWorkspace(task);
+				if (!ensured.ok) {
+					notifyError(ensured.message ?? "Could not set up task workspace.");
+					if (optimisticMove) {
+						setBoard((currentBoard) => {
+							const currentColumnId = getTaskColumnId(currentBoard, taskId);
+							if (currentColumnId !== "in_progress") {
+								return currentBoard;
+							}
+							const reverted = moveTaskToColumn(currentBoard, taskId, fromColumnId);
+							return reverted.moved ? reverted.board : currentBoard;
+						});
+					}
+					return false;
+				}
+				if (ensured.response?.warning) {
+					showAppToast({
+						intent: "warning",
+						icon: "warning-sign",
+						message: ensured.response.warning,
+						timeout: 7000,
 					});
 				}
-				return false;
-			}
-			if (ensured.response?.warning) {
-				showAppToast({
-					intent: "warning",
-					icon: "warning-sign",
-					message: ensured.response.warning,
-					timeout: 7000,
-				});
-			}
-			if (selectedTaskId === taskId) {
-				if (ensured.response) {
-					setTaskWorkspaceInfo({
-						taskId,
-						path: ensured.response.path,
-						exists: true,
-						baseRef: ensured.response.baseRef,
-						branch: null,
-						jjChangeId: null,
-						isDetached: true,
-						headCommit: ensured.response.baseCommit,
-					});
-				}
-				const infoAfterEnsure = await fetchTaskWorkspaceInfo(task);
-				if (infoAfterEnsure) {
-					setTaskWorkspaceInfo(infoAfterEnsure);
+				if (selectedTaskId === taskId) {
+					if (ensured.response) {
+						setTaskWorkspaceInfo({
+							taskId,
+							path: ensured.response.path,
+							exists: true,
+							baseRef: ensured.response.baseRef,
+							branch: null,
+							jjChangeId: null,
+							isDetached: true,
+							headCommit: ensured.response.baseCommit,
+						});
+					}
+					const infoAfterEnsure = await fetchTaskWorkspaceInfo(task);
+					if (infoAfterEnsure) {
+						setTaskWorkspaceInfo(infoAfterEnsure);
+					}
 				}
 			}
-			const started = await startTaskSession(task);
+			const started =
+				codingAgentLaunchMode === "task-worktree"
+					? await startTaskSession(task)
+					: await startTaskSession(task, { launchMode: codingAgentLaunchMode });
 			if (!started.ok) {
 				notifyError(started.message ?? "Could not start task session.");
 				if (optimisticMove) {
@@ -346,7 +357,14 @@ export function useBoardInteractions({
 			}
 			return true;
 		},
-		[ensureTaskWorkspace, fetchTaskWorkspaceInfo, selectedTaskId, setBoard, startTaskSession],
+		[
+			codingAgentLaunchMode,
+			ensureTaskWorkspace,
+			fetchTaskWorkspaceInfo,
+			selectedTaskId,
+			setBoard,
+			startTaskSession,
+		],
 	);
 
 	const startBacklogTaskImmediately = useCallback(

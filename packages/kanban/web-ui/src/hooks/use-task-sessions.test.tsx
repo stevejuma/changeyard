@@ -192,6 +192,43 @@ describe("useTaskSessions", () => {
 		});
 	});
 
+	it("forwards Changeyard workflow launch mode when requested", async () => {
+		let latestSnapshot: HookSnapshot | null = null;
+
+		await act(async () => {
+			root.render(
+				<HookHarness
+					onSnapshot={(snapshot) => {
+						latestSnapshot = snapshot;
+					}}
+				/>,
+			);
+		});
+
+		if (latestSnapshot === null) {
+			throw new Error("Expected a hook snapshot.");
+		}
+
+		await act(async () => {
+			await latestSnapshot?.startTaskSession(createTask(), { launchMode: "changeyard-workflow" });
+		});
+
+		expect(startTaskSessionMutateMock).toHaveBeenCalledWith({
+			taskId: "task-1",
+			prompt: "Resume me",
+			taskTitle: "Resume me",
+			images: undefined,
+			startInPlanMode: false,
+			resumeFromTrash: undefined,
+			baseRef: "main",
+			launchMode: "changeyard-workflow",
+			cols: 120,
+			rows: 40,
+			agentId: undefined,
+			clineSettings: undefined,
+		});
+	});
+
 	it("forwards task images when starting a task", async () => {
 		let latestSnapshot: HookSnapshot | null = null;
 

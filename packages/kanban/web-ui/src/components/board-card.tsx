@@ -236,6 +236,7 @@ export function BoardCard({
 	workspacePath,
 	defaultClineModelId = null,
 	draggableId,
+	isDragDisabled = false,
 }: {
 	card: BoardCardModel;
 	index: number;
@@ -261,6 +262,7 @@ export function BoardCard({
 	workspacePath?: string | null;
 	defaultClineModelId?: string | null;
 	draggableId?: string;
+	isDragDisabled?: boolean;
 }): React.ReactElement {
 	const [isHovered, setIsHovered] = useState(false);
 	const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -478,7 +480,7 @@ export function BoardCard({
 	const activeDescriptionDisplay = isDescriptionExpanded ? descriptionDisplay.expanded : descriptionDisplay.collapsed;
 
 	return (
-		<Draggable draggableId={draggableId ?? card.id} index={index} isDragDisabled={false}>
+		<Draggable draggableId={draggableId ?? card.id} index={index} isDragDisabled={isDragDisabled}>
 			{(provided, snapshot) => {
 				const isDragging = snapshot.isDragging;
 				const draggableContent = (

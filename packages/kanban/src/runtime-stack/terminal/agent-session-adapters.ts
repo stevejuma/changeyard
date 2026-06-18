@@ -11,10 +11,12 @@ import type {
 	RuntimeTaskSessionSummary,
 } from "../core/api-contract.js";
 import { buildKanbanCommandParts } from "../core/kanban-command.js";
+import { isHomeAgentSessionId } from "../core/home-agent-session.js";
 import { quoteShellArg } from "../core/shell.js";
 import { lockedFileSystem } from "../fs/locked-file-system.js";
 import { resolveHomeAgentAppendSystemPrompt } from "../prompts/append-system-prompt.js";
 import { getRuntimeHomePath } from "../state/workspace-state.js";
+import { detectWorkspaceEngine } from "../workspace/git-sync.js";
 import { getGitStdout } from "../workspace/git-utils.js";
 import { configureCodexHooks, hasCodexConfigOverride } from "./codex-hook-config.js";
 import { createHookRuntimeEnv } from "./hook-runtime-context.js";
@@ -93,6 +95,17 @@ function resolveHookContext(input: AgentAdapterLaunchInput): HookContext | null 
 		taskId: input.taskId,
 		workspaceId,
 	};
+}
+
+async function resolveHomeAgentAppendSystemPromptForInput(input: AgentAdapterLaunchInput): Promise<string | null> {
+	if (!isHomeAgentSessionId(input.taskId)) {
+		return null;
+	}
+	const vcsEngine = await detectWorkspaceEngine(input.cwd).catch(() => null);
+	return resolveHomeAgentAppendSystemPrompt(input.taskId, {
+		cwd: input.cwd,
+		vcsEngine,
+	});
 }
 
 function buildHookCommandParts(event: RuntimeHookEvent, metadata?: HookCommandMetadata): string[] {
@@ -619,7 +632,7 @@ const claudeAdapter: AgentSessionAdapter = {
 		const env: Record<string, string | undefined> = {
 			FORCE_HYPERLINK: "1",
 		};
-		const appendedSystemPrompt = resolveHomeAgentAppendSystemPrompt(input.taskId);
+		const appendedSystemPrompt = await resolveHomeAgentAppendSystemPromptForInput(input);
 		if (
 			input.autonomousModeEnabled &&
 			!input.startInPlanMode &&
@@ -747,7 +760,7 @@ const codexAdapter: AgentSessionAdapter = {
 		const env: Record<string, string | undefined> = {};
 		const binary = input.binary;
 		let deferredStartupInput: string | undefined;
-		const appendedSystemPrompt = resolveHomeAgentAppendSystemPrompt(input.taskId);
+		const appendedSystemPrompt = await resolveHomeAgentAppendSystemPromptForInput(input);
 
 		if (!hasCodexConfigOverride(codexArgs, "check_for_update_on_startup")) {
 			codexArgs.push("-c", "check_for_update_on_startup=false");
@@ -1252,7 +1265,7 @@ const droidAdapter: AgentSessionAdapter = {
 			}
 		}
 
-		const appendedSystemPrompt = resolveHomeAgentAppendSystemPrompt(input.taskId);
+		const appendedSystemPrompt = await resolveHomeAgentAppendSystemPromptForInput(input);
 		if (
 			appendedSystemPrompt &&
 			!hasCliOption(args, "--append-system-prompt") &&
@@ -1286,7 +1299,7 @@ const kiroAdapter: AgentSessionAdapter = {
 		}
 
 		const hooks = resolveHookContext(input);
-		const appendedSystemPrompt = resolveHomeAgentAppendSystemPrompt(input.taskId);
+		const appendedSystemPrompt = await resolveHomeAgentAppendSystemPromptForInput(input);
 		if (hooks || appendedSystemPrompt) {
 			const configPath = getKiroAgentConfigPath();
 			const config: Record<string, unknown> = {

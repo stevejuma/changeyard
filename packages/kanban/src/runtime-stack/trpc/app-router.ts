@@ -49,7 +49,7 @@ import type {
 	RuntimeGitLogResponse,
 	RuntimeGitRefsResponse,
 	RuntimeGitSummaryResponse,
-	RuntimeGitSyncAction,
+	RuntimeGitSyncRequest,
 	RuntimeGitSyncResponse,
 	RuntimeHookIngestRequest,
 	RuntimeHookIngestResponse,
@@ -206,7 +206,7 @@ import {
 	runtimeGitLogResponseSchema,
 	runtimeGitRefsResponseSchema,
 	runtimeGitSummaryResponseSchema,
-	runtimeGitSyncActionSchema,
+	runtimeGitSyncRequestSchema,
 	runtimeGitSyncResponseSchema,
 	runtimeHookIngestRequestSchema,
 	runtimeHookIngestResponseSchema,
@@ -406,7 +406,7 @@ export interface RuntimeTrpcContext {
 		) => Promise<RuntimeGitSummaryResponse>;
 		runGitSyncAction: (
 			scope: RuntimeTrpcWorkspaceScope,
-			input: { action: RuntimeGitSyncAction },
+			input: RuntimeGitSyncRequest,
 		) => Promise<RuntimeGitSyncResponse>;
 		checkoutGitBranch: (
 			scope: RuntimeTrpcWorkspaceScope,
@@ -618,9 +618,7 @@ const workspaceProcedure = t.procedure.use(({ ctx, next }) => {
 });
 
 const optionalTaskWorkspaceInfoRequestSchema = runtimeTaskWorkspaceInfoRequestSchema.nullable().optional();
-const gitSyncActionInputSchema = z.object({
-	action: runtimeGitSyncActionSchema,
-});
+const gitSyncActionInputSchema = runtimeGitSyncRequestSchema;
 
 export const runtimeAppRouter = t.router({
 	runtime: t.router({

@@ -263,6 +263,10 @@ test("Kanban and VCS theme CSS expose matching color token keys", () => {
 	for (const token of SELECTED_TOKEN_NAMES) {
 		assert.equal(kanban.root[token], vcs.root[token], `${token} selected root token drifted`);
 	}
+	assert.equal(kanban.root["--kb-selected-bg"], "var(--color-primary)");
+	assert.equal(kanban.root["--kb-selected-fg"], "var(--color-primary-fg)");
+	assert.equal(kanban.root["--kb-selected-muted-fg"], "var(--color-primary-fg)");
+	assert.equal(kanban.root["--kb-selected-border"], "var(--color-accent-hover)");
 	assert.deepEqual(
 		[...kanban.themeBlocks.keys()].sort(),
 		[...vcs.themeBlocks.keys()].sort(),

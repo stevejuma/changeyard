@@ -48,9 +48,11 @@ import { isHomeAgentSessionId } from "../core/home-agent-session.js";
 import { buildKanbanCommandParts } from "../core/kanban-command.js";
 import { buildShellCommandLine } from "../core/shell.js";
 import { resolveTaskTitle } from "../core/task-title.js";
+import { buildChangeyardCodingAgentPrompt } from "../prompts/changeyard-workflow-prompt.js";
 import { openInBrowser } from "../server/browser.js";
 import { buildRuntimeConfigResponse, resolveAgentCommand } from "../terminal/agent-registry.js";
 import type { TerminalSessionManager } from "../terminal/session-manager.js";
+import { detectWorkspaceEngine } from "../workspace/git-sync.js";
 import { resolveTaskCwd } from "../workspace/task-worktree.js";
 import { captureTaskTurnCheckpoint } from "../workspace/turn-checkpoints.js";
 import type { RuntimeTrpcContext, RuntimeTrpcWorkspaceScope } from "./app-router.js";
@@ -212,7 +214,10 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				}
 				const requestedClineTaskMode = body.mode ?? "act";
 				const scopedRuntimeConfig = await deps.loadScopedRuntimeConfig(workspaceScope);
-				const taskCwd = isHomeAgentSessionId(body.taskId)
+				const launchMode = body.launchMode ?? "task-worktree";
+				const isChangeyardWorkflowLaunch = launchMode === "changeyard-workflow";
+				const useWorkspaceRoot = isHomeAgentSessionId(body.taskId) || isChangeyardWorkflowLaunch;
+				const taskCwd = useWorkspaceRoot
 					? workspaceScope.workspacePath
 					: await resolveExistingTaskCwdOrEnsure({
 							cwd: workspaceScope.workspacePath,
@@ -221,7 +226,18 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 						});
 				const isExternalSessionResume = Boolean(body.resumeSessionId);
 				const shouldCaptureTurnCheckpoint =
-					!body.resumeFromTrash && !isExternalSessionResume && !isHomeAgentSessionId(body.taskId);
+					!body.resumeFromTrash &&
+					!isExternalSessionResume &&
+					!isHomeAgentSessionId(body.taskId) &&
+					!isChangeyardWorkflowLaunch;
+				const changeyardWorkflowPrompt =
+					isChangeyardWorkflowLaunch && !body.resumeFromTrash && !isExternalSessionResume
+						? buildChangeyardCodingAgentPrompt(body.prompt, {
+								commandPrefix: "cy",
+								projectRoot: workspaceScope.workspacePath,
+								vcsEngine: await detectWorkspaceEngine(workspaceScope.workspacePath).catch(() => null),
+							})
+						: body.prompt;
 
 				// Per-task config source-of-truth precedence:
 				//
@@ -289,7 +305,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					const summary = await clineTaskSessionService.startTaskSession({
 						taskId: body.taskId,
 						cwd: taskCwd,
-						prompt: body.prompt,
+						prompt: changeyardWorkflowPrompt,
 						taskTitle: resolvedClineTitle.length > 0 ? resolvedClineTitle : undefined,
 						images: body.images,
 						resumeFromTrash: body.resumeFromTrash,
@@ -342,7 +358,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					args: resolved.args,
 					autonomousModeEnabled: scopedRuntimeConfig.agentAutonomousModeEnabled,
 					cwd: taskCwd,
-					prompt: isExternalSessionResume ? "" : body.prompt,
+					prompt: isExternalSessionResume ? "" : changeyardWorkflowPrompt,
 					images: body.images,
 					startInPlanMode: body.startInPlanMode,
 					resumeFromTrash: body.resumeFromTrash,

@@ -11,6 +11,7 @@ import { estimateTaskSessionGeometry } from "@/runtime/task-session-geometry";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type {
 	RuntimeTaskChatMessage,
+	RuntimeTaskSessionLaunchMode,
 	RuntimeTaskSessionMode,
 	RuntimeTaskSessionSummary,
 	RuntimeTaskWorkspaceInfoResponse,
@@ -47,6 +48,7 @@ interface StartTaskSessionResult {
 interface StartTaskSessionOptions {
 	resumeFromTrash?: boolean;
 	resumeSessionId?: string;
+	launchMode?: RuntimeTaskSessionLaunchMode;
 }
 
 export interface UseTaskSessionsResult {
@@ -162,8 +164,9 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 					images: options?.resumeFromTrash ? undefined : task.images,
 					startInPlanMode: options?.resumeFromTrash ? undefined : task.startInPlanMode,
 					resumeFromTrash: options?.resumeFromTrash,
-					resumeSessionId: options?.resumeSessionId,
+					...(options?.resumeSessionId ? { resumeSessionId: options.resumeSessionId } : {}),
 					baseRef: task.baseRef,
+					...(options?.launchMode ? { launchMode: options.launchMode } : {}),
 					cols: geometry.cols,
 					rows: geometry.rows,
 					agentId: options?.resumeSessionId ? "codex" : task.agentId,

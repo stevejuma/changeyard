@@ -9,6 +9,7 @@ import type { BoardData } from "@/types";
 
 const showAppToastMock = vi.hoisted(() => vi.fn());
 const useGitHistoryDataMock = vi.hoisted(() => vi.fn());
+const runGitSyncActionMutateMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/components/app-toaster", () => ({
 	showAppToast: showAppToastMock,
@@ -18,8 +19,19 @@ vi.mock("@/components/git-history/use-git-history-data", () => ({
 	useGitHistoryData: useGitHistoryDataMock,
 }));
 
+vi.mock("@/runtime/trpc-client", () => ({
+	getRuntimeTrpcClient: () => ({
+		workspace: {
+			runGitSyncAction: {
+				mutate: runGitSyncActionMutateMock,
+			},
+		},
+	}),
+}));
+
 interface HookSnapshot {
 	handleAgentCommitTask: UseGitActionsResult["handleAgentCommitTask"];
+	runGitAction: UseGitActionsResult["runGitAction"];
 }
 
 function createGitHistoryResult(): UseGitActionsResult["gitHistory"] {
@@ -153,8 +165,9 @@ function HookHarness({
 	useEffect(() => {
 		onSnapshot({
 			handleAgentCommitTask: gitActions.handleAgentCommitTask,
+			runGitAction: gitActions.runGitAction,
 		});
-	}, [gitActions.handleAgentCommitTask, onSnapshot]);
+	}, [gitActions.handleAgentCommitTask, gitActions.runGitAction, onSnapshot]);
 
 	return null;
 }
@@ -167,6 +180,22 @@ describe("useGitActions", () => {
 	beforeEach(() => {
 		showAppToastMock.mockReset();
 		useGitHistoryDataMock.mockReset();
+		runGitSyncActionMutateMock.mockReset();
+		runGitSyncActionMutateMock.mockResolvedValue({
+			ok: true,
+			action: "push",
+			summary: {
+				currentBranch: "main",
+				jjChangeId: null,
+				upstreamBranch: "origin/main",
+				changedFiles: 0,
+				additions: 0,
+				deletions: 0,
+				aheadCount: 0,
+				behindCount: 0,
+			},
+			output: "",
+		});
 		useGitHistoryDataMock.mockReturnValue(createGitHistoryResult());
 		clearTaskWorkspaceInfo("task-1");
 		clearTaskWorkspaceSnapshot("task-1");
@@ -225,5 +254,34 @@ describe("useGitActions", () => {
 		expect(sendTaskChatMessage).toHaveBeenCalledWith("task-1", expect.any(String), { mode: "act" });
 		expect(sendTaskSessionInput).not.toHaveBeenCalled();
 		expect(showAppToastMock).not.toHaveBeenCalled();
+	});
+
+	it("passes the target ref when running a home sync action", async () => {
+		const sendTaskSessionInput = vi.fn(async () => ({ ok: true }));
+		const sendTaskChatMessage = vi.fn(async () => ({ ok: true }));
+		let latestSnapshot: HookSnapshot | null = null;
+
+		await act(async () => {
+			root.render(
+				<HookHarness
+					sendTaskSessionInput={sendTaskSessionInput}
+					sendTaskChatMessage={sendTaskChatMessage}
+					onSnapshot={(snapshot) => {
+						latestSnapshot = snapshot;
+					}}
+				/>,
+			);
+			await Promise.resolve();
+		});
+
+		if (latestSnapshot === null) {
+			throw new Error("Expected a hook snapshot.");
+		}
+
+		await act(async () => {
+			await latestSnapshot?.runGitAction("push", { targetRef: "main" });
+		});
+
+		expect(runGitSyncActionMutateMock).toHaveBeenCalledWith({ action: "push", targetRef: "main" });
 	});
 });

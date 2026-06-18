@@ -63,9 +63,9 @@
 	--color-primary: #005CC8;
 	--color-primary-hover: #0969DA;
 	--color-primary-fg: #FFFFFF;
-	--kb-selected-bg: var(--color-accent);
-	--kb-selected-fg: var(--color-accent-fg);
-	--kb-selected-muted-fg: var(--color-accent-fg);
+	--kb-selected-bg: var(--color-primary);
+	--kb-selected-fg: var(--color-primary-fg);
+	--kb-selected-muted-fg: var(--color-primary-fg);
 	--kb-selected-border: var(--color-accent-hover);
 }
 
