@@ -62,7 +62,7 @@ cy <command> [options]
 ## Examples
 
 ```sh
-cy create --template agent-task --title "Add workspace verification"
+cy create --template agent-task --planning openspec-lite --strict --title "Add workspace verification"
 cy validate CY-0001
 cy start CY-0001
 cy next CY-0001

@@ -14,8 +14,8 @@ Changeyard is the markdown-first local change workflow for this repository. Cano
 
 ## Required workflow for non-trivial code changes
 
-1. Create a change: `cy create --template agent-task --title "<title>"`
-2. Fill in the generated markdown plan and acceptance criteria
+1. Create a strict planned change: `cy create --template agent-task --planning openspec-lite --strict --title "<title>"`
+2. Fill in Summary, Motivation, Plan, Acceptance Criteria, and the generated planning sections
 3. Validate: `cy validate <id>`
 4. Sync if a provider is configured: `cy sync <id>`
 5. Start an isolated workspace: `cy start <id>`
@@ -53,9 +53,12 @@ After `cy start`, all product edits belong **only** in the workspace checkout pr
 
 ## Planning changes
 
+- Non-trivial agent work must use strict OpenSpec-lite planning: `cy create --template agent-task --planning openspec-lite --strict --title "<title>"`
+- Use `cy quick` or `--no-planning` only for small, low-risk changes with no behavior, public API, storage/schema, provider/workspace lifecycle, UI workflow, or security-sensitive impact
 - Planned changes use inline OpenSpec-lite sections in the same markdown file
 - Check planning gates before `cy sync`, `cy start`, and `cy complete`
-- Use `cy plan status <id>`, `cy plan prompt <id> <section>`, and strict-mode commands when planning is enabled
+- Use `cy plan status <id>` to find the next planning gate and `cy plan prompt <id> <section>` to draft missing sections
+- Use `cy plan strict enable <id>` only when converting an existing normal planned change to strict planning
 
 ## Rules
 

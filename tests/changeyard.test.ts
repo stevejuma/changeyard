@@ -28,7 +28,7 @@ import { getNextAction, runNext } from "../src/commands/next.js";
 import { formatCommandPreview } from "../src/scaffold/command-generation/generator.js";
 import { cursorAdapter } from "../src/scaffold/command-generation/adapters/cursor.js";
 import { getCommandContents } from "../src/scaffold/templates/commands.js";
-import { CANONICAL_SKILL_RELATIVE_PATH } from "../src/scaffold/skill-generation.js";
+import { CANONICAL_SKILL_RELATIVE_PATH, generateChangeyardSkillContent } from "../src/scaffold/skill-generation.js";
 import { listChanges, runList } from "../src/commands/list.js";
 import { runRecover } from "../src/commands/recover.js";
 import { getReview, listReviews, runReviewComplete, runReviewStart, updateReview } from "../src/commands/review.js";
@@ -309,7 +309,16 @@ test("cursor command adapter formats slash command frontmatter", () => {
   assert.ok(create);
   const formatted = formatCommandPreview(create!, cursorAdapter);
   assert.match(formatted, /name: \/cy-create/);
-  assert.match(formatted, /Create a new Changeyard change/);
+  assert.match(formatted, /Create a new strict planned Changeyard change/);
+  assert.match(formatted, /cy create --template agent-task --planning openspec-lite --strict --title "<title>"/);
+  assert.match(formatted, /Use `cy quick` or `--no-planning` only for small, low-risk changes/);
+});
+
+test("generated skill guidance defaults non-trivial agent work to strict planning", () => {
+  const skill = generateChangeyardSkillContent("test");
+  assert.match(skill, /Create a strict planned change: `cy create --template agent-task --planning openspec-lite --strict --title "<title>"`/);
+  assert.match(skill, /Non-trivial agent work must use strict OpenSpec-lite planning/);
+  assert.match(skill, /Use `cy quick` or `--no-planning` only for small, low-risk changes with no behavior, public API, storage\/schema, provider\/workspace lifecycle, UI workflow, or security-sensitive impact/);
 });
 
 test("create allocates a valid markdown change", () => {

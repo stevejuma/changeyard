@@ -24,10 +24,16 @@ cy create --quick --title <title> [options]
 - `--dry-run`: Show the target path without writing.
 - `--json`: Print the created change plus `data.sessionAttach`, a machine-readable follow-up command for external agent session registration.
 
+## Agent Guidance
+
+For non-trivial agent work, create a strict planned change with `--planning openspec-lite --strict`.
+
+Use `cy quick` or `--no-planning` only for small, low-risk changes with no behavior, public API, storage/schema, provider/workspace lifecycle, UI workflow, or security-sensitive impact.
+
 ## Examples
 
 ```sh
-cy create --template agent-task --title "Add workspace verification"
+cy create --template agent-task --planning openspec-lite --strict --title "Add workspace verification"
 cy create --quick --title "Fix typo"
-cy create --template agent-task --title "Add workspace verification" --json
+cy create --template agent-task --planning openspec-lite --strict --title "Add workspace verification" --json
 ```
