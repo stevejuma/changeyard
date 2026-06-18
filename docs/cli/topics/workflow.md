@@ -12,6 +12,6 @@ For non-trivial agent work, create a strict planned change:
 cy create --template agent-task --planning openspec-lite --strict --title "<title>"
 ```
 
-Use `cy quick` or `--no-planning` only for small, low-risk changes with no behavior, public API, storage/schema, provider/workspace lifecycle, UI workflow, or security-sensitive impact.
+Use `cy quick` or `--no-planning` only for small, low-risk lite changes with no behavior, public API, storage/schema, provider/workspace lifecycle, UI workflow, or security-sensitive impact.
 
-Use `cy next <id>` when unsure which command is currently valid.
+Use `cy next <id>` when unsure which command is currently valid. Use `cy audit <id>` when a gate fails or an agent needs the full workflow context, blockers, expected cwd, and recovery commands.

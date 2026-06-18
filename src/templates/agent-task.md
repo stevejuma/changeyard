@@ -40,4 +40,4 @@ Write the agent's implementation plan here before starting work.
 
 # Completion Notes
 
-Summarize what changed, what checks ran, and what risks remain.
+Summarize changed areas, checks run or not run, and remaining risks or follow-ups.

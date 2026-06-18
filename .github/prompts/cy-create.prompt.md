@@ -11,4 +11,5 @@ Create a new strict planned Changeyard change for non-trivial work.
 4. Open the generated markdown file under `.changeyard/changes/`.
 5. Fill in Summary, Motivation, Plan, Acceptance Criteria, and the generated planning sections before editing code.
 6. Run `cy plan status <id>` and use `cy plan prompt <id> <section>` when a planning section needs drafting.
-7. Tell the user the change id and next steps (`cy validate`, `cy sync`, `cy start`).
+7. Run `cy audit <id>` if any gate is unclear or fails.
+8. Tell the user the change id and next steps (`cy validate`, `cy sync`, `cy start`).

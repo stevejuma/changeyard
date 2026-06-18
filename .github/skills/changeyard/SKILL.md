@@ -21,7 +21,7 @@ Changeyard is the markdown-first local change workflow for this repository. Cano
 5. Start an isolated workspace: `cy start <id>`
 6. Verify workspace context before editing: `cy verify <id>`
 7. Work only inside the verified workspace checkout
-8. Update Completion Notes in the change markdown
+8. Update Completion Notes in the change markdown with changed areas, checks run, and remaining risks or follow-ups
 9. Complete locally: `cy complete <id> --no-pr`
 10. Review when needed: `cy review start <id>`, edit `.changeyard/reviews/<id>/review-NNN.md`, then `cy review complete <id> --decision <approve|request-changes|reject>`
 
@@ -46,7 +46,7 @@ Lifecycle commands are **gates**, not suggestions. If any gate fails, **halt all
 
 When a gate fails:
 
-- **Allowed:** diagnose and fix the gate itself, run `cy doctor`, report to the user and wait
+- **Allowed:** diagnose and fix the gate itself, run `cy audit <id>`, `cy next <id>`, `cy workspace status <id>`, `cy recover <id>`, or `cy doctor` as directed, report to the user and wait
 - **Forbidden:** implementing in the main repo, working around a failed `cy verify`, or continuing because tests pass elsewhere
 
 After `cy start`, all product edits belong **only** in the workspace checkout printed by start—not in the repository root where the change was created.
@@ -58,6 +58,7 @@ After `cy start`, all product edits belong **only** in the workspace checkout pr
 - Planned changes use inline OpenSpec-lite sections in the same markdown file
 - Check planning gates before `cy sync`, `cy start`, and `cy complete`
 - Use `cy plan status <id>` to find the next planning gate and `cy plan prompt <id> <section>` to draft missing sections
+- Use `cy audit <id>` when a gate fails or the next recovery step is unclear
 - Use `cy plan strict enable <id>` only when converting an existing normal planned change to strict planning
 
 ## Rules

@@ -30,6 +30,7 @@ cy <command> [options]
 - `verify`: Verify a task workspace.
 - `complete`: Validate and mark work ready to land.
 - `next`: Show the next actionable workflow command.
+- `audit`: Audit workflow gates and print recovery guidance.
 - `land`: Land ready workspace work locally.
 - `workspace`: Inspect or clean task workspaces.
 - `review`: Manage review artifacts.
@@ -66,5 +67,6 @@ cy create --template agent-task --planning openspec-lite --strict --title "Add w
 cy validate CY-0001
 cy start CY-0001
 cy next CY-0001
+cy audit CY-0001
 cy help -k workflow
 ```

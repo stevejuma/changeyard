@@ -62,6 +62,17 @@ function updateMergedChangeFile(changePath: string, body: string, frontmatter: F
   writeFileSync(changePath, writeFrontmatter(nextFrontmatter, body));
 }
 
+function withLandRecovery(message: string, id: string, repoRoot: string): string {
+  return [
+    message,
+    "",
+    "Recovery:",
+    `- Run cy audit ${id} from ${repoRoot} to inspect workflow blockers.`,
+    `- Run cy workspace status ${id} for workspace-specific blockers.`,
+    `- Re-run cy land ${id} after the blockers are fixed.`,
+  ].join("\n");
+}
+
 export function runLand(id: string, options: LandOptions = {}, repoRoot = process.cwd()): string {
   if (!id) throw new Error("change id is required");
   const config = loadConfig(repoRoot);
@@ -78,20 +89,20 @@ export function runLand(id: string, options: LandOptions = {}, repoRoot = proces
     return `Already landed ${changeId}; Next: cy workspace delete ${changeId}`;
   }
   if (currentStatus !== "ready_for_pr") {
-    throw new Error(`Change ${changeId} must be ready_for_pr before landing; current status is ${currentStatus}`);
+    throw new Error(withLandRecovery(`Change ${changeId} must be ready_for_pr before landing; current status is ${currentStatus}`, changeId, repoRoot));
   }
   assertTransition(currentStatus, "merged", `Land ${changeId}`);
 
-  if (!metadata) throw new Error(`Workspace metadata not found for ${changeId}; run cy workspace status ${changeId}`);
+  if (!metadata) throw new Error(withLandRecovery(`Workspace metadata not found for ${changeId}; run cy workspace status ${changeId}`, changeId, repoRoot));
   if (metadata.engine !== "jj") {
-    throw new Error(`cy land currently supports JJ workspaces only; workspace engine ${metadata.engine} is not supported yet.`);
+    throw new Error(withLandRecovery(`cy land currently supports JJ workspaces only; workspace engine ${metadata.engine} is not supported yet.`, changeId, repoRoot));
   }
-  if (!existsSync(metadata.path)) throw new Error(`Workspace path does not exist: ${metadata.path}`);
+  if (!existsSync(metadata.path)) throw new Error(withLandRecovery(`Workspace path does not exist: ${metadata.path}`, changeId, repoRoot));
 
   let workspaceStatus = getWorkspaceStatus(changeId, repoRoot);
-  if (workspaceStatus.conflicts) throw new Error(`Workspace ${changeId} has conflicts; resolve them before landing`);
-  if (workspaceStatus.rootMismatch) throw new Error(`Workspace ${changeId} belongs to ${metadata.repoRoot}, not ${repoRoot}`);
-  if (workspaceStatus.errors.length > 0) throw new Error(workspaceStatus.errors.join("\n"));
+  if (workspaceStatus.conflicts) throw new Error(withLandRecovery(`Workspace ${changeId} has conflicts; resolve them before landing`, changeId, repoRoot));
+  if (workspaceStatus.rootMismatch) throw new Error(withLandRecovery(`Workspace ${changeId} belongs to ${metadata.repoRoot}, not ${repoRoot}`, changeId, repoRoot));
+  if (workspaceStatus.errors.length > 0) throw new Error(withLandRecovery(workspaceStatus.errors.join("\n"), changeId, repoRoot));
 
   const workspaceChangeId = metadata.workspaceChangeId ?? workspaceStatus.workspaceChangeId ?? jjWorkspaceChangeId(metadata.path);
   const description = jjDescription(metadata.path, workspaceChangeId);
@@ -114,7 +125,7 @@ export function runLand(id: string, options: LandOptions = {}, repoRoot = proces
     if (!options.keepWorkspace) lines.push(`cleanup: would delete workspace ${changeId}`);
     return lines.join("\n");
   }
-  if (descriptionError) throw new Error(descriptionError);
+  if (descriptionError) throw new Error(withLandRecovery(descriptionError, changeId, repoRoot));
 
   let nextMetadata: WorkspaceMetadata = {
     ...metadata,
@@ -124,8 +135,8 @@ export function runLand(id: string, options: LandOptions = {}, repoRoot = proces
   if (targetMoved) {
     commandOutput("jj", ["rebase", "-r", workspaceChangeId, "-o", target], repoRoot);
     workspaceStatus = getWorkspaceStatus(changeId, repoRoot);
-    if (workspaceStatus.conflicts) throw new Error(`Workspace ${changeId} has conflicts after rebasing onto ${target}; resolve them before landing`);
-    if (workspaceStatus.errors.length > 0) throw new Error(workspaceStatus.errors.join("\n"));
+    if (workspaceStatus.conflicts) throw new Error(withLandRecovery(`Workspace ${changeId} has conflicts after rebasing onto ${target}; resolve them before landing`, changeId, repoRoot));
+    if (workspaceStatus.errors.length > 0) throw new Error(withLandRecovery(workspaceStatus.errors.join("\n"), changeId, repoRoot));
     nextMetadata = {
       ...nextMetadata,
       baseCommitId: currentTargetCommitId,

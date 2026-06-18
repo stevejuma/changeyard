@@ -26,6 +26,7 @@ This repository currently implements a local-first end-to-end prototype slice:
 - `cy verify` fails unless it is run inside the expected Changeyard workspace for an in-progress change.
 - `cy hydrate` copies explicitly allowlisted local files into the verified workspace while respecting the denylist.
 - `cy complete --no-pr` verifies the workspace, requires completion notes, detects workspace changes, runs configured checks, and moves the change to `ready_for_pr`.
+- `cy audit` reports the relevant workflow gates, expected cwd, blockers, and recovery commands for one change.
 - `cy review start` and `cy review complete` create markdown reviews and update review/change status.
 - `cy doctor` validates core local configuration, provider/workspace support, and change documents.
 - `cy recover` recreates missing workspace markers from saved workspace metadata.
@@ -116,6 +117,7 @@ cy sync CY-0001
 cy start CY-0001
 cd .changeyard/workspaces/CY-0001/repo
 cy verify CY-0001
+cy audit CY-0001
 cy hydrate CY-0001
 # edit files and fill Completion Notes in the root change file
 cy complete CY-0001 --no-pr
@@ -187,7 +189,7 @@ The Kanban UI reads all changes, shows provider/workspace details, creates plann
 
 ## Doctor, recovery, JSON, and errors
 
-`cy doctor` checks the local storage root, validates that the configured provider and workspace engine are supported, and validates existing change documents. `cy recover <id>` recreates a missing `.changeyard-workspace.json` marker from saved workspace metadata. `cy completions` prints a bash completion snippet. `cy <command> --help` prints command-specific usage. `cy list --json`, `cy status <id> --json`, and `cy doctor --json` return structured data in `{ ok, output }`; other CLI commands return their normal text output inside `{ ok, output }`. Failures return `{ ok, error: { code, message } }`.
+`cy doctor` checks the local storage root, validates that the configured provider and workspace engine are supported, and validates existing change documents. `cy audit <id>` is the agent-facing workflow report for a single change: it prints the relevant validation gates, expected cwd, next command, blockers, workspace state, and concrete recovery commands. `cy recover <id>` recreates a missing `.changeyard-workspace.json` marker from saved workspace metadata. `cy completions` prints a bash completion snippet. `cy <command> --help` prints command-specific usage. `cy list --json`, `cy status <id> --json`, `cy audit <id> --json`, and `cy doctor --json` return structured data in `{ ok, output }`; other CLI commands return their normal text output inside `{ ok, output }`. Failures return `{ ok, error: { code, message } }`; `cy audit` exits nonzero when blockers are present while still printing the full report.
 
 ## Completion and review
 
@@ -197,19 +199,20 @@ The Kanban UI reads all changes, shows provider/workspace details, creates plann
 
 ## Agent protocol target
 
-For any non-trivial future code change, agents should eventually follow this protocol:
+For any non-trivial future code change, agents should follow this protocol:
 
-1. Create a change with `cy create --template agent-task --title "<title>"`.
-2. Fill in the generated markdown plan.
-3. Sync if a provider is configured.
-4. Start an isolated workspace.
-5. Run `cy verify <id>` before editing.
-6. Work only inside the verified workspace.
-7. Update completion notes.
-8. Run `cy complete <id> --no-pr`.
-9. Start and complete a markdown review if needed.
+1. Create a strict planned change with `cy create --template agent-task --planning openspec-lite --strict --title "<title>"`.
+2. Fill in Summary, Motivation, Plan, Acceptance Criteria, Agent Plan, and the inline planning sections.
+3. Run `cy validate <id>` and `cy audit <id>` when a gate is unclear or fails.
+4. Sync if a provider is configured.
+5. Start an isolated workspace.
+6. Run `cy verify <id>` from the workspace before editing.
+7. Work only inside the verified workspace.
+8. Update Completion Notes with changed areas, checks run, and remaining risks or follow-ups.
+9. Run `cy complete <id> --no-pr`.
+10. Start and complete a markdown review if needed.
 
-For planned changes, the workflow extends this with inline planning sections and planning gate checks before `sync`, `start`, and `complete`. Existing planned changes can opt into or out of strict mode with `cy plan strict enable <id>` and `cy plan strict disable <id>`. Existing unplanned changes remain supported as-is; planning opt-in for those changes is still a create-time choice today. See [docs/planning-profiles.md](docs/planning-profiles.md) for the current model and adapter flow, and [docs/adr-inline-planning.md](docs/adr-inline-planning.md) for the architecture decision.
+Use `cy quick` or `--no-planning` only for small, low-risk lite changes with no behavior, public API, storage/schema, provider/workspace lifecycle, UI workflow, or security-sensitive impact. Existing planned changes can opt into or out of strict mode with `cy plan strict enable <id>` and `cy plan strict disable <id>`. Existing unplanned changes remain supported as-is; planning opt-in for those changes is still a create-time choice today. See [docs/planning-profiles.md](docs/planning-profiles.md) for the current model and adapter flow, and [docs/adr-inline-planning.md](docs/adr-inline-planning.md) for the architecture decision.
 
 ## Development
 

@@ -24,3 +24,5 @@ cy complete CY-0001 [--profile <name>] [--no-pr] [--no-code-change] [--dry-run]
 cy complete CY-0001 --no-pr
 cy complete CY-0001 --profile full
 ```
+
+Completion requires verified workspace context, completed or deferred acceptance criteria, non-placeholder Completion Notes, and passing checks. If completion fails, run `cy audit <id>` for the expected cwd, blockers, and recovery commands.

@@ -28,7 +28,7 @@ cy create --quick --title <title> [options]
 
 For non-trivial agent work, create a strict planned change with `--planning openspec-lite --strict`.
 
-Use `cy quick` or `--no-planning` only for small, low-risk changes with no behavior, public API, storage/schema, provider/workspace lifecycle, UI workflow, or security-sensitive impact.
+Use `cy quick` or `--no-planning` only for small, low-risk lite changes with no behavior, public API, storage/schema, provider/workspace lifecycle, UI workflow, or security-sensitive impact. Quick changes force `planning.model: none` even when the project default planning profile is `openspec-lite`.
 
 ## Examples
 

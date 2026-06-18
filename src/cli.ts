@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
+import { getWorkflowAuditReport } from "./commands/audit.js";
 import { runCompletions } from "./commands/completions.js";
 import { runComplete } from "./commands/complete.js";
 import { doctorReport, runDoctor } from "./commands/doctor.js";
@@ -59,7 +60,7 @@ import { AGENT_TOOL_IDS } from "./scaffold/agent-tools.js";
 import { readWorkspaceMetadata } from "./workspace/marker.js";
 import { storageRoot } from "./paths.js";
 
-type CommandName = "init" | "update" | "create" | "quick" | "validate" | "sync" | "start" | "verify" | "hydrate" | "complete" | "next" | "land" | "workspace" | "review" | "doctor" | "completions" | "recover" | "list" | "status" | "plan" | "ui" | "server" | "dashboard" | "hub" | "tui" | "config" | "hooks" | "session" | "install" | "uninstall" | "version" | "help";
+type CommandName = "init" | "update" | "create" | "quick" | "validate" | "sync" | "start" | "verify" | "hydrate" | "complete" | "next" | "audit" | "land" | "workspace" | "review" | "doctor" | "completions" | "recover" | "list" | "status" | "plan" | "ui" | "server" | "dashboard" | "hub" | "tui" | "config" | "hooks" | "session" | "install" | "uninstall" | "version" | "help";
 
 type ParsedArgs = {
   command: string;
@@ -185,8 +186,10 @@ function createOptionsFromFlags(
   defaults: Partial<CreateOptions> = {},
 ): CreateOptions {
   const quickRequested = defaults.template === "quick" || asBooleanFlag(flags, "quick");
+  const template = defaults.template ?? (quickRequested ? "quick" : stringFlag(flags, "template") ?? "agent-task");
+  const isQuickTemplate = template === "quick";
   return {
-    template: defaults.template ?? (quickRequested ? "quick" : stringFlag(flags, "template") ?? "agent-task"),
+    template,
     title: stringFlag(flags, "title") ?? "",
     priority: stringFlag(flags, "priority") ?? defaults.priority,
     labels: labelsFlag(flags) ?? defaults.labels,
@@ -194,7 +197,7 @@ function createOptionsFromFlags(
     planFile: stringFlag(flags, "plan-file") ?? defaults.planFile,
     planning: (stringFlag(flags, "planning") as PlanningModel | undefined) ?? defaults.planning,
     strict: asBooleanFlag(flags, "strict") || defaults.strict === true,
-    noPlanning: asBooleanFlag(flags, "no-planning") || defaults.noPlanning === true,
+    noPlanning: isQuickTemplate || asBooleanFlag(flags, "no-planning") || defaults.noPlanning === true,
   };
 }
 
@@ -602,6 +605,11 @@ async function main(): Promise<void> {
         output = json || colors.enabled ? getNextAction(id, rootForChange(id)) : runNext(id, rootForChange(id));
         break;
       }
+      case "audit": {
+        const id = requireTaskId("cy audit <id>", args.positional[0], guidanceColors);
+        output = getWorkflowAuditReport(id, rootForChange(id));
+        break;
+      }
       case "land": {
         const id = requireTaskId("cy land <id>", args.positional[0], guidanceColors);
         output = runLand(id, {
@@ -864,6 +872,9 @@ async function main(): Promise<void> {
       console.log(JSON.stringify({ ok: true, ...jsonPayload(command, output) }, null, 2));
     } else if (shouldShowText) {
       outputLine(command, renderHumanOutput({ command, positional: args.positional, colors }, output));
+    }
+    if (command === "audit" && output && typeof output === "object" && "blockers" in output && Array.isArray(output.blockers) && output.blockers.length > 0) {
+      process.exitCode = 1;
     }
   } catch (error: unknown) {
     const code = errorCode(error);

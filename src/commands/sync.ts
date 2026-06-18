@@ -10,6 +10,7 @@ import { renderProviderIssueBody } from "../providers/renderIssueBody.js";
 import { findChangeFile } from "../state/id.js";
 import { assertTransition } from "../state/transitions.js";
 import type { Frontmatter } from "../types.js";
+import { formatValidationFailure } from "./audit.js";
 
 function asRecord(value: unknown): Frontmatter {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Frontmatter : {};
@@ -29,7 +30,12 @@ export function runSync(id: string, repoRoot = process.cwd(), mutationOptions: M
   const changeId = String(parsed.frontmatter.id ?? id);
 
   const validation = validateChangeFile(filePath, root, { gate: "sync", config });
-  if (!validation.valid) throw new Error(validation.errors.join("\n"));
+  if (!validation.valid) throw new Error(formatValidationFailure({
+    id: changeId,
+    repoRoot,
+    gate: "sync",
+    result: validation,
+  }));
 
   assertTransition(String(parsed.frontmatter.status ?? ""), "synced", `Sync ${changeId}`);
   const syncFrontmatter: Frontmatter = {

@@ -9,4 +9,4 @@ Start isolated work for a Changeyard change.
 2. Run `cy start <id>`.
 3. Follow the printed `cd` path into the workspace checkout.
 4. Run `cy verify <id>` from that checkout before editing files.
-5. If verify fails, **halt** — do not edit files in the main repo or workspace until verify passes.
+5. If start or verify fails, **halt** — use `cy audit <id>`, `cy workspace status <id>`, or `cy recover <id>` as directed before editing files.

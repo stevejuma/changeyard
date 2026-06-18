@@ -11,6 +11,7 @@ import { hydrateWorkspace } from "../hydrate/hydrateWorkspace.js";
 import { createWorkspaceEngine } from "../workspace/index.js";
 import { shellCommandRunner } from "../workspace/commandRunner.js";
 import type { Frontmatter, WorkspaceMetadata } from "../types.js";
+import { formatValidationFailure } from "./audit.js";
 
 function asRecord(value: unknown): Frontmatter {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Frontmatter : {};
@@ -73,10 +74,21 @@ export function runStart(id: string, repoRoot = process.cwd(), mutationOptions: 
   const changeId = String(parsed.frontmatter.id ?? id);
 
   const validation = validateChangeFile(filePath, root, { gate: "start", config });
-  if (!validation.valid) throw new Error(validation.errors.join("\n"));
+  if (!validation.valid) throw new Error(formatValidationFailure({
+    id: changeId,
+    repoRoot,
+    gate: "start",
+    result: validation,
+  }));
 
   const quickValidation = validateQuickStart(parsed.frontmatter, config);
-  if (!quickValidation.valid) throw new Error(quickValidation.errors.join("\n"));
+  if (!quickValidation.valid) throw new Error([
+    ...quickValidation.errors,
+    "",
+    "Recovery:",
+    `- Update ${path.relative(repoRoot, filePath)} so quick workflow metadata matches the configured lite workflow policy, or create a planned change for non-low-risk work.`,
+    `- Re-run cy start ${changeId}.`,
+  ].join("\n"));
   const status = String(parsed.frontmatter.status ?? "");
   assertTransition(status, "in_progress", `Start ${changeId}`);
 

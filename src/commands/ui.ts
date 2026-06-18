@@ -18,10 +18,9 @@ import {
 } from "./review.js";
 import { runVerify } from "./verify.js";
 import { deleteWorkspace, getWorkspaceStatus, listWorkspaceStatuses } from "./workspace.js";
-import { validateChangeFile } from "../documents/validateDocument.js";
-import { changesRoot, storageRoot } from "../paths.js";
+import { buildValidationAuditChecks, formatGateFailureMessage } from "./audit.js";
+import { changesRoot } from "../paths.js";
 import { parseMarkedSections } from "../planning/sections.js";
-import type { ValidationGate } from "../planning/validation.js";
 import { findRepoRoot, loadConfig } from "../config/loadConfig.js";
 import { isChangeyardInitialized, updateLocalConfig } from "../config/localConfig.js";
 import { listGlobalTemplateProfiles } from "../config/templateProfiles.js";
@@ -93,25 +92,9 @@ export function createChangeyardUiApi() {
   }
 
   function validateChangeForUi(repoRoot: string, id: string): void {
-    const config = loadConfig(repoRoot);
-    const root = storageRoot(repoRoot, config);
-    const filePath = findCanonicalChangePath(repoRoot, id);
-    const gates: Array<{ gate: ValidationGate; label: string }> = [
-      { gate: "document", label: "Document Validation" },
-      { gate: "sync", label: "Sync Gate" },
-      { gate: "start", label: "Start Gate" },
-      { gate: "complete", label: "Complete Gate" },
-    ];
-    const failures = gates
-      .map(({ gate, label }) => ({ label, result: validateChangeFile(filePath, root, { gate, config }) }))
-      .filter(({ result }) => !result.valid);
-    if (failures.length === 0) {
-      return;
-    }
-    const message = failures
-      .map(({ label, result }) => `${label}:\n${result.errors.map((error) => `- ${error}`).join("\n")}`)
-      .join("\n\n");
-    throw new Error(message);
+    findCanonicalChangePath(repoRoot, id);
+    const message = formatGateFailureMessage(buildValidationAuditChecks({ id, repoRoot }));
+    if (message) throw new Error(message);
   }
 
   function toChangeSummary(change: ChangeyardCard) {

@@ -21,3 +21,5 @@ cy validate CY-0001 [--gate document|sync|start|complete]
 cy validate CY-0001
 cy validate CY-0001 --gate complete
 ```
+
+Failed validation prints recovery guidance. Use `cy audit <id>` when an agent needs all currently relevant gates and next commands in one report.

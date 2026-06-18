@@ -1,12 +1,12 @@
 ---
-name: Changeyard Guard
-description: Install or inspect local publish guards.
+name: Changeyard Guardrails
+description: Inspect local workflow guardrails with implemented commands.
 ---
 
-Install or inspect Changeyard publish guards.
+Inspect Changeyard workflow guardrails.
 
-1. Run `cy guard status` to inspect the current guard mode and install state.
-2. Run `cy guard install` to install the default guard for the active VCS.
-3. Use `cy guard install --vcs git` for a managed Git `pre-push` hook.
-4. Use `cy guard install --vcs jj` to install JJ-focused PATH shims under `.changeyard/bin/`.
-5. In JJ repositories, add `.changeyard/bin` to `PATH` for agent sessions or the shim enforcement will not run.
+1. Identify the change id from context or run `cy list`.
+2. Run `cy audit <id>` to inspect gates, blockers, expected cwd, and recovery commands.
+3. Run `cy doctor` for repository-level configuration or workspace-state issues.
+4. Run `cy workspace status <id>` when workspace or landing state is involved.
+5. Do not use unpublished guard commands; follow the concrete Recovery entries printed by the implemented commands.

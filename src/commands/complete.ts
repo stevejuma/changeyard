@@ -16,6 +16,7 @@ import { createProvider } from "../providers/index.js";
 import { isDenied } from "../workspace/patterns.js";
 import { runChecks } from "../checks/runChecks.js";
 import { runVerify } from "./verify.js";
+import { formatValidationFailure } from "./audit.js";
 
 export type CompleteOptions = {
   noPr?: boolean;
@@ -55,7 +56,9 @@ function hasWorkspaceChanges(repoRoot: string, workspaceRoot: string, neverCopy:
 function completionNotesPresent(body: string): boolean {
   const notes = parseSections(body).get("Completion Notes") ?? "";
   const trimmed = notes.trim();
-  return trimmed.length > 0 && !trimmed.includes("Summarize what changed");
+  return trimmed.length > 0
+    && !trimmed.includes("Summarize what changed")
+    && !trimmed.includes("Summarize changed areas");
 }
 
 function asRecord(value: unknown): Frontmatter {
@@ -72,14 +75,41 @@ export function runComplete(id: string, options: CompleteOptions = {}, cwd = pro
   runVerify(changeId, cwd);
   assertTransition(String(parsed.frontmatter.status ?? ""), "ready_for_pr", `Complete ${changeId}`);
   const validation = validateChangeFile(changePath, storageRoot(metadata.repoRoot, config), { gate: "complete", config });
-  if (!validation.valid) throw new Error(validation.errors.join("\n"));
+  if (!validation.valid) throw new Error(formatValidationFailure({
+    id: changeId,
+    repoRoot: metadata.repoRoot,
+    gate: "complete",
+    result: validation,
+  }));
   const planningValidation = validatePlanningForGate(parsed.frontmatter, parsed.body, "complete");
-  if (!planningValidation.valid) throw new Error(planningValidation.errors.join("\n"));
+  if (!planningValidation.valid) throw new Error(formatValidationFailure({
+    id: changeId,
+    repoRoot: metadata.repoRoot,
+    gate: "complete",
+    result: planningValidation,
+  }));
   const quickValidation = validateQuickCompletion(parsed.frontmatter, parsed.body);
-  if (!quickValidation.valid) throw new Error(quickValidation.errors.join("\n"));
-  if (!completionNotesPresent(parsed.body)) throw new Error("Completion Notes must be filled before completing a change");
+  if (!quickValidation.valid) throw new Error(formatValidationFailure({
+    id: changeId,
+    repoRoot: metadata.repoRoot,
+    gate: "complete",
+    result: { ...quickValidation, warnings: [] },
+  }));
+  if (!completionNotesPresent(parsed.body)) throw new Error([
+    "Completion Notes must be filled before completing a change",
+    "",
+    "Recovery:",
+    "- Update # Completion Notes with changed areas, checks run, and remaining risks or follow-ups.",
+    `- Re-run cy complete ${changeId} --no-pr from ${metadata.path}.`,
+  ].join("\n"));
   if (!options.noCodeChange && !hasWorkspaceChanges(metadata.repoRoot, metadata.path, config.workspace.hydrate.neverCopy)) {
-    throw new Error("No workspace changes detected; use --no-code-change to complete metadata-only work");
+    throw new Error([
+      "No workspace changes detected; use --no-code-change to complete metadata-only work",
+      "",
+      "Recovery:",
+      `- Confirm you are in the expected workspace: cd ${metadata.path} && cy verify ${changeId}.`,
+      `- If this was intentionally metadata-only work, re-run cy complete ${changeId} --no-pr --no-code-change.`,
+    ].join("\n"));
   }
 
   const profile = options.profile
@@ -94,7 +124,13 @@ export function runComplete(id: string, options: CompleteOptions = {}, cwd = pro
 
   const results = runChecks(commands, metadata.path, logPath);
   const failed = results.find((result) => result.status === "failed");
-  if (failed) throw new Error(`Check failed: ${failed.command}`);
+  if (failed) throw new Error([
+    `Check failed: ${failed.command}`,
+    "",
+    "Recovery:",
+    `- Inspect ${logPath} for the failing command output.`,
+    `- Fix the issue in ${metadata.path}, update Completion Notes if needed, then re-run cy complete ${changeId} --no-pr.`,
+  ].join("\n"));
 
   let nextFrontmatter: Frontmatter = {
     ...parsed.frontmatter,

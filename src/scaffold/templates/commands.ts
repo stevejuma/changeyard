@@ -15,7 +15,8 @@ const CHANGEYARD_COMMANDS: CommandContent[] = [
 4. Open the generated markdown file under \`.changeyard/changes/\`.
 5. Fill in Summary, Motivation, Plan, Acceptance Criteria, and the generated planning sections before editing code.
 6. Run \`cy plan status <id>\` and use \`cy plan prompt <id> <section>\` when a planning section needs drafting.
-7. Tell the user the change id and next steps (\`cy validate\`, \`cy sync\`, \`cy start\`).`,
+7. Run \`cy audit <id>\` if any gate is unclear or fails.
+8. Tell the user the change id and next steps (\`cy validate\`, \`cy sync\`, \`cy start\`).`,
   },
   {
     id: "validate",
@@ -27,7 +28,7 @@ const CHANGEYARD_COMMANDS: CommandContent[] = [
 
 1. Identify the target change id from context or run \`cy list\`.
 2. Run \`cy validate <id>\`.
-3. If validation fails, **halt** — fix the markdown/frontmatter issues and re-run validation.
+3. If validation fails, **halt** — use the printed Recovery section or run \`cy audit <id>\`, fix the markdown/frontmatter issues, and re-run validation.
 4. Do not start implementation, sync, or workspace work until validation passes.`,
   },
   {
@@ -40,7 +41,7 @@ const CHANGEYARD_COMMANDS: CommandContent[] = [
 
 1. Ensure the change is validated with \`cy validate <id>\`.
 2. Run \`cy sync <id>\`.
-3. If sync fails, **halt** — fix the reported issue and re-run sync before \`cy start\`.
+3. If sync fails, **halt** — use the printed Recovery section or run \`cy audit <id>\`, fix the reported issue, and re-run sync before \`cy start\`.
 4. Report provider output and updated change status.`,
   },
   {
@@ -55,7 +56,7 @@ const CHANGEYARD_COMMANDS: CommandContent[] = [
 2. Run \`cy start <id>\`.
 3. Follow the printed \`cd\` path into the workspace checkout.
 4. Run \`cy verify <id>\` from that checkout before editing files.
-5. If verify fails, **halt** — do not edit files in the main repo or workspace until verify passes.`,
+5. If start or verify fails, **halt** — use \`cy audit <id>\`, \`cy workspace status <id>\`, or \`cy recover <id>\` as directed before editing files.`,
   },
   {
     id: "verify",
@@ -79,9 +80,25 @@ const CHANGEYARD_COMMANDS: CommandContent[] = [
     body: `Complete a Changeyard change locally.
 
 1. Ensure Completion Notes in the change markdown are filled in.
+   They must summarize changed areas, checks run or not run, and remaining risks or follow-ups.
 2. Run \`cy verify <id>\` from the workspace.
 3. Run \`cy complete <id> --no-pr\` unless the user explicitly wants PR creation.
-4. If a review is needed, use \`/cy-review\` — do not skip filling the review markdown.`,
+4. If completion fails, run \`cy audit <id>\` and follow the Recovery section.
+5. If a review is needed, use \`/cy-review\` — do not skip filling the review markdown.`,
+  },
+  {
+    id: "audit",
+    name: "Changeyard Audit",
+    description: "Audit a change against workflow gates and recovery guidance.",
+    category: "Changeyard",
+    tags: ["changeyard", "audit", "workflow"],
+    body: `Audit one Changeyard change against the enforced workflow guardrails.
+
+1. Identify the change id from context or run \`cy list\`.
+2. Run \`cy audit <id>\`.
+3. Review workflow mode, canonical path, expected cwd, next command, failed checks, blockers, and Recovery entries.
+4. Treat failed checks as hard stops. Fix the canonical change document, workspace state, or completion context as directed.
+5. Re-run \`cy audit <id>\` or \`cy next <id>\` after fixes to confirm the next valid command.`,
   },
   {
     id: "review",

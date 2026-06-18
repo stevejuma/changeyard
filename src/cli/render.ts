@@ -1,6 +1,7 @@
 import type { DoctorReport } from "../commands/doctor.js";
 import type { NextAction } from "../commands/next.js";
 import type { WorkspaceStatus } from "../commands/workspace.js";
+import { formatWorkflowAuditReport, type WorkflowAuditReport } from "../commands/audit.js";
 import type { ChangeSummary } from "../types.js";
 import type { CliColors } from "./color.js";
 import { pushWrapped, terminalWrapWidth, wrapRenderedText } from "./text.js";
@@ -167,6 +168,7 @@ export function renderHumanOutput(context: RenderContext, output: unknown): stri
   if (context.command === "plan" && context.positional[0] === "status" && typeof output === "object") return renderPlanStatus(output as ChangeSummary, context.colors);
   if (context.command === "status" && typeof output === "object") return renderChangeSummary(output as ChangeSummary, context.colors);
   if (context.command === "next" && typeof output === "object") return renderNext(output as NextAction, context.colors);
+  if (context.command === "audit" && typeof output === "object") return formatWorkflowAuditReport(output as WorkflowAuditReport);
   if (context.command === "workspace" && context.positional[0] === "status" && typeof output === "object") return renderWorkspace(output as WorkspaceStatus, context.colors);
   if (context.command === "workspace" && context.positional[0] === "list" && typeof output === "string") return renderTabTable(output, ["id", "status", "engine", "state", "path"], context.colors);
   if (context.command === "list" && typeof output === "string") {

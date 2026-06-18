@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { runCompletions } from "../src/commands/completions.js";
+import { getWorkflowAuditReport } from "../src/commands/audit.js";
 import { runComplete } from "../src/commands/complete.js";
 import { doctorReport, runDoctor } from "../src/commands/doctor.js";
 import {
@@ -494,6 +495,7 @@ test("cli quick dry-run reports the intended quick change path without writing f
   const repo = tempRepo();
   try {
     runInit(repo);
+    writeFileSync(path.join(repo, ".changeyard", "config.local.jsonc"), `{"planning":{"defaultProfile":"openspec-lite"}}\n`);
     const result = spawnSync(nodeBinary(), [cliBinPath(), "quick", "--title", "Fix typo", "--dry-run"], {
       cwd: repo,
       encoding: "utf8",
@@ -512,6 +514,7 @@ test("cli create --quick uses the quick template and preserves the standard json
   const repo = tempRepo();
   try {
     runInit(repo);
+    writeFileSync(path.join(repo, ".changeyard", "config.local.jsonc"), `{"planning":{"defaultProfile":"openspec-lite"}}\n`);
     const result = spawnSync(nodeBinary(), [cliBinPath(), "create", "--quick", "--title", "Docs wording", "--json"], {
       cwd: repo,
       encoding: "utf8",
@@ -533,6 +536,41 @@ test("cli create --quick uses the quick template and preserves the standard json
     assert.equal(parsed.frontmatter.type, "quick");
     assert.deepEqual(parsed.frontmatter.planning, { model: "none" });
     assert.deepEqual(parsed.frontmatter.workflow, { mode: "quick", risk: "low", requiresWorkspace: true });
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("audit reports planned, quick, and lite no-planning workflow context", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "agent-task", title: "Planned audit", planning: "openspec-lite", strict: true }, repo);
+    runCreate({ template: "quick", title: "Quick audit" }, repo);
+    runCreate({ template: "agent-task", title: "Lite audit", noPlanning: true }, repo);
+
+    const planned = getWorkflowAuditReport("CY-0001", repo);
+    assert.equal(planned.workflow.mode, "planned");
+    assert.equal(planned.workflow.strictness, "strict");
+    assert.equal(planned.checks.some((check) => check.status === "fail"), true);
+    assert.match(planned.recovery.join("\n"), /cy plan prompt CY-0001 proposal/);
+    assert.match(planned.nextCommand, /cy plan status CY-0001|cy validate CY-0001/);
+    const cliAudit = spawnSync(nodeBinary(), [cliBinPath(), "audit", "CY-0001"], {
+      cwd: repo,
+      encoding: "utf8",
+    });
+    assert.equal(cliAudit.status, 1, cliAudit.stderr);
+    assert.match(cliAudit.stdout, /Workflow audit: CY-0001/);
+    assert.match(cliAudit.stdout, /Recovery:/);
+
+    const quick = getWorkflowAuditReport("CY-0002", repo);
+    assert.equal(quick.workflow.mode, "quick");
+    assert.equal(quick.workflow.planningModel, "none");
+    assert.match(quick.warnings.join("\n"), /Quick scope risk review unresolved/);
+
+    const lite = getWorkflowAuditReport("CY-0003", repo);
+    assert.equal(lite.workflow.mode, "lite-no-planning");
+    assert.equal(lite.workflow.planningModel, "none");
   } finally {
     cleanup(repo);
   }
@@ -1362,6 +1400,21 @@ test("validate complete gate accepts fully checked acceptance criteria", () => {
   }
 });
 
+test("validation gate failures include recovery guidance", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "agent-task", title: "Recover validation", planning: "openspec-lite", strict: true }, repo);
+
+    assert.throws(
+      () => runValidate("CY-0001", repo, { gate: "start" }),
+      /Update <!-- cy:proposal:start --> section:[\s\S]*Recovery:[\s\S]*cy plan prompt CY-0001 proposal[\s\S]*cy validate CY-0001 --gate start/,
+    );
+  } finally {
+    cleanup(repo);
+  }
+});
+
 test("workspace status and delete protect dirty unlanded work", () => {
   const repo = tempRepo();
   try {
@@ -1495,8 +1548,7 @@ test("complete runs checks and updates ready_for_pr", () => {
     const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
     writeFileSync(path.join(workspacePath, "implementation.txt"), "done\n");
     const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-complete-workspace.md");
-    const change = readFileSync(changePath, "utf8").replace("Summarize what changed, what checks ran, and what risks remain.", "Implemented workspace changes and ran checks.");
-    writeFileSync(changePath, change);
+    updateSection(changePath, "Completion Notes", "Implemented workspace changes. Checks ran: node -v. No remaining risks.");
     assert.match(runComplete("CY-0001", { noPr: true }, workspacePath), /Completed CY-0001: 1 checks passed/);
     const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
     assert.equal(parsed.frontmatter.status, "ready_for_pr");
@@ -1592,7 +1644,7 @@ test("planned complete fails when tasks remain incomplete", () => {
     updatePlannedSection(changePath, "spec-deltas", "# Specification Deltas\n\nNo behavior change\n");
     updatePlannedSection(changePath, "design", "# Design\n\n## Technical Approach\n\nFilled design.\n");
     updatePlannedSection(changePath, "verification", "# Verification\n\n## Result\n\nManual verification complete.\n");
-    writeFileSync(changePath, readFileSync(changePath, "utf8").replace("Summarize what changed, what checks ran, and what risks remain.", "Completed the planned work."));
+    updateSection(changePath, "Completion Notes", "Completed the planned work. Checks ran: node -v.");
     runStart("CY-0001", repo);
     const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
     writeFileSync(path.join(workspacePath, "implementation.txt"), "done\n");
@@ -1618,7 +1670,7 @@ test("planned complete succeeds when tasks and verification are reconciled", () 
     updatePlannedSection(changePath, "design", "# Design\n\n## Technical Approach\n\nFilled design.\n");
     updatePlannedSection(changePath, "tasks", "# Tasks\n\n- [x] Planning complete\n- [x] Implementation complete\n- [ ] Deferred: follow-up polish handled separately\n");
     updatePlannedSection(changePath, "verification", "# Verification\n\n## Result\n\nManual verification complete.\n");
-    writeFileSync(changePath, readFileSync(changePath, "utf8").replace("Summarize what changed, what checks ran, and what risks remain.", "Completed the planned work."));
+    updateSection(changePath, "Completion Notes", "Completed the planned work. Checks ran: node -v.");
     runStart("CY-0001", repo);
     const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
     writeFileSync(path.join(workspacePath, "implementation.txt"), "done\n");
@@ -1639,7 +1691,7 @@ test("complete can create a local-folder pull request when PRs are enabled", () 
     const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
     writeFileSync(path.join(workspacePath, "implementation.txt"), "done\n");
     const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-open-local-pr.md");
-    writeFileSync(changePath, readFileSync(changePath, "utf8").replace("Summarize what changed, what checks ran, and what risks remain.", "Implemented PR creation and ran checks."));
+    updateSection(changePath, "Completion Notes", "Implemented PR creation. Checks ran: node -v. No remaining risks.");
     assert.match(runComplete("CY-0001", {}, workspacePath), /status pr_open/);
     const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
     assert.equal(parsed.frontmatter.status, "pr_open");
@@ -2117,6 +2169,28 @@ test("plan prompt returns the canonical file path, target markers, and current s
     assert.match(promptResult.prompt, /Prompt-ready content\./);
     assert.match(promptResult.prompt, /Do not create openspec\/, specs\/, checklists\/, or other external planning folders/);
     assert.equal(runPlanPrompt("CY-0001", "proposal", repo), promptResult.prompt);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("planning status derives completed gates from section content", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "feature", title: "Derived planning gates", planning: "openspec-lite" }, repo);
+    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-derived-planning-gates.md");
+    updatePlannedSection(changePath, "proposal", "# Proposal\n\n## Intent\n\nShip the derived gate summary.\n");
+    updatePlannedSection(changePath, "spec-deltas", "# Specification Deltas\n\nNo behavior change.\n");
+    updatePlannedSection(changePath, "design", "# Design\n\n## Technical Approach\n\nUse canonical markdown content.\n");
+    updatePlannedSection(changePath, "tasks", "# Tasks\n\n- [x] Implement derived summaries\n");
+    updatePlannedSection(changePath, "verification", "# Verification\n\n## Result\n\nPassed: node -v\n");
+
+    const status = getStatus("CY-0001", repo);
+    assert.equal(status.planning?.gateSummary.pass, 5);
+    assert.equal(status.planning?.gateSummary.pending, 0);
+    assert.equal(status.planning?.nextAction, null);
+    assert.doesNotMatch(runPlanStatus("CY-0001", repo), /planningNextAction:/);
   } finally {
     cleanup(repo);
   }
