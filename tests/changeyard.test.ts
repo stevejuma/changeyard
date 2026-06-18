@@ -76,6 +76,10 @@ function cleanup(dir: string): void {
   rmSync(dir, { recursive: true, force: true });
 }
 
+function asRecordForTest(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
 function cliBinPath(): string {
   return path.join(process.cwd(), "dist", "src", "cli.js");
 }
@@ -1756,6 +1760,159 @@ test("doctor fix moves in-review jj changes with missing bookmarks to done", () 
     assert.match(report.warnings.join("\n"), /CY-0001: jj bookmark missing: cy\/CY-0001/);
     assert.match(report.fixes.join("\n"), /Moved CY-0001 to approved/);
     assert.equal(parseFrontmatter(readFileSync(changePath, "utf8")).frontmatter.status, "approved");
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("doctor accepts configured stale completed cleanup age", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    assert.equal(loadConfig(repo).doctor?.staleCompletedDays, 3);
+    writeFileSync(path.join(repo, ".changeyard", "config.local.jsonc"), `{"doctor":{"staleCompletedDays":7}}\n`);
+    assert.equal(loadConfig(repo).doctor?.staleCompletedDays, 7);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("doctor fix deletes stale merged clean workspaces only when explicitly requested", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "agent-task", title: "Delete stale workspace" }, repo);
+    runStart("CY-0001", repo);
+
+    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-delete-stale-workspace.md");
+    const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
+    writeFileSync(changePath, writeFrontmatter({
+      ...parsed.frontmatter,
+      status: "merged",
+      mergedAt: "2000-01-01T00:00:00.000Z",
+      updatedAt: "2000-01-01T00:00:00.000Z",
+    }, parsed.body));
+
+    const workspaceRoot = path.join(repo, ".changeyard", "workspaces", "CY-0001");
+    const noFlagReport = doctorReport(repo, { fix: true, staleCompletedDays: 3 });
+    assert.equal(existsSync(workspaceRoot), true);
+    assert.match(noFlagReport.notes.join("\n"), /stale completed workspace remains/);
+
+    const dryRunReport = doctorReport(repo, {
+      fix: true,
+      dryRun: true,
+      deleteStaleCompletedWorkspaces: true,
+      staleCompletedDays: 3,
+    });
+    assert.match(dryRunReport.notes.join("\n"), /Would delete stale completed workspace CY-0001/);
+    assert.equal(existsSync(workspaceRoot), true);
+
+    const report = doctorReport(repo, {
+      fix: true,
+      deleteStaleCompletedWorkspaces: true,
+      staleCompletedDays: 3,
+    });
+    assert.match(report.fixes.join("\n"), /Deleted workspace CY-0001/);
+    assert.equal(existsSync(workspaceRoot), false);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("doctor skips stale merged workspace cleanup when the workspace is dirty", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "agent-task", title: "Skip dirty stale workspace" }, repo);
+    runStart("CY-0001", repo);
+
+    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-skip-dirty-stale-workspace.md");
+    const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
+    writeFileSync(changePath, writeFrontmatter({
+      ...parsed.frontmatter,
+      status: "merged",
+      mergedAt: "2000-01-01T00:00:00.000Z",
+      updatedAt: "2000-01-01T00:00:00.000Z",
+    }, parsed.body));
+
+    const workspaceRoot = path.join(repo, ".changeyard", "workspaces", "CY-0001");
+    writeFileSync(path.join(workspaceRoot, "repo", "dirty.txt"), "dirty\n");
+    const report = doctorReport(repo, {
+      fix: true,
+      deleteStaleCompletedWorkspaces: true,
+      staleCompletedDays: 3,
+    });
+    assert.match(report.warnings.join("\n"), /skipped stale completed workspace cleanup: workspace is dirty/);
+    assert.match(report.warnings.join("\n"), /cy workspace status CY-0001/);
+    assert.equal(existsSync(workspaceRoot), true);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("doctor fix waives stale completed missing reviews through metadata", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    writeFileSync(path.join(repo, ".changeyard", "config.local.jsonc"), `{"review":{"requireBeforePr":true}}\n`);
+    runCreate({ template: "agent-task", title: "Waive stale review" }, repo);
+
+    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-waive-stale-review.md");
+    const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
+    writeFileSync(changePath, writeFrontmatter({
+      ...parsed.frontmatter,
+      status: "approved",
+      updatedAt: "2000-01-01T00:00:00.000Z",
+    }, parsed.body));
+
+    const baseReport = doctorReport(repo, { staleCompletedDays: 3 });
+    assert.match(baseReport.warnings.join("\n"), /stale completed change is missing a review/);
+
+    const dryRunReport = doctorReport(repo, {
+      fix: true,
+      dryRun: true,
+      waiveStaleCompletedReviews: true,
+      staleCompletedDays: 3,
+    });
+    assert.match(dryRunReport.notes.join("\n"), /Would waive review requirement for stale completed change CY-0001/);
+    assert.equal(existsSync(path.join(repo, ".changeyard", "reviews", "CY-0001", "review-001.md")), false);
+
+    const report = doctorReport(repo, {
+      fix: true,
+      waiveStaleCompletedReviews: true,
+      staleCompletedDays: 3,
+    });
+    assert.match(report.fixes.join("\n"), /Waived review requirement for stale completed change CY-0001/);
+    const updated = parseFrontmatter(readFileSync(changePath, "utf8"));
+    assert.equal(asRecordForTest(updated.frontmatter.review).required, false);
+    assert.equal(asRecordForTest(updated.frontmatter.review).waivedBy, "cy doctor");
+    assert.equal(existsSync(path.join(repo, ".changeyard", "reviews", "CY-0001", "review-001.md")), false);
+    assert.doesNotMatch(doctorReport(repo, { staleCompletedDays: 3 }).warnings.join("\n"), /missing a review/);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("doctor suppresses completed quick checklist warnings but keeps structural errors", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "quick", title: "Completed quick warning" }, repo);
+    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-completed-quick-warning.md");
+    const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
+    writeFileSync(changePath, writeFrontmatter({
+      ...parsed.frontmatter,
+      status: "merged",
+      updatedAt: "2000-01-01T00:00:00.000Z",
+    }, parsed.body));
+
+    assert.doesNotMatch(doctorReport(repo).warnings.join("\n"), /Quick scope risk review unresolved/);
+
+    const broken = parseFrontmatter(readFileSync(changePath, "utf8"));
+    const frontmatterWithoutTitle = { ...broken.frontmatter };
+    delete frontmatterWithoutTitle.title;
+    writeFileSync(changePath, writeFrontmatter(frontmatterWithoutTitle, broken.body));
+    assert.match(doctorReport(repo).warnings.join("\n"), /Missing required frontmatter: title/);
   } finally {
     cleanup(repo);
   }

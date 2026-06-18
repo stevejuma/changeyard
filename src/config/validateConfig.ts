@@ -15,6 +15,9 @@ export function validateConfig(config: ChangeyardConfig): void {
   if (config.ui?.port !== undefined && config.ui.port !== "auto" && (!Number.isInteger(config.ui.port) || config.ui.port < 0)) {
     errors.push("ui.port must be a non-negative integer or \"auto\"");
   }
+  if (config.doctor?.staleCompletedDays !== undefined && (!Number.isInteger(config.doctor.staleCompletedDays) || config.doctor.staleCompletedDays < 0)) {
+    errors.push("doctor.staleCompletedDays must be a non-negative integer");
+  }
   for (const [profile, commands] of Object.entries(config.checks)) {
     if (!Array.isArray(commands) || commands.some((command) => typeof command !== "string")) errors.push(`checks.${profile} must be an array of strings`);
   }

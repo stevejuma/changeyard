@@ -73,11 +73,15 @@ type MutationOptions = {
   dryRun?: boolean;
   fix?: boolean;
   verbose?: boolean;
+  deleteStaleCompletedWorkspaces?: boolean;
+  waiveStaleCompletedReviews?: boolean;
+  staleCompletedDays?: number;
 };
 
 const BOOLEAN_FLAGS = new Set([
   "dashboard",
   "debug",
+  "delete-stale-completed-workspaces",
   "dry-run",
   "fix",
   "force",
@@ -99,6 +103,7 @@ const BOOLEAN_FLAGS = new Set([
   "vcs",
   "verbose",
   "version",
+  "waive-stale-completed-reviews",
 ]);
 const VALIDATION_GATES = ["document", "sync", "start", "complete"] as const;
 const REVIEW_DECISIONS = ["approve", "request-changes", "reject", "comment"] as const;
@@ -412,6 +417,32 @@ function parsePortFlag(flags: Record<string, string | boolean | string[]>): numb
   return rawPort === "auto" ? "auto" : rawPort ? Number(rawPort) : undefined;
 }
 
+function parseNonNegativeIntegerFlag(
+  flags: Record<string, string | boolean | string[]>,
+  name: string,
+  colors: CliColors,
+  helpCommand: string,
+): number | undefined {
+  const raw = flags[name];
+  if (raw === undefined) return undefined;
+  if (typeof raw !== "string" || raw.trim() === "") {
+    throw new Error(formatMissingGuidance({
+      message: `Missing --${name} value.`,
+      tips: [`Use --${name} <days> with a non-negative integer.`, `Run ${helpCommand} for details.`],
+      colors,
+    }));
+  }
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new Error(formatMissingGuidance({
+      message: `Invalid --${name}: ${raw}`,
+      tips: [`Use --${name} <days> with a non-negative integer.`, `Run ${helpCommand} for details.`],
+      colors,
+    }));
+  }
+  return parsed;
+}
+
 function outputLine(command: string, output: unknown): void {
   if (output === undefined || output === null) return;
   if (typeof output === "string") process.stdout.write(`${output}\n`);
@@ -464,7 +495,14 @@ async function main(): Promise<void> {
   const errorColors = createColors(!json && colorEnabled({ choice: colorChoice, stream: process.stderr }));
   const guidanceColors = json ? createColors(false) : errorColors;
   const shouldShowText = !(quiet && !json);
-  const mutationOptions: MutationOptions = { dryRun, fix, verbose };
+  const mutationOptions: MutationOptions = {
+    dryRun,
+    fix,
+    verbose,
+    deleteStaleCompletedWorkspaces: asBooleanFlag(args.flags, "delete-stale-completed-workspaces"),
+    waiveStaleCompletedReviews: asBooleanFlag(args.flags, "waive-stale-completed-reviews"),
+    staleCompletedDays: parseNonNegativeIntegerFlag(args.flags, "stale-completed-days", guidanceColors, "cy doctor --help"),
+  };
   const projectRoot = stringFlag(args.flags, "project");
   const repoRoot = command === "help" || command === "version" ? process.cwd() : findRepoRoot(projectRoot ?? process.cwd());
   const rootForChange = (id: string): string => {

@@ -60,6 +60,7 @@ After `cy start`, all product edits belong **only** in the workspace checkout pr
 - Use `cy plan status <id>` to find the next planning gate and `cy plan prompt <id> <section>` to draft missing sections
 - Use `cy audit <id>` when a gate fails or the next recovery step is unclear
 - Use `cy plan strict enable <id>` only when converting an existing normal planned change to strict planning
+- Use `cy doctor --fix --delete-stale-completed-workspaces` or `cy doctor --fix --waive-stale-completed-reviews` only when stale completed cleanup is explicitly requested
 
 ## Rules
 

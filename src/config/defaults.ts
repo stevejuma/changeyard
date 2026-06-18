@@ -51,6 +51,9 @@ export const defaultConfig: ChangeyardConfig = {
     standard: [],
     full: [],
   },
+  doctor: {
+    staleCompletedDays: 3,
+  },
   ui: {
     host: "127.0.0.1",
     port: "auto",

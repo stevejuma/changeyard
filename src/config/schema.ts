@@ -115,6 +115,13 @@ export const configSchema = {
         items: { type: "string" },
       },
     },
+    doctor: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        staleCompletedDays: { type: "number" },
+      },
+    },
     ui: {
       type: "object",
       additionalProperties: false,

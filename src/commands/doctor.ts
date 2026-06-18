@@ -9,6 +9,7 @@ import { readProviderState, writeProviderState } from "../providers/providerStat
 import { createWorkspaceEngine } from "../workspace/index.js";
 import { shellCommandRunner } from "../workspace/commandRunner.js";
 import { parseInlineComments } from "./review.js";
+import { deleteWorkspace, getWorkspaceStatus } from "./workspace.js";
 import type { Frontmatter, WorkspaceMetadata } from "../types.js";
 
 export type DoctorReport = {
@@ -22,6 +23,9 @@ type MutationOptions = {
   dryRun?: boolean;
   fix?: boolean;
   verbose?: boolean;
+  deleteStaleCompletedWorkspaces?: boolean;
+  waiveStaleCompletedReviews?: boolean;
+  staleCompletedDays?: number;
 };
 
 type ChangeRecord = {
@@ -38,13 +42,72 @@ type LocalFolderIssueCache = {
 };
 
 const reviewTerminalStatuses = new Set(["approved", "changes_requested", "rejected", "abandoned"]);
+const completedReviewStatuses = new Set(["approved", "merged"]);
 const branchAwareStatuses = new Set(["ready_for_pr", "pr_open", "in_review", "changes_requested", "approved", "merged", "abandoned"]);
 const checksLogStatuses = new Set(["ready_for_pr", "pr_open", "in_review", "changes_requested", "approved", "merged", "abandoned"]);
 const defaultWrapWidth = 88;
 const minimumWrapWidth = 48;
+const millisecondsPerDay = 24 * 60 * 60 * 1000;
 
 function asRecord(value: unknown): Frontmatter {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Frontmatter : {};
+}
+
+function staleCompletedDays(config: ReturnType<typeof loadConfig>, options: MutationOptions): number {
+  return options.staleCompletedDays ?? config.doctor?.staleCompletedDays ?? 3;
+}
+
+function parseDateValue(value: unknown): Date | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function completionAge(change: ChangeRecord, thresholdDays: number): {
+  source: string;
+  date: Date;
+  ageDays: number;
+  stale: boolean;
+} | null {
+  for (const source of ["mergedAt", "updatedAt", "createdAt"]) {
+    const date = parseDateValue(change.frontmatter[source]);
+    if (!date) continue;
+    const ageMs = Date.now() - date.getTime();
+    return {
+      source,
+      date,
+      ageDays: Math.max(0, Math.floor(ageMs / millisecondsPerDay)),
+      stale: ageMs >= thresholdDays * millisecondsPerDay,
+    };
+  }
+  return null;
+}
+
+function isCompletedValidationNoise(message: string): boolean {
+  return /checkbox|checklist|Quick scope risk review unresolved/i.test(message);
+}
+
+function filterCompletedValidationNoise<T extends { valid: boolean; errors: string[]; warnings?: string[] }>(
+  validation: T,
+  frontmatter: Frontmatter,
+): T {
+  const status = String(frontmatter.status ?? "");
+  if (!completedReviewStatuses.has(status)) return validation;
+  const errors = validation.errors.filter((entry) => !isCompletedValidationNoise(entry));
+  return {
+    ...validation,
+    valid: errors.length === 0,
+    errors,
+    warnings: validation.warnings?.filter((entry) => !isCompletedValidationNoise(entry)),
+  };
+}
+
+function reviewRequired(config: ReturnType<typeof loadConfig>): boolean {
+  return config.review?.requireBeforePr === true || config.pullRequests?.requireApprovedReview === true;
+}
+
+function reviewWaived(frontmatter: Frontmatter): boolean {
+  return asRecord(frontmatter.review).required === false;
 }
 
 function terminalWrapWidth(): number {
@@ -360,10 +423,13 @@ function recoverReviewIfNeeded(
 ): void {
   if (!provider.publishReview) return;
   if (!reviewTerminalStatuses.has(String(change.frontmatter.status))) return;
+  if (reviewWaived(change.frontmatter)) return;
 
   const reviewPath = latestReviewPath(reviewRoot);
   if (!reviewPath) {
-    notes.push(`No review file found for ${change.id}, expected if status is ${change.frontmatter.status}`);
+    if (!completedReviewStatuses.has(String(change.frontmatter.status))) {
+      notes.push(`No review file found for ${change.id}, expected if status is ${change.frontmatter.status}`);
+    }
     return;
   }
 
@@ -480,6 +546,131 @@ function recoverIncompleteComplete(
   fixes.push(`Recovered PR publication for ${change.id}`);
 }
 
+function maybeDeleteStaleCompletedWorkspace(input: {
+  change: ChangeRecord | undefined;
+  metadata: WorkspaceMetadata;
+  repoRoot: string;
+  options: MutationOptions;
+  thresholdDays: number;
+  warnings: string[];
+  notes: string[];
+  fixes: string[];
+}): boolean {
+  const change = input.change;
+  if (!change) return false;
+  if (String(change.frontmatter.status ?? "") !== "merged") return false;
+
+  const age = completionAge(change, input.thresholdDays);
+  if (!age) {
+    if (input.options.deleteStaleCompletedWorkspaces) {
+      input.notes.push(`${change.id}: completed workspace cleanup skipped because mergedAt, updatedAt, and createdAt are missing or invalid`);
+    }
+    return false;
+  }
+  if (!age.stale) return false;
+
+  const cleanupCommand = `cy doctor --fix --delete-stale-completed-workspaces --stale-completed-days ${input.thresholdDays}`;
+  if (!input.options.deleteStaleCompletedWorkspaces) {
+    input.notes.push(`${change.id}: stale completed workspace remains; run ${cleanupCommand} from ${input.repoRoot} to delete eligible completed workspaces`);
+    return false;
+  }
+
+  let status;
+  try {
+    status = getWorkspaceStatus(change.id, input.repoRoot);
+  } catch (error) {
+    input.warnings.push(`${change.id}: skipped stale completed workspace cleanup because workspace status could not be inspected: ${error instanceof Error ? error.message : String(error)}`);
+    return false;
+  }
+
+  const blockers = [
+    ...(status.rootMismatch ? [`workspace belongs to a different repo root`] : []),
+    ...(!status.exists ? [`workspace path does not exist`] : []),
+    ...(status.status !== "merged" ? [`workspace status is ${status.status}, expected merged`] : []),
+    ...(status.dirty ? [`workspace is dirty`] : []),
+    ...(status.conflicts ? [`workspace has conflicts`] : []),
+    ...status.errors,
+  ];
+  if (blockers.length > 0) {
+    input.warnings.push(`${change.id}: skipped stale completed workspace cleanup: ${blockers.join("; ")}. Recovery: run cy workspace status ${change.id} from ${input.repoRoot}.`);
+    return false;
+  }
+
+  const workspaceRoot = path.dirname(status.path ?? input.metadata.path);
+  if (input.options.dryRun) {
+    input.notes.push(`Would delete stale completed workspace ${change.id} (${age.ageDays} days old via ${age.source}): ${workspaceRoot}`);
+    return false;
+  }
+  if (!input.options.fix) {
+    input.notes.push(`${change.id}: stale completed workspace is eligible for deletion; run ${cleanupCommand} from ${input.repoRoot}`);
+    return false;
+  }
+
+  const message = deleteWorkspace(change.id, {}, input.repoRoot);
+  input.fixes.push(message);
+  return true;
+}
+
+function maybeWaiveStaleCompletedReview(input: {
+  change: ChangeRecord;
+  reviewRoot: string;
+  repoRoot: string;
+  config: ReturnType<typeof loadConfig>;
+  options: MutationOptions;
+  thresholdDays: number;
+  warnings: string[];
+  notes: string[];
+  fixes: string[];
+}): void {
+  const status = String(input.change.frontmatter.status ?? "");
+  if (!completedReviewStatuses.has(status)) return;
+  if (!reviewRequired(input.config)) return;
+  if (reviewWaived(input.change.frontmatter)) return;
+  if (latestReviewPath(input.reviewRoot)) return;
+
+  const age = completionAge(input.change, input.thresholdDays);
+  if (!age) {
+    input.warnings.push(`${input.change.id}: completed change is missing a review and has no valid mergedAt, updatedAt, or createdAt timestamp. Recovery: add a review with cy review start ${input.change.id}, or set review.required: false after confirming the waiver.`);
+    return;
+  }
+
+  if (!age.stale) {
+    input.notes.push(`${input.change.id}: completed change is missing a review; stale review waiver is eligible after ${input.thresholdDays} days`);
+    return;
+  }
+
+  const cleanupCommand = `cy doctor --fix --waive-stale-completed-reviews --stale-completed-days ${input.thresholdDays}`;
+  if (!input.options.waiveStaleCompletedReviews) {
+    input.warnings.push(`${input.change.id}: stale completed change is missing a review. Recovery: run ${cleanupCommand} from ${input.repoRoot}, or create a review with cy review start ${input.change.id}.`);
+    return;
+  }
+
+  if (input.options.dryRun) {
+    input.notes.push(`Would waive review requirement for stale completed change ${input.change.id} (${age.ageDays} days old via ${age.source})`);
+    return;
+  }
+  if (!input.options.fix) {
+    input.notes.push(`${input.change.id}: stale completed review requirement can be waived; run ${cleanupCommand} from ${input.repoRoot}`);
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const nextFrontmatter: Frontmatter = {
+    ...input.change.frontmatter,
+    review: {
+      ...asRecord(input.change.frontmatter.review),
+      required: false,
+      waivedAt: now,
+      waivedBy: "cy doctor",
+      waiverReason: `Stale completed ${status} change older than ${input.thresholdDays} days had no review artifact.`,
+    },
+    updatedAt: now,
+  };
+  writeYaml(input.change.filePath, nextFrontmatter, input.change.body);
+  input.change.frontmatter = nextFrontmatter;
+  input.fixes.push(`Waived review requirement for stale completed change ${input.change.id}`);
+}
+
 export function doctorReport(repoRoot = process.cwd(), options: MutationOptions = {}): DoctorReport {
   const config = loadConfig(repoRoot);
   const root = storageRoot(repoRoot, config);
@@ -489,6 +680,7 @@ export function doctorReport(repoRoot = process.cwd(), options: MutationOptions 
   const ok: string[] = [];
   const fixes: string[] = [];
   const notes: string[] = [];
+  const thresholdDays = staleCompletedDays(config, options);
 
   const provider = createProvider(config.provider.type, config);
   const workspaceEngine = createWorkspaceEngine(config.vcs.engine);
@@ -509,10 +701,13 @@ export function doctorReport(repoRoot = process.cwd(), options: MutationOptions 
   if (existsSync(changesPath)) {
     for (const file of readdirSync(changesPath).filter((entry) => entry.endsWith(".md")).sort()) {
       const filePath = path.join(changesPath, file);
-      const validation = validateChangeFile(filePath, root, { config });
       const parsed = readMarkdown(filePath);
+      const validation = filterCompletedValidationNoise(validateChangeFile(filePath, root, { config }), parsed.frontmatter);
       if (!validation.valid) {
         warnings.push(`${file}: ${validation.errors.join("; ")}`);
+      }
+      if (validation.warnings?.length) {
+        warnings.push(`${file}: ${validation.warnings.join("; ")}`);
       }
       const id = String(parsed.frontmatter.id ?? file.replace(/\.md$/, ""));
       if (!parsed.frontmatter.id) warnings.push(`${file}: missing change id`);
@@ -553,6 +748,20 @@ export function doctorReport(repoRoot = process.cwd(), options: MutationOptions 
         continue;
       }
 
+      const matchingChange = changes.find((change) => change.id === metadata.changeId);
+      if (maybeDeleteStaleCompletedWorkspace({
+        change: matchingChange,
+        metadata,
+        repoRoot,
+        options,
+        thresholdDays,
+        warnings,
+        notes,
+        fixes,
+      })) {
+        continue;
+      }
+
       const markerPath = path.join(metadata.path, ".changeyard-workspace.json");
       if (!existsSync(markerPath)) {
         const fixHint = `missing workspace marker; run cy recover ${metadata.changeId}`;
@@ -589,7 +798,6 @@ export function doctorReport(repoRoot = process.cwd(), options: MutationOptions 
       if (!verify.valid) warnings.push(...verify.errors.map((entry) => `${workspaceId}: ${entry}`));
       else ok.push(`workspace: ${workspaceId}`);
 
-      const matchingChange = changes.find((change) => change.id === metadata.changeId);
       const changeStatus = String(matchingChange?.frontmatter.status ?? "");
       const branch = metadata.branch ?? `cy/${metadata.changeId}`;
 
@@ -659,8 +867,20 @@ export function doctorReport(repoRoot = process.cwd(), options: MutationOptions 
     const prUrl = typeof remote.pullRequestUrl === "string" ? remote.pullRequestUrl : "";
     const status = String(change.frontmatter.status ?? "");
     const checks = asRecord(change.frontmatter.checks);
+    const reviewRoot = path.join(reviewsRoot(repoRoot, config), change.id);
 
     recoverIncompleteSync(change, root, localCache, options, warnings, notes, fixes, config);
+    maybeWaiveStaleCompletedReview({
+      change,
+      reviewRoot,
+      repoRoot,
+      config,
+      options,
+      thresholdDays,
+      warnings,
+      notes,
+      fixes,
+    });
     if (checksLogStatuses.has(status) && checks.lastStatus === "passed" && typeof checks.lastRun !== "string") {
       warnings.push(`${change.id}: completion metadata indicates checks passed but lastRun is missing`);
     }

@@ -112,6 +112,23 @@ export type ChangeyardConfig = {
     };
   };
   checks: Record<string, string[]>;
+  doctor?: {
+    staleCompletedDays?: number;
+  };
+  pullRequests?: {
+    enabled?: boolean;
+    draft?: boolean;
+    requireApprovedReview?: boolean;
+    allowLocalFolder?: boolean;
+    titlePattern?: string;
+    bodyFromChange?: boolean;
+    labels?: string[];
+  };
+  review?: {
+    requireBeforePr?: boolean;
+    requireFilledRequiredChanges?: boolean;
+    requireInlineCommentDisposition?: boolean;
+  };
   ui?: {
     host?: string;
     port?: number | "auto";
