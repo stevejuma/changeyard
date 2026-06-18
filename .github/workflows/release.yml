@@ -18,15 +18,13 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
-          corepack: true
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
+          registry-url: https://registry.npmjs.org
       - name: Prepare pnpm
-        run: corepack prepare pnpm@10.32.1 --activate
+        run: corepack enable && corepack prepare pnpm@10.32.1 --activate
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Build and validate package

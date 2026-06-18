@@ -13,21 +13,23 @@ jobs:
   build-test-pack:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
-          corepack: true
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
       - name: Prepare pnpm
-        run: corepack prepare pnpm@10.32.1 --activate
+        run: corepack enable && corepack prepare pnpm@10.32.1 --activate
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Install jj for workspace coverage
+        env:
+          JJ_VERSION: 0.42.0
         run: |
-          sudo apt-get update
-          sudo apt-get install -y jj
+          tmp="$(mktemp -d)"
+          curl -fsSL "https://github.com/jj-vcs/jj/releases/download/v${JJ_VERSION}/jj-v${JJ_VERSION}-x86_64-unknown-linux-musl.tar.gz" -o "${tmp}/jj.tar.gz"
+          tar -xzf "${tmp}/jj.tar.gz" -C "${tmp}"
+          sudo install "${tmp}/jj" /usr/local/bin/jj
+          jj --version
       - name: Build
         run: pnpm run build
       - name: Run tests
@@ -37,15 +39,12 @@ jobs:
   bun-tui:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
-          corepack: true
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
       - name: Prepare pnpm
-        run: corepack prepare pnpm@10.32.1 --activate
+        run: corepack enable && corepack prepare pnpm@10.32.1 --activate
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
