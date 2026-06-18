@@ -96,6 +96,10 @@ export function ProjectNavigationPanel({
 		clineProviderSettings,
 		featurebaseFeedbackState,
 	});
+	const isDesktopShell =
+		typeof window !== "undefined" &&
+		Boolean((window as { desktop?: unknown }).desktop);
+	const displayAppName = isDesktopShell ? "CY" : "ChangeYard";
 
 	const [pendingProjectRemoval, setPendingProjectRemoval] = useState<RuntimeProjectSummary | null>(null);
 	const isProjectRemovalPending = pendingProjectRemoval !== null && removingProjectId === pendingProjectRemoval.id;
@@ -302,11 +306,21 @@ export function ProjectNavigationPanel({
 					className="absolute top-0 right-0 bottom-0 w-1.5 cursor-ew-resize z-10"
 				/>
 			)}
-			<div style={{ padding: "12px 12px 8px" }}>
+			<div
+				style={{
+					paddingTop: "12px",
+					paddingRight: "12px",
+					paddingBottom: "8px",
+					paddingLeft: "var(--changeyard-safe-area-left, 12px)",
+				}}
+			>
 				<div className="flex items-center justify-between">
 					<div className="font-semibold text-base flex items-baseline gap-1.5">
 						<ClineIcon size={18} className="text-text-primary shrink-0 self-center" />
-						ChangeYard <span className="text-text-secondary font-normal text-xs">v{__APP_VERSION__}</span>
+						{displayAppName}{" "}
+						{!isDesktopShell ? (
+							<span className="text-text-secondary font-normal text-xs">v{__APP_VERSION__}</span>
+						) : null}
 					</div>
 					{isMobile ? (
 						<Button

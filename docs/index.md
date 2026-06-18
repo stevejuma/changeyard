@@ -13,6 +13,7 @@ This index points to project documentation that is useful for people and agents 
 
 ## Other Docs
 
+- [Desktop App Onboarding](desktop.md)
 - [Kanban Integration](kanban-integration.md)
 - [Kanban Upstream](kanban-upstream.md)
 - [Inline Planning ADR](adr-inline-planning.md)

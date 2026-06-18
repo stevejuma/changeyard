@@ -1,6 +1,11 @@
 node_modules/
 dist/
 
+# Desktop build artifacts (local)
+packages/desktop/build/
+packages/desktop/cli/
+packages/desktop/out/
+
 # Changeyard runtime state
 .changeyard/workspaces/
 .changeyard/cache/

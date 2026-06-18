@@ -37,6 +37,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@clinebot/agents": "^0.0.38",
     "@types/proper-lockfile": "^4.1.4",
     "@types/ws": "^8.18.1"
   }

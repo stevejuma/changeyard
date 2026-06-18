@@ -1525,3 +1525,19 @@ body.kb-dependency-link-mode {
 		app-region: no-drag;
 	}
 }
+
+.kb-top-bar[data-changeyard-desktop-shell="true"] {
+	-webkit-app-region: drag;
+	app-region: drag;
+}
+
+.kb-top-bar[data-changeyard-desktop-shell="true"] button,
+.kb-top-bar[data-changeyard-desktop-shell="true"] a,
+.kb-top-bar[data-changeyard-desktop-shell="true"] input,
+.kb-top-bar[data-changeyard-desktop-shell="true"] select,
+.kb-top-bar[data-changeyard-desktop-shell="true"] [role="button"],
+.kb-top-bar[data-changeyard-desktop-shell="true"] [role="menu"],
+.kb-top-bar[data-changeyard-desktop-shell="true"] [data-radix-collection-item] {
+	-webkit-app-region: no-drag;
+	app-region: no-drag;
+}

@@ -5,6 +5,7 @@ packages:
   - packages/tui
   - packages/vcs
   - packages/web-ui
+  - packages/desktop
 
 allowBuilds:
   esbuild: set this to true or false

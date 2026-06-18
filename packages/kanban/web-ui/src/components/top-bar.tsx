@@ -405,6 +405,9 @@ export function TopBar({
 	const displayWorkspacePath = workspacePath ? formatPathForDisplay(workspacePath) : null;
 	const workspaceSegments = displayWorkspacePath ? getWorkspacePathSegments(displayWorkspacePath) : [];
 	const hasAbsoluteLeadingSlash = Boolean(displayWorkspacePath?.startsWith("/"));
+	const isDesktopShell =
+		typeof window !== "undefined" &&
+		Boolean((window as { desktop?: unknown }).desktop);
 	const handleAddShortcut = () => {
 		onOpenSettings?.("shortcuts");
 	};
@@ -452,8 +455,9 @@ export function TopBar({
 		<>
 			<nav
 				className="kb-top-bar flex flex-nowrap items-center h-10 min-h-[40px] min-w-0 bg-surface-1"
+				data-changeyard-desktop-shell={isDesktopShell ? "true" : undefined}
 				style={{
-					paddingLeft: onBack ? 6 : 12,
+					paddingLeft: onBack ? 6 : "var(--changeyard-safe-area-left, 12px)",
 					paddingRight: 8,
 					borderBottom: "1px solid var(--color-divider)",
 				}}
