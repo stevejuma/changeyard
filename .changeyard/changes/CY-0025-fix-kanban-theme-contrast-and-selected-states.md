@@ -8,7 +8,7 @@ labels:
   - agent-ready
 author: stevejuma
 createdAt: 2026-06-18T15:04:18.175Z
-updatedAt: 2026-06-18T15:35:58.697Z
+updatedAt: 2026-06-18T15:50:57.746Z
 base:
   vcs: unknown
   revision: main
@@ -45,6 +45,11 @@ planning:
     strictChecklist: pending
     strictAnalysis: pending
 mergedAt: 2026-06-18T15:35:58.696Z
+review:
+  required: false
+  waivedAt: 2026-06-18T15:50:57.746Z
+  waivedBy: cy doctor
+  waiverReason: Stale completed merged change older than 0 days had no review artifact.
 ---
 
 # Summary
