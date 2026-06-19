@@ -6,7 +6,7 @@ import { changesRoot } from "../paths.js";
 import { findChangeFile } from "../state/id.js";
 import { assertTransition } from "../state/transitions.js";
 import type { Frontmatter, WorkspaceMetadata } from "../types.js";
-import { shellCommandRunner } from "../workspace/commandRunner.js";
+import { shellCommandRunner, shellInspectionCommandRunner } from "../workspace/commandRunner.js";
 import { validateJjLandingDescriptions } from "../workspace/jjLandingDescriptions.js";
 import { resolveWorkspaceChangePath } from "../workspace/marker.js";
 import { deleteWorkspace, getWorkspaceStatus, readWorkspaceMetadataFromRoot, workspaceMetadataPath } from "./workspace.js";
@@ -25,13 +25,20 @@ function commandOutput(command: string, args: string[], cwd: string): string {
   return shellCommandRunner(command, args, cwd).trim();
 }
 
+function inspectionOutput(command: string, args: string[], cwd: string): string {
+  return shellInspectionCommandRunner(command, args, cwd).trim();
+}
+
 function jjWorkspaceChangeId(workspacePath: string): string {
-  commandOutput("jj", ["status"], workspacePath);
-  return commandOutput("jj", ["log", "--ignore-working-copy", "--at-op=@", "-r", "@", "--no-graph", "-T", "change_id.short()"], workspacePath);
+  return inspectionOutput("jj", ["log", "--ignore-working-copy", "--at-op=@", "-r", "@", "--no-graph", "-T", "change_id.short()"], workspacePath);
 }
 
 function jjCommitId(cwd: string, revision: string): string {
   return commandOutput("jj", ["log", "--ignore-working-copy", "--at-op=@", "-r", revision, "--no-graph", "-T", "commit_id"], cwd);
+}
+
+function jjWorkspaceCommitId(workspacePath: string): string {
+  return jjCommitId(workspacePath, "@");
 }
 
 function jjDescription(cwd: string, revision: string): string {
@@ -39,8 +46,12 @@ function jjDescription(cwd: string, revision: string): string {
 }
 
 function jjWorkspaceChangedFiles(workspacePath: string): string[] {
-  const output = commandOutput("jj", ["diff", "--name-only"], workspacePath);
+  const output = inspectionOutput("jj", ["diff", "--name-only"], workspacePath);
   return output.split("\n").map((line) => line.trim()).filter(Boolean).sort();
+}
+
+function updateJjWorkspaceStale(workspacePath: string): void {
+  commandOutput("jj", ["workspace", "update-stale"], workspacePath);
 }
 
 function writeWorkspaceMetadata(repoRoot: string, id: string, metadata: WorkspaceMetadata): void {
@@ -116,6 +127,9 @@ export function runLand(id: string, options: LandOptions = {}, repoRoot = proces
   if (workspaceStatus.conflicts) throw new Error(withLandRecovery(`Workspace ${changeId} has conflicts; resolve them before landing`, changeId, repoRoot));
   if (workspaceStatus.rootMismatch) throw new Error(withLandRecovery(`Workspace ${changeId} belongs to ${metadata.repoRoot}, not ${repoRoot}`, changeId, repoRoot));
   if (workspaceStatus.errors.length > 0) throw new Error(withLandRecovery(workspaceStatus.errors.join("\n"), changeId, repoRoot));
+  if (!options.dryRun) {
+    commandOutput("jj", ["status"], metadata.path);
+  }
 
   const workspaceChangeId = metadata.workspaceChangeId ?? workspaceStatus.workspaceChangeId ?? jjWorkspaceChangeId(metadata.path);
   const description = jjDescription(metadata.path, workspaceChangeId);
@@ -151,17 +165,18 @@ export function runLand(id: string, options: LandOptions = {}, repoRoot = proces
   let nextMetadata: WorkspaceMetadata = {
     ...metadata,
     workspaceChangeId,
-    workspaceCommitId: jjCommitId(metadata.path, workspaceChangeId),
+    workspaceCommitId: jjWorkspaceCommitId(metadata.path),
   };
   if (targetMoved) {
     commandOutput("jj", ["rebase", "-r", landingRevset, "-o", target], repoRoot);
+    updateJjWorkspaceStale(metadata.path);
     workspaceStatus = getWorkspaceStatus(changeId, repoRoot);
     if (workspaceStatus.conflicts) throw new Error(withLandRecovery(`Workspace ${changeId} has conflicts after rebasing onto ${target}; resolve them before landing`, changeId, repoRoot));
     if (workspaceStatus.errors.length > 0) throw new Error(withLandRecovery(workspaceStatus.errors.join("\n"), changeId, repoRoot));
     nextMetadata = {
       ...nextMetadata,
       baseCommitId: currentTargetCommitId,
-      workspaceCommitId: jjCommitId(metadata.path, workspaceChangeId),
+      workspaceCommitId: jjWorkspaceCommitId(metadata.path),
     };
   }
   const mergedDocument = mergedChangeDocument(parsed.body, parsed.frontmatter);
@@ -169,13 +184,14 @@ export function runLand(id: string, options: LandOptions = {}, repoRoot = proces
   if (metadata.engine === "jj" && changePath !== rootChangePath) {
     writeChangeDocument(rootChangePath, mergedDocument);
   }
+  updateJjWorkspaceStale(metadata.path);
   commandOutput("jj", ["status"], metadata.path);
   nextMetadata = {
     ...nextMetadata,
-    workspaceCommitId: jjCommitId(metadata.path, workspaceChangeId),
+    workspaceCommitId: jjWorkspaceCommitId(metadata.path),
   };
   writeWorkspaceMetadata(repoRoot, changeId, nextMetadata);
-  commandOutput("jj", ["bookmark", "set", target, "-r", workspaceChangeId], repoRoot);
+  commandOutput("jj", ["bookmark", "set", target, "-r", nextMetadata.workspaceCommitId ?? workspaceChangeId], repoRoot);
 
   const cleanupMessage = options.keepWorkspace ? null : deleteWorkspace(changeId, { force: true }, repoRoot);
   const lines = [`Landed ${changeId} into ${target}`, `Workspace change: ${workspaceChangeId}`, `Description: ${description.split("\n")[0] ?? description}`];

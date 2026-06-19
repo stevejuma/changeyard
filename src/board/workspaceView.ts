@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { loadConfig } from "../config/loadConfig.js";
 import { normalizeVcsCommandArgs, vcsNoColorEnv } from "../vcs/argv.js";
+import { jjInspectionArgs } from "../workspace/commandRunner.js";
 import { isDenied } from "../workspace/patterns.js";
 import type { WorkspaceMetadata } from "../types.js";
 
@@ -68,6 +69,10 @@ function runCommand(command: string, args: string[], cwd: string): string {
   return output || "No output.";
 }
 
+function runInspectionCommand(command: string, args: string[], cwd: string): string {
+  return runCommand(command, command === "jj" ? jjInspectionArgs(args) : args, cwd);
+}
+
 function readCheckLog(repoRoot: string, id: string): string | undefined {
   const config = loadConfig(repoRoot);
   const logPath = path.join(repoRoot, config.storage.root, config.storage.workspacesDir, id, "logs", "checks.log");
@@ -86,7 +91,7 @@ function commandsForEngine(id: string, metadata: WorkspaceMetadata): string[] {
   if (metadata.engine === "jj") {
     return [
       `cd ${metadata.path}`,
-      "jj status",
+      "jj --ignore-working-copy status",
       "jj diff --ignore-working-copy --summary",
       `cy verify ${id}`,
     ];
@@ -118,8 +123,8 @@ export function readWorkspaceTerminalView(repoRoot: string, id: string, metadata
       engine: metadata.engine,
       path: metadata.path,
       commands: commandsForEngine(id, metadata),
-      statusOutput: runCommand("jj", ["status"], metadata.path),
-      diffOutput: runCommand("jj", ["diff", "--ignore-working-copy", "--summary"], metadata.path),
+      statusOutput: runInspectionCommand("jj", ["status"], metadata.path),
+      diffOutput: runInspectionCommand("jj", ["diff", "--ignore-working-copy", "--summary"], metadata.path),
       checkLog,
     };
   }

@@ -8,7 +8,7 @@ import { changesRoot, reviewsRoot, storageRoot, workspacesRoot } from "../paths.
 import { createProvider } from "../providers/index.js";
 import { readProviderState, writeProviderState } from "../providers/providerState.js";
 import { createWorkspaceEngine } from "../workspace/index.js";
-import { shellCommandRunner } from "../workspace/commandRunner.js";
+import { shellCommandRunner, shellInspectionCommandRunner } from "../workspace/commandRunner.js";
 import { parseInlineComments } from "./review.js";
 import { deleteWorkspace, getWorkspaceStatus } from "./workspace.js";
 import type { Frontmatter, WorkspaceMetadata } from "../types.js";
@@ -249,11 +249,11 @@ function gitStatusState(workspacePath: string): { dirty: boolean; conflicts: boo
 
 function jjWorkspaceState(workspacePath: string, bookmark: string): { exists: boolean; dirty: boolean; conflicts: boolean } {
   try {
-    const list = shellCommandRunner("jj", ["bookmark", "list"], workspacePath);
-    const status = shellCommandRunner("jj", ["status"], workspacePath);
+    const list = shellInspectionCommandRunner("jj", ["bookmark", "list"], workspacePath);
+    const status = shellInspectionCommandRunner("jj", ["status"], workspacePath);
     let conflicts = false;
     try {
-      conflicts = shellCommandRunner("jj", ["resolve", "--list"], workspacePath).trim().length > 0;
+      conflicts = shellInspectionCommandRunner("jj", ["resolve", "--list"], workspacePath).trim().length > 0;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (!message.includes("No conflicts found")) throw error;

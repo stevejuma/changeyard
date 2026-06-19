@@ -232,9 +232,10 @@ test("workspace verification surfaces missing binaries and conflict states", () 
   const missingBinaryGit = new GitWorktreeEngine(() => {
     throw new Error("git binary missing");
   });
-  const missingBinaryJj = new JjWorkspaceEngine(() => {
+  const missingJjRunner = () => {
     throw new Error("jj binary missing");
-  });
+  };
+  const missingBinaryJj = new JjWorkspaceEngine(missingJjRunner, missingJjRunner);
   const tempPath = path.join(createTempRepo(), "workspace");
   mkdirSync(tempPath, { recursive: true });
   const metadata = {
@@ -266,14 +267,15 @@ test("workspace verification surfaces missing binaries and conflict states", () 
   assert.equal(conflictedGitResult.valid, false);
   assert.match(conflictedGitResult.errors.join("\n"), /unresolved conflicts/);
 
-  const conflictedJj = new JjWorkspaceEngine((command, args) => {
+  const conflictedJjRunner = (command: string, args: string[]) => {
     const joined = `${command} ${args.join(" ")}`;
     if (joined === "jj workspace root") return tempPath;
     if (joined === "jj workspace list") return "cy-CY-0001";
     if (joined === "jj status") return "Changes to commit:\nconflict: README.md";
     if (joined === "jj resolve --list") return "README.md";
     return "";
-  });
+  };
+  const conflictedJj = new JjWorkspaceEngine(conflictedJjRunner, conflictedJjRunner);
   const conflictedJjResult = conflictedJj.verify({ cwd: tempPath, metadata: { ...metadata, engine: "jj" } });
   assert.equal(conflictedJjResult.valid, false);
   assert.match(conflictedJjResult.errors.join("\n"), /jj workspace reports conflicts/);

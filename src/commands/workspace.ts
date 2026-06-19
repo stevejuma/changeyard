@@ -5,7 +5,7 @@ import { parseFrontmatter } from "../documents/frontmatter.js";
 import { changesRoot, workspacesRoot } from "../paths.js";
 import { findChangeFile, findWorkspaceId } from "../state/id.js";
 import type { ChangeStatus, WorkspaceMetadata } from "../types.js";
-import { shellCommandRunner } from "../workspace/commandRunner.js";
+import { shellCommandRunner, shellInspectionCommandRunner } from "../workspace/commandRunner.js";
 import { validateJjLandingDescriptions } from "../workspace/jjLandingDescriptions.js";
 import { resolveWorkspaceChangePath } from "../workspace/marker.js";
 import { deleteTaskWorkspace, verifyTaskWorkspace, type WorkspaceRepositoryKind } from "../workspace/runtimeBridge.js";
@@ -96,9 +96,9 @@ function commandOutput(command: string, args: string[], cwd: string): string {
   }
 }
 
-function commandResult(command: string, args: string[], cwd: string): { ok: true; output: string } | { ok: false; error: string } {
+function inspectionCommandResult(command: string, args: string[], cwd: string): { ok: true; output: string } | { ok: false; error: string } {
   try {
-    return { ok: true, output: shellCommandRunner(command, args, cwd) };
+    return { ok: true, output: shellInspectionCommandRunner(command, args, cwd) };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
@@ -169,15 +169,11 @@ function plainCopyDirty(repoRoot: string, workspacePath: string, neverCopy: stri
 function inspectDirtyState(metadata: WorkspaceMetadata, neverCopy: string[]): { dirty: boolean; conflicts: boolean; errors: string[] } {
   if (!existsSync(metadata.path)) return { dirty: false, conflicts: false, errors: [`Workspace path does not exist: ${metadata.path}`] };
   if (metadata.engine === "jj") {
-    const staleUpdate = commandResult("jj", ["workspace", "update-stale"], metadata.path);
-    if (!staleUpdate.ok) {
-      return { dirty: false, conflicts: false, errors: [`Could not update stale jj workspace: ${staleUpdate.error}`] };
-    }
-    const statusResult = commandResult("jj", ["status"], metadata.path);
+    const statusResult = inspectionCommandResult("jj", ["status"], metadata.path);
     if (!statusResult.ok) {
       return { dirty: false, conflicts: false, errors: [`Could not inspect jj workspace status: ${statusResult.error}`] };
     }
-    const conflictsResult = commandResult("jj", ["resolve", "--list"], metadata.path);
+    const conflictsResult = inspectionCommandResult("jj", ["resolve", "--list"], metadata.path);
     const noConflicts = !conflictsResult.ok && conflictsResult.error.includes("No conflicts found");
     if (!conflictsResult.ok && !noConflicts) {
       return { dirty: false, conflicts: false, errors: [`Could not inspect jj workspace conflicts: ${conflictsResult.error}`] };

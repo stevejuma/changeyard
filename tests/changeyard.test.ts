@@ -64,6 +64,7 @@ import { LocalFolderProvider } from "../src/providers/LocalFolderProvider.js";
 import { curlJson, setHttpTransportForTests, type HttpRequest } from "../src/providers/http.js";
 import { GitWorktreeEngine } from "../src/workspace/GitWorktreeEngine.js";
 import { JjWorkspaceEngine } from "../src/workspace/JjWorkspaceEngine.js";
+import { jjInspectionArgs } from "../src/workspace/commandRunner.js";
 import { colorEnabled, createColors, parseColorChoice } from "../src/cli/color.js";
 import { readCliHelpEntry, readCliTopic, renderCliHelp, renderCliTopic } from "../src/cli/docs.js";
 import { renderHumanOutput } from "../src/cli/render.js";
@@ -2529,27 +2530,47 @@ test("jj workspace engine creates and verifies expected jj workspace", () => {
     const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
     mkdirSync(workspacePath, { recursive: true });
     const calls: string[] = [];
-    const engine = new JjWorkspaceEngine((command, args, cwd) => {
+    const inspectionCalls: string[] = [];
+    const mutate = (command: string, args: string[], cwd: string): string => {
       calls.push(`${cwd}: ${command} ${args.join(" ")}`);
-      if (args.join(" ") === "workspace root") return workspacePath;
-      if (args.join(" ") === "workspace list") return "cy-CY-0001 abc123";
-      if (args.join(" ") === "status") return "The working copy is clean";
       if (args.join(" ") === "log --ignore-working-copy --at-op=@ -r @ --no-graph -T commit_id") return "commit123";
       if (args.join(" ") === "log --ignore-working-copy --at-op=@ -r @ --no-graph -T change_id.short()") return "change123";
       return "";
-    });
+    };
+    const inspect = (command: string, args: string[], cwd: string): string => {
+      inspectionCalls.push(`${cwd}: ${command} ${args.join(" ")}`);
+      if (args.join(" ") === "workspace root") return workspacePath;
+      if (args.join(" ") === "workspace list") return "cy-CY-0001 abc123";
+      if (args.join(" ") === "status") return "The working copy is clean";
+      if (args.join(" ") === "resolve --list") return "";
+      return "";
+    };
+    const engine = new JjWorkspaceEngine(mutate, inspect);
     const metadata = { changeId: "CY-0001", engine: "jj", name: "cy-CY-0001", path: workspacePath, repoRoot: repo, changePath: path.join(repo, "change.md"), createdAt: "now", targetRef: "main", seedDescription: "CY-0001: Test task" };
     const created = engine.create({ repoRoot: repo, workspacePath, metadata, neverCopy: [] });
     assert.ok(calls.some((call) => call.includes("jj workspace add --name cy-CY-0001 -r main -m CY-0001: Test task")));
     assert.equal(created.workspaceChangeId, "change123");
     assert.equal(created.workspaceCommitId, "commit123");
     assert.deepEqual(engine.verify({ cwd: workspacePath, metadata }), { valid: true, errors: [] });
+    assert.deepEqual(inspectionCalls.map((call) => call.replace(`${workspacePath}: `, "")), [
+      "jj workspace root",
+      "jj workspace list",
+      "jj status",
+      "jj resolve --list",
+    ]);
+    assert.equal(inspectionCalls.some((call) => call.includes("workspace update-stale")), false);
     engine.publish({ cwd: workspacePath, metadata, branch: "cy/CY-0001" });
     assert.ok(calls.some((call) => call.includes("jj bookmark set cy/CY-0001 -r @")));
     assert.ok(calls.some((call) => call.includes("jj git push --bookmark cy/CY-0001")));
   } finally {
     cleanup(repo);
   }
+});
+
+test("jj inspection args disable snapshots without duplicating existing no-snapshot flags", () => {
+  assert.deepEqual(jjInspectionArgs(["status"]), ["--ignore-working-copy", "status"]);
+  assert.deepEqual(jjInspectionArgs(["log", "--ignore-working-copy", "-r", "@"]), ["log", "--ignore-working-copy", "-r", "@"]);
+  assert.deepEqual(jjInspectionArgs(["log", "--at-op=@", "-r", "@"]), ["log", "--at-op=@", "-r", "@"]);
 });
 
 test("git worktree engine creates branch worktree and verifies clean root", () => {

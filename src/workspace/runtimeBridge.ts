@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { normalizeVcsCommandArgs, vcsNoColorEnv } from "../vcs/argv.js";
+import { jjInspectionArgs } from "./commandRunner.js";
 
 export type WorkspaceRepositoryKind = "git" | "jj";
 export type DetectedWorkspaceEngineName = "git-worktree" | "jj";
@@ -56,6 +57,10 @@ function commandSucceeded(
   return result.status === 0;
 }
 
+function inspectionArgs(command: string, args: string[]): string[] {
+  return command === "jj" ? jjInspectionArgs(args) : args;
+}
+
 function runCommand(
   command: string,
   args: string[],
@@ -74,6 +79,14 @@ function runCommand(
   };
 }
 
+function runInspectionCommand(
+  command: string,
+  args: string[],
+  cwd: string,
+): CommandResult {
+  return runCommand(command, inspectionArgs(command, args), cwd);
+}
+
 function parseJjBookmarkName(line: string): string | null {
   const trimmed = line.trim();
   if (!trimmed) {
@@ -88,7 +101,7 @@ function resolveExistingRealPath(targetPath: string): string {
 }
 
 export function detectWorkspaceRepositoryKind(targetPath: string): WorkspaceRepositoryKind | null {
-  if (commandSucceeded("jj", ["workspace", "root"], targetPath)) {
+  if (runInspectionCommand("jj", ["workspace", "root"], targetPath).ok) {
     return "jj";
   }
 
@@ -271,16 +284,7 @@ export function verifyTaskWorkspace(options: {
   }
 
   if (options.repositoryKind === "jj") {
-    const staleUpdateResult = runCommand("jj", ["workspace", "update-stale"], expectedPath);
-    if (!staleUpdateResult.ok) {
-      errors.push(staleUpdateResult.stderr || staleUpdateResult.stdout || "Could not update stale jj workspace.");
-      return {
-        ok: false,
-        errors,
-      };
-    }
-
-    const rootResult = runCommand("jj", ["workspace", "root"], expectedPath);
+    const rootResult = runInspectionCommand("jj", ["workspace", "root"], expectedPath);
     if (!rootResult.ok || !rootResult.stdout) {
       errors.push(rootResult.stderr || rootResult.stdout || "Could not resolve jj workspace root.");
     } else if (resolveExistingRealPath(rootResult.stdout) !== resolveExistingRealPath(expectedPath)) {
@@ -288,7 +292,7 @@ export function verifyTaskWorkspace(options: {
     }
 
     if (options.workspaceName) {
-      const listResult = runCommand("jj", ["workspace", "list"], expectedPath);
+      const listResult = runInspectionCommand("jj", ["workspace", "list"], expectedPath);
       if (!listResult.ok) {
         errors.push(listResult.stderr || listResult.stdout || "Could not inspect jj workspace list.");
       } else if (!listResult.stdout.includes(options.workspaceName)) {
@@ -296,11 +300,11 @@ export function verifyTaskWorkspace(options: {
       }
     }
 
-    const statusResult = runCommand("jj", ["status"], expectedPath);
+    const statusResult = runInspectionCommand("jj", ["status"], expectedPath);
     if (!statusResult.ok) {
       errors.push(statusResult.stderr || statusResult.stdout || "Could not inspect jj workspace status.");
     }
-    const conflictsResult = runCommand("jj", ["resolve", "--list"], expectedPath);
+    const conflictsResult = runInspectionCommand("jj", ["resolve", "--list"], expectedPath);
     const conflictOutput = conflictsResult.stderr || conflictsResult.stdout;
     const noConflicts = !conflictsResult.ok && conflictOutput.includes("No conflicts found");
     if (!conflictsResult.ok && !noConflicts) {
