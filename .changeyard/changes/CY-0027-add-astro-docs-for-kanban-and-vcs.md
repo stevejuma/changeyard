@@ -176,7 +176,7 @@ Adds a package workspace and CI check. No provider sync behavior changes.
 - Passed: `pnpm run docs:build`.
 - Passed: direct docs build smoke with `node packages/docs/scripts/sync-docs.mjs` and `./node_modules/.bin/astro build` from `packages/docs`.
 - Passed: `pnpm run check:node`.
-- Blocked: `pnpm run check` fails in `check:package-manager` on pre-existing legacy package-manager references unrelated to this docs change, including `CY-0026`, `.github/workflows/release.yml`, and desktop package-lock/runtime files.
+- Blocked: `pnpm run check` fails in `check:package-manager` on pre-existing legacy package-manager references unrelated to this docs change, including `CY-0026`, `.github/workflows/release.yml`, and desktop packaging/runtime files.
 <!-- cy:verification:end -->
 
 <!-- cy:clarifications:start -->
