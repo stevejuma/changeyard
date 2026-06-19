@@ -47,7 +47,7 @@ function writeWorkspaceMetadata(repoRoot: string, id: string, metadata: Workspac
   writeFileSync(workspaceMetadataPath(id, repoRoot), `${JSON.stringify(metadata, null, 2)}\n`);
 }
 
-function updateMergedChangeFile(changePath: string, body: string, frontmatter: Frontmatter): void {
+function mergedChangeDocument(body: string, frontmatter: Frontmatter): string {
   const nextFrontmatter: Frontmatter = {
     ...frontmatter,
     status: "merged",
@@ -59,8 +59,12 @@ function updateMergedChangeFile(changePath: string, body: string, frontmatter: F
       mergedLocally: true,
     },
   };
+  return writeFrontmatter(nextFrontmatter, body);
+}
+
+function writeChangeDocument(changePath: string, document: string): void {
   mkdirSync(path.dirname(changePath), { recursive: true });
-  writeFileSync(changePath, writeFrontmatter(nextFrontmatter, body));
+  writeFileSync(changePath, document);
 }
 
 function withLandRecovery(message: string, id: string, repoRoot: string, extraRecovery: string[] = []): string {
@@ -160,7 +164,11 @@ export function runLand(id: string, options: LandOptions = {}, repoRoot = proces
       workspaceCommitId: jjCommitId(metadata.path, workspaceChangeId),
     };
   }
-  updateMergedChangeFile(changePath, parsed.body, parsed.frontmatter);
+  const mergedDocument = mergedChangeDocument(parsed.body, parsed.frontmatter);
+  writeChangeDocument(changePath, mergedDocument);
+  if (metadata.engine === "jj" && changePath !== rootChangePath) {
+    writeChangeDocument(rootChangePath, mergedDocument);
+  }
   commandOutput("jj", ["status"], metadata.path);
   nextMetadata = {
     ...nextMetadata,

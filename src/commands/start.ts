@@ -76,6 +76,11 @@ function describeStartedJjWorkspace(workspacePath: string, id: string, descripti
   }
 }
 
+function writeChangeDocument(filePath: string, frontmatter: Frontmatter, body: string): void {
+  mkdirSync(path.dirname(filePath), { recursive: true });
+  writeFileSync(filePath, writeFrontmatter(frontmatter, body));
+}
+
 type MutationOptions = {
   dryRun?: boolean;
 };
@@ -158,7 +163,7 @@ export function runStart(id: string, repoRoot = process.cwd(), mutationOptions: 
       path: workspaceRelativePath,
     },
   };
-  writeFileSync(engineName === "jj" ? workspaceChangePath : filePath, writeFrontmatter(nextFrontmatter, parsed.body));
+  writeChangeDocument(engineName === "jj" ? workspaceChangePath : filePath, nextFrontmatter, parsed.body);
   if (engineName === "jj") describeStartedJjWorkspace(workspacePath, changeId, seedDescription);
 
   return [

@@ -86,6 +86,14 @@ function gitExclude(repo: string): string {
   return readFileSync(path.join(repo, ".git", "info", "exclude"), "utf8");
 }
 
+function enableGeneratedFileTracking(repo: string): void {
+  const configPath = path.join(repo, ".changeyard", "config.jsonc");
+  const config = JSON.parse(readFileSync(configPath, "utf8"));
+  config.scaffold.trackGeneratedFiles = true;
+  writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+  runUpdate(repo);
+}
+
 function withTempChangeyardHome<T>(fn: () => T): T {
   const previous = process.env.CHANGEYARD_HOME;
   const appState = tempRepo();
@@ -3224,7 +3232,7 @@ test("jj workspace engine can verify a real jj workspace when jj is installed", 
   }
 });
 
-test("jj start commits metadata seed and leaves unrelated root wip", () => {
+test("jj start commits metadata seed when changeyard metadata is tracked and leaves unrelated root wip", () => {
   if (!hasCommand("git") || !hasCommand("jj")) return;
   const repo = tempRepo();
   try {
@@ -3238,6 +3246,8 @@ test("jj start commits metadata seed and leaves unrelated root wip", () => {
     runCommand("jj", ["bookmark", "set", "main", "-r", "@-"], repo);
 
     runInit(repo);
+    enableGeneratedFileTracking(repo);
+    assert.doesNotMatch(gitExclude(repo), /^\.changeyard\/$/m);
     writeFileSync(path.join(repo, ".changeyard", "config.local.jsonc"), `{"vcs":{"engine":"jj","fallback":"plain-copy"},"checks":{"standard":["node -v"]}}\n`);
     runCommand("jj", ["commit", "-m", "init changeyard"], repo);
     runCommand("jj", ["bookmark", "set", "main", "-r", "@-"], repo);
@@ -3258,6 +3268,46 @@ test("jj start commits metadata seed and leaves unrelated root wip", () => {
     const rootDiff = commandOutput("jj", ["diff", "--name-only"], repo).split("\n").filter(Boolean);
     assert.equal(rootDiff.includes("root-wip.txt"), true);
     assert.equal(rootDiff.includes(".changeyard/changes/CY-0001-seed-jj-metadata.md"), false);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("jj start writes active change file when changeyard metadata is locally ignored", () => {
+  if (!hasCommand("git") || !hasCommand("jj")) return;
+  const repo = tempRepo();
+  try {
+    runCommand("git", ["init", "-b", "main"], repo);
+    runCommand("jj", ["git", "init", "--colocate"], repo);
+    runCommand("jj", ["config", "set", "--repo", "user.name", "Changeyard Test"], repo);
+    runCommand("jj", ["config", "set", "--repo", "user.email", "changeyard@example.test"], repo);
+    runCommand("jj", ["config", "set", "--repo", "signing.behavior", "drop"], repo);
+    writeFileSync(path.join(repo, "README.md"), "# repo\n");
+    runCommand("jj", ["commit", "-m", "initial"], repo);
+    runCommand("jj", ["bookmark", "set", "main", "-r", "@-"], repo);
+
+    runInit(repo);
+    const excludePath = path.join(repo, ".git", "info", "exclude");
+    writeFileSync(excludePath, `${readFileSync(excludePath, "utf8").replace(/\n*$/u, "\n")}.changeyard/\n`);
+    writeFileSync(path.join(repo, ".changeyard", "config.local.jsonc"), `{"vcs":{"engine":"jj","fallback":"plain-copy"},"checks":{"standard":["node -v"]}}\n`);
+    const ignored = spawnSync("git", ["check-ignore", ".changeyard/changes/CY-0001-ignored-jj-metadata.md"], { cwd: repo, encoding: "utf8" });
+    assert.equal(ignored.status, 0, ignored.stderr || ignored.stdout);
+
+    runCreate({ template: "agent-task", title: "Ignored jj metadata" }, repo);
+    const startOutput = runStart("CY-0001", repo);
+    assert.doesNotMatch(startOutput, /Metadata seed:/);
+
+    const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
+    const workspaceChangePath = path.join(workspacePath, ".changeyard", "changes", "CY-0001-ignored-jj-metadata.md");
+    assert.equal(parseFrontmatter(readFileSync(workspaceChangePath, "utf8")).frontmatter.status, "in_progress");
+    assert.match(runVerify("CY-0001", workspacePath), /Verified CY-0001/);
+
+    writeFileSync(path.join(workspacePath, "implementation.txt"), "done\n");
+    updateSection(workspaceChangePath, "Acceptance Criteria", "- [x] Ignored JJ metadata supports completion");
+    updateSection(workspaceChangePath, "Completion Notes", "Implemented ignored metadata handling. Checks ran: node -v.");
+    assert.match(runComplete("CY-0001", { noPr: true }, workspacePath), /Completed CY-0001: 1 checks passed/);
+    assert.equal(parseFrontmatter(readFileSync(workspaceChangePath, "utf8")).frontmatter.status, "ready_for_pr");
+    assert.equal(parseFrontmatter(readFileSync(path.join(repo, ".changeyard", "changes", "CY-0001-ignored-jj-metadata.md"), "utf8")).frontmatter.status, "ready");
   } finally {
     cleanup(repo);
   }
@@ -3433,18 +3483,16 @@ test("land rebases and lands a described jj workspace task commit without root w
     assert.match(runLand("CY-0001", {}, repo), /Landed CY-0001 into main/);
 
     assert.equal(existsSync(path.join(repo, ".changeyard", "workspaces", "CY-0001")), false);
+    assert.equal(parseFrontmatter(readFileSync(rootChangePath, "utf8")).frontmatter.status, "merged");
     assert.equal(commandOutput("jj", ["file", "show", "-r", "main", "--", "ancestor-a.txt"], repo), "ancestor A");
     assert.equal(commandOutput("jj", ["file", "show", "-r", "main", "--", "ancestor-b.txt"], repo), "ancestor B");
     assert.equal(commandOutput("jj", ["file", "show", "-r", "main", "--", "landed.txt"], repo), "landed");
     assert.equal(commandOutput("jj", ["file", "show", "-r", "main", "--", "advance.txt"], repo), "advance");
     const rootWipResult = spawnSync("jj", normalizeCommandArgs("jj", ["file", "show", "-r", "main", "--", "root-wip.txt"]), { cwd: repo, encoding: "utf8" });
     assert.notEqual(rootWipResult.status, 0);
-    const parsed = parseFrontmatter(commandOutput("jj", ["file", "show", "-r", "main", "--", ".changeyard/changes/CY-0001-land-jj-workspace.md"], repo));
-    assert.equal(parsed.frontmatter.status, "merged");
+    const mainMetadataResult = spawnSync("jj", normalizeCommandArgs("jj", ["file", "show", "-r", "main", "--", ".changeyard/changes/CY-0001-land-jj-workspace.md"]), { cwd: repo, encoding: "utf8" });
+    assert.notEqual(mainMetadataResult.status, 0);
     runCommand("jj", ["rebase", "-r", "@", "-d", "main"], repo);
-    const metadataConflicts = spawnSync("jj", normalizeCommandArgs("jj", ["resolve", "--list", "--", ".changeyard/changes/CY-0001-land-jj-workspace.md"]), { cwd: repo, encoding: "utf8" });
-    assert.notEqual(metadataConflicts.status, 0);
-    assert.match(String(metadataConflicts.stderr ?? ""), /No conflicts found/);
     assert.equal(commandOutput("jj", ["diff", "--name-only"], repo).split("\n").filter(Boolean).includes("root-wip.txt"), true);
   } finally {
     cleanup(repo);
