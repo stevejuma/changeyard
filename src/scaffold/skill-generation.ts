@@ -12,7 +12,7 @@ Changeyard is the markdown-first local change workflow for this repository. Cano
 6. Verify workspace context before editing: \`cy verify <id>\`
 7. Work only inside the verified workspace checkout
 8. Update Completion Notes in the change markdown with changed areas, checks run, and remaining risks or follow-ups
-9. Complete locally: \`cy complete <id> --no-pr\`
+9. Complete locally: \`cy complete <id> --no-pr\`; planned changes stop here until the user explicitly confirms landing
 10. Review when needed: \`cy review start <id>\`, edit \`.changeyard/reviews/<id>/review-NNN.md\`, then \`cy review complete <id> --decision <approve|request-changes|reject>\`
 
 ## Review gate (hard stop)
@@ -21,6 +21,13 @@ Changeyard is the markdown-first local change workflow for this repository. Cano
 - Update **Required Changes** — check items off or explicitly mark none
 - **Inline Comments** are optional; note findings or write \`None.\`
 - Use \`/cy-review\` when available for the full review workflow
+
+## Landing policy
+
+- \`cy complete <id> --no-pr\` is the normal stopping point for planned/OpenSpec-lite changes; report \`ready_for_pr\` and wait
+- Do not run \`cy land <id>\` for planned/OpenSpec-lite or legacy unplanned changes unless the user explicitly confirms landing in the current conversation, for example "land it", "merge it", or "run cy land"
+- Quick low-risk changes may land after successful checks when the user's task clearly asks for completion and no hold, review, or PR was requested
+- When unsure, run \`cy next <id>\`, report its landing confirmation guidance, and wait
 
 ## Gate protocol (hard stops)
 

@@ -464,17 +464,27 @@ test("generated skill guidance defaults non-trivial agent work to strict plannin
   assert.match(skill, /Use `cy quick` or `--no-planning` only for small, low-risk changes with no behavior, public API, storage\/schema, provider\/workspace lifecycle, UI workflow, or security-sensitive impact/);
   assert.match(skill, /make multiple logical commits inside the verified workspace/);
   assert.match(skill, /Every workspace commit message must start with the change id/);
+  assert.match(skill, /Landing policy/);
+  assert.match(skill, /Do not run `cy land <id>` for planned\/OpenSpec-lite or legacy unplanned changes unless the user explicitly confirms landing/);
+  assert.match(skill, /Quick low-risk changes may land after successful checks when the user's task clearly asks for completion/);
   assert.match(skill, /Agents must not use them unless the user explicitly names the flag or asks for that exact cleanup/);
 });
 
 test("generated start and verify guidance explains workspace commit messages", () => {
   const start = getCommandContents().find((entry) => entry.id === "start");
   const verify = getCommandContents().find((entry) => entry.id === "verify");
+  const complete = getCommandContents().find((entry) => entry.id === "complete");
+  const status = getCommandContents().find((entry) => entry.id === "status");
   assert.ok(start);
   assert.ok(verify);
+  assert.ok(complete);
+  assert.ok(status);
   assert.match(start.body, /make multiple logical commits inside the verified workspace/);
   assert.match(start.body, /CY-0001: Add parser validation/);
   assert.match(verify.body, /every commit in the landing stack must start with the change id/);
+  assert.match(complete.body, /Run `cy next <id>` and report its landing confirmation guidance/);
+  assert.match(complete.body, /Do not run `cy land <id>` for planned\/OpenSpec-lite or legacy unplanned changes unless the user explicitly confirms landing/);
+  assert.match(status.body, /landing confirmation guidance/);
 });
 
 test("create allocates a valid markdown change", () => {
@@ -1533,6 +1543,53 @@ test("next maps lifecycle state to actionable commands", () => {
     const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
     writeFileSync(changePath, writeFrontmatter({ ...parsed.frontmatter, status: "ready_for_pr" }, parsed.body));
     assert.equal(getNextAction("CY-0001", repo).nextCommand, "cy land CY-0001");
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("next reports landing confirmation policy by workflow mode", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+
+    const markReadyForPr = (changePath: string): void => {
+      const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
+      writeFileSync(changePath, writeFrontmatter({ ...parsed.frontmatter, status: "ready_for_pr" }, parsed.body));
+    };
+
+    runCreate({ template: "agent-task", title: "Planned landing", planning: "openspec-lite", strict: true }, repo);
+    const plannedPath = path.join(repo, ".changeyard", "changes", "CY-0001-planned-landing.md");
+    markReadyForPr(plannedPath);
+    const planned = getNextAction("CY-0001", repo);
+    assert.equal(planned.nextCommand, "cy land CY-0001");
+    assert.equal(planned.workflowMode, "planned");
+    assert.equal(planned.landingConfirmation?.required, true);
+    assert.match(planned.landingConfirmation?.reason ?? "", /Planned changes require explicit user confirmation/);
+    const plannedOutput = runNext("CY-0001", repo);
+    assert.match(plannedOutput, /workflowMode: planned/);
+    assert.match(plannedOutput, /landingConfirmationRequired: true/);
+
+    runCreate({ template: "quick", title: "Quick landing" }, repo);
+    const quickPath = path.join(repo, ".changeyard", "changes", "CY-0002-quick-landing.md");
+    markReadyForPr(quickPath);
+    const quick = getNextAction("CY-0002", repo);
+    assert.equal(quick.nextCommand, "cy land CY-0002");
+    assert.equal(quick.workflowMode, "quick");
+    assert.equal(quick.landingConfirmation?.required, false);
+    assert.match(quick.landingConfirmation?.reason ?? "", /Quick low-risk changes may land after checks/);
+    const quickOutput = runNext("CY-0002", repo);
+    assert.match(quickOutput, /workflowMode: quick/);
+    assert.match(quickOutput, /landingConfirmationRequired: false/);
+
+    runCreate({ template: "feature", title: "Legacy landing" }, repo);
+    const legacyPath = path.join(repo, ".changeyard", "changes", "CY-0003-legacy-landing.md");
+    markReadyForPr(legacyPath);
+    const legacy = getNextAction("CY-0003", repo);
+    assert.equal(legacy.nextCommand, "cy land CY-0003");
+    assert.equal(legacy.workflowMode, "lite-no-planning");
+    assert.equal(legacy.landingConfirmation?.required, true);
+    assert.match(legacy.landingConfirmation?.reason ?? "", /Legacy unplanned changes require explicit user confirmation/);
   } finally {
     cleanup(repo);
   }

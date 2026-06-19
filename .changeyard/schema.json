@@ -281,6 +281,24 @@
         }
       }
     },
+    "scaffold": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "trackGeneratedFiles": {
+          "type": "boolean"
+        }
+      }
+    },
+    "doctor": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "staleCompletedDays": {
+          "type": "number"
+        }
+      }
+    },
     "ui": {
       "type": "object",
       "additionalProperties": false,

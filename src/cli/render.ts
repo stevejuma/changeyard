@@ -96,13 +96,27 @@ function renderNext(action: NextAction, colors: CliColors): string {
       `id: ${action.id}`,
       `title: ${action.title}`,
       `status: ${action.status}`,
+      `workflowMode: ${action.workflowMode}`,
       `expectedCwd: ${action.expectedCwd}`,
       `nextKind: ${action.nextKind}`,
       `Next: ${action.nextCommand}`,
+      ...(action.landingConfirmation ? [
+        `landingConfirmationRequired: ${String(action.landingConfirmation.required)}`,
+        `landingConfirmation: ${action.landingConfirmation.reason}`,
+      ] : []),
       ...(action.blockers.length ? [`blockers: ${action.blockers.join("; ")}`] : []),
     ].join("\n");
   }
-  const lines = [`${colors.bold(action.id)} ${statusColor(colors, action.status)} ${action.title}`, `  expected cwd: ${colors.dim(action.expectedCwd)}`, `  next: ${colors.green(action.nextCommand)}`];
+  const lines = [
+    `${colors.bold(action.id)} ${statusColor(colors, action.status)} ${action.title}`,
+    `  workflow: ${action.workflowMode}`,
+    `  expected cwd: ${colors.dim(action.expectedCwd)}`,
+    `  next: ${colors.green(action.nextCommand)}`,
+  ];
+  if (action.landingConfirmation) {
+    const status = action.landingConfirmation.required ? colors.yellow("required") : colors.green("not required");
+    lines.push(`  landing confirmation: ${status}; ${action.landingConfirmation.reason}`);
+  }
   if (action.planningNextAction) lines.push(`  planning: ${colors.yellow(action.planningNextAction)}`);
   if (action.workspace) lines.push(`  workspace: ${action.workspace.path ?? "missing"} ${action.workspace.dirty ? colors.yellow("dirty") : colors.green("clean")}`);
   for (const blocker of action.blockers) lines.push(`  ${colors.red("blocker:")} ${blocker}`);

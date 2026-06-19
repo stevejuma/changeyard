@@ -85,8 +85,11 @@ const CHANGEYARD_COMMANDS: CommandContent[] = [
    They must summarize changed areas, checks run or not run, and remaining risks or follow-ups.
 2. Run \`cy verify <id>\` from the workspace.
 3. Run \`cy complete <id> --no-pr\` unless the user explicitly wants PR creation.
-4. If completion fails, run \`cy audit <id>\` and follow the Recovery section.
-5. If a review is needed, use \`/cy-review\` — do not skip filling the review markdown.`,
+4. Run \`cy next <id>\` and report its landing confirmation guidance.
+5. Do not run \`cy land <id>\` for planned/OpenSpec-lite or legacy unplanned changes unless the user explicitly confirms landing in the current conversation.
+6. Quick low-risk changes may land after successful checks when the user's task clearly asks for completion and no hold, review, or PR was requested.
+7. If completion fails, run \`cy audit <id>\` and follow the Recovery section.
+8. If a review is needed, use \`/cy-review\` — do not skip filling the review markdown.`,
   },
   {
     id: "audit",
@@ -131,7 +134,7 @@ Gate protocol (hard stop): do not run \`cy review complete\` while Summary still
 
 1. Identify the change id from context or run \`cy list\`.
 2. Run \`cy status <id>\`.
-3. Summarize lifecycle state, workspace details, and next recommended action.`,
+3. Summarize lifecycle state, workspace details, next recommended action, and any \`cy next\` landing confirmation guidance when the next action is land.`,
   },
   {
     id: "doctor",

@@ -1,6 +1,9 @@
 import path from "node:path";
+import { isQuickChange, planningModel, workflowMode } from "../change/changeMetadata.js";
+import { readOverlayChangeDocument } from "../state/workspaceOverlay.js";
+import type { Frontmatter } from "../types.js";
 import { getStatus } from "./status.js";
-import { getWorkspaceStatus, type WorkspaceStatus } from "./workspace.js";
+import { getWorkspaceStatus, readWorkspaceMetadataFromRoot, type WorkspaceStatus } from "./workspace.js";
 
 export type NextCommandKind =
   | "validate"
@@ -14,14 +17,23 @@ export type NextCommandKind =
   | "done"
   | "blocked";
 
+export type NextWorkflowMode = "planned" | "quick" | "lite-no-planning";
+
+export type LandingConfirmation = {
+  required: boolean;
+  reason: string;
+};
+
 export type NextAction = {
   id: string;
   title: string;
   status: string;
+  workflowMode: NextWorkflowMode;
   cwd: string;
   expectedCwd: string;
   nextKind: NextCommandKind;
   nextCommand: string;
+  landingConfirmation: LandingConfirmation | null;
   blockers: string[];
   ready: {
     validate: boolean;
@@ -35,6 +47,13 @@ export type NextAction = {
   workspace: WorkspaceStatus | null;
   planningNextAction: string | null;
 };
+
+const PLANNED_LANDING_CONFIRMATION =
+  "Planned changes require explicit user confirmation before landing.";
+const LEGACY_LANDING_CONFIRMATION =
+  "Legacy unplanned changes require explicit user confirmation before landing.";
+const QUICK_LANDING_CONFIRMATION =
+  "Quick low-risk changes may land after checks when the user's task clearly implies completion and no hold or review was requested.";
 
 function workspaceOrNull(id: string, repoRoot: string): WorkspaceStatus | null {
   try {
@@ -50,10 +69,38 @@ function relativeOrAbsolute(repoRoot: string, targetPath: string | null): string
   return relative && !relative.startsWith("..") ? relative : targetPath;
 }
 
+function classifyWorkflowMode(frontmatter: Frontmatter): NextWorkflowMode {
+  if (isQuickChange(frontmatter)) return "quick";
+  const model = planningModel(frontmatter);
+  if (model !== "none" || workflowMode(frontmatter) === "planned") return "planned";
+  return "lite-no-planning";
+}
+
+function landingConfirmationFor(mode: NextWorkflowMode): LandingConfirmation {
+  if (mode === "quick") {
+    return {
+      required: false,
+      reason: QUICK_LANDING_CONFIRMATION,
+    };
+  }
+  if (mode === "planned") {
+    return {
+      required: true,
+      reason: PLANNED_LANDING_CONFIRMATION,
+    };
+  }
+  return {
+    required: true,
+    reason: LEGACY_LANDING_CONFIRMATION,
+  };
+}
+
 export function getNextAction(id: string, repoRoot = process.cwd()): NextAction {
   if (!id) throw new Error("change id is required");
   const status = getStatus(id, repoRoot);
   const changeId = status.id;
+  const parsed = readOverlayChangeDocument(status.path, readWorkspaceMetadataFromRoot(changeId, repoRoot));
+  const nextWorkflowMode = classifyWorkflowMode(parsed.frontmatter);
   const workspace = workspaceOrNull(changeId, repoRoot);
   const effectiveStatus = workspace?.status ?? status.status;
   const blockers: string[] = [];
@@ -71,6 +118,7 @@ export function getNextAction(id: string, repoRoot = process.cwd()): NextAction 
   let nextKind: NextCommandKind = "blocked";
   let nextCommand = `cy status ${changeId}`;
   let expectedCwd = repoRoot;
+  let landingConfirmation: LandingConfirmation | null = null;
 
   if (status.planning?.errors.length) {
     blockers.push(...status.planning.errors);
@@ -125,6 +173,7 @@ export function getNextAction(id: string, repoRoot = process.cwd()): NextAction 
     case "ready_for_pr":
       nextKind = "land";
       nextCommand = `cy land ${changeId}`;
+      landingConfirmation = landingConfirmationFor(nextWorkflowMode);
       ready.land = true;
       if (workspace?.errors.length) blockers.push(...workspace.errors);
       break;
@@ -157,10 +206,12 @@ export function getNextAction(id: string, repoRoot = process.cwd()): NextAction 
     id: status.id,
     title: status.title,
     status: effectiveStatus,
+    workflowMode: nextWorkflowMode,
     cwd: repoRoot,
     expectedCwd,
     nextKind,
     nextCommand,
+    landingConfirmation,
     blockers,
     ready,
     workspace,
@@ -174,10 +225,17 @@ export function runNext(id: string, repoRoot = process.cwd()): string {
     `id: ${action.id}`,
     `title: ${action.title}`,
     `status: ${action.status}`,
+    `workflowMode: ${action.workflowMode}`,
     `expectedCwd: ${relativeOrAbsolute(repoRoot, action.expectedCwd)}`,
     `nextKind: ${action.nextKind}`,
     `Next: ${action.nextCommand}`,
   ];
+  if (action.landingConfirmation) {
+    lines.push(
+      `landingConfirmationRequired: ${String(action.landingConfirmation.required)}`,
+      `landingConfirmation: ${action.landingConfirmation.reason}`,
+    );
+  }
   if (action.planningNextAction) lines.push(`planningNextAction: ${action.planningNextAction}`);
   if (action.workspace) {
     lines.push(
