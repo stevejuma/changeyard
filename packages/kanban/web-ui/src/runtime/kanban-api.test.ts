@@ -37,12 +37,14 @@ describe("tagsForRuntimeStreamMessage", () => {
 			{ type: "ChangeBoardSummary", id: "CY-0024" },
 			{ type: "ChangeBoardFiles", id: "CY-0024" },
 			{ type: "ChangeBoardFileDiff", id: "CY-0024" },
+			{ type: "ChangeWorkspaceChanges", id: "CY-0024" },
 			"ChangeReviews",
 			"ChangeList",
 			{ type: "ChangeDetail", id: "CY-0025" },
 			{ type: "ChangeBoardSummary", id: "CY-0025" },
 			{ type: "ChangeBoardFiles", id: "CY-0025" },
 			{ type: "ChangeBoardFileDiff", id: "CY-0025" },
+			{ type: "ChangeWorkspaceChanges", id: "CY-0025" },
 			"ChangeReviews",
 		]);
 	});

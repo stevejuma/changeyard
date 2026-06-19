@@ -1,4 +1,12 @@
-import { lazy, Suspense, useEffect, useRef, useState, type ReactElement } from "react";
+import {
+	lazy,
+	Suspense,
+	useEffect,
+	useRef,
+	useState,
+	type MouseEvent as ReactMouseEvent,
+	type ReactElement,
+} from "react";
 import {
 	AtSign,
 	Bold,
@@ -24,6 +32,8 @@ import { useTheme } from "@/utils/vcs-theme";
 const MarkdownPreview = lazy(() => import("@uiw/react-markdown-preview"));
 
 export type MarkdownMessageEditorMode = "source" | "preview";
+
+const TASK_LIST_ITEM_RE = /^(\s*(?:[-+*]|\d+[.)])\s+\[)( |x|X)(\]\s+)/;
 
 const LIGHT_THEME_IDS = new Set(["light", "overcast", "solarized-light", "latte", "high-contrast-light"]);
 
@@ -66,25 +76,92 @@ function useMarkdownColorMode(): "dark" | "light" {
 	return LIGHT_THEME_IDS.has(themeId) ? "light" : "dark";
 }
 
+export function toggleMarkdownTaskListItem(value: string, checkboxIndex: number, checked: boolean): string {
+	if (checkboxIndex < 0) {
+		return value;
+	}
+	let currentIndex = 0;
+	let didToggle = false;
+	const nextLines = value.split(/(\r?\n)/);
+	for (let index = 0; index < nextLines.length; index += 2) {
+		const line = nextLines[index] ?? "";
+		if (!TASK_LIST_ITEM_RE.test(line)) {
+			continue;
+		}
+		if (currentIndex === checkboxIndex) {
+			nextLines[index] = line.replace(TASK_LIST_ITEM_RE, `$1${checked ? "x" : " "}$3`);
+			didToggle = true;
+			break;
+		}
+		currentIndex += 1;
+	}
+	return didToggle ? nextLines.join("") : value;
+}
+
 export function MarkdownMessagePreview({
 	value,
 	className,
 	wrapText = true,
 	emptyLabel = "_No commit description._",
 	height,
+	onTaskListToggle,
 }: {
 	value: string;
 	className?: string;
 	wrapText?: boolean;
 	emptyLabel?: string;
 	height?: string;
+	onTaskListToggle?: (nextValue: string) => void;
 }): ReactElement {
 	const colorMode = useMarkdownColorMode();
+	const previewRef = useRef<HTMLDivElement | null>(null);
+	const canToggleTaskLists = Boolean(onTaskListToggle);
+
+	useEffect(() => {
+		const preview = previewRef.current;
+		if (!preview || !canToggleTaskLists) {
+			return;
+		}
+		const enableTaskListInputs = (): void => {
+			for (const checkbox of preview.querySelectorAll<HTMLInputElement>("input[type='checkbox']")) {
+				checkbox.disabled = false;
+				checkbox.readOnly = true;
+			}
+		};
+		enableTaskListInputs();
+		const observer = new MutationObserver(enableTaskListInputs);
+		observer.observe(preview, { childList: true, subtree: true });
+		return () => observer.disconnect();
+	}, [canToggleTaskLists, value]);
+
+	function handleTaskListClick(event: ReactMouseEvent<HTMLDivElement>): void {
+		if (!onTaskListToggle) {
+			return;
+		}
+		const target = event.target;
+		if (!(target instanceof HTMLInputElement) || target.type !== "checkbox") {
+			return;
+		}
+		const preview = previewRef.current;
+		if (!preview) {
+			return;
+		}
+		const checkboxes = Array.from(preview.querySelectorAll<HTMLInputElement>("input[type='checkbox']"));
+		const checkboxIndex = checkboxes.indexOf(target);
+		const nextValue = toggleMarkdownTaskListItem(value, checkboxIndex, target.checked);
+		if (nextValue !== value) {
+			onTaskListToggle(nextValue);
+		}
+	}
+
 	return (
 		<div
+			ref={previewRef}
 			data-color-mode={colorMode}
+			data-checklist-toggle={canToggleTaskLists ? "true" : undefined}
 			className={cn("cy-markdown-preview overflow-auto", wrapText ? "whitespace-normal" : "whitespace-pre", className)}
 			style={height ? { height } : undefined}
+			onClickCapture={handleTaskListClick}
 		>
 			<Suspense fallback={<div className="kb-skeleton h-16 rounded" />}>
 				<MarkdownPreview source={value.trim() || emptyLabel} />
@@ -101,6 +178,7 @@ export function MarkdownMessageEditor({
 	mode,
 	onModeChange,
 	wrapText = true,
+	onTaskListToggle,
 }: {
 	value: string;
 	onChange: (value: string) => void;
@@ -109,6 +187,7 @@ export function MarkdownMessageEditor({
 	mode?: MarkdownMessageEditorMode;
 	onModeChange?: (mode: MarkdownMessageEditorMode) => void;
 	wrapText?: boolean;
+	onTaskListToggle?: (nextValue: string) => void;
 }): ReactElement {
 	const [internalMode, setInternalMode] = useState<MarkdownMessageEditorMode>(mode ?? "source");
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -144,17 +223,22 @@ export function MarkdownMessageEditor({
 		});
 	}
 
+	function handlePreviewTaskListToggle(nextValue: string): void {
+		onChange(nextValue);
+		onTaskListToggle?.(nextValue);
+	}
+
 	return (
 		<div
 			data-color-mode={colorMode}
 			className={cn("cy-markdown-editor min-h-0 overflow-hidden rounded-lg border border-border bg-surface-0 shadow-sm", className)}
 		>
-			<div className="flex min-h-12 items-stretch border-b border-divider bg-surface-1">
+			<div className="flex min-h-12 items-stretch overflow-hidden rounded-t-lg border-b border-divider bg-surface-1">
 				<div className="flex shrink-0 items-stretch">
 					<button
 						type="button"
 						className={cn(
-							"border-r border-divider px-5 text-sm font-medium transition-colors hover:text-text-primary",
+							"rounded-tl-lg border-r border-divider px-5 text-sm font-medium transition-colors hover:text-text-primary",
 							activeMode === "source"
 								? "border-b-2 border-b-surface-0 bg-surface-0 text-text-primary"
 								: "text-text-secondary",
@@ -201,7 +285,7 @@ export function MarkdownMessageEditor({
 				) : (
 					<div className="min-w-0 flex-1" />
 				)}
-				<span className="flex shrink-0 items-center px-3 text-[11px] text-text-tertiary">{value.length}</span>
+				<span className="flex shrink-0 items-center rounded-tr-lg px-3 text-[11px] text-text-tertiary">{value.length}</span>
 			</div>
 			{activeMode === "source" ? (
 				<textarea
@@ -216,7 +300,14 @@ export function MarkdownMessageEditor({
 					onChange={(event) => onChange(event.target.value)}
 				/>
 			) : (
-				<MarkdownMessagePreview value={value} wrapText={wrapText} emptyLabel="_No commit message._" height={height} className="px-3 py-2" />
+				<MarkdownMessagePreview
+					value={value}
+					wrapText={wrapText}
+					emptyLabel="_No commit message._"
+					height={height}
+					onTaskListToggle={handlePreviewTaskListToggle}
+					className="px-3 py-2"
+				/>
 			)}
 		</div>
 	);

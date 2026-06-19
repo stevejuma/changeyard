@@ -1,8 +1,8 @@
-import { useCallback, useEffect } from "react";
+import { skipToken } from "@reduxjs/toolkit/query";
+import { useCallback } from "react";
 
-import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
+import { useGetChangeWorkspaceChangesQuery } from "@/runtime/kanban-api";
 import type { RuntimeWorkspaceChangesResponse } from "@/runtime/types";
-import { useTrpcQuery } from "@/runtime/use-trpc-query";
 
 export interface UseRuntimeChangeWorkspaceChangesResult {
 	changes: RuntimeWorkspaceChangesResponse | null;
@@ -17,40 +17,18 @@ export function useRuntimeChangeWorkspaceChanges(
 	pollIntervalMs: number | null = null,
 ): UseRuntimeChangeWorkspaceChangesResult {
 	const hasWorkspaceScope = changeId !== null && workspaceId !== null;
-	const queryFn = useCallback(async () => {
-		if (!changeId || !workspaceId) {
-			throw new Error("Missing change workspace scope.");
-		}
-		const trpcClient = getRuntimeTrpcClient(workspaceId);
-		return await trpcClient.changes.getWorkspaceChanges.query({ id: changeId });
-	}, [changeId, workspaceId]);
-
-	const changesQuery = useTrpcQuery<RuntimeWorkspaceChangesResponse>({
-		enabled: hasWorkspaceScope,
-		queryFn,
+	const queryArg = hasWorkspaceScope ? { workspaceId, id: changeId } : skipToken;
+	const changesQuery = useGetChangeWorkspaceChangesQuery(queryArg, {
+		pollingInterval: pollIntervalMs ?? 0,
+		skipPollingIfUnfocused: true,
 	});
 
 	const refresh = useCallback(async () => {
 		if (!hasWorkspaceScope) {
 			return;
 		}
-		await changesQuery.refetch();
+		await changesQuery.refetch().unwrap();
 	}, [changesQuery.refetch, hasWorkspaceScope]);
-
-	useEffect(() => {
-		if (!hasWorkspaceScope || pollIntervalMs == null) {
-			return;
-		}
-		const interval = window.setInterval(() => {
-			if (changesQuery.isLoading) {
-				return;
-			}
-			void changesQuery.refetch();
-		}, pollIntervalMs);
-		return () => {
-			window.clearInterval(interval);
-		};
-	}, [changesQuery.isLoading, changesQuery.refetch, hasWorkspaceScope, pollIntervalMs]);
 
 	if (!changeId) {
 		return {
@@ -71,8 +49,8 @@ export function useRuntimeChangeWorkspaceChanges(
 	}
 
 	return {
-		changes: changesQuery.data,
-		isLoading: changesQuery.isLoading,
+		changes: changesQuery.data ?? null,
+		isLoading: changesQuery.isLoading || (changesQuery.isFetching && changesQuery.data === undefined),
 		isRuntimeAvailable: !changesQuery.isError,
 		refresh,
 	};

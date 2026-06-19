@@ -7,8 +7,9 @@ import { findChangeFile } from "../state/id.js";
 import { assertTransition } from "../state/transitions.js";
 import type { Frontmatter, WorkspaceMetadata } from "../types.js";
 import { shellCommandRunner } from "../workspace/commandRunner.js";
+import { validateJjLandingDescriptions } from "../workspace/jjLandingDescriptions.js";
 import { resolveWorkspaceChangePath } from "../workspace/marker.js";
-import { deleteWorkspace, getWorkspaceStatus, readWorkspaceMetadataFromRoot, validateLandingDescription, workspaceMetadataPath } from "./workspace.js";
+import { deleteWorkspace, getWorkspaceStatus, readWorkspaceMetadataFromRoot, workspaceMetadataPath } from "./workspace.js";
 
 export type LandOptions = {
   target?: string;
@@ -42,10 +43,6 @@ function jjWorkspaceChangedFiles(workspacePath: string): string[] {
   return output.split("\n").map((line) => line.trim()).filter(Boolean).sort();
 }
 
-function jjLandingRevset(baseCommitId: string | undefined, workspaceChangeId: string): string {
-  return baseCommitId ? `(${baseCommitId}::${workspaceChangeId}) ~ ${baseCommitId}` : workspaceChangeId;
-}
-
 function writeWorkspaceMetadata(repoRoot: string, id: string, metadata: WorkspaceMetadata): void {
   writeFileSync(workspaceMetadataPath(id, repoRoot), `${JSON.stringify(metadata, null, 2)}\n`);
 }
@@ -66,14 +63,22 @@ function updateMergedChangeFile(changePath: string, body: string, frontmatter: F
   writeFileSync(changePath, writeFrontmatter(nextFrontmatter, body));
 }
 
-function withLandRecovery(message: string, id: string, repoRoot: string): string {
+function withLandRecovery(message: string, id: string, repoRoot: string, extraRecovery: string[] = []): string {
   return [
     message,
     "",
     "Recovery:",
     `- Run cy audit ${id} from ${repoRoot} to inspect workflow blockers.`,
     `- Run cy workspace status ${id} for workspace-specific blockers.`,
+    ...extraRecovery,
     `- Re-run cy land ${id} after the blockers are fixed.`,
+  ].join("\n");
+}
+
+function formatJjDescriptionFailure(changeId: string, errors: string[]): string {
+  return [
+    `JJ workspace commit descriptions must start with ${changeId}:`,
+    ...errors.map((entry) => `- ${entry}`),
   ].join("\n");
 }
 
@@ -110,11 +115,12 @@ export function runLand(id: string, options: LandOptions = {}, repoRoot = proces
 
   const workspaceChangeId = metadata.workspaceChangeId ?? workspaceStatus.workspaceChangeId ?? jjWorkspaceChangeId(metadata.path);
   const description = jjDescription(metadata.path, workspaceChangeId);
-  const descriptionError = validateLandingDescription(changeId, description, metadata.seedDescription);
+  const descriptionValidation = validateJjLandingDescriptions(changeId, metadata, workspaceChangeId);
+  const descriptionErrors = descriptionValidation.errors;
   const workspaceFiles = jjWorkspaceChangedFiles(metadata.path);
   const currentTargetCommitId = workspaceStatus.currentTargetCommitId ?? jjCommitId(repoRoot, target);
   const targetMoved = Boolean(metadata.baseCommitId && metadata.baseCommitId !== currentTargetCommitId);
-  const landingRevset = jjLandingRevset(metadata.baseCommitId, workspaceChangeId);
+  const landingRevset = descriptionValidation.revset;
 
   if (options.dryRun) {
     const lines = [
@@ -122,16 +128,21 @@ export function runLand(id: string, options: LandOptions = {}, repoRoot = proces
       `workspaceChange: ${workspaceChangeId}`,
       `targetMoved: ${String(targetMoved)}`,
       ...(targetMoved ? [`rebaseRevset: ${landingRevset}`] : []),
-      `landingDescription: ${descriptionError ? "blocked" : "ok"}`,
+      `landingDescription: ${descriptionErrors.length > 0 ? "blocked" : "ok"}`,
+      `landingDescriptions: ${descriptionErrors.length > 0 ? "blocked" : "ok"}`,
       `metadataSource: ${metadata.engine === "jj" ? "workspace" : "root"}`,
       `workspaceFiles: ${workspaceFiles.length === 0 ? "none" : workspaceFiles.join(", ")}`,
       `description: ${description.split("\n")[0] ?? description}`,
     ];
-    if (descriptionError) lines.push(`blocker: ${descriptionError}`);
+    for (const error of descriptionErrors) lines.push(`blocker: ${error}`);
     if (!options.keepWorkspace) lines.push(`cleanup: would delete workspace ${changeId}`);
     return lines.join("\n");
   }
-  if (descriptionError) throw new Error(withLandRecovery(descriptionError, changeId, repoRoot));
+  if (descriptionErrors.length > 0) {
+    throw new Error(withLandRecovery(formatJjDescriptionFailure(changeId, descriptionErrors), changeId, repoRoot, [
+      `- Fix each invalid workspace commit with the jj describe command shown above.`,
+    ]));
+  }
 
   let nextMetadata: WorkspaceMetadata = {
     ...metadata,

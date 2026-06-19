@@ -56,7 +56,8 @@ const CHANGEYARD_COMMANDS: CommandContent[] = [
 2. Run \`cy start <id>\`.
 3. Follow the printed \`cd\` path into the workspace checkout.
 4. Run \`cy verify <id>\` from that checkout before editing files.
-5. If start or verify fails, **halt** — use \`cy audit <id>\`, \`cy workspace status <id>\`, or \`cy recover <id>\` as directed before editing files.`,
+5. For large or multi-step changes, make multiple logical commits inside the verified workspace so review can happen in smaller pieces. Every workspace commit message must start with the change id, for example \`CY-0001: Add parser validation\`.
+6. If start or verify fails, **halt** — use \`cy audit <id>\`, \`cy workspace status <id>\`, or \`cy recover <id>\` as directed before editing files.`,
   },
   {
     id: "verify",
@@ -69,7 +70,8 @@ const CHANGEYARD_COMMANDS: CommandContent[] = [
 1. Run \`cy verify <id>\` from inside the expected workspace checkout.
 2. If verification fails, **halt all implementation work.** Do not edit files in the main repo or workspace.
 3. Diagnose with \`cy doctor\` or fix the workspace/CLI issue, then re-run verify from the path printed by \`cy start <id>\`.
-4. Only edit files inside the verified workspace after verify passes.`,
+4. For JJ workspaces, every commit in the landing stack must start with the change id, for example \`CY-0001: Add parser validation\`.
+5. Only edit files inside the verified workspace after verify passes.`,
   },
   {
     id: "complete",

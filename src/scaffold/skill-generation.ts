@@ -41,6 +41,8 @@ When a gate fails:
 
 After \`cy start\`, all product edits belong **only** in the workspace checkout printed by start—not in the repository root where the change was created.
 
+For large or multi-step changes, make multiple logical commits inside the verified workspace so review can happen in smaller pieces. Every workspace commit message must start with the change id, for example \`CY-0001: Add parser validation\`.
+
 ## Planning changes
 
 - Non-trivial agent work must use strict OpenSpec-lite planning: \`cy create --template agent-task --planning openspec-lite --strict --title "<title>"\`

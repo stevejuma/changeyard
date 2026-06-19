@@ -99,6 +99,7 @@ import {
 	isChangeyardChangeMarkdownEventPath,
 	normalizeKanbanEventPath,
 } from "@/utils/changeyard-workspace-events";
+import { getErrorMessage } from "@/utils/error-message";
 
 const CardDetailView = lazy(async () => {
 	const mod = await import("@/components/card-detail-view");
@@ -817,7 +818,7 @@ export default function App(): ReactElement {
 				});
 				return true;
 			} catch (error) {
-				setChangeActionError(error instanceof Error ? error.message : String(error));
+				setChangeActionError(getErrorMessage(error));
 				return false;
 			} finally {
 				setIsChangeActionPending(false);
@@ -865,7 +866,7 @@ export default function App(): ReactElement {
 					timeout: 4000,
 				});
 			} catch (error) {
-				const message = error instanceof Error ? error.message : String(error);
+				const message = getErrorMessage(error);
 				setChangeActionError(message);
 				throw error;
 			} finally {
@@ -948,7 +949,7 @@ export default function App(): ReactElement {
 					timeout: 4000,
 				});
 			} catch (error) {
-				setChangeActionError(error instanceof Error ? error.message : String(error));
+				setChangeActionError(getErrorMessage(error));
 			} finally {
 				setIsChangeActionPending(false);
 			}
@@ -1062,7 +1063,7 @@ export default function App(): ReactElement {
 					timeout: 4000,
 				});
 			} catch (error) {
-				const message = error instanceof Error ? error.message : String(error);
+				const message = getErrorMessage(error);
 				setChangeActionError(message);
 				showAppToast({
 					intent: "warning",
@@ -1111,7 +1112,7 @@ export default function App(): ReactElement {
 					timeout: 4000,
 				});
 			} catch (error) {
-				const message = error instanceof Error ? error.message : String(error);
+				const message = getErrorMessage(error);
 				setChangeActionError(message);
 				showAppToast({
 					intent: "warning",
@@ -1149,7 +1150,7 @@ export default function App(): ReactElement {
 					timeout: 4000,
 				});
 			} catch (error) {
-				const message = error instanceof Error ? error.message : String(error);
+				const message = getErrorMessage(error);
 				setChangeActionError(message);
 				showAppToast({
 					intent: "warning",
@@ -1209,7 +1210,7 @@ export default function App(): ReactElement {
 						timeout: 5000,
 					});
 				} else {
-					setChangeActionError(error instanceof Error ? error.message : String(error));
+					setChangeActionError(getErrorMessage(error));
 				}
 			} finally {
 				setIsChangeActionPending(false);

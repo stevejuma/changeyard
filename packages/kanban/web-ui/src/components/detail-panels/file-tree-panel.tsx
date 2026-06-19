@@ -47,8 +47,8 @@ function FileDiffStats({
 	}
 	return (
 		<span className="ml-auto flex shrink-0 gap-1 font-mono text-[10px]">
-			{added > 0 ? <span className={isSelected ? "text-accent-fg" : "text-status-green"}>+{added}</span> : null}
-			{removed > 0 ? <span className={isSelected ? "text-accent-fg" : "text-status-red"}>-{removed}</span> : null}
+			{added > 0 ? <span className={isSelected ? "text-text-primary" : "text-status-green"}>+{added}</span> : null}
+			{removed > 0 ? <span className={isSelected ? "text-text-primary" : "text-status-red"}>-{removed}</span> : null}
 		</span>
 	);
 }
@@ -65,7 +65,7 @@ function FileListLabel({
 		<span className="min-w-0 flex-1">
 			<span className="block truncate">{getFilePathName(path)}</span>
 			{directory ? (
-				<span className={cn("block truncate text-[10px]", isSelected ? "text-accent-fg" : "text-text-tertiary")}>
+				<span className={cn("block truncate text-[10px]", isSelected ? "text-text-secondary" : "text-text-tertiary")}>
 					{directory}
 				</span>
 			) : null}

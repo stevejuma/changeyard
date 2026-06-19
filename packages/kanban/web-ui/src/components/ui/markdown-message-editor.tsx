@@ -1,4 +1,12 @@
-import { lazy, Suspense, useEffect, useRef, useState, type ReactElement } from "react";
+import {
+	lazy,
+	Suspense,
+	useEffect,
+	useRef,
+	useState,
+	type MouseEvent as ReactMouseEvent,
+	type ReactElement,
+} from "react";
 import {
 	AtSign,
 	Bold,
@@ -25,6 +33,8 @@ import "@uiw/react-markdown-preview/markdown.css";
 const MarkdownPreview = lazy(() => import("@uiw/react-markdown-preview"));
 
 export type MarkdownMessageEditorMode = "source" | "preview";
+
+const TASK_LIST_ITEM_RE = /^(\s*(?:[-+*]|\d+[.)])\s+\[)( |x|X)(\]\s+)/;
 
 const LIGHT_THEME_IDS = new Set(["light", "overcast", "solarized-light", "latte", "high-contrast-light"]);
 
@@ -67,25 +77,92 @@ function useMarkdownColorMode(): "dark" | "light" {
 	return LIGHT_THEME_IDS.has(themeId) ? "light" : "dark";
 }
 
+export function toggleMarkdownTaskListItem(value: string, checkboxIndex: number, checked: boolean): string {
+	if (checkboxIndex < 0) {
+		return value;
+	}
+	let currentIndex = 0;
+	let didToggle = false;
+	const nextLines = value.split(/(\r?\n)/);
+	for (let index = 0; index < nextLines.length; index += 2) {
+		const line = nextLines[index] ?? "";
+		if (!TASK_LIST_ITEM_RE.test(line)) {
+			continue;
+		}
+		if (currentIndex === checkboxIndex) {
+			nextLines[index] = line.replace(TASK_LIST_ITEM_RE, `$1${checked ? "x" : " "}$3`);
+			didToggle = true;
+			break;
+		}
+		currentIndex += 1;
+	}
+	return didToggle ? nextLines.join("") : value;
+}
+
 export function MarkdownMessagePreview({
 	value,
 	className,
 	wrapText = true,
 	emptyLabel = "_No commit description._",
 	height,
+	onTaskListToggle,
 }: {
 	value: string;
 	className?: string;
 	wrapText?: boolean;
 	emptyLabel?: string;
 	height?: string;
+	onTaskListToggle?: (nextValue: string) => void;
 }): ReactElement {
 	const colorMode = useMarkdownColorMode();
+	const previewRef = useRef<HTMLDivElement | null>(null);
+	const canToggleTaskLists = Boolean(onTaskListToggle);
+
+	useEffect(() => {
+		const preview = previewRef.current;
+		if (!preview || !canToggleTaskLists) {
+			return;
+		}
+		const enableTaskListInputs = (): void => {
+			for (const checkbox of preview.querySelectorAll<HTMLInputElement>("input[type='checkbox']")) {
+				checkbox.disabled = false;
+				checkbox.readOnly = true;
+			}
+		};
+		enableTaskListInputs();
+		const observer = new MutationObserver(enableTaskListInputs);
+		observer.observe(preview, { childList: true, subtree: true });
+		return () => observer.disconnect();
+	}, [canToggleTaskLists, value]);
+
+	function handleTaskListClick(event: ReactMouseEvent<HTMLDivElement>): void {
+		if (!onTaskListToggle) {
+			return;
+		}
+		const target = event.target;
+		if (!(target instanceof HTMLInputElement) || target.type !== "checkbox") {
+			return;
+		}
+		const preview = previewRef.current;
+		if (!preview) {
+			return;
+		}
+		const checkboxes = Array.from(preview.querySelectorAll<HTMLInputElement>("input[type='checkbox']"));
+		const checkboxIndex = checkboxes.indexOf(target);
+		const nextValue = toggleMarkdownTaskListItem(value, checkboxIndex, target.checked);
+		if (nextValue !== value) {
+			onTaskListToggle(nextValue);
+		}
+	}
+
 	return (
 		<div
+			ref={previewRef}
 			data-color-mode={colorMode}
+			data-checklist-toggle={canToggleTaskLists ? "true" : undefined}
 			className={cn("cy-markdown-preview overflow-auto", wrapText ? "whitespace-normal" : "whitespace-pre", className)}
 			style={height ? { height } : undefined}
+			onClickCapture={handleTaskListClick}
 		>
 			<Suspense fallback={<div className="kb-skeleton h-16 rounded" />}>
 				<MarkdownPreview source={value.trim() || emptyLabel} />
@@ -106,6 +183,9 @@ export function MarkdownMessageEditor({
 	disabled = false,
 	autoFocus = false,
 	onEscape,
+	previewEmptyLabel = "_No commit message._",
+	previewFirst = false,
+	onTaskListToggle,
 }: {
 	value: string;
 	onChange: (value: string) => void;
@@ -118,11 +198,23 @@ export function MarkdownMessageEditor({
 	disabled?: boolean;
 	autoFocus?: boolean;
 	onEscape?: () => void;
+	previewEmptyLabel?: string;
+	previewFirst?: boolean;
+	onTaskListToggle?: (nextValue: string) => void;
 }): ReactElement {
 	const [internalMode, setInternalMode] = useState<MarkdownMessageEditorMode>(mode ?? "source");
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 	const activeMode = mode ?? internalMode;
 	const colorMode = useMarkdownColorMode();
+	const modeTabs: Array<{ mode: MarkdownMessageEditorMode; label: string }> = previewFirst
+		? [
+				{ mode: "preview", label: "Preview" },
+				{ mode: "source", label: "Write" },
+			]
+		: [
+				{ mode: "source", label: "Write" },
+				{ mode: "preview", label: "Preview" },
+			];
 
 	useEffect(() => {
 		if (mode) {
@@ -159,6 +251,14 @@ export function MarkdownMessageEditor({
 		});
 	}
 
+	function handlePreviewTaskListToggle(nextValue: string): void {
+		if (disabled) {
+			return;
+		}
+		onChange(nextValue);
+		onTaskListToggle?.(nextValue);
+	}
+
 	return (
 		<div
 			data-color-mode={colorMode}
@@ -167,34 +267,28 @@ export function MarkdownMessageEditor({
 				className,
 			)}
 		>
-			<div className="flex min-h-12 items-stretch border-b border-divider bg-surface-1">
+			<div
+				data-testid="markdown-editor-toolbar"
+				className="flex min-h-12 items-stretch overflow-hidden rounded-t-lg border-b border-divider bg-surface-1"
+			>
 				<div className="flex shrink-0 items-stretch">
-					<button
-						type="button"
-						className={cn(
-							"border-r border-divider px-5 text-sm font-medium transition-colors hover:text-text-primary",
-							activeMode === "source"
-								? "border-b-2 border-b-surface-0 bg-surface-0 text-text-primary"
-								: "text-text-secondary",
-						)}
-						onClick={() => changeMode("source")}
-						disabled={disabled}
-					>
-						Write
-					</button>
-					<button
-						type="button"
-						className={cn(
-							"border-r border-divider px-5 text-sm font-medium transition-colors hover:text-text-primary",
-							activeMode === "preview"
-								? "border-b-2 border-b-surface-0 bg-surface-0 text-text-primary"
-								: "text-text-secondary",
-						)}
-						onClick={() => changeMode("preview")}
-						disabled={disabled}
-					>
-						Preview
-					</button>
+					{modeTabs.map((tab, tabIndex) => (
+						<button
+							key={tab.mode}
+							type="button"
+							className={cn(
+								"border-r border-divider px-5 text-sm font-medium transition-colors hover:text-text-primary",
+								tabIndex === 0 ? "rounded-tl-lg" : null,
+								activeMode === tab.mode
+									? "border-b-2 border-b-surface-0 bg-surface-0 text-text-primary"
+									: "text-text-secondary",
+							)}
+							onClick={() => changeMode(tab.mode)}
+							disabled={disabled}
+						>
+							{tab.label}
+						</button>
+					))}
 				</div>
 				{activeMode === "source" ? (
 					<div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto px-3">
@@ -222,13 +316,18 @@ export function MarkdownMessageEditor({
 				) : (
 					<div className="min-w-0 flex-1" />
 				)}
-				<span className="flex shrink-0 items-center px-3 text-[11px] text-text-tertiary">{value.length}</span>
+				<span
+					data-testid="markdown-editor-character-count"
+					className="flex shrink-0 items-center rounded-tr-lg px-3 text-[11px] text-text-tertiary"
+				>
+					{value.length}
+				</span>
 			</div>
 			{activeMode === "source" ? (
 				<textarea
 					ref={textareaRef}
 					className={cn(
-						"block w-full resize-y border-0 bg-surface-0 px-4 py-3 text-sm leading-relaxed text-text-primary outline-none focus:ring-2 focus:ring-inset focus:ring-accent disabled:opacity-60",
+						"block w-full resize-y border-0 bg-surface-0 px-5 py-4 text-sm leading-relaxed text-text-primary outline-none focus:ring-2 focus:ring-inset focus:ring-accent disabled:opacity-60",
 						wrapText ? "whitespace-pre-wrap" : "whitespace-pre",
 					)}
 					style={{ height }}
@@ -249,9 +348,10 @@ export function MarkdownMessageEditor({
 				<MarkdownMessagePreview
 					value={value}
 					wrapText={wrapText}
-					emptyLabel="_No commit message._"
+					emptyLabel={previewEmptyLabel}
 					height={height}
-					className="px-3 py-2"
+					onTaskListToggle={disabled ? undefined : handlePreviewTaskListToggle}
+					className="px-6 py-5"
 				/>
 			)}
 		</div>

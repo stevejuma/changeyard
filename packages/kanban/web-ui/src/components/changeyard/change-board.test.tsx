@@ -488,6 +488,41 @@ describe("ChangeBoard", () => {
 		expect(container.querySelector('button[aria-label="View details for CY-0007"]')).toBeTruthy();
 	});
 
+	it("uses only the normal divider border on selected change cards", () => {
+		runtimeMock.getBoardSummary.mockResolvedValue({
+			ok: true,
+			changeId: "CY-0001",
+			version: "v1",
+			workspaceHead: "head",
+			baseRevision: "main",
+			commits: [],
+			files: { count: 0, additions: 0, deletions: 0 },
+		});
+
+		act(() => {
+			root.render(
+				<ChangeBoard
+					board={{ columns: [], dependencies: [] }}
+					changes={[createChange("CY-0001", "Selected change", null, "in_progress")]}
+					filter="changes"
+					selectedChangeId="CY-0001"
+					selectedTaskId={null}
+					workspaceId="project-1"
+					onFilterChange={vi.fn()}
+					onSelectChange={vi.fn()}
+					onSelectTask={vi.fn()}
+				/>,
+			);
+		});
+
+		const card = container.querySelector('[data-change-id="CY-0001"]');
+		expect(card).toBeInstanceOf(HTMLElement);
+		expect(card?.classList.contains("kb-change-card-selected")).toBe(false);
+		expect(card?.classList.contains("border")).toBe(true);
+		expect(card?.classList.contains("border-divider")).toBe(true);
+		expect(card?.querySelector(".bg-accent")).toBeInstanceOf(HTMLElement);
+	});
+
 	it("does not request board summary data before a change card is selected", () => {
 		act(() => {
 			root.render(
@@ -720,6 +755,13 @@ describe("ChangeBoard", () => {
 		expect(container.textContent).toContain("src/change.ts");
 		expect(container.querySelector('[data-testid="change-board-file-diff-panel"]')).toBeTruthy();
 		expect(container.textContent).toContain("const oldValue = 1;");
+
+		const selectedFileRow = container.querySelector('[data-file-path="src/change.ts"]');
+		expect(selectedFileRow?.classList.contains("kb-file-tree-row-selected")).toBe(true);
+		expect(selectedFileRow?.querySelector('[title="src/change.ts"]')?.classList.contains("text-text-primary")).toBe(true);
+		const fileDeltas = Array.from(selectedFileRow?.querySelectorAll("span") ?? []);
+		expect(fileDeltas.find((span) => span.textContent === "+2")?.classList.contains("text-text-primary")).toBe(true);
+		expect(fileDeltas.find((span) => span.textContent === "-1")?.classList.contains("text-text-primary")).toBe(true);
 	});
 
 	it("switches board file lists to package mode and collapses compacted folders", async () => {

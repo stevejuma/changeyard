@@ -19,3 +19,5 @@ cy verify CY-0001
 ```sh
 cy verify CY-0001
 ```
+
+For JJ workspaces, verify also checks that every commit in the landing stack has a non-empty description whose first line starts with the change id, for example `CY-0001: Add parser validation`.

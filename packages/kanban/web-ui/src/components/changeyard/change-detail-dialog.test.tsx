@@ -12,9 +12,32 @@ vi.mock("@/runtime/use-runtime-change-workspace-changes", () => ({
 	useRuntimeChangeWorkspaceChanges: (...args: unknown[]) => mockUseRuntimeChangeWorkspaceChanges(...args),
 }));
 
-vi.mock("@/components/markdown-document", () => ({
-	MarkdownDocumentEditor: ({ value }: { value: string }) => <textarea value={value} readOnly />,
-	MarkdownDocumentPreview: ({ source }: { source: string }) => <article>{source}</article>,
+vi.mock("@/components/ui/markdown-message-editor", () => ({
+	MarkdownMessageEditor: ({
+		value,
+		mode,
+		previewEmptyLabel,
+		previewFirst,
+		onTaskListToggle,
+	}: {
+		value: string;
+		mode: string;
+		previewEmptyLabel?: string;
+		previewFirst?: boolean;
+		onTaskListToggle?: (nextValue: string) => void;
+	}) => (
+		<div
+			data-testid="markdown-message-editor"
+			data-mode={mode}
+			data-preview-empty-label={previewEmptyLabel}
+			data-preview-first={previewFirst ? "true" : "false"}
+		>
+			<button type="button" data-testid="toggle-preview-task" onClick={() => onTaskListToggle?.(value.replace("- [ ]", "- [x]"))}>
+				Toggle task
+			</button>
+			{value}
+		</div>
+	),
 }));
 
 vi.mock("@/components/detail-panels/diff-viewer-panel", () => ({
@@ -155,6 +178,51 @@ describe("ChangeDetailDialog", () => {
 		expect(document.body.textContent).toContain("Complete");
 	});
 
+	it("renders the change body in the shared markdown editor preview mode by default", () => {
+		render(
+			<ChangeDetailDialog
+				change={createChange()}
+				open
+				workspaceId="project-1"
+				onOpenChange={vi.fn()}
+				onRunAction={vi.fn()}
+				onSaveBody={vi.fn()}
+			/>,
+		);
+
+		const editor = document.querySelector("[data-testid='markdown-message-editor']");
+		expect(editor).toBeInstanceOf(HTMLElement);
+		expect(editor?.getAttribute("data-mode")).toBe("preview");
+		expect(editor?.getAttribute("data-preview-empty-label")).toBe("_This change body is currently empty._");
+		expect(editor?.getAttribute("data-preview-first")).toBe("true");
+		expect(editor?.textContent).toContain("# Plan");
+		expect(editor?.textContent).toContain("Ship it.");
+	});
+
+	it("saves markdown immediately when a preview checklist item is toggled", () => {
+		const onSaveBody = vi.fn();
+		render(
+			<ChangeDetailDialog
+				change={createChange({ body: "# Plan\n\n- [ ] Ship it." })}
+				open
+				workspaceId="project-1"
+				onOpenChange={vi.fn()}
+				onRunAction={vi.fn()}
+				onSaveBody={onSaveBody}
+			/>,
+		);
+
+		act(() => {
+			document.querySelector<HTMLButtonElement>("[data-testid='toggle-preview-task']")?.click();
+		});
+
+		expect(onSaveBody).toHaveBeenCalledWith({
+			changeId: "CY-9999",
+			body: "# Plan\n\n- [x] Ship it.",
+			expectedUpdatedAt: "2026-06-11T12:00:00.000Z",
+		});
+	});
+
 	it("renders the changes tab empty state for a started change without file changes", () => {
 		render(
 			<ChangeDetailDialog
@@ -282,5 +350,57 @@ describe("ChangeDetailDialog", () => {
 
 		expect(mockDiffViewerPanel).toHaveBeenCalledWith(expect.objectContaining({ selectedPath: "src/view.tsx" }));
 		expect(document.querySelector("[data-testid='diff-viewer-panel']")?.textContent).toContain("src/view.tsx");
+	});
+
+	it("keeps the changes panel mounted after returning to details", () => {
+		mockUseRuntimeChangeWorkspaceChanges.mockReturnValue({
+			changes: {
+				repoRoot: "/repo",
+				generatedAt: Date.now(),
+				files: [
+					{
+						path: "src/app.ts",
+						status: "modified",
+						additions: 4,
+						deletions: 1,
+						oldText: "old app",
+						newText: "new app",
+					},
+				],
+			},
+			isLoading: false,
+			isRuntimeAvailable: true,
+			refresh: vi.fn(),
+		});
+
+		render(
+			<ChangeDetailDialog
+				change={createChange()}
+				open
+				workspaceId="project-1"
+				onOpenChange={vi.fn()}
+				onRunAction={vi.fn()}
+				onSaveBody={vi.fn()}
+			/>,
+		);
+
+		const buttons = Array.from(document.body.querySelectorAll("button"));
+		const detailsButton = buttons.find((button) => button.textContent === "Details");
+		const changesButton = buttons.find((button) => button.textContent === "Changes");
+		act(() => {
+			changesButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+		});
+
+		const diffPanel = document.querySelector("[data-testid='diff-viewer-panel']");
+		expect(diffPanel).toBeInstanceOf(HTMLElement);
+		expect(diffPanel ? isVisibleInJsdom(diffPanel) : false).toBe(true);
+
+		act(() => {
+			detailsButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+		});
+
+		const mountedDiffPanel = document.querySelector("[data-testid='diff-viewer-panel']");
+		expect(mountedDiffPanel).toBe(diffPanel);
+		expect(mountedDiffPanel ? isVisibleInJsdom(mountedDiffPanel) : true).toBe(false);
 	});
 });

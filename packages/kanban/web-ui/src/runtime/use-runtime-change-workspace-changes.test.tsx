@@ -1,28 +1,18 @@
 import { act, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { Provider } from "react-redux";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { kanbanApi } from "@/runtime/kanban-api";
+import { kanbanStore } from "@/runtime/kanban-store";
 import type { RuntimeWorkspaceChangesResponse } from "@/runtime/types";
 import { useRuntimeChangeWorkspaceChanges } from "@/runtime/use-runtime-change-workspace-changes";
 
-const getWorkspaceChangesQueryMock = vi.hoisted(() => vi.fn());
-
-vi.mock("@/runtime/trpc-client", () => ({
-	getRuntimeTrpcClient: () => ({
-		changes: {
-			getWorkspaceChanges: {
-				query: getWorkspaceChangesQueryMock,
-			},
-		},
-	}),
-}));
-
-function createDeferred<T>() {
-	let resolve!: (value: T) => void;
-	const promise = new Promise<T>((nextResolve) => {
-		resolve = nextResolve;
+function createTrpcResponse(data: unknown): Response {
+	return new Response(JSON.stringify({ result: { data } }), {
+		status: 200,
+		headers: { "content-type": "application/json" },
 	});
-	return { promise, resolve };
 }
 
 function createWorkspaceChangesResponse(path: string): RuntimeWorkspaceChangesResponse {
@@ -42,19 +32,56 @@ function createWorkspaceChangesResponse(path: string): RuntimeWorkspaceChangesRe
 	};
 }
 
+async function flushAsyncWork(): Promise<void> {
+	await act(async () => {
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	});
+}
+
+async function waitForExpect(assertion: () => void): Promise<void> {
+	let lastError: unknown;
+	for (let attempt = 0; attempt < 25; attempt += 1) {
+		try {
+			assertion();
+			return;
+		} catch (error) {
+			lastError = error;
+		}
+		await flushAsyncWork();
+	}
+	throw lastError;
+}
+
+interface HookSnapshot {
+	label: string;
+	paths: string[];
+	isLoading: boolean;
+	isRuntimeAvailable: boolean;
+}
+
 function HookHarness({
+	label,
 	onSnapshot,
 }: {
-	onSnapshot: (snapshot: { paths: string[]; isLoading: boolean }) => void;
+	label: string;
+	onSnapshot: (snapshot: HookSnapshot) => void;
 }): null {
 	const workspaceChanges = useRuntimeChangeWorkspaceChanges("CY-0001", "project-1", 100);
 
 	useEffect(() => {
 		onSnapshot({
+			label,
 			paths: workspaceChanges.changes?.files.map((file) => file.path) ?? [],
 			isLoading: workspaceChanges.isLoading,
+			isRuntimeAvailable: workspaceChanges.isRuntimeAvailable,
 		});
-	}, [onSnapshot, workspaceChanges.changes, workspaceChanges.isLoading]);
+	}, [
+		label,
+		onSnapshot,
+		workspaceChanges.changes,
+		workspaceChanges.isLoading,
+		workspaceChanges.isRuntimeAvailable,
+	]);
 
 	return null;
 }
@@ -63,10 +90,12 @@ describe("useRuntimeChangeWorkspaceChanges", () => {
 	let container: HTMLDivElement;
 	let root: Root;
 	let previousActEnvironment: boolean | undefined;
+	let fetchMock: ReturnType<typeof vi.fn>;
 
 	beforeEach(() => {
-		vi.useFakeTimers();
-		getWorkspaceChangesQueryMock.mockReset();
+		kanbanStore.dispatch(kanbanApi.util.resetApiState());
+		fetchMock = vi.fn();
+		vi.stubGlobal("fetch", fetchMock);
 		previousActEnvironment = (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
 			.IS_REACT_ACT_ENVIRONMENT;
 		(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -79,8 +108,9 @@ describe("useRuntimeChangeWorkspaceChanges", () => {
 		act(() => {
 			root.unmount();
 		});
+		kanbanStore.dispatch(kanbanApi.util.resetApiState());
 		container.remove();
-		vi.useRealTimers();
+		vi.unstubAllGlobals();
 		if (previousActEnvironment === undefined) {
 			delete (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
 		} else {
@@ -89,46 +119,33 @@ describe("useRuntimeChangeWorkspaceChanges", () => {
 		}
 	});
 
-	it("does not start overlapping poll requests while a diff request is still loading", async () => {
-		const firstDiffDeferred = createDeferred<RuntimeWorkspaceChangesResponse>();
-		getWorkspaceChangesQueryMock
-			.mockImplementationOnce(() => firstDiffDeferred.promise)
-			.mockResolvedValue(createWorkspaceChangesResponse("next.ts"));
-		const snapshots: Array<{ paths: string[]; isLoading: boolean }> = [];
+	it("shares change workspace diff requests through the RTK Query cache", async () => {
+		fetchMock.mockResolvedValue(createTrpcResponse(createWorkspaceChangesResponse("first.ts")));
+		const snapshots: HookSnapshot[] = [];
 
 		await act(async () => {
 			root.render(
-				<HookHarness
-					onSnapshot={(snapshot) => {
-						snapshots.push(snapshot);
-					}}
-				/>,
+				<Provider store={kanbanStore}>
+					<HookHarness label="first" onSnapshot={(snapshot) => snapshots.push(snapshot)} />
+					<HookHarness label="second" onSnapshot={(snapshot) => snapshots.push(snapshot)} />
+				</Provider>,
 			);
 			await Promise.resolve();
 		});
 
-		expect(getWorkspaceChangesQueryMock).toHaveBeenCalledTimes(1);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/api/trpc/changes.getWorkspaceChanges");
+		expect(String(fetchMock.mock.calls[0]?.[0])).toContain(encodeURIComponent(JSON.stringify({ id: "CY-0001" })));
 
-		await act(async () => {
-			await vi.advanceTimersByTimeAsync(300);
+		await waitForExpect(() => {
+			expect(snapshots.at(-1)).toMatchObject({
+				paths: ["first.ts"],
+				isLoading: false,
+				isRuntimeAvailable: true,
+			});
 		});
 
-		expect(getWorkspaceChangesQueryMock).toHaveBeenCalledTimes(1);
-
-		await act(async () => {
-			firstDiffDeferred.resolve(createWorkspaceChangesResponse("first.ts"));
-			await firstDiffDeferred.promise;
-		});
-
-		expect(snapshots.at(-1)).toMatchObject({
-			paths: ["first.ts"],
-			isLoading: false,
-		});
-
-		await act(async () => {
-			await vi.advanceTimersByTimeAsync(100);
-		});
-
-		expect(getWorkspaceChangesQueryMock).toHaveBeenCalledTimes(2);
+		expect(snapshots.filter((snapshot) => snapshot.paths.includes("first.ts"))).toHaveLength(2);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
 	});
 });

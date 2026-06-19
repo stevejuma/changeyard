@@ -10,6 +10,7 @@ import { assertTransition } from "../state/transitions.js";
 import { hydrateWorkspace } from "../hydrate/hydrateWorkspace.js";
 import { createWorkspaceEngine } from "../workspace/index.js";
 import { shellCommandRunner } from "../workspace/commandRunner.js";
+import { describeJjWorkspaceCommit } from "../workspace/jjLandingDescriptions.js";
 import type { Frontmatter, WorkspaceMetadata } from "../types.js";
 import { formatValidationFailure } from "./audit.js";
 
@@ -58,6 +59,21 @@ function seedJjChangeMetadata(repoRoot: string, id: string, targetRef: string, c
     throw new Error(`Change metadata is still dirty after seeding ${id}; aborting before workspace creation.`);
   }
   return `Metadata seed: committed ${id} to ${targetRef}`;
+}
+
+function describeStartedJjWorkspace(workspacePath: string, id: string, description: string): void {
+  try {
+    describeJjWorkspaceCommit(workspacePath, "@", description);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error([
+      `Could not describe JJ workspace commit for ${id}: ${message}`,
+      "",
+      "Recovery:",
+      `- Run cd ${workspacePath} && jj describe -r @ -m "${description}".`,
+      `- Re-run cy verify ${id} from inside the workspace checkout before editing or completing work.`,
+    ].join("\n"));
+  }
 }
 
 type MutationOptions = {
@@ -143,12 +159,14 @@ export function runStart(id: string, repoRoot = process.cwd(), mutationOptions: 
     },
   };
   writeFileSync(engineName === "jj" ? workspaceChangePath : filePath, writeFrontmatter(nextFrontmatter, parsed.body));
+  if (engineName === "jj") describeStartedJjWorkspace(workspacePath, changeId, seedDescription);
 
   return [
     `Started ${changeId} in ${workspaceRelativePath}`,
     ...(metadataSeedMessage ? [metadataSeedMessage] : []),
     ...(createdMetadata.targetRef ? [`Base: ${createdMetadata.targetRef} ${createdMetadata.baseCommitId ?? ""}`.trim()] : []),
     ...(createdMetadata.workspaceChangeId ? [`Workspace change: ${createdMetadata.workspaceChangeId}`] : []),
+    ...(engineName === "jj" ? [`Workspace description: ${seedDescription}`] : []),
     `Next: cd ${workspaceRelativePath}`,
     `Hydration: copied ${hydrateResult.copied.length}, skipped ${hydrateResult.skipped.length}`,
     `Then: cy verify ${changeId}`,

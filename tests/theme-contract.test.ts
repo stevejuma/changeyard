@@ -8,6 +8,7 @@ const KANBAN_CSS_PATH = join(ROOT_DIR, "packages/kanban/web-ui/src/styles/global
 const KANBAN_THEME_TS_PATH = join(ROOT_DIR, "packages/kanban/web-ui/src/hooks/use-theme.ts");
 const VCS_CSS_PATH = join(ROOT_DIR, "packages/vcs/src/styles/globals.css");
 const VCS_THEME_TS_PATH = join(ROOT_DIR, "packages/vcs/src/utils/vcs-theme.ts");
+const SHARED_WEB_UI_CSS_PATH = join(ROOT_DIR, "packages/web-ui/src/styles.css");
 const LIGHT_THEME_IDS = ["light", "overcast", "solarized-light", "latte", "high-contrast-light"] as const;
 const DEFAULT_THEME_ID = "default";
 const COLOR_TOKEN_DEFINITION_RE = /(--color-[a-z0-9-]+)\s*:/g;
@@ -24,6 +25,7 @@ const SELECTED_TOKEN_NAMES = [
 	"--kb-selected-muted-fg",
 	"--kb-selected-border",
 ] as const;
+const PRIMARY_BUTTON_TOKEN_NAMES = ["--color-primary", "--color-primary-hover", "--color-primary-fg"] as const;
 const STATUS_TOKEN_NAMES = [
 	"--color-status-blue",
 	"--color-status-green",
@@ -244,6 +246,16 @@ function parseTerminalThemeColors(path: string): Map<string, TerminalThemeColors
 	return themes;
 }
 
+function readCssRuleBody(css: string, selector: string): string {
+	const marker = `${selector} {`;
+	const start = css.indexOf(marker);
+	assert.notEqual(start, -1, `${selector} rule is missing`);
+	const bodyStart = start + marker.length;
+	const end = css.indexOf("}", bodyStart);
+	assert.notEqual(end, -1, `${selector} rule is missing a closing brace`);
+	return css.slice(bodyStart, end);
+}
+
 test("Kanban and VCS theme CSS expose matching color token keys", () => {
 	const kanban = parseThemeCss(KANBAN_CSS_PATH);
 	const vcs = parseThemeCss(VCS_CSS_PATH);
@@ -278,6 +290,9 @@ test("all theme accent and selected state pairs meet contrast requirements", () 
 	for (const themeId of themeIds(kanban)) {
 		const kanbanTheme = resolveTheme(kanban, themeId);
 		const vcsTheme = resolveTheme(vcs, themeId);
+		for (const token of PRIMARY_BUTTON_TOKEN_NAMES) {
+			assert.equal(resolveColor(kanbanTheme, token), resolveColor(vcsTheme, token), `${themeId} ${token} drifted`);
+		}
 		for (const token of SELECTED_TOKEN_NAMES) {
 			assert.equal(resolveColor(kanbanTheme, token), resolveColor(vcsTheme, token), `${themeId} ${token} drifted`);
 		}
@@ -307,6 +322,14 @@ test("all theme accent and selected state pairs meet contrast requirements", () 
 				minimum: 4.5,
 			});
 		}
+		assertContrast({
+			themeId,
+			foregroundName: "--color-text-primary",
+			backgroundName: "--color-surface-3",
+			foreground: resolveColor(kanbanTheme, "--color-text-primary"),
+			background: resolveColor(kanbanTheme, "--color-surface-3"),
+			minimum: 4.5,
+		});
 		for (const surfaceToken of [
 			"--color-surface-0",
 			"--color-surface-1",
@@ -325,11 +348,32 @@ test("all theme accent and selected state pairs meet contrast requirements", () 
 	}
 });
 
+test("primary button color pairs meet readable text contrast", () => {
+	const kanban = parseThemeCss(KANBAN_CSS_PATH);
+	for (const themeId of themeIds(kanban)) {
+		const theme = resolveTheme(kanban, themeId);
+		for (const backgroundToken of ["--color-primary", "--color-primary-hover"]) {
+			assertContrast({
+				themeId,
+				foregroundName: "--color-primary-fg",
+				backgroundName: backgroundToken,
+				foreground: resolveColor(theme, "--color-primary-fg"),
+				background: resolveColor(theme, backgroundToken),
+				minimum: 4.5,
+			});
+		}
+	}
+});
+
 test("app source does not reference undefined --color-* CSS variables", () => {
 	const kanban = parseThemeCss(KANBAN_CSS_PATH);
 	const vcs = parseThemeCss(VCS_CSS_PATH);
 	const definedTokens = new Set([...kanban.definedColorTokens, ...vcs.definedColorTokens]);
-	const sourceRoots = [join(ROOT_DIR, "packages/kanban/web-ui/src"), join(ROOT_DIR, "packages/vcs/src")];
+	const sourceRoots = [
+		join(ROOT_DIR, "packages/kanban/web-ui/src"),
+		join(ROOT_DIR, "packages/vcs/src"),
+		join(ROOT_DIR, "packages/web-ui/src"),
+	];
 	const missing: string[] = [];
 	for (const sourceRoot of sourceRoots) {
 		for (const filePath of walkSourceFiles(sourceRoot)) {
@@ -342,6 +386,99 @@ test("app source does not reference undefined --color-* CSS variables", () => {
 		}
 	}
 	assert.deepEqual(missing, []);
+});
+
+test("app CSS scans shared web-ui components for Tailwind utilities", () => {
+	assert.match(readFileSync(KANBAN_CSS_PATH, "utf8"), /@source "\.\.\/\.\.\/\.\.\/\.\.\/web-ui\/src";/);
+	assert.match(readFileSync(VCS_CSS_PATH, "utf8"), /@source "\.\.\/\.\.\/\.\.\/web-ui\/src";/);
+});
+
+test("shared dialog borders use theme tokens instead of arbitrary border colors", () => {
+	const source = readFileSync(join(ROOT_DIR, "packages/web-ui/src/dialog.tsx"), "utf8");
+	assert.equal(source.includes("#5A6572"), false);
+	assert.equal(/border-\[[^\]]+\]/.test(source), false);
+});
+
+test("shared primary button uses primary foreground tokens", () => {
+	const source = readFileSync(join(ROOT_DIR, "packages/web-ui/src/button.tsx"), "utf8");
+	assert.match(source, /primary: "bg-primary text-primary-fg border border-transparent hover:bg-primary-hover/);
+	assert.doesNotMatch(source, /primary: "[^"]*text-accent-fg/);
+});
+
+test("selected cards use only normal card borders", () => {
+	const css = readFileSync(KANBAN_CSS_PATH, "utf8");
+	const changeBoardSource = readFileSync(
+		join(ROOT_DIR, "packages/kanban/web-ui/src/components/changeyard/change-board.tsx"),
+		"utf8",
+	);
+	assert.doesNotMatch(css, /\.kb-board-card-shell\[data-selected="true"\]\s*{[\s\S]*?outline:/);
+	assert.doesNotMatch(css, /\.kb-board-card-shell\[data-selected="true"\] > div/);
+	assert.match(changeBoardSource, /isCardSelected \? "border border-divider bg-surface-2"/);
+	assert.match(changeBoardSource, /frameless=\{isCardSelected\}/);
+	assert.match(changeBoardSource, /frameless \? null : "border border-divider"/);
+	assert.match(changeBoardSource, /isCardSelected \? null : "border-y border-divider"/);
+	assert.doesNotMatch(css, /\.kb-change-card-selected/);
+});
+
+test("selected file tree rows use the neutral hover surface", () => {
+	for (const cssPath of [KANBAN_CSS_PATH, VCS_CSS_PATH, SHARED_WEB_UI_CSS_PATH]) {
+		const css = readFileSync(cssPath, "utf8");
+		const selectedRowBody = readCssRuleBody(css, ".kb-file-tree-row-selected");
+		assert.match(selectedRowBody, /background:\s*var\(--color-surface-3\);/);
+		assert.match(selectedRowBody, /color:\s*var\(--color-text-primary\);/);
+		assert.doesNotMatch(selectedRowBody, /--kb-selected-(?:bg|fg)/);
+
+		const selectedHoverBody = readCssRuleBody(css, ".kb-file-tree-row.kb-file-tree-row-selected:hover");
+		assert.match(selectedHoverBody, /background:\s*var\(--color-surface-3\);/);
+		assert.match(selectedHoverBody, /color:\s*var\(--color-text-primary\);/);
+		assert.doesNotMatch(selectedHoverBody, /--kb-selected-(?:bg|fg)/);
+
+		const selectedIconBody = readCssRuleBody(css, ".kb-file-tree-row-selected .kb-file-type-icon");
+		assert.match(selectedIconBody, /background:\s*var\(--color-surface-1\);/);
+		assert.match(selectedIconBody, /var\(--color-border-bright\)/);
+		assert.doesNotMatch(selectedIconBody, /--kb-selected-(?:bg|fg)/);
+
+		const selectedGlyphBody = readCssRuleBody(css, ".kb-file-tree-row-selected .kb-file-status-glyph");
+		assert.match(selectedGlyphBody, /background:\s*var\(--color-surface-1\);/);
+		assert.match(selectedGlyphBody, /color:\s*var\(--color-text-primary\);/);
+		assert.match(selectedGlyphBody, /var\(--color-border-bright\)/);
+		assert.doesNotMatch(selectedGlyphBody, /--kb-selected-(?:bg|fg)/);
+	}
+});
+
+test("Kanban markdown preview uses the VCS GitHub-style surface theme", () => {
+	const css = readFileSync(KANBAN_CSS_PATH, "utf8");
+	assert.doesNotMatch(css, /--color-canvas-default:\s*transparent/);
+	assert.match(
+		css,
+		/\.cy-markdown-editor \.w-md-editor-preview,\s*\.cy-markdown-preview \.wmde-markdown\s*{[\s\S]*?background:\s*var\(--color-surface-0\);/,
+	);
+});
+
+test("markdown checklist checkmarks use primary foreground tokens", () => {
+	for (const cssPath of [KANBAN_CSS_PATH, VCS_CSS_PATH]) {
+		const css = readFileSync(cssPath, "utf8");
+		const checkedBody = readCssRuleBody(
+			css,
+			".cy-markdown-editor .w-md-editor-preview input[type='checkbox']:checked,\n.cy-markdown-preview .wmde-markdown input[type='checkbox']:checked,\n.kb-markdown input[type='checkbox']:checked",
+		);
+		assert.match(checkedBody, /border-color:\s*var\(--color-primary\);/);
+		assert.match(checkedBody, /background:\s*var\(--color-primary\);/);
+		assert.doesNotMatch(checkedBody, /--color-accent/);
+
+		const checkedMarkBody = readCssRuleBody(
+			css,
+			".cy-markdown-editor .w-md-editor-preview input[type='checkbox']:checked::after,\n.cy-markdown-preview .wmde-markdown input[type='checkbox']:checked::after,\n.kb-markdown input[type='checkbox']:checked::after",
+		);
+		assert.match(checkedMarkBody, /border:\s*solid var\(--color-primary-fg\);/);
+		assert.doesNotMatch(checkedMarkBody, /--color-accent-fg|--text-accent-fg/);
+
+		const toggleableBody = readCssRuleBody(
+			css,
+			".cy-markdown-preview[data-checklist-toggle='true'] .wmde-markdown input[type='checkbox']",
+		);
+		assert.match(toggleableBody, /cursor:\s*pointer;/);
+	}
 });
 
 test("selected state source avoids low-contrast selected text patterns", () => {

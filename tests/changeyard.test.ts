@@ -324,7 +324,19 @@ test("generated skill guidance defaults non-trivial agent work to strict plannin
   assert.match(skill, /Create a strict planned change: `cy create --template agent-task --planning openspec-lite --strict --title "<title>"`/);
   assert.match(skill, /Non-trivial agent work must use strict OpenSpec-lite planning/);
   assert.match(skill, /Use `cy quick` or `--no-planning` only for small, low-risk changes with no behavior, public API, storage\/schema, provider\/workspace lifecycle, UI workflow, or security-sensitive impact/);
+  assert.match(skill, /make multiple logical commits inside the verified workspace/);
+  assert.match(skill, /Every workspace commit message must start with the change id/);
   assert.match(skill, /Agents must not use them unless the user explicitly names the flag or asks for that exact cleanup/);
+});
+
+test("generated start and verify guidance explains workspace commit messages", () => {
+  const start = getCommandContents().find((entry) => entry.id === "start");
+  const verify = getCommandContents().find((entry) => entry.id === "verify");
+  assert.ok(start);
+  assert.ok(verify);
+  assert.match(start.body, /make multiple logical commits inside the verified workspace/);
+  assert.match(start.body, /CY-0001: Add parser validation/);
+  assert.match(verify.body, /every commit in the landing stack must start with the change id/);
 });
 
 test("create allocates a valid markdown change", () => {
@@ -3015,11 +3027,15 @@ test("jj start commits metadata seed and leaves unrelated root wip", () => {
     runCreate({ template: "agent-task", title: "Seed jj metadata" }, repo);
     writeFileSync(path.join(repo, "root-wip.txt"), "root only\n");
 
-    assert.match(runStart("CY-0001", repo), /Metadata seed: committed CY-0001 to main/);
+    const startOutput = runStart("CY-0001", repo);
+    assert.match(startOutput, /Metadata seed: committed CY-0001 to main/);
+    assert.match(startOutput, /Workspace description: CY-0001: Seed jj metadata/);
+    const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
     const rootChangePath = path.join(repo, ".changeyard", "changes", "CY-0001-seed-jj-metadata.md");
-    const workspaceChangePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo", ".changeyard", "changes", "CY-0001-seed-jj-metadata.md");
+    const workspaceChangePath = path.join(workspacePath, ".changeyard", "changes", "CY-0001-seed-jj-metadata.md");
     assert.equal(parseFrontmatter(readFileSync(rootChangePath, "utf8")).frontmatter.status, "ready");
     assert.equal(parseFrontmatter(readFileSync(workspaceChangePath, "utf8")).frontmatter.status, "in_progress");
+    assert.equal(commandOutput("jj", ["log", "--ignore-working-copy", "--at-op=@", "-r", "@", "--no-graph", "-T", "description"], workspacePath), "CY-0001: Seed jj metadata");
     assert.equal(commandOutput("jj", ["file", "show", "-r", "main", "--", ".changeyard/changes/CY-0001-seed-jj-metadata.md"], repo).includes("status: ready"), true);
     const rootDiff = commandOutput("jj", ["diff", "--name-only"], repo).split("\n").filter(Boolean);
     assert.equal(rootDiff.includes("root-wip.txt"), true);
@@ -3059,6 +3075,75 @@ test("jj workspace status overlays root status in list, board, and next action",
     assert.equal(getNextAction("CY-0001", repo).nextKind, "complete");
     const boardCards = createChangeyardBoardService(repo).getBoard().columns.flatMap((column) => column.cards);
     assert.equal(boardCards.find((card) => card.id === "CY-0001")?.status, "in_progress");
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("jj verify complete and land reject invalid landing stack descriptions", () => {
+  if (!hasCommand("git") || !hasCommand("jj")) return;
+  const repo = tempRepo();
+  try {
+    runCommand("git", ["init", "-b", "main"], repo);
+    runCommand("jj", ["git", "init", "--colocate"], repo);
+    runCommand("jj", ["config", "set", "--repo", "user.name", "Changeyard Test"], repo);
+    runCommand("jj", ["config", "set", "--repo", "user.email", "changeyard@example.test"], repo);
+    runCommand("jj", ["config", "set", "--repo", "signing.behavior", "drop"], repo);
+    writeFileSync(path.join(repo, "README.md"), "# repo\n");
+    runCommand("jj", ["commit", "-m", "initial"], repo);
+    runCommand("jj", ["bookmark", "set", "main", "-r", "@-"], repo);
+
+    runInit(repo);
+    writeFileSync(path.join(repo, ".changeyard", "config.local.jsonc"), `{"vcs":{"engine":"jj","fallback":"plain-copy"},"checks":{"standard":["node -v"]}}\n`);
+    runCommand("jj", ["commit", "-m", "init changeyard"], repo);
+    runCommand("jj", ["bookmark", "set", "main", "-r", "@-"], repo);
+
+    runCreate({ template: "agent-task", title: "Validate jj descriptions" }, repo);
+    runStart("CY-0001", repo);
+    const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
+    const workspaceChangePath = path.join(workspacePath, ".changeyard", "changes", "CY-0001-validate-jj-descriptions.md");
+    const metadata = JSON.parse(readFileSync(path.join(repo, ".changeyard", "workspaces", "CY-0001", "metadata.json"), "utf8")) as { workspaceChangeId?: string };
+    const workspaceChangeId = metadata.workspaceChangeId!;
+
+    runCommand("jj", ["new", "@-"], workspacePath);
+    writeFileSync(path.join(workspacePath, "empty-description.txt"), "empty description\n");
+    const emptyDescriptionChange = commandOutput("jj", ["log", "--ignore-working-copy", "--at-op=@", "-r", "@", "--no-graph", "-T", "change_id.short()"], workspacePath);
+    runCommand("jj", ["rebase", "-r", workspaceChangeId, "-o", "@"], workspacePath);
+    runCommand("jj", ["edit", workspaceChangeId], workspacePath);
+
+    runCommand("jj", ["new", emptyDescriptionChange, "-m", "Missing prefix"], workspacePath);
+    writeFileSync(path.join(workspacePath, "missing-prefix.txt"), "missing prefix\n");
+    runCommand("jj", ["rebase", "-r", workspaceChangeId, "-o", "@"], workspacePath);
+    runCommand("jj", ["edit", workspaceChangeId], workspacePath);
+
+    const captureFailure = (run: () => void): string => {
+      try {
+        run();
+      } catch (error) {
+        return String(error);
+      }
+      assert.fail("Expected command to reject invalid JJ descriptions");
+    };
+    const assertInvalidDescriptionFailure = (message: string): void => {
+      assert.match(message, /JJ workspace commit descriptions must start with CY-0001:/);
+      assert.match(message, /empty description/);
+      assert.match(message, /description must start with "CY-0001:"/);
+      assert.match(message, /jj describe/);
+    };
+    assertInvalidDescriptionFailure(captureFailure(() => runVerify("CY-0001", workspacePath)));
+
+    updateSection(workspaceChangePath, "Acceptance Criteria", "- [x] JJ description blockers are reported");
+    updateSection(workspaceChangePath, "Completion Notes", "Updated invalid description test files. Checks ran: node -v.");
+    assertInvalidDescriptionFailure(captureFailure(() => runComplete("CY-0001", { noPr: true }, workspacePath)));
+
+    const parsed = parseFrontmatter(readFileSync(workspaceChangePath, "utf8"));
+    writeFileSync(workspaceChangePath, writeFrontmatter({ ...parsed.frontmatter, status: "ready_for_pr" }, parsed.body));
+    const dryRun = runLand("CY-0001", { dryRun: true, keepWorkspace: true }, repo);
+    assert.match(dryRun, /landingDescriptions: blocked/);
+    assert.match(dryRun, /blocker: .*empty description/);
+    assert.match(dryRun, /blocker: .*description must start with "CY-0001:"/);
+    assertInvalidDescriptionFailure(captureFailure(() => runLand("CY-0001", { keepWorkspace: true }, repo)));
+    assert.equal(existsSync(path.join(repo, ".changeyard", "workspaces", "CY-0001")), true);
   } finally {
     cleanup(repo);
   }
@@ -3104,12 +3189,12 @@ test("land rebases and lands a described jj workspace task commit without root w
     runCommand("jj", ["workspace", "forget", "advance-main"], repo);
     rmSync(path.dirname(advanceWorkspace), { recursive: true, force: true });
 
-    runCommand("jj", ["new", "@-", "-m", "ancestor A"], workspacePath);
+    runCommand("jj", ["new", "@-", "-m", "CY-0001: Ancestor A"], workspacePath);
     writeFileSync(path.join(workspacePath, "ancestor-a.txt"), "ancestor A\n");
     const ancestorA = commandOutput("jj", ["log", "--ignore-working-copy", "--at-op=@", "-r", "@", "--no-graph", "-T", "change_id.short()"], workspacePath);
     runCommand("jj", ["rebase", "-r", workspaceChangeId, "-o", "@"], workspacePath);
     runCommand("jj", ["edit", workspaceChangeId], workspacePath);
-    runCommand("jj", ["new", ancestorA, "-m", "ancestor B"], workspacePath);
+    runCommand("jj", ["new", ancestorA, "-m", "CY-0001: Ancestor B"], workspacePath);
     writeFileSync(path.join(workspacePath, "ancestor-b.txt"), "ancestor B\n");
     runCommand("jj", ["rebase", "-r", workspaceChangeId, "-o", "@"], workspacePath);
     runCommand("jj", ["edit", workspaceChangeId], workspacePath);
@@ -3123,6 +3208,7 @@ test("land rebases and lands a described jj workspace task commit without root w
     assert.equal(parseFrontmatter(readFileSync(rootChangePath, "utf8")).frontmatter.status, "ready");
     assert.equal(parseFrontmatter(readFileSync(workspaceChangePath, "utf8")).frontmatter.status, "ready_for_pr");
     assert.match(runLand("CY-0001", { dryRun: true }, repo), /landingDescription: ok/);
+    assert.match(runLand("CY-0001", { dryRun: true }, repo), /landingDescriptions: ok/);
     assert.match(runLand("CY-0001", { dryRun: true }, repo), /metadataSource: workspace/);
     assert.match(runLand("CY-0001", { dryRun: true }, repo), /targetMoved: true/);
     assert.match(runLand("CY-0001", { dryRun: true }, repo), /rebaseRevset:/);

@@ -9,4 +9,5 @@ Start isolated work for a Changeyard change.
 2. Run `cy start <id>`.
 3. Follow the printed `cd` path into the workspace checkout.
 4. Run `cy verify <id>` from that checkout before editing files.
-5. If start or verify fails, **halt** — use `cy audit <id>`, `cy workspace status <id>`, or `cy recover <id>` as directed before editing files.
+5. For large or multi-step changes, make multiple logical commits inside the verified workspace so review can happen in smaller pieces. Every workspace commit message must start with the change id, for example `CY-0001: Add parser validation`.
+6. If start or verify fails, **halt** — use `cy audit <id>`, `cy workspace status <id>`, or `cy recover <id>` as directed before editing files.

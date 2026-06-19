@@ -1,11 +1,10 @@
 import { Check, ChevronDown, ChevronRight, Command, CornerDownLeft, MessageSquare, Pencil, X } from "lucide-react";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { MarkdownMessageEditor, MarkdownMessagePreview } from "@/components/ui/markdown-message-editor";
 import {
 	buildDisplayItems,
-	buildHighlightedLineMap,
 	buildUnifiedDiffRows,
 	CollapsedBlockControls,
 	DiffRowText,
@@ -50,6 +49,10 @@ export interface DiffLineScrollTarget {
 }
 
 export type DiffViewMode = "unified" | "split";
+
+const INITIAL_DIFF_SECTION_BATCH_SIZE = 2;
+const DIFF_SECTION_RENDER_BATCH_SIZE = 4;
+const DIFF_SECTION_RENDER_BATCH_DELAY_MS = 50;
 
 function commentKey(filePath: string, lineNumber: number, variant: DiffLineComment["variant"]): string {
 	return `${filePath}:${variant}:${lineNumber}`;
@@ -211,7 +214,7 @@ function InlineComment({
 	);
 }
 
-function UnifiedDiff({
+const UnifiedDiff = memo(function UnifiedDiff({
 	path,
 	oldText,
 	newText,
@@ -225,22 +228,28 @@ function UnifiedDiff({
 	oldText: string | null | undefined;
 	newText: string;
 	comments: Map<string, DiffLineComment>;
-	onAddComment: (lineNumber: number, lineText: string, variant: "added" | "removed" | "context") => void;
-	onUpdateComment: (lineNumber: number, variant: "added" | "removed" | "context", text: string) => void;
-	onDeleteComment: (lineNumber: number, variant: "added" | "removed" | "context") => void;
+	onAddComment: (
+		filePath: string,
+		lineNumber: number,
+		lineText: string,
+		variant: "added" | "removed" | "context",
+	) => void;
+	onUpdateComment: (
+		filePath: string,
+		lineNumber: number,
+		variant: "added" | "removed" | "context",
+		text: string,
+	) => void;
+	onDeleteComment: (
+		filePath: string,
+		lineNumber: number,
+		variant: "added" | "removed" | "context",
+	) => void;
 	onInsertRequiredChange?: (comment: DiffLineComment) => void;
 }): React.ReactElement {
 	const { expandedBlocks, expandTop, expandBottom, expandAll } = useIncrementalExpand();
 	const prismLanguage = useMemo(() => resolvePrismLanguage(path), [path]);
 	const prismGrammar = useMemo(() => resolvePrismGrammar(prismLanguage), [prismLanguage]);
-	const highlightedOldByLine = useMemo(
-		() => buildHighlightedLineMap(oldText, prismGrammar, prismLanguage),
-		[oldText, prismGrammar, prismLanguage],
-	);
-	const highlightedNewByLine = useMemo(
-		() => buildHighlightedLineMap(newText, prismGrammar, prismLanguage),
-		[newText, prismGrammar, prismLanguage],
-	);
 	const rows = useMemo(() => buildUnifiedDiffRows(oldText, newText), [oldText, newText]);
 	const displayItems = useMemo(() => buildDisplayItems(rows, expandedBlocks), [expandedBlocks, rows]);
 
@@ -256,17 +265,12 @@ function UnifiedDiff({
 					: "kb-diff-row kb-diff-row-context";
 		const rowClass = hasComment ? `${baseClass} kb-diff-row-commented` : baseClass;
 		const canClickRow = row.lineNumber != null && !hasComment;
-		const highlightedLineHtml =
-			row.lineNumber == null
-				? null
-				: row.variant === "removed"
-					? (highlightedOldByLine.get(row.lineNumber) ?? null)
-					: (highlightedNewByLine.get(row.lineNumber) ?? null);
+		const highlightedLineHtml = row.segments ? null : getHighlightedLineHtml(row.text, prismGrammar, prismLanguage);
 
 		const handleRowClick =
 			row.lineNumber != null && !hasComment
 				? () => {
-						onAddComment(row.lineNumber!, row.text, row.variant);
+						onAddComment(path, row.lineNumber!, row.text, row.variant);
 					}
 				: undefined;
 
@@ -288,7 +292,7 @@ function UnifiedDiff({
 									hasComment
 										? (event) => {
 												event.stopPropagation();
-												onDeleteComment(row.lineNumber!, row.variant);
+												onDeleteComment(path, row.lineNumber!, row.variant);
 											}
 										: undefined
 								}
@@ -313,8 +317,8 @@ function UnifiedDiff({
 				{existingComment ? (
 					<InlineComment
 						comment={existingComment}
-						onChange={(text) => onUpdateComment(row.lineNumber!, row.variant, text)}
-						onDelete={() => onDeleteComment(row.lineNumber!, row.variant)}
+						onChange={(text) => onUpdateComment(path, row.lineNumber!, row.variant, text)}
+						onDelete={() => onDeleteComment(path, row.lineNumber!, row.variant)}
 						onInsertRequiredChange={onInsertRequiredChange}
 					/>
 				) : null}
@@ -343,7 +347,7 @@ function UnifiedDiff({
 			})}
 		</>
 	);
-}
+});
 
 interface SplitDiffRowPair {
 	key: string;
@@ -423,7 +427,7 @@ function isCommentableOnSplitSide(row: UnifiedDiffRow, side: "left" | "right"): 
 	return side === "right";
 }
 
-function SplitDiff({
+const SplitDiff = memo(function SplitDiff({
 	path,
 	oldText,
 	newText,
@@ -437,9 +441,23 @@ function SplitDiff({
 	oldText: string | null | undefined;
 	newText: string;
 	comments: Map<string, DiffLineComment>;
-	onAddComment: (lineNumber: number, lineText: string, variant: "added" | "removed" | "context") => void;
-	onUpdateComment: (lineNumber: number, variant: "added" | "removed" | "context", text: string) => void;
-	onDeleteComment: (lineNumber: number, variant: "added" | "removed" | "context") => void;
+	onAddComment: (
+		filePath: string,
+		lineNumber: number,
+		lineText: string,
+		variant: "added" | "removed" | "context",
+	) => void;
+	onUpdateComment: (
+		filePath: string,
+		lineNumber: number,
+		variant: "added" | "removed" | "context",
+		text: string,
+	) => void;
+	onDeleteComment: (
+		filePath: string,
+		lineNumber: number,
+		variant: "added" | "removed" | "context",
+	) => void;
 	onInsertRequiredChange?: (comment: DiffLineComment) => void;
 }): React.ReactElement {
 	const { expandedBlocks, expandTop, expandBottom, expandAll } = useIncrementalExpand();
@@ -482,7 +500,7 @@ function SplitDiff({
 					onClick={
 						canClickRow
 							? () => {
-									onAddComment(rowLineNumber, row.text, row.variant);
+									onAddComment(path, rowLineNumber, row.text, row.variant);
 								}
 							: undefined
 					}
@@ -496,7 +514,7 @@ function SplitDiff({
 									hasComment
 										? (event) => {
 												event.stopPropagation();
-												onDeleteComment(rowLineNumber, row.variant);
+												onDeleteComment(path, rowLineNumber, row.variant);
 											}
 										: undefined
 								}
@@ -521,8 +539,8 @@ function SplitDiff({
 				{existingComment ? (
 					<InlineComment
 						comment={existingComment}
-						onChange={(text) => onUpdateComment(rowLineNumber, row.variant, text)}
-						onDelete={() => onDeleteComment(rowLineNumber, row.variant)}
+						onChange={(text) => onUpdateComment(path, rowLineNumber, row.variant, text)}
+						onDelete={() => onDeleteComment(path, rowLineNumber, row.variant)}
 						onInsertRequiredChange={onInsertRequiredChange}
 					/>
 				) : null}
@@ -605,7 +623,7 @@ function SplitDiff({
 			<div className="kb-diff-split-grid-content">{renderDisplayItems()}</div>
 		</div>
 	);
-}
+});
 
 export function DiffViewerPanel({
 	workspaceFiles,
@@ -638,6 +656,10 @@ export function DiffViewerPanel({
 	const programmaticScrollUntilRef = useRef(0);
 	const programmaticScrollClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const highlightClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const scrollSyncFrameRef = useRef<number | null>(null);
+	const scrollSyncPendingRef = useRef(false);
+	const pendingPathScrollRef = useRef<string | null>(null);
+	const [renderedGroupCount, setRenderedGroupCount] = useState(INITIAL_DIFF_SECTION_BATCH_SIZE);
 
 	const diffEntries = useMemo(() => {
 		return (workspaceFiles ?? []).map((file, index) => ({
@@ -690,6 +712,39 @@ export function DiffViewerPanel({
 		});
 	}, [diffEntries, workspaceFiles]);
 
+	const visibleGroups = useMemo(
+		() => groupedByPath.slice(0, Math.min(renderedGroupCount, groupedByPath.length)),
+		[groupedByPath, renderedGroupCount],
+	);
+
+	useEffect(() => {
+		setRenderedGroupCount(Math.min(INITIAL_DIFF_SECTION_BATCH_SIZE, groupedByPath.length));
+	}, [groupedByPath]);
+
+	useEffect(() => {
+		if (renderedGroupCount >= groupedByPath.length) {
+			return;
+		}
+		const timer = window.setTimeout(() => {
+			setRenderedGroupCount((current) => Math.min(current + DIFF_SECTION_RENDER_BATCH_SIZE, groupedByPath.length));
+		}, DIFF_SECTION_RENDER_BATCH_DELAY_MS);
+		return () => {
+			window.clearTimeout(timer);
+		};
+	}, [groupedByPath.length, renderedGroupCount]);
+
+	useEffect(() => {
+		if (!selectedPath) {
+			return;
+		}
+		const selectedIndex = groupedByPath.findIndex((group) => group.path === selectedPath);
+		if (selectedIndex < 0 || selectedIndex < renderedGroupCount) {
+			return;
+		}
+		pendingPathScrollRef.current = selectedPath;
+		setRenderedGroupCount(Math.min(selectedIndex + 1, groupedByPath.length));
+	}, [groupedByPath, renderedGroupCount, selectedPath]);
+
 	const resolveActivePath = useCallback((): string | null => {
 		const container = scrollContainerRef.current;
 		if (!container || groupedByPath.length === 0) {
@@ -713,7 +768,7 @@ export function DiffViewerPanel({
 		return activePath;
 	}, [groupedByPath]);
 
-	const handleDiffScroll = useCallback(() => {
+	const syncSelectedPathToScrollPosition = useCallback(() => {
 		if (Date.now() < programmaticScrollUntilRef.current) {
 			return;
 		}
@@ -731,6 +786,18 @@ export function DiffViewerPanel({
 		};
 		onSelectedPathChange(activePath);
 	}, [onSelectedPathChange, resolveActivePath, selectedPath]);
+
+	const handleDiffScroll = useCallback(() => {
+		if (scrollSyncPendingRef.current) {
+			return;
+		}
+		scrollSyncPendingRef.current = true;
+		scrollSyncFrameRef.current = window.requestAnimationFrame(() => {
+			scrollSyncPendingRef.current = false;
+			scrollSyncFrameRef.current = null;
+			syncSelectedPathToScrollPosition();
+		});
+	}, [syncSelectedPathToScrollPosition]);
 
 	const scrollToPath = useCallback((path: string) => {
 		const container = scrollContainerRef.current;
@@ -792,6 +859,9 @@ export function DiffViewerPanel({
 
 	useEffect(() => {
 		return () => {
+			if (scrollSyncFrameRef.current !== null) {
+				window.cancelAnimationFrame(scrollSyncFrameRef.current);
+			}
 			if (programmaticScrollClearTimerRef.current) {
 				clearTimeout(programmaticScrollClearTimerRef.current);
 			}
@@ -812,8 +882,22 @@ export function DiffViewerPanel({
 			return;
 		}
 		scrollSyncSelectionRef.current = null;
+		if (!sectionElementsRef.current[selectedPath]) {
+			pendingPathScrollRef.current = selectedPath;
+			return;
+		}
+		pendingPathScrollRef.current = null;
 		scrollToPath(selectedPath);
 	}, [scrollToPath, selectedPath]);
+
+	useEffect(() => {
+		const pendingPath = pendingPathScrollRef.current;
+		if (!pendingPath || !sectionElementsRef.current[pendingPath]) {
+			return;
+		}
+		pendingPathScrollRef.current = null;
+		scrollToPath(pendingPath);
+	}, [renderedGroupCount, scrollToPath]);
 
 	useEffect(() => {
 		if (!scrollTarget) {
@@ -1006,12 +1090,13 @@ export function DiffViewerPanel({
 							padding: "0 12px 12px",
 						}}
 					>
-						{groupedByPath.map((group) => {
+						{visibleGroups.map((group) => {
 							const isExpanded = expandedPaths[group.path] ?? true;
 							const hasBinaryEntry = group.entries.some((entry) => entry.isBinary);
 							return (
 								<section
 									key={group.path}
+									className="kb-diff-file-section"
 									ref={(node) => {
 										sectionElementsRef.current[group.path] = node;
 									}}
@@ -1066,15 +1151,9 @@ export function DiffViewerPanel({
 															oldText={entry.oldText}
 															newText={entry.newText}
 															comments={comments}
-															onAddComment={(lineNumber, lineText, variant) =>
-																handleAddComment(group.path, lineNumber, lineText, variant)
-															}
-															onUpdateComment={(lineNumber, variant, text) =>
-																handleUpdateComment(group.path, lineNumber, variant, text)
-															}
-															onDeleteComment={(lineNumber, variant) =>
-																handleDeleteComment(group.path, lineNumber, variant)
-															}
+															onAddComment={handleAddComment}
+															onUpdateComment={handleUpdateComment}
+															onDeleteComment={handleDeleteComment}
 															onInsertRequiredChange={onInsertRequiredChange ? handleInsertRequiredChange : undefined}
 														/>
 													) : (
@@ -1083,15 +1162,9 @@ export function DiffViewerPanel({
 															oldText={entry.oldText}
 															newText={entry.newText}
 															comments={comments}
-															onAddComment={(lineNumber, lineText, variant) =>
-																handleAddComment(group.path, lineNumber, lineText, variant)
-															}
-															onUpdateComment={(lineNumber, variant, text) =>
-																handleUpdateComment(group.path, lineNumber, variant, text)
-															}
-															onDeleteComment={(lineNumber, variant) =>
-																handleDeleteComment(group.path, lineNumber, variant)
-															}
+															onAddComment={handleAddComment}
+															onUpdateComment={handleUpdateComment}
+															onDeleteComment={handleDeleteComment}
 															onInsertRequiredChange={onInsertRequiredChange ? handleInsertRequiredChange : undefined}
 														/>
 													)}

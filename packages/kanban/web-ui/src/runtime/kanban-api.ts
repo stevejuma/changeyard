@@ -34,6 +34,7 @@ import type {
 	RuntimeProjectRemoveResponse,
 	RuntimeProjectsResponse,
 	RuntimeStateStreamMessage,
+	RuntimeWorkspaceChangesResponse,
 	RuntimeWorkspaceStateResponse,
 	RuntimeWorkspaceStateSaveRequest,
 } from "@/runtime/types";
@@ -52,6 +53,7 @@ export type KanbanApiTag =
 	| "ChangeBoardSummary"
 	| "ChangeBoardFiles"
 	| "ChangeBoardFileDiff"
+	| "ChangeWorkspaceChanges"
 	| "ChangeReviews"
 	| "Directory";
 
@@ -195,6 +197,7 @@ function changeBoardTags(changeId: string) {
 		{ type: "ChangeBoardSummary" as const, id: changeId },
 		{ type: "ChangeBoardFiles" as const, id: changeId },
 		{ type: "ChangeBoardFileDiff" as const, id: changeId },
+		{ type: "ChangeWorkspaceChanges" as const, id: changeId },
 	];
 }
 
@@ -270,6 +273,7 @@ export const kanbanApi = createApi({
 		"ChangeBoardSummary",
 		"ChangeBoardFiles",
 		"ChangeBoardFileDiff",
+		"ChangeWorkspaceChanges",
 		"ChangeReviews",
 		"Directory",
 	],
@@ -416,6 +420,16 @@ export const kanbanApi = createApi({
 				}
 			},
 			providesTags: (_result, _error, arg) => [changeDetailTag(arg.id)],
+		}),
+		getChangeWorkspaceChanges: builder.query<RuntimeWorkspaceChangesResponse, ChangeQueryArg>({
+			queryFn: async ({ workspaceId, id }, { signal }) => {
+				try {
+					return { data: await query<RuntimeWorkspaceChangesResponse>("changes.getWorkspaceChanges", { id }, workspaceId, signal) };
+				} catch (error) {
+					return { error: toKanbanQueryError(error) };
+				}
+			},
+			providesTags: (_result, _error, arg) => [{ type: "ChangeWorkspaceChanges", id: arg.id }],
 		}),
 		createChange: builder.mutation<RuntimeChangeyardChangeDetail, ChangeMutationArg<RuntimeChangeyardChangeCreateRequest>>({
 			queryFn: async ({ workspaceId, input }) => {
@@ -623,6 +637,7 @@ export const {
 	useSaveChangeyardProjectConfigMutation,
 	useListChangesQuery,
 	useGetChangeQuery,
+	useGetChangeWorkspaceChangesQuery,
 	useCreateChangeMutation,
 	useUpdateChangeStatusMutation,
 	useValidateChangeMutation,

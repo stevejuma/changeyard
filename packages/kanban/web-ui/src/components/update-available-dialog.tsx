@@ -140,7 +140,7 @@ export function UpdateAvailableDialog({
 								void handleUpdateNow();
 							}}
 							disabled={phase.kind === "running"}
-							icon={phase.kind === "running" ? <Spinner size={14} className="text-accent-fg" /> : undefined}
+							icon={phase.kind === "running" ? <Spinner size={14} className="text-primary-fg" /> : undefined}
 						>
 							{phase.kind === "running" ? "Updating…" : "Update Now"}
 						</Button>

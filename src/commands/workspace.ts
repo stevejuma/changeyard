@@ -6,6 +6,7 @@ import { changesRoot, workspacesRoot } from "../paths.js";
 import { findChangeFile, findWorkspaceId } from "../state/id.js";
 import type { ChangeStatus, WorkspaceMetadata } from "../types.js";
 import { shellCommandRunner } from "../workspace/commandRunner.js";
+import { validateJjLandingDescriptions } from "../workspace/jjLandingDescriptions.js";
 import { resolveWorkspaceChangePath } from "../workspace/marker.js";
 import { deleteTaskWorkspace, verifyTaskWorkspace, type WorkspaceRepositoryKind } from "../workspace/runtimeBridge.js";
 import { isDenied } from "../workspace/patterns.js";
@@ -122,6 +123,15 @@ function jjLogValue(cwd: string, revision: string, template: string): string | n
 function jjCurrentTargetCommit(repoRoot: string, targetRef: string | undefined): string | null {
   if (!targetRef) return null;
   return jjLogValue(repoRoot, targetRef, "commit_id");
+}
+
+function jjLandingDescriptionErrors(changeId: string, metadata: WorkspaceMetadata, workspaceChangeId: string | null): string[] {
+  if (metadata.engine !== "jj" || !workspaceChangeId) return [];
+  try {
+    return validateJjLandingDescriptions(changeId, metadata, workspaceChangeId).errors;
+  } catch (error) {
+    return [`Could not inspect JJ landing descriptions: ${error instanceof Error ? error.message : String(error)}`];
+  }
 }
 
 function repositoryKind(engine: string): WorkspaceRepositoryKind | null {
@@ -251,14 +261,19 @@ export function getWorkspaceStatus(id: string, repoRoot = process.cwd()): Worksp
   const workspaceChangeId = metadata.workspaceChangeId ?? (metadata.engine === "jj" ? jjLogValue(metadata.path, "@", "change_id.short()") : null);
   const workspaceCommitId = metadata.workspaceCommitId ?? (metadata.engine === "jj" ? jjLogValue(metadata.path, "@", "commit_id") : null);
   const landingDescription = metadata.engine === "jj" && workspaceChangeId ? jjLogValue(metadata.path, workspaceChangeId, "description") : null;
-  const landingDescriptionError = metadata.engine === "jj" ? validateLandingDescription(id, landingDescription, metadata.seedDescription) : null;
+  const landingDescriptionErrors = metadata.engine === "jj"
+    ? jjLandingDescriptionErrors(changeId, metadata, workspaceChangeId)
+    : [];
+  const landingDescriptionError = landingDescriptionErrors.length > 0
+    ? `JJ workspace commit descriptions must start with ${changeId}: ${landingDescriptionErrors.join("; ")}`
+    : null;
   const currentTargetCommitId = metadata.engine === "jj" ? jjCurrentTargetCommit(repoRoot, metadata.targetRef) : null;
   const targetMoved = Boolean(metadata.baseCommitId && currentTargetCommitId && metadata.baseCommitId !== currentTargetCommitId);
   const landBlockers = [
     ...errors,
     ...(dirtyState.conflicts ? [`Workspace ${changeId} has conflicts`] : []),
     ...(metadata.engine === "jj" && !workspaceChangeId ? [`Workspace ${changeId} is missing workspaceChangeId metadata; recreate the workspace with cy start ${changeId}`] : []),
-    ...(landingDescriptionError ? [landingDescriptionError] : []),
+    ...landingDescriptionErrors,
   ];
 
   return {

@@ -109,6 +109,7 @@ describe("DiffViewerPanel", () => {
 
 		const sections = Array.from(container.querySelectorAll("section"));
 		expect(sections).toHaveLength(2);
+		expect(sections[0]?.classList.contains("kb-diff-file-section")).toBe(true);
 
 		const scrollContainer = sections[0]?.parentElement;
 		expect(scrollContainer).toBeInstanceOf(HTMLDivElement);
@@ -155,6 +156,46 @@ describe("DiffViewerPanel", () => {
 		});
 
 		expect(scrollContainer.scrollTop).toBe(547);
+	});
+
+	it("renders large diffs in file-section batches", async () => {
+		vi.useFakeTimers();
+		try {
+			const workspaceFiles: RuntimeWorkspaceFileChange[] = Array.from({ length: 10 }, (_, index) => ({
+				path: `src/file-${String(index).padStart(2, "0")}.ts`,
+				status: "modified",
+				additions: 1,
+				deletions: 0,
+				oldText: `const value${index} = 1;\n`,
+				newText: `const value${index} = 2;\n`,
+			}));
+
+			await act(async () => {
+				root.render(
+					<DiffViewerPanel
+						workspaceFiles={workspaceFiles}
+						selectedPath={null}
+						onSelectedPathChange={() => {}}
+						comments={new Map()}
+						onCommentsChange={() => {}}
+					/>,
+				);
+			});
+
+			expect(container.querySelectorAll(".kb-diff-file-section")).toHaveLength(2);
+
+			await act(async () => {
+				vi.advanceTimersByTime(50);
+			});
+			expect(container.querySelectorAll(".kb-diff-file-section")).toHaveLength(6);
+
+			await act(async () => {
+				vi.advanceTimersByTime(50);
+			});
+			expect(container.querySelectorAll(".kb-diff-file-section")).toHaveLength(10);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("scrolls to and highlights a provided line target", async () => {

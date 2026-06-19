@@ -9,15 +9,15 @@ import {
 	ShieldCheck,
 } from "lucide-react";
 import type { ReactElement, ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useState } from "react";
 
-import { MarkdownDocumentEditor, MarkdownDocumentPreview } from "@/components/markdown-document";
 import { PlanningGateList } from "@/components/changeyard/planning-gate-list";
 import { type DiffLineComment, DiffViewerPanel } from "@/components/detail-panels/diff-viewer-panel";
 import { FileTreePanel } from "@/components/detail-panels/file-tree-panel";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Dialog, DialogBody, DialogFooter, DialogHeader } from "@/components/ui/dialog";
+import { MarkdownMessageEditor, type MarkdownMessageEditorMode } from "@/components/ui/markdown-message-editor";
 import { PathDisplay } from "@/components/ui/path-display";
 import { ChangeStatusChip, StatusChip } from "@/components/ui/status-chip";
 import type { RuntimeChangeyardChangeDetail, RuntimeTaskSessionSummary } from "@/runtime/types";
@@ -179,8 +179,9 @@ export function ChangeDetailDialog({
 	onRunAction: (action: ChangeDetailAction, changeId: string) => void;
 	onSaveBody: (input: { changeId: string; body: string; expectedUpdatedAt?: string | null }) => void;
 }): ReactElement | null {
-	const [mode, setMode] = useState<"preview" | "edit">("preview");
+	const [mode, setMode] = useState<MarkdownMessageEditorMode>("preview");
 	const [detailTab, setDetailTab] = useState<DetailTab>("details");
+	const [mountedTabs, setMountedTabs] = useState<Set<DetailTab>>(() => new Set(["details"]));
 	const [draftBody, setDraftBody] = useState("");
 	const [selectedPath, setSelectedPath] = useState<string | null>(null);
 	const [diffComments, setDiffComments] = useState<Map<string, DiffLineComment>>(new Map());
@@ -195,6 +196,7 @@ export function ChangeDetailDialog({
 		if (!change) {
 			setMode("preview");
 			setDetailTab("details");
+			setMountedTabs(new Set(["details"]));
 			setDraftBody("");
 			setSelectedPath(null);
 			setDiffComments(new Map());
@@ -203,12 +205,45 @@ export function ChangeDetailDialog({
 		setDraftBody(change.body);
 		setMode("preview");
 		setDetailTab("details");
+		setMountedTabs(new Set(["details"]));
 		setSelectedPath(null);
 		setDiffComments(new Map());
 	}, [change]);
 
+	const selectDetailTab = useCallback((nextTab: DetailTab) => {
+		setDetailTab(nextTab);
+		startTransition(() => {
+			setMountedTabs((current) => {
+				if (current.has(nextTab)) {
+					return current;
+				}
+				return new Set([...current, nextTab]);
+			});
+		});
+	}, []);
+
 	const workspaceFiles = workspaceChanges?.files ?? null;
 	const availablePaths = useMemo(() => workspaceFiles?.map((file) => file.path) ?? [], [workspaceFiles]);
+	const saveBody = useCallback(
+		(nextBody: string) => {
+			if (!change) {
+				return;
+			}
+			onSaveBody({
+				changeId: change.id,
+				body: nextBody,
+				expectedUpdatedAt: change.updatedAt ?? null,
+			});
+		},
+		[change, onSaveBody],
+	);
+	const handleTaskListToggle = useCallback(
+		(nextBody: string) => {
+			setDraftBody(nextBody);
+			saveBody(nextBody);
+		},
+		[saveBody],
+	);
 
 	useEffect(() => {
 		if (selectedPath && availablePaths.includes(selectedPath)) {
@@ -228,6 +263,7 @@ export function ChangeDetailDialog({
 	const workspaceFileCount = workspaceFiles?.length ?? 0;
 	const hasWorkspacePath = Boolean(change.workspace?.path);
 	const hasWorkspaceFileChanges = workspaceFileCount > 0;
+	const shouldRenderChangesTab = mountedTabs.has("changes");
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange} contentClassName="!max-w-[1180px] h-[88vh]">
@@ -260,92 +296,99 @@ export function ChangeDetailDialog({
 				<div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
 					<aside className="flex min-h-0 flex-col rounded-md border border-divider bg-surface-0">
 						<div className="flex gap-1 border-b border-divider bg-surface-1 p-2">
-							<DetailTabButton active={detailTab === "details"} onClick={() => setDetailTab("details")}>
+							<DetailTabButton active={detailTab === "details"} onClick={() => selectDetailTab("details")}>
 								Details
 							</DetailTabButton>
-							<DetailTabButton active={detailTab === "changes"} onClick={() => setDetailTab("changes")}>
+							<DetailTabButton active={detailTab === "changes"} onClick={() => selectDetailTab("changes")}>
 								Changes
 							</DetailTabButton>
 						</div>
 						<div className="min-h-0 flex-1 overflow-hidden px-3 py-2">
-							{detailTab === "details" ? (
-								<div className="flex h-full min-h-0 flex-col">
-									<div className="min-h-0 flex-1 overflow-y-auto">
-										<PropertyRow label="Status">
-											<ChangeStatusChip status={change.status} />
-										</PropertyRow>
-										<PropertyRow label="Type">
-											<StatusChip label={change.type} />
-										</PropertyRow>
-										<PropertyRow label="Session">
-											<SessionProperty summary={sessionSummary} />
-										</PropertyRow>
-										<PropertyRow label="Path">
-											<PathDisplay path={change.path} repoRoot={repoRoot} />
-										</PropertyRow>
-										<PropertyRow label="Workspace">
-											{change.workspace?.path ? (
-												<PathDisplay path={change.workspace.path} repoRoot={repoRoot} />
-											) : (
-												<span className="text-text-tertiary">Not started</span>
-											)}
-										</PropertyRow>
-										<PropertyRow label="Branch">
-											{change.workspace?.branch ? (
-												<span className="break-all font-mono text-xs">{change.workspace.branch}</span>
-											) : (
-												<span className="text-text-tertiary">None</span>
-											)}
-										</PropertyRow>
-										{hasWorkspaceFileChanges ? (
-											<>
-												<PropertyRow label="Files">
-													<span>{workspaceFileCount}</span>
-												</PropertyRow>
-												<PropertyRow label="Diff">
-													<span>
-														<span className="text-status-green">+{totalAdditions}</span>{" "}
-														<span className="text-status-red">-{totalDeletions}</span>
-													</span>
-												</PropertyRow>
-											</>
-										) : null}
-										<PropertyRow label="Labels">
-											{change.labels.length ? (
-												<div className="flex flex-wrap gap-1.5">
-													{change.labels.map((label) => (
-														<StatusChip key={label} label={label} />
-													))}
-												</div>
-											) : (
-												<span className="text-text-tertiary">None</span>
-											)}
-										</PropertyRow>
-										<PropertyRow label="Updated">
-											{change.updatedAt ? (
-												<span>{new Date(change.updatedAt).toLocaleString()}</span>
-											) : (
-												<span className="text-text-tertiary">Unknown</span>
-											)}
-										</PropertyRow>
-										<div className="border-b border-divider/60 py-2 text-sm font-semibold text-text-primary">
-											Planning Gates
-										</div>
-										<PlanningGateList planning={change.planning} variant="properties" />
-									</div>
-									{change.planning?.nextAction ? (
-										<div className="mt-3 shrink-0 rounded-md border border-status-gold/35 bg-status-gold/10 px-3 py-2">
-											<div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-status-gold">
-												Next Action
-											</div>
-											<p className="text-sm font-medium leading-relaxed text-text-primary">
-												{change.planning.nextAction}
-											</p>
-										</div>
+							<div
+								className="flex h-full min-h-0 flex-col"
+								hidden={detailTab !== "details"}
+								aria-hidden={detailTab !== "details"}
+							>
+								<div className="min-h-0 flex-1 overflow-y-auto">
+									<PropertyRow label="Status">
+										<ChangeStatusChip status={change.status} />
+									</PropertyRow>
+									<PropertyRow label="Type">
+										<StatusChip label={change.type} />
+									</PropertyRow>
+									<PropertyRow label="Session">
+										<SessionProperty summary={sessionSummary} />
+									</PropertyRow>
+									<PropertyRow label="Path">
+										<PathDisplay path={change.path} repoRoot={repoRoot} />
+									</PropertyRow>
+									<PropertyRow label="Workspace">
+										{change.workspace?.path ? (
+											<PathDisplay path={change.workspace.path} repoRoot={repoRoot} />
+										) : (
+											<span className="text-text-tertiary">Not started</span>
+										)}
+									</PropertyRow>
+									<PropertyRow label="Branch">
+										{change.workspace?.branch ? (
+											<span className="break-all font-mono text-xs">{change.workspace.branch}</span>
+										) : (
+											<span className="text-text-tertiary">None</span>
+										)}
+									</PropertyRow>
+									{hasWorkspaceFileChanges ? (
+										<>
+											<PropertyRow label="Files">
+												<span>{workspaceFileCount}</span>
+											</PropertyRow>
+											<PropertyRow label="Diff">
+												<span>
+													<span className="text-status-green">+{totalAdditions}</span>{" "}
+													<span className="text-status-red">-{totalDeletions}</span>
+												</span>
+											</PropertyRow>
+										</>
 									) : null}
+									<PropertyRow label="Labels">
+										{change.labels.length ? (
+											<div className="flex flex-wrap gap-1.5">
+												{change.labels.map((label) => (
+													<StatusChip key={label} label={label} />
+												))}
+											</div>
+										) : (
+											<span className="text-text-tertiary">None</span>
+										)}
+									</PropertyRow>
+									<PropertyRow label="Updated">
+										{change.updatedAt ? (
+											<span>{new Date(change.updatedAt).toLocaleString()}</span>
+										) : (
+											<span className="text-text-tertiary">Unknown</span>
+										)}
+									</PropertyRow>
+									<div className="border-b border-divider/60 py-2 text-sm font-semibold text-text-primary">
+										Planning Gates
+									</div>
+									<PlanningGateList planning={change.planning} variant="properties" />
 								</div>
-							) : (
-								<div className="flex h-full min-h-0 flex-col">
+								{change.planning?.nextAction ? (
+									<div className="mt-3 shrink-0 rounded-md border border-status-gold/35 bg-status-gold/10 px-3 py-2">
+										<div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-status-gold">
+											Next Action
+										</div>
+										<p className="text-sm font-medium leading-relaxed text-text-primary">
+											{change.planning.nextAction}
+										</p>
+									</div>
+								) : null}
+							</div>
+							{shouldRenderChangesTab ? (
+								<div
+									className="flex h-full min-h-0 flex-col"
+									hidden={detailTab !== "changes"}
+									aria-hidden={detailTab !== "changes"}
+								>
 									{hasWorkspaceFileChanges ? (
 										<FileTreePanel
 											workspaceFiles={workspaceFiles}
@@ -359,81 +402,69 @@ export function ChangeDetailDialog({
 										<div className="flex flex-1 items-center justify-center px-3 text-center text-sm text-text-secondary">
 											{!hasWorkspacePath
 												? "Start this change to create a workspace before reviewing file changes."
-												: workspaceFiles === null
-													? "Loading workspace changes..."
-													: "No workspace file changes recorded for this change."}
+											: workspaceFiles === null
+												? "Loading workspace changes..."
+												: "No workspace file changes recorded for this change."}
 										</div>
 									)}
 								</div>
-							)}
+							) : null}
 						</div>
 					</aside>
 
-					<div className="flex min-h-0 flex-col rounded-md border border-divider bg-surface-0">
-						{detailTab === "details" ? (
-							<>
-								<div className="flex items-center gap-2 border-b border-divider px-3 py-2">
-									<Button
-										variant={mode === "preview" ? "primary" : "ghost"}
-										size="sm"
-										onClick={() => setMode("preview")}
-										disabled={isActionPending}
-									>
-										Preview
-									</Button>
-									<Button
-										variant={mode === "edit" ? "primary" : "ghost"}
-										size="sm"
-										onClick={() => setMode("edit")}
-										disabled={isActionPending}
-									>
-										Edit
-									</Button>
-								</div>
-								<div className="min-h-0 flex-1 overflow-y-auto">
-									{mode === "edit" ? (
-										<MarkdownDocumentEditor
-											value={draftBody}
-											onChange={setDraftBody}
-											disabled={isActionPending}
-											className="h-full"
-										/>
-									) : (
-										<div className="px-4 py-3">
-											<MarkdownDocumentPreview
-												source={draftBody}
-												emptyLabel="This change body is currently empty."
-											/>
-										</div>
-									)}
-								</div>
-							</>
-						) : !hasWorkspacePath ? (
-							<div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-text-secondary">
-								Start this change to create a workspace before reviewing file changes.
-							</div>
-						) : !isRuntimeAvailable ? (
-							<div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-text-secondary">
-								Runtime workspace changes are not available for this project.
-							</div>
-						) : workspaceFiles === null ? (
-							<div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-text-secondary">
-								Loading workspace changes...
-							</div>
-						) : !hasWorkspaceFileChanges ? (
-							<div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-text-secondary">
-								No workspace file changes recorded for this change.
-							</div>
-						) : (
-							<DiffViewerPanel
-								workspaceFiles={workspaceFiles}
-								selectedPath={selectedPath}
-								onSelectedPathChange={setSelectedPath}
-								viewMode="unified"
-								comments={diffComments}
-								onCommentsChange={setDiffComments}
+					<div className="flex min-h-0 flex-col overflow-hidden rounded-md border border-divider bg-surface-0">
+						<div
+							className="flex min-h-0 flex-1 flex-col overflow-hidden"
+							hidden={detailTab !== "details"}
+							aria-hidden={detailTab !== "details"}
+						>
+							<MarkdownMessageEditor
+								value={draftBody}
+								onChange={setDraftBody}
+								mode={mode}
+								onModeChange={setMode}
+								disabled={isActionPending}
+								height="calc(100% - 3rem)"
+								previewEmptyLabel="_This change body is currently empty._"
+								previewFirst
+								onTaskListToggle={handleTaskListToggle}
+								className="h-full rounded-none border-0 shadow-none"
 							/>
-						)}
+						</div>
+						{shouldRenderChangesTab ? (
+							<div
+								className="flex min-h-0 flex-1 flex-col overflow-hidden"
+								hidden={detailTab !== "changes"}
+								aria-hidden={detailTab !== "changes"}
+							>
+								{!hasWorkspacePath ? (
+									<div className="flex h-full flex-1 items-center justify-center px-6 text-center text-sm text-text-secondary">
+										Start this change to create a workspace before reviewing file changes.
+									</div>
+								) : !isRuntimeAvailable ? (
+									<div className="flex h-full flex-1 items-center justify-center px-6 text-center text-sm text-text-secondary">
+										Runtime workspace changes are not available for this project.
+									</div>
+								) : workspaceFiles === null ? (
+									<div className="flex h-full flex-1 items-center justify-center px-6 text-center text-sm text-text-secondary">
+										Loading workspace changes...
+									</div>
+								) : !hasWorkspaceFileChanges ? (
+									<div className="flex h-full flex-1 items-center justify-center px-6 text-center text-sm text-text-secondary">
+										No workspace file changes recorded for this change.
+									</div>
+								) : (
+									<DiffViewerPanel
+										workspaceFiles={workspaceFiles}
+										selectedPath={selectedPath}
+										onSelectedPathChange={setSelectedPath}
+										viewMode="unified"
+										comments={diffComments}
+										onCommentsChange={setDiffComments}
+									/>
+								)}
+							</div>
+						) : null}
 					</div>
 				</div>
 			</DialogBody>
@@ -446,13 +477,7 @@ export function ChangeDetailDialog({
 				</Button>
 				<Button
 					variant="primary"
-					onClick={() =>
-						onSaveBody({
-							changeId: change.id,
-							body: draftBody,
-							expectedUpdatedAt: change.updatedAt ?? null,
-						})
-					}
+					onClick={() => saveBody(draftBody)}
 					disabled={!isDirty || isActionPending}
 				>
 					Save Markdown

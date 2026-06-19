@@ -461,15 +461,17 @@ function BoardFileList({
 			getFileRowClassName={() => "group text-[12px] transition-colors hover:bg-surface-3"}
 			getDirectoryRowClassName={() => "text-[12px] font-medium transition-colors hover:bg-surface-3"}
 			renderFileLeading={({ file }) => <FileStatusGlyph status={file.status} />}
-			renderFileLabel={({ file }) => (
-				<span className="min-w-0 flex-1 truncate text-text-secondary" title={file.path}>
+			renderFileLabel={({ file, isSelected }) => (
+				<span className={cn("min-w-0 flex-1 truncate", isSelected ? "text-text-primary" : "text-text-secondary")} title={file.path}>
 					{file.previousPath ? `${file.previousPath} -> ${file.path}` : file.path}
 				</span>
 			)}
-			renderFileMeta={({ file }) => (
+			renderFileMeta={({ file, isSelected }) => (
 				<>
-					<span className="ml-auto shrink-0 text-green-600">{formatDelta(file.additions, "+")}</span>
-					<span className="shrink-0 text-red-600">{formatDelta(file.deletions, "-")}</span>
+					<span className={cn("ml-auto shrink-0", isSelected ? "text-text-primary" : "text-green-600")}>
+						{formatDelta(file.additions, "+")}
+					</span>
+					<span className={cn("shrink-0", isSelected ? "text-text-primary" : "text-red-600")}>{formatDelta(file.deletions, "-")}</span>
 				</>
 			)}
 		/>
@@ -544,6 +546,7 @@ function ChangeFileBanner({
 	summary,
 	filesResponse,
 	isExpanded,
+	frameless = false,
 	isLoading,
 	error,
 	viewMode,
@@ -557,6 +560,7 @@ function ChangeFileBanner({
 	summary: RuntimeChangeyardBoardSummaryResponse | null;
 	filesResponse: RuntimeChangeyardBoardFilesResponse | null;
 	isExpanded: boolean;
+	frameless?: boolean;
 	isLoading: boolean;
 	error: Error | null;
 	viewMode: BoardFileViewMode;
@@ -573,7 +577,7 @@ function ChangeFileBanner({
 	const deletions = aggregateStats?.deletions ?? loadedFiles.reduce((total, file) => total + file.deletions, 0);
 
 	return (
-		<div className="mx-2 mb-2 rounded-lg border border-divider bg-surface-0">
+		<div className={cn("mx-2 mb-2 rounded-lg bg-surface-0", frameless ? null : "border border-divider")}>
 			<button
 				type="button"
 				className="flex w-full items-center gap-2 px-2 py-2 text-left"
@@ -593,7 +597,7 @@ function ChangeFileBanner({
 				<BoardFilesToggle mode={viewMode} onModeChange={onViewModeChange} />
 			</button>
 			{isExpanded ? (
-				<div className="border-t border-divider">
+				<div className={cn(frameless ? null : "border-t border-divider")}>
 					{isLoading ? (
 						<div className="px-2 py-2 text-[12px] text-text-tertiary">Loading files...</div>
 					) : error ? (
@@ -930,6 +934,7 @@ function ChangeCard({
 			});
 		});
 	};
+	const isCardSelected = selected && selectedCommitHash === null;
 
 	return (
 		<Draggable draggableId={encodeChangeDraggableId(change.id)} index={index}>
@@ -942,9 +947,8 @@ function ChangeCard({
 					data-dependency-node-id={encodeChangeNodeId(change.id)}
 					data-column-id={columnId}
 					className={cn(
-						"overflow-hidden rounded-lg border text-left transition-colors",
-						selected && selectedCommitHash === null ? "border-divider bg-surface-2" : "border-divider bg-surface-0 hover:bg-surface-2",
-						selected && selectedCommitHash === null ? "kb-change-card-selected" : null,
+						"overflow-hidden rounded-lg text-left transition-colors",
+						isCardSelected ? "border border-divider bg-surface-2" : "border border-divider bg-surface-0 hover:bg-surface-2",
 						isDependencySource ? "kb-board-card-dependency-source" : null,
 						isDependencyTarget ? "kb-board-card-dependency-target" : null,
 					)}
@@ -977,7 +981,7 @@ function ChangeCard({
 					}}
 				>
 					<div className="relative flex items-start gap-2 px-3 py-2">
-						{selected && selectedCommitHash === null ? (
+						{isCardSelected ? (
 							<span
 								aria-hidden
 								className="absolute left-0 top-1/2 h-12 w-1 -translate-y-1/2 rounded-r-full bg-accent"
@@ -1033,6 +1037,7 @@ function ChangeCard({
 							summary={summary}
 							filesResponse={allFiles}
 							isExpanded={allFilesExpanded}
+							frameless={isCardSelected}
 							isLoading={summaryLoading || allFilesLoading}
 							error={summaryError ?? allFilesError}
 							viewMode={allFilesMode}
@@ -1051,7 +1056,7 @@ function ChangeCard({
 							}}
 						/>
 					) : null}
-					<div className="flex items-center gap-2 border-y border-divider bg-surface-1 px-3 py-2">
+					<div className={cn("flex items-center gap-2 bg-surface-1 px-3 py-2", isCardSelected ? null : "border-y border-divider")}>
 						<StatusChip label={change.type} />
 						<PlanningBadge planning={change.planning} />
 						<span className="min-w-0 flex-1" />
@@ -1126,6 +1131,7 @@ function ChangeCard({
 													summary={summary}
 													filesResponse={commitFiles[commit.hash] ?? null}
 													isExpanded
+													frameless={commitSelected}
 													isLoading={commitFileLoading[commit.hash] ?? false}
 													error={commitFileErrors[commit.hash] ?? null}
 													viewMode={commitFilesMode}

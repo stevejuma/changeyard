@@ -8,4 +8,5 @@ Verify workspace context before making code changes.
 1. Run `cy verify <id>` from inside the expected workspace checkout.
 2. If verification fails, **halt all implementation work.** Do not edit files in the main repo or workspace.
 3. Diagnose with `cy doctor` or fix the workspace/CLI issue, then re-run verify from the path printed by `cy start <id>`.
-4. Only edit files inside the verified workspace after verify passes.
+4. For JJ workspaces, every commit in the landing stack must start with the change id, for example `CY-0001: Add parser validation`.
+5. Only edit files inside the verified workspace after verify passes.

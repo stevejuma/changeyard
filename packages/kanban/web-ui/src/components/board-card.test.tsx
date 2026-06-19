@@ -212,7 +212,7 @@ describe("BoardCard", () => {
 		expect(trashButton?.querySelector("svg.animate-spin")).toBeTruthy();
 	});
 
-	it("marks the selected card shell for tokenized selected styling", async () => {
+	it("marks the selected card shell state", async () => {
 		await act(async () => {
 			root.render(<BoardCard card={createCard()} index={0} columnId="backlog" selected />);
 		});

@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @source "../../../../vcs/src";
+@source "../../../../web-ui/src";
 
 @theme {
 	/* Surface hierarchy */
@@ -24,6 +25,9 @@
 	--color-accent: #0084FF;
 	--color-accent-hover: #339DFF;
 	--color-accent-fg: #000000;
+	--color-primary: #005CC8;
+	--color-primary-hover: #0969DA;
+	--color-primary-fg: #FFFFFF;
 	--color-accent-2: #7C5CFF;
 	--color-accent-2-hover: #9B82FF;
 	--color-accent-2-fg: #000000;
@@ -56,6 +60,9 @@
 	color-scheme: dark;
 	--kb-open-target-icon-filter: brightness(0) invert(1);
 	--kb-open-target-icon-opacity: 0.9;
+	--color-primary: #005CC8;
+	--color-primary-hover: #0969DA;
+	--color-primary-fg: #FFFFFF;
 	--kb-selected-bg: var(--color-accent);
 	--kb-selected-fg: var(--color-accent-fg);
 	--kb-selected-muted-fg: var(--color-accent-fg);
@@ -362,21 +369,13 @@ body,
 
 .cy-markdown-editor,
 .cy-markdown-preview {
+	--color-canvas-default: var(--color-surface-0);
+	--color-canvas-subtle: var(--color-surface-1);
 	--color-border-default: var(--color-border);
 	--color-border-muted: var(--color-divider);
 	--color-fg-default: var(--color-text-primary);
 	--color-fg-muted: var(--color-text-secondary);
 	--color-accent-fg: var(--color-accent);
-}
-
-.cy-markdown-editor {
-	--color-canvas-default: var(--color-surface-0);
-	--color-canvas-subtle: var(--color-surface-1);
-}
-
-.cy-markdown-preview {
-	--color-canvas-default: transparent;
-	--color-canvas-subtle: var(--color-surface-1);
 }
 
 .cy-markdown-editor .w-md-editor {
@@ -431,14 +430,13 @@ body,
 	color: var(--color-text-primary) !important;
 }
 
-.cy-markdown-editor .w-md-editor-preview {
+.cy-markdown-editor .w-md-editor-preview,
+.cy-markdown-preview .wmde-markdown {
 	background: var(--color-surface-0);
 	color: var(--color-text-primary);
 }
 
 .cy-markdown-preview .wmde-markdown {
-	background: transparent;
-	color: var(--color-text-primary);
 	font-family: var(--font-sans);
 	font-size: 13px;
 }
@@ -455,14 +453,14 @@ body,
 	border: 1px solid var(--color-border-bright);
 	border-radius: 0.25em;
 	background: var(--color-surface-1);
-	color: var(--text-accent-fg, var(--color-accent-fg));
+	color: var(--color-primary-fg);
 }
 
 .cy-markdown-editor .w-md-editor-preview input[type='checkbox']:checked,
 .cy-markdown-preview .wmde-markdown input[type='checkbox']:checked,
 .kb-markdown input[type='checkbox']:checked {
-	border-color: var(--color-accent);
-	background: var(--color-accent);
+	border-color: var(--color-primary);
+	background: var(--color-primary);
 }
 
 .cy-markdown-editor .w-md-editor-preview input[type='checkbox']:checked::after,
@@ -474,9 +472,19 @@ body,
 	top: 0.1em;
 	width: 0.28em;
 	height: 0.56em;
-	border: solid var(--text-accent-fg, var(--color-accent-fg));
+	border: solid var(--color-primary-fg);
 	border-width: 0 0.13em 0.13em 0;
 	transform: rotate(45deg);
+}
+
+.cy-markdown-preview[data-checklist-toggle='true'] .wmde-markdown input[type='checkbox'] {
+	cursor: pointer;
+}
+
+.cy-markdown-preview .wmde-markdown input[type='checkbox']:focus-visible,
+.kb-markdown input[type='checkbox']:focus-visible {
+	outline: 2px solid var(--color-border-focus);
+	outline-offset: 2px;
 }
 
 .cy-markdown-editor .w-md-editor-preview input[type='checkbox']:disabled,
@@ -574,27 +582,12 @@ body,
 	z-index: 2;
 }
 
-.kb-board-card-shell[data-selected="true"] {
-	outline: 2px solid var(--kb-selected-border);
-	border-radius: var(--radius-md);
-}
-
-.kb-board-card-shell[data-selected="true"] > div {
-	border-color: var(--kb-selected-border);
-	box-shadow: 0 0 0 1px var(--kb-selected-border);
-}
-
 .kb-board-card-dependency-source {
 	box-shadow: inset 0 0 0 1px var(--color-accent);
 }
 
 .kb-board-card-dependency-target {
 	box-shadow: inset 0 0 0 1px var(--color-accent);
-}
-
-.kb-change-card-selected {
-	border-color: var(--kb-selected-border);
-	box-shadow: inset 2px 0 0 var(--kb-selected-border);
 }
 
 /* -- Dependency overlay -- */
@@ -771,13 +764,13 @@ body.kb-dependency-link-mode {
 }
 
 .kb-file-tree-row-selected {
-	background: var(--kb-selected-bg);
-	color: var(--kb-selected-fg);
+	background: var(--color-surface-3);
+	color: var(--color-text-primary);
 }
 
 .kb-file-tree-row.kb-file-tree-row-selected:hover {
-	background: var(--kb-selected-bg);
-	color: var(--kb-selected-fg);
+	background: var(--color-surface-3);
+	color: var(--color-text-primary);
 }
 
 .kb-file-type-icon {
@@ -791,8 +784,8 @@ body.kb-dependency-link-mode {
 }
 
 .kb-file-tree-row-selected .kb-file-type-icon {
-	background: color-mix(in srgb, var(--kb-selected-fg) 92%, var(--kb-selected-bg) 8%);
-	box-shadow: 0 0 0 1px color-mix(in srgb, var(--kb-selected-fg) 48%, transparent);
+	background: var(--color-surface-1);
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-border-bright) 70%, transparent);
 }
 
 .kb-file-tree-row-conflict.kb-file-tree-row-selected .kb-file-type-icon {
@@ -805,9 +798,9 @@ body.kb-dependency-link-mode {
 }
 
 .kb-file-tree-row-selected .kb-file-status-glyph {
-	background: var(--color-surface-0);
+	background: var(--color-surface-1);
 	color: var(--color-text-primary);
-	box-shadow: 0 0 0 1px color-mix(in srgb, var(--kb-selected-fg) 48%, transparent);
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-border-bright) 70%, transparent);
 }
 
 .kb-file-tree-row-conflict.kb-file-tree-row-selected .kb-file-status-glyph {

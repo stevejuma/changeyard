@@ -36,8 +36,8 @@
 }
 
 .kb-file-tree-row-selected .kb-file-type-icon {
-	background: color-mix(in srgb, var(--kb-selected-fg) 92%, var(--kb-selected-bg) 8%);
-	box-shadow: 0 0 0 1px color-mix(in srgb, var(--kb-selected-fg) 48%, transparent);
+	background: var(--color-surface-1);
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-border-bright) 70%, transparent);
 }
 
 .kb-file-tree-row-conflict.kb-file-tree-row-selected .kb-file-type-icon {
@@ -50,9 +50,9 @@
 }
 
 .kb-file-tree-row-selected .kb-file-status-glyph {
-	background: var(--color-surface-0);
+	background: var(--color-surface-1);
 	color: var(--color-text-primary);
-	box-shadow: 0 0 0 1px color-mix(in srgb, var(--kb-selected-fg) 48%, transparent);
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-border-bright) 70%, transparent);
 }
 
 .kb-file-tree-row-conflict.kb-file-tree-row-selected .kb-file-status-glyph {
@@ -60,13 +60,13 @@
 }
 
 .kb-file-tree-row-selected {
-	background: var(--kb-selected-bg);
-	color: var(--kb-selected-fg);
+	background: var(--color-surface-3);
+	color: var(--color-text-primary);
 }
 
 .kb-file-tree-row.kb-file-tree-row-selected:hover {
-	background: var(--kb-selected-bg);
-	color: var(--kb-selected-fg);
+	background: var(--color-surface-3);
+	color: var(--color-text-primary);
 }
 
 .kb-file-tree-row-conflict {

@@ -21,3 +21,5 @@ cy start CY-0001 [--dry-run]
 cy start CY-0001
 cy start CY-0001 --dry-run
 ```
+
+For JJ workspaces, `cy start` describes the workspace working-copy commit as `CY-0001: <change title>`. Keep every later workspace commit message prefixed with the same change id.

@@ -190,16 +190,14 @@ function VcsFileStats({
 	file: VcsFileChange;
 	isSelected: boolean;
 }): React.ReactElement | null {
-	const addedClassName = isSelected ? "text-accent-fg" : "text-status-green";
-	const removedClassName = isSelected ? "text-accent-fg" : "text-status-red";
 	if ((file.additions ?? 0) <= 0 && (file.deletions ?? 0) <= 0) {
 		return null;
 	}
 
 	return (
 		<span className="ml-auto flex shrink-0 gap-1 font-mono text-[10px]">
-			{(file.additions ?? 0) > 0 ? <span className={addedClassName}>+{file.additions}</span> : null}
-			{(file.deletions ?? 0) > 0 ? <span className={removedClassName}>-{file.deletions}</span> : null}
+			{(file.additions ?? 0) > 0 ? <span className={isSelected ? "text-text-primary" : "text-status-green"}>+{file.additions}</span> : null}
+			{(file.deletions ?? 0) > 0 ? <span className={isSelected ? "text-text-primary" : "text-status-red"}>-{file.deletions}</span> : null}
 		</span>
 	);
 }

@@ -179,7 +179,7 @@ The default provider is `noop`, which updates the local change metadata without 
 
 ## Workspace start and verify
 
-The default workspace engine is `plain-copy`. `cy start <id>` copies the repository into `.changeyard/workspaces/<id>/repo`, excluding VCS data, Changeyard runtime state, and configured `neverCopy` patterns. Changeyard also includes `jj` and `git-worktree` engines: set `vcs.engine` to `jj` to run `jj workspace add --name <workspace> <path>`, or `git-worktree` to run `git worktree add -b <branch> <path>`. Start writes workspace metadata next to the checkout, hydrates explicitly allowlisted files, updates the change to `in_progress`, and prints the next `cd` and `cy verify` commands. `cy verify <id>` must be run from inside that workspace and checks both the workspace marker and the engine-specific workspace status before allowing work to proceed.
+The default workspace engine is `plain-copy`. `cy start <id>` copies the repository into `.changeyard/workspaces/<id>/repo`, excluding VCS data, Changeyard runtime state, and configured `neverCopy` patterns. Changeyard also includes `jj` and `git-worktree` engines: set `vcs.engine` to `jj` to run `jj workspace add --name <workspace> <path>`, or `git-worktree` to run `git worktree add -b <branch> <path>`. Start writes workspace metadata next to the checkout, hydrates explicitly allowlisted files, updates the change to `in_progress`, and prints the next `cd` and `cy verify` commands. For JJ workspaces, start describes the workspace working-copy commit as `CY-0001: <change title>`. `cy verify <id>` must be run from inside that workspace and checks both the workspace marker and the engine-specific workspace status before allowing work to proceed.
 
 `cy hub` manages one shared local UI/runtime process. `cy --dashboard`, `cy --kanban`, `cy --vcs`, and `cy --tui` reuse that hub by default instead of starting separate backends. The dashboard is served at `/`, Kanban at `/kanban`, and VCS at `/vcs`; `cy hub status`, `cy hub restart`, and `cy hub stop` manage the background process. Hub pid/state/log files and change-write locks are stored in Changeyard app state, not in the project worktree: set `CHANGEYARD_HOME` to override the location, otherwise macOS uses `~/Library/Application Support/Changeyard`, Linux uses `${XDG_STATE_HOME:-~/.local/state}/changeyard`, and Windows uses `%LOCALAPPDATA%/Changeyard`. Existing repo-local dashboard server state is still tolerated so old processes can be stopped cleanly.
 
@@ -207,7 +207,7 @@ For any non-trivial future code change, agents should follow this protocol:
 4. Sync if a provider is configured.
 5. Start an isolated workspace.
 6. Run `cy verify <id>` from the workspace before editing.
-7. Work only inside the verified workspace.
+7. Work only inside the verified workspace. For large or multi-step changes, make multiple logical commits so review can happen in smaller pieces; every workspace commit message must start with the change id, for example `CY-0001: Add parser validation`.
 8. Update Completion Notes with changed areas, checks run, and remaining risks or follow-ups.
 9. Run `cy complete <id> --no-pr`.
 10. Start and complete a markdown review if needed.
