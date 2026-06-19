@@ -1,12 +1,17 @@
 # VCS App Spec
 
-The VCS app is a provider-neutral UI for repository stacks, workspace state, diffs, previews, and safe mutations. JJ is the most complete provider today. Git has a shared subset, but this section documents the JJ behavior as the reference implementation.
+The VCS app is a provider-neutral UI for repository stacks, workspace state, diffs, previews, and safe mutations. JJ is the reference provider today. Git shares the neutral contract where supported, but provider-specific mechanics stay behind backend adapters.
+
+The app is served by the same global hub as dashboard and Kanban. It uses the active project/workspace context and routes read and mutation requests through runtime APIs.
 
 ## Documents
 
+- [VCS Core Workflow](core-workflow.md): inspect repository state, preview operations, apply changes, and submit stacks.
+- [VCS Provider Model](provider-model.md): neutral operation contract and provider-specific boundaries.
 - [JJ Supported Functionality](jj-supported-functionality.md): support matrix for JJ operations.
 - [JJ UI Interactions](jj-ui-interactions.md): user-facing flows and neutral operation mapping.
 - [JJ Backend Queries And Commands](jj-backend-queries.md): command and revset reference for the JJ provider.
+- [VCS Troubleshooting](troubleshooting.md): common diagnostics and recovery paths.
 - [Agent Notes For VCS Work](agent-notes.md): guardrails and checklists for future changes.
 - [Legacy JJ VCS Overview](../vcs-jj.md): older overview retained for route and runtime context.
 
@@ -60,3 +65,13 @@ The Apply button is enabled only when the loaded preview still matches the pendi
 ## Remote Discovery Rule
 
 Read paths must not run `jj git fetch`. Remote bookmark discovery is local-store only and defaults to `vcs.remoteBookmarks.mode = "local"`, which avoids `jj bookmark list --all-remotes`. Projects that need remote-only inventory can opt into `mode = "all"` or `mode = "tracked"` and should scope discovery with `remotes` and `prefixes`.
+
+## Runtime Rule
+
+The VCS app should not start a separate server. Open it through the shared hub:
+
+```sh
+cy --vcs
+```
+
+Use `cy hub list` or the dashboard to confirm which hub instance is serving the page.

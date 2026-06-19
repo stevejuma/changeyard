@@ -9,7 +9,8 @@
     "packages/merge",
     "packages/tui",
     "packages/vcs",
-    "packages/web-ui"
+    "packages/web-ui",
+    "packages/docs"
   ],
   "bin": {
     "changeyard": "./scripts/cy.mjs",
@@ -22,9 +23,13 @@
 		"build:kanban": "pnpm --filter @changeyard/kanban run build",
 		"build:tui": "pnpm --filter @changeyard/tui run build",
 		"build:desktop": "pnpm --filter @changeyard/desktop run build",
+		"build:docs": "pnpm --filter @changeyard/docs run build",
 		"dev:desktop": "pnpm --filter @changeyard/desktop install && pnpm run build:cli && pnpm run build:kanban && pnpm --filter @changeyard/desktop run dev",
 		"dev:desktop:vite": "pnpm --filter @changeyard/desktop install && pnpm run build:cli && pnpm run build:kanban && pnpm --filter @changeyard/desktop run dev:vite",
 		"build": "pnpm run build:cli && pnpm run build:merge && pnpm run build:vcs && pnpm run build:kanban && pnpm run build:tui && pnpm run build:desktop",
+		"docs:dev": "pnpm --filter @changeyard/docs run dev",
+		"docs:build": "pnpm run build:docs",
+		"docs:preview": "pnpm --filter @changeyard/docs run preview",
 		"cli": "node scripts/cy.mjs",
     "cy": "node scripts/cy.mjs",
     "cy:dev": "CHANGEYARD_DEV=1 node scripts/cy.mjs",

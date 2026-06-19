@@ -1,5 +1,7 @@
 # Kanban Upstream Provenance
 
+Primary upstream provenance docs now live at `docs/kanban/upstream.md`. This page remains as a compatibility reference for the original import notes.
+
 This document records the upstream provenance for the ChangeYard kanban package. It is not an instruction to treat the vendored snapshot as an active second package.
 
 ## Pinned upstream revision

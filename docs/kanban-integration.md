@@ -1,5 +1,7 @@
 # Changeyard Kanban Integration
 
+Primary Kanban docs now live under `docs/kanban/`. This page remains as a compatibility reference for integration details.
+
 Changeyard uses Kanban as an embedded UI/runtime surface, not as a second task database.
 
 ## Source of truth
