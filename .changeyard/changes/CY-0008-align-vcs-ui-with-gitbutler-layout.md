@@ -8,7 +8,7 @@ labels:
   - agent-ready
 author: stevejuma
 createdAt: 2026-06-12T10:01:13.917Z
-updatedAt: 2026-06-18T14:55:36.874Z
+updatedAt: 2026-06-18T16:10:09.733Z
 base:
   vcs: unknown
   revision: main
@@ -18,6 +18,10 @@ workspace:
   path: .changeyard/workspaces/CY-0008/repo
 branch:
   name: cy/CY-0008-align-vcs-ui-with-gitbutler-layout
+  required: false
+  waivedAt: 2026-06-18T16:10:09.733Z
+  waivedBy: cy doctor
+  waiverReason: Missing JJ bookmark accepted because this approved change no longer requires a PR branch.
 remote:
   provider: noop
   issueNumber: null

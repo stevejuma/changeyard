@@ -8,7 +8,7 @@ labels:
   - agent-ready
 author: stevejuma
 createdAt: 2026-06-14T12:01:27.967Z
-updatedAt: 2026-06-18T14:57:20.544Z
+updatedAt: 2026-06-18T16:10:10.245Z
 base:
   vcs: unknown
   revision: main
@@ -18,6 +18,10 @@ workspace:
   path: .changeyard/workspaces/CY-0011/repo
 branch:
   name: cy/CY-0011-implement-remaining-tui-workflow-follow-ups
+  required: false
+  waivedAt: 2026-06-18T16:10:10.245Z
+  waivedBy: cy doctor
+  waiverReason: Missing JJ bookmark accepted because this approved change no longer requires a PR branch.
 remote:
   provider: noop
   issueNumber: null

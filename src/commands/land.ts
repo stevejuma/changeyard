@@ -42,6 +42,10 @@ function jjWorkspaceChangedFiles(workspacePath: string): string[] {
   return output.split("\n").map((line) => line.trim()).filter(Boolean).sort();
 }
 
+function jjLandingRevset(baseCommitId: string | undefined, workspaceChangeId: string): string {
+  return baseCommitId ? `(${baseCommitId}::${workspaceChangeId}) ~ ${baseCommitId}` : workspaceChangeId;
+}
+
 function writeWorkspaceMetadata(repoRoot: string, id: string, metadata: WorkspaceMetadata): void {
   writeFileSync(workspaceMetadataPath(id, repoRoot), `${JSON.stringify(metadata, null, 2)}\n`);
 }
@@ -110,12 +114,14 @@ export function runLand(id: string, options: LandOptions = {}, repoRoot = proces
   const workspaceFiles = jjWorkspaceChangedFiles(metadata.path);
   const currentTargetCommitId = workspaceStatus.currentTargetCommitId ?? jjCommitId(repoRoot, target);
   const targetMoved = Boolean(metadata.baseCommitId && metadata.baseCommitId !== currentTargetCommitId);
+  const landingRevset = jjLandingRevset(metadata.baseCommitId, workspaceChangeId);
 
   if (options.dryRun) {
     const lines = [
       `Dry-run: would land ${changeId} into ${target}`,
       `workspaceChange: ${workspaceChangeId}`,
       `targetMoved: ${String(targetMoved)}`,
+      ...(targetMoved ? [`rebaseRevset: ${landingRevset}`] : []),
       `landingDescription: ${descriptionError ? "blocked" : "ok"}`,
       `metadataSource: ${metadata.engine === "jj" ? "workspace" : "root"}`,
       `workspaceFiles: ${workspaceFiles.length === 0 ? "none" : workspaceFiles.join(", ")}`,
@@ -133,7 +139,7 @@ export function runLand(id: string, options: LandOptions = {}, repoRoot = proces
     workspaceCommitId: jjCommitId(metadata.path, workspaceChangeId),
   };
   if (targetMoved) {
-    commandOutput("jj", ["rebase", "-r", workspaceChangeId, "-o", target], repoRoot);
+    commandOutput("jj", ["rebase", "-r", landingRevset, "-o", target], repoRoot);
     workspaceStatus = getWorkspaceStatus(changeId, repoRoot);
     if (workspaceStatus.conflicts) throw new Error(withLandRecovery(`Workspace ${changeId} has conflicts after rebasing onto ${target}; resolve them before landing`, changeId, repoRoot));
     if (workspaceStatus.errors.length > 0) throw new Error(withLandRecovery(workspaceStatus.errors.join("\n"), changeId, repoRoot));

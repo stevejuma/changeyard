@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { loadConfig } from "../config/loadConfig.js";
 import { parseFrontmatter, writeFrontmatter } from "../documents/frontmatter.js";
+import { parseSections, replaceSection } from "../documents/sections.js";
 import { validateChangeFile } from "../documents/validateDocument.js";
 import { changesRoot, reviewsRoot, storageRoot, workspacesRoot } from "../paths.js";
 import { createProvider } from "../providers/index.js";
@@ -24,6 +25,8 @@ type MutationOptions = {
   fix?: boolean;
   verbose?: boolean;
   deleteStaleCompletedWorkspaces?: boolean;
+  checkCompletedAcceptanceCriteria?: boolean;
+  waiveMissingJjBookmarks?: boolean;
   waiveStaleCompletedReviews?: boolean;
   staleCompletedDays?: number;
 };
@@ -43,6 +46,8 @@ type LocalFolderIssueCache = {
 
 const reviewTerminalStatuses = new Set(["approved", "changes_requested", "rejected", "abandoned"]);
 const completedReviewStatuses = new Set(["approved", "merged"]);
+const completedLifecycleStatuses = new Set(["ready_for_pr", "pr_open", "in_review", "changes_requested", "approved", "merged", "abandoned"]);
+const missingBookmarkWaiverStatuses = new Set(["ready_for_pr", "approved", "merged", "abandoned"]);
 const branchAwareStatuses = new Set(["ready_for_pr", "pr_open", "in_review", "changes_requested", "approved", "merged", "abandoned"]);
 const checksLogStatuses = new Set(["ready_for_pr", "pr_open", "in_review", "changes_requested", "approved", "merged", "abandoned"]);
 const defaultWrapWidth = 88;
@@ -84,7 +89,7 @@ function completionAge(change: ChangeRecord, thresholdDays: number): {
 }
 
 function isCompletedValidationNoise(message: string): boolean {
-  return /checkbox|checklist|Quick scope risk review unresolved/i.test(message);
+  return /checkbox|checklist|Quick scope risk review unresolved|Acceptance Criteria must include at least one unchecked task before/i.test(message);
 }
 
 function filterCompletedValidationNoise<T extends { valid: boolean; errors: string[]; warnings?: string[] }>(
@@ -92,7 +97,7 @@ function filterCompletedValidationNoise<T extends { valid: boolean; errors: stri
   frontmatter: Frontmatter,
 ): T {
   const status = String(frontmatter.status ?? "");
-  if (!completedReviewStatuses.has(status)) return validation;
+  if (!completedLifecycleStatuses.has(status)) return validation;
   const errors = validation.errors.filter((entry) => !isCompletedValidationNoise(entry));
   return {
     ...validation,
@@ -108,6 +113,35 @@ function reviewRequired(config: ReturnType<typeof loadConfig>): boolean {
 
 function reviewWaived(frontmatter: Frontmatter): boolean {
   return asRecord(frontmatter.review).required === false;
+}
+
+function branchWaived(frontmatter: Frontmatter): boolean {
+  return asRecord(frontmatter.branch).required === false;
+}
+
+function isDeferredTask(line: string): boolean {
+  return /\bDeferred\s*:/i.test(line);
+}
+
+function checkCompletedAcceptanceCriteria(body: string): { body: string; checkedCount: number } {
+  const acceptanceCriteria = parseSections(body).get("Acceptance Criteria");
+  if (acceptanceCriteria === undefined) return { body, checkedCount: 0 };
+
+  let checkedCount = 0;
+  const nextAcceptanceCriteria = acceptanceCriteria.replace(
+    /^(\s*[-*]\s+\[) \](\s+\S.*)$/gm,
+    (line: string, prefix: string, suffix: string) => {
+      if (isDeferredTask(line)) return line;
+      checkedCount += 1;
+      return `${prefix}x]${suffix}`;
+    },
+  );
+  if (checkedCount === 0) return { body, checkedCount: 0 };
+
+  return {
+    body: replaceSection(body, "Acceptance Criteria", nextAcceptanceCriteria),
+    checkedCount,
+  };
 }
 
 function terminalWrapWidth(): number {
@@ -671,6 +705,104 @@ function maybeWaiveStaleCompletedReview(input: {
   input.fixes.push(`Waived review requirement for stale completed change ${input.change.id}`);
 }
 
+function maybeCheckCompletedAcceptanceCriteria(input: {
+  change: ChangeRecord;
+  repoRoot: string;
+  options: MutationOptions;
+  warnings: string[];
+  notes: string[];
+  fixes: string[];
+}): void {
+  const status = String(input.change.frontmatter.status ?? "");
+  if (!completedLifecycleStatuses.has(status)) return;
+
+  const result = checkCompletedAcceptanceCriteria(input.change.body);
+  if (result.checkedCount === 0) return;
+
+  const cleanupCommand = "cy doctor --fix --check-completed-acceptance-criteria";
+  const itemLabel = result.checkedCount === 1 ? "item" : "items";
+  if (!input.options.checkCompletedAcceptanceCriteria) {
+    input.warnings.push(`${input.change.id}: completed change has ${result.checkedCount} unchecked Acceptance Criteria ${itemLabel}. Recovery: run ${cleanupCommand} from ${input.repoRoot}, or update # Acceptance Criteria manually.`);
+    return;
+  }
+
+  if (input.options.dryRun) {
+    input.notes.push(`Would check ${result.checkedCount} unresolved Acceptance Criteria ${itemLabel} for completed change ${input.change.id}`);
+    return;
+  }
+  if (!input.options.fix) {
+    input.notes.push(`${input.change.id}: unresolved completed Acceptance Criteria can be checked; run ${cleanupCommand} from ${input.repoRoot}`);
+    return;
+  }
+
+  const nextFrontmatter: Frontmatter = {
+    ...input.change.frontmatter,
+    updatedAt: new Date().toISOString(),
+  };
+  writeYaml(input.change.filePath, nextFrontmatter, result.body);
+  input.change.frontmatter = nextFrontmatter;
+  input.change.body = result.body;
+  input.fixes.push(`Checked ${result.checkedCount} unresolved Acceptance Criteria ${itemLabel} for completed change ${input.change.id}`);
+}
+
+function maybeWaiveMissingJjBookmark(input: {
+  change: ChangeRecord | undefined;
+  workspaceId: string;
+  bookmark: string;
+  repoRoot: string;
+  options: MutationOptions;
+  warnings: string[];
+  notes: string[];
+  fixes: string[];
+}): boolean {
+  const change = input.change;
+  if (!change) return false;
+  if (branchWaived(change.frontmatter)) {
+    input.notes.push(`${input.workspaceId}: jj bookmark is missing but branch requirement is waived`);
+    return true;
+  }
+
+  const status = String(change.frontmatter.status ?? "");
+  if (!missingBookmarkWaiverStatuses.has(status)) return false;
+
+  const cleanupCommand = "cy doctor --fix --waive-missing-jj-bookmarks";
+  if (!input.options.waiveMissingJjBookmarks) {
+    input.warnings.push(`${input.workspaceId}: jj bookmark missing: ${input.bookmark}. Recovery: if this change no longer needs a PR/bookmark, run ${cleanupCommand} from ${input.repoRoot}; otherwise recreate the bookmark in ${input.repoRoot}.`);
+    return true;
+  }
+
+  const nextStatus = status === "ready_for_pr" ? "approved" : status;
+  if (input.options.dryRun) {
+    const statusNote = nextStatus !== status ? ` and mark ${change.id} approved` : "";
+    input.notes.push(`Would waive missing JJ bookmark for ${change.id}${statusNote}: ${input.bookmark}`);
+    return true;
+  }
+  if (!input.options.fix) {
+    input.notes.push(`${change.id}: missing JJ bookmark can be waived when no PR/bookmark is required; run ${cleanupCommand} from ${input.repoRoot}`);
+    return true;
+  }
+
+  const now = new Date().toISOString();
+  const nextFrontmatter: Frontmatter = {
+    ...change.frontmatter,
+    status: nextStatus,
+    branch: {
+      ...asRecord(change.frontmatter.branch),
+      name: input.bookmark,
+      required: false,
+      waivedAt: now,
+      waivedBy: "cy doctor",
+      waiverReason: `Missing JJ bookmark accepted because this ${status} change no longer requires a PR branch.`,
+    },
+    updatedAt: now,
+  };
+  writeYaml(change.filePath, nextFrontmatter, change.body);
+  change.frontmatter = nextFrontmatter;
+  const statusMessage = nextStatus !== status ? " and marked it approved" : "";
+  input.fixes.push(`Waived missing JJ bookmark for ${change.id}${statusMessage}`);
+  return true;
+}
+
 export function doctorReport(repoRoot = process.cwd(), options: MutationOptions = {}): DoctorReport {
   const config = loadConfig(repoRoot);
   const root = storageRoot(repoRoot, config);
@@ -816,19 +948,31 @@ export function doctorReport(repoRoot = process.cwd(), options: MutationOptions 
       if (metadata.engine === "jj" && metadata.branch) {
         const stateResult = jjWorkspaceState(metadata.path, metadata.branch);
         if (!stateResult.exists && branchAwareStatuses.has(changeStatus)) {
-          warnings.push(`${workspaceId}: jj bookmark missing: ${metadata.branch}`);
-          if (changeStatus === "in_review" && matchingChange) {
-            if (options.dryRun) {
-              notes.push(`Would move ${matchingChange.id} to approved because its JJ bookmark is missing while in review`);
-            } else if (options.fix) {
-              const nextFrontmatter: Frontmatter = {
-                ...matchingChange.frontmatter,
-                status: "approved",
-                updatedAt: new Date().toISOString(),
-              };
-              writeYaml(matchingChange.filePath, nextFrontmatter, matchingChange.body);
-              matchingChange.frontmatter = nextFrontmatter;
-              fixes.push(`Moved ${matchingChange.id} to approved because its JJ bookmark is missing while in review`);
+          const handled = maybeWaiveMissingJjBookmark({
+            change: matchingChange,
+            workspaceId,
+            bookmark: metadata.branch,
+            repoRoot,
+            options,
+            warnings,
+            notes,
+            fixes,
+          });
+          if (!handled) {
+            warnings.push(`${workspaceId}: jj bookmark missing: ${metadata.branch}. Recovery: recreate the bookmark from ${repoRoot}, or run cy doctor --fix from ${repoRoot} only when the in-review state is already complete and should move to approved.`);
+            if (changeStatus === "in_review" && matchingChange) {
+              if (options.dryRun) {
+                notes.push(`Would move ${matchingChange.id} to approved because its JJ bookmark is missing while in review`);
+              } else if (options.fix) {
+                const nextFrontmatter: Frontmatter = {
+                  ...matchingChange.frontmatter,
+                  status: "approved",
+                  updatedAt: new Date().toISOString(),
+                };
+                writeYaml(matchingChange.filePath, nextFrontmatter, matchingChange.body);
+                matchingChange.frontmatter = nextFrontmatter;
+                fixes.push(`Moved ${matchingChange.id} to approved because its JJ bookmark is missing while in review`);
+              }
             }
           }
         }
@@ -869,6 +1013,14 @@ export function doctorReport(repoRoot = process.cwd(), options: MutationOptions 
     const checks = asRecord(change.frontmatter.checks);
     const reviewRoot = path.join(reviewsRoot(repoRoot, config), change.id);
 
+    maybeCheckCompletedAcceptanceCriteria({
+      change,
+      repoRoot,
+      options,
+      warnings,
+      notes,
+      fixes,
+    });
     recoverIncompleteSync(change, root, localCache, options, warnings, notes, fixes, config);
     maybeWaiveStaleCompletedReview({
       change,

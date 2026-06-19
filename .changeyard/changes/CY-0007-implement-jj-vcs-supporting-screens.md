@@ -2,13 +2,13 @@
 id: CY-0007
 title: Implement JJ VCS supporting screens
 type: agent-task
-status: ready_for_pr
+status: approved
 priority: medium
 labels:
   - agent-ready
 author: stevejuma
 createdAt: 2026-06-11T23:59:16.675Z
-updatedAt: 2026-06-12T12:00:00.000Z
+updatedAt: 2026-06-18T16:10:10.246Z
 base:
   vcs: unknown
   revision: main
@@ -18,6 +18,10 @@ workspace:
   path: .changeyard/workspaces/CY-0007/repo
 branch:
   name: cy/CY-0007-implement-jj-vcs-supporting-screens
+  required: false
+  waivedAt: 2026-06-18T16:10:09.562Z
+  waivedBy: cy doctor
+  waiverReason: Missing JJ bookmark accepted because this ready_for_pr change no longer requires a PR branch.
 remote:
   provider: noop
   issueNumber: null
@@ -180,12 +184,13 @@ The screens remain behind `CHANGEYARD_VCS=1` and continue to use the current JJ/
 <!-- cy:verification:end -->
 
 # Acceptance Criteria
+
 - [x] `/vcs/jj/branches` renders from the standalone VCS shell when `CHANGEYARD_VCS=1` is enabled.
 - [x] `/vcs/jj/history` renders read-only JJ history context from runtime data.
 - [x] `/vcs/settings` renders read-only VCS settings/configuration diagnostics.
 - [x] Any new VCS runtime procedures are exposed through the existing tRPC boundary.
 - [x] Focused tests cover the new route/runtime behavior without regressing the existing `/vcs` and `/vcs/jj` screens.
-- [ ] Browser-level manual QA is recorded for the new supporting screens in a live flagged UI session.
+- [x] Browser-level manual QA is recorded for the new supporting screens in a live flagged UI session.
 
 # Scope Boundaries
 

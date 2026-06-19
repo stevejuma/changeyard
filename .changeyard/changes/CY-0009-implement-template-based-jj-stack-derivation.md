@@ -8,7 +8,7 @@ labels:
   - agent-ready
 author: stevejuma
 createdAt: 2026-06-12T17:42:11.694Z
-updatedAt: 2026-06-18T14:56:00.068Z
+updatedAt: 2026-06-18T16:10:09.957Z
 base:
   vcs: unknown
   revision: main
@@ -18,6 +18,10 @@ workspace:
   path: .changeyard/workspaces/CY-0009/repo
 branch:
   name: cy/CY-0009-implement-template-based-jj-stack-derivation
+  required: false
+  waivedAt: 2026-06-18T16:10:09.957Z
+  waivedBy: cy doctor
+  waiverReason: Missing JJ bookmark accepted because this approved change no longer requires a PR branch.
 remote:
   provider: noop
   issueNumber: null

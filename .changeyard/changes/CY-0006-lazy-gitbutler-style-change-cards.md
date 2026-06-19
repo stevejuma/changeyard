@@ -8,7 +8,7 @@ labels:
   - agent-ready
 author: stevejuma
 createdAt: 2026-06-11T16:22:08.629Z
-updatedAt: 2026-06-18T14:55:13.891Z
+updatedAt: 2026-06-18T16:10:09.422Z
 base:
   vcs: unknown
   revision: main
@@ -18,6 +18,10 @@ workspace:
   path: .changeyard/workspaces/CY-0006/repo
 branch:
   name: cy/CY-0006-lazy-gitbutler-style-change-cards
+  required: false
+  waivedAt: 2026-06-18T16:10:09.422Z
+  waivedBy: cy doctor
+  waiverReason: Missing JJ bookmark accepted because this approved change no longer requires a PR branch.
 remote:
   provider: noop
   issueNumber: null

@@ -9,7 +9,7 @@ labels:
   - kanban
 author: stevejuma
 createdAt: 2026-06-11T13:51:40.983Z
-updatedAt: 2026-06-18T14:54:50.550Z
+updatedAt: 2026-06-18T16:10:10.246Z
 base:
   vcs: unknown
   revision: main
@@ -19,6 +19,10 @@ workspace:
   path: .changeyard/workspaces/CY-0005/repo
 branch:
   name: cy/CY-0005-polish-detail-ui-and-markdown-editing
+  required: false
+  waivedAt: 2026-06-18T16:10:09.230Z
+  waivedBy: cy doctor
+  waiverReason: Missing JJ bookmark accepted because this approved change no longer requires a PR branch.
 remote:
   provider: noop
   issueNumber: null
@@ -50,12 +54,12 @@ Recent board work restored the combined change/task workflow, but the detail sur
 
 # Acceptance Criteria
 
-- [ ] Markdown edit/preview in detail views uses the shared UIW markdown component instead of a raw textarea/custom preview pair.
-- [ ] Task/change statuses and other prominent statuses render through a shared status chip component.
-- [ ] Task and change detail left panels render as properties sidebars with readable chips and metadata rows.
-- [ ] Change detail headers show valid lifecycle actions aligned to the right, including verify and complete when available.
-- [ ] Change details can show workspace change summary, file list, and diffs when a change has recorded workspace changes, with an empty state otherwise.
-- [ ] `pnpm run check` and relevant kanban web UI tests pass.
+- [x] Markdown edit/preview in detail views uses the shared UIW markdown component instead of a raw textarea/custom preview pair.
+- [x] Task/change statuses and other prominent statuses render through a shared status chip component.
+- [x] Task and change detail left panels render as properties sidebars with readable chips and metadata rows.
+- [x] Change detail headers show valid lifecycle actions aligned to the right, including verify and complete when available.
+- [x] Change details can show workspace change summary, file list, and diffs when a change has recorded workspace changes, with an empty state otherwise.
+- [x] `pnpm run check` and relevant kanban web UI tests pass.
 
 # Scope Boundaries
 

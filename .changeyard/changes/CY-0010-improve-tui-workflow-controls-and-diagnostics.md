@@ -8,7 +8,7 @@ labels:
   - agent-ready
 author: stevejuma
 createdAt: 2026-06-14T11:45:40.452Z
-updatedAt: 2026-06-18T14:56:38.548Z
+updatedAt: 2026-06-18T16:10:10.098Z
 base:
   vcs: unknown
   revision: main
@@ -18,6 +18,10 @@ workspace:
   path: .changeyard/workspaces/CY-0010/repo
 branch:
   name: cy/CY-0010-improve-tui-workflow-controls-and-diagnostics
+  required: false
+  waivedAt: 2026-06-18T16:10:10.098Z
+  waivedBy: cy doctor
+  waiverReason: Missing JJ bookmark accepted because this approved change no longer requires a PR branch.
 remote:
   provider: noop
   issueNumber: null

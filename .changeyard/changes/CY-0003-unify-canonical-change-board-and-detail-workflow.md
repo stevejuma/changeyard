@@ -8,7 +8,7 @@ labels:
   - agent-ready
 author: stevejuma
 createdAt: 2026-06-11T10:05:22.531Z
-updatedAt: 2026-06-18T14:54:23.893Z
+updatedAt: 2026-06-18T16:10:08.919Z
 base:
   vcs: unknown
   revision: main
@@ -18,6 +18,10 @@ workspace:
   path: .changeyard/workspaces/CY-0003/repo
 branch:
   name: cy/CY-0003-unify-canonical-change-board-and-detail-workflow
+  required: false
+  waivedAt: 2026-06-18T16:10:08.919Z
+  waivedBy: cy doctor
+  waiverReason: Missing JJ bookmark accepted because this approved change no longer requires a PR branch.
 remote:
   provider: noop
   issueNumber: null

@@ -324,6 +324,7 @@ test("generated skill guidance defaults non-trivial agent work to strict plannin
   assert.match(skill, /Create a strict planned change: `cy create --template agent-task --planning openspec-lite --strict --title "<title>"`/);
   assert.match(skill, /Non-trivial agent work must use strict OpenSpec-lite planning/);
   assert.match(skill, /Use `cy quick` or `--no-planning` only for small, low-risk changes with no behavior, public API, storage\/schema, provider\/workspace lifecycle, UI workflow, or security-sensitive impact/);
+  assert.match(skill, /Agents must not use them unless the user explicitly names the flag or asks for that exact cleanup/);
 });
 
 test("create allocates a valid markdown change", () => {
@@ -1900,19 +1901,125 @@ test("doctor suppresses completed quick checklist warnings but keeps structural 
     runCreate({ template: "quick", title: "Completed quick warning" }, repo);
     const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-completed-quick-warning.md");
     const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
+    const body = replaceSection(parsed.body, "Acceptance Criteria", "- [x] Completed quick warning is documented");
     writeFileSync(changePath, writeFrontmatter({
       ...parsed.frontmatter,
       status: "merged",
       updatedAt: "2000-01-01T00:00:00.000Z",
-    }, parsed.body));
+    }, body));
 
     assert.doesNotMatch(doctorReport(repo).warnings.join("\n"), /Quick scope risk review unresolved/);
+    assert.doesNotMatch(doctorReport(repo).warnings.join("\n"), /Acceptance Criteria must include at least one unchecked task before/);
 
     const broken = parseFrontmatter(readFileSync(changePath, "utf8"));
     const frontmatterWithoutTitle = { ...broken.frontmatter };
     delete frontmatterWithoutTitle.title;
     writeFileSync(changePath, writeFrontmatter(frontmatterWithoutTitle, broken.body));
     assert.match(doctorReport(repo).warnings.join("\n"), /Missing required frontmatter: title/);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("doctor fix checks unresolved completed acceptance criteria only with explicit flag", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "agent-task", title: "Fix completed acceptance criteria" }, repo);
+    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-fix-completed-acceptance-criteria.md");
+    const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
+    const body = replaceSection(
+      parsed.body,
+      "Acceptance Criteria",
+      "- [ ] Implemented behavior is reflected in the completed change\n- [ ] Deferred: follow-up polish remains separate",
+    );
+    writeFileSync(changePath, writeFrontmatter({
+      ...parsed.frontmatter,
+      status: "approved",
+      updatedAt: "2000-01-01T00:00:00.000Z",
+    }, body));
+
+    const baseReport = doctorReport(repo);
+    assert.match(baseReport.warnings.join("\n"), /completed change has 1 unchecked Acceptance Criteria item/);
+    assert.match(baseReport.warnings.join("\n"), /--check-completed-acceptance-criteria/);
+
+    const dryRunReport = doctorReport(repo, {
+      fix: true,
+      dryRun: true,
+      checkCompletedAcceptanceCriteria: true,
+    });
+    assert.match(dryRunReport.notes.join("\n"), /Would check 1 unresolved Acceptance Criteria item/);
+    assert.match(readFileSync(changePath, "utf8"), /- \[ \] Implemented behavior/);
+
+    const report = doctorReport(repo, {
+      fix: true,
+      checkCompletedAcceptanceCriteria: true,
+    });
+    assert.match(report.fixes.join("\n"), /Checked 1 unresolved Acceptance Criteria item/);
+
+    const updated = readFileSync(changePath, "utf8");
+    assert.match(updated, /- \[x\] Implemented behavior is reflected in the completed change/);
+    assert.match(updated, /- \[ \] Deferred: follow-up polish remains separate/);
+    assert.doesNotMatch(doctorReport(repo).warnings.join("\n"), /completed change has .*unchecked Acceptance Criteria/);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("doctor fix waives missing jj bookmarks for no-pr completed changes with explicit flag", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "agent-task", title: "Waive missing JJ bookmark" }, repo);
+
+    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-waive-missing-jj-bookmark.md");
+    const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
+    writeFileSync(changePath, writeFrontmatter({
+      ...parsed.frontmatter,
+      status: "ready_for_pr",
+      updatedAt: "2000-01-01T00:00:00.000Z",
+    }, parsed.body));
+
+    const workspaceRoot = path.join(repo, ".changeyard", "workspaces", "CY-0001");
+    const workspacePath = path.join(workspaceRoot, "repo");
+    const metadataPath = path.join(workspaceRoot, "metadata.json");
+    mkdirSync(workspacePath, { recursive: true });
+    const metadata: WorkspaceMetadata = {
+      changeId: "CY-0001",
+      engine: "jj",
+      name: "cy-CY-0001",
+      path: workspacePath,
+      repoRoot: repo,
+      changePath,
+      createdAt: new Date().toISOString(),
+      branch: "cy/CY-0001",
+    };
+    writeFileSync(metadataPath, `${JSON.stringify(metadata, null, 2)}\n`);
+    writeFileSync(path.join(workspacePath, ".changeyard-workspace.json"), `${JSON.stringify({ changeId: "CY-0001", metadataPath }, null, 2)}\n`);
+
+    const baseReport = doctorReport(repo);
+    assert.match(baseReport.warnings.join("\n"), /CY-0001: jj bookmark missing: cy\/CY-0001/);
+    assert.match(baseReport.warnings.join("\n"), /--waive-missing-jj-bookmarks/);
+
+    const dryRunReport = doctorReport(repo, {
+      fix: true,
+      dryRun: true,
+      waiveMissingJjBookmarks: true,
+    });
+    assert.match(dryRunReport.notes.join("\n"), /Would waive missing JJ bookmark for CY-0001 and mark CY-0001 approved/);
+    assert.equal(parseFrontmatter(readFileSync(changePath, "utf8")).frontmatter.status, "ready_for_pr");
+
+    const report = doctorReport(repo, {
+      fix: true,
+      waiveMissingJjBookmarks: true,
+    });
+    assert.match(report.fixes.join("\n"), /Waived missing JJ bookmark for CY-0001 and marked it approved/);
+
+    const updated = parseFrontmatter(readFileSync(changePath, "utf8"));
+    assert.equal(updated.frontmatter.status, "approved");
+    assert.equal(asRecordForTest(updated.frontmatter.branch).required, false);
+    assert.equal(asRecordForTest(updated.frontmatter.branch).waivedBy, "cy doctor");
+    assert.doesNotMatch(doctorReport(repo).warnings.join("\n"), /jj bookmark missing: cy\/CY-0001/);
   } finally {
     cleanup(repo);
   }
@@ -2983,6 +3090,7 @@ test("land rebases and lands a described jj workspace task commit without root w
     assert.ok(metadata.baseCommitId);
     assert.ok(metadata.workspaceChangeId);
     assert.equal(metadata.seedDescription, "CY-0001: Land jj workspace");
+    const workspaceChangeId = metadata.workspaceChangeId!;
     const rootChangePath = path.join(repo, ".changeyard", "changes", "CY-0001-land-jj-workspace.md");
     const workspaceChangePath = path.join(workspacePath, ".changeyard", "changes", "CY-0001-land-jj-workspace.md");
     assert.equal(parseFrontmatter(readFileSync(rootChangePath, "utf8")).frontmatter.status, "ready");
@@ -2996,6 +3104,16 @@ test("land rebases and lands a described jj workspace task commit without root w
     runCommand("jj", ["workspace", "forget", "advance-main"], repo);
     rmSync(path.dirname(advanceWorkspace), { recursive: true, force: true });
 
+    runCommand("jj", ["new", "@-", "-m", "ancestor A"], workspacePath);
+    writeFileSync(path.join(workspacePath, "ancestor-a.txt"), "ancestor A\n");
+    const ancestorA = commandOutput("jj", ["log", "--ignore-working-copy", "--at-op=@", "-r", "@", "--no-graph", "-T", "change_id.short()"], workspacePath);
+    runCommand("jj", ["rebase", "-r", workspaceChangeId, "-o", "@"], workspacePath);
+    runCommand("jj", ["edit", workspaceChangeId], workspacePath);
+    runCommand("jj", ["new", ancestorA, "-m", "ancestor B"], workspacePath);
+    writeFileSync(path.join(workspacePath, "ancestor-b.txt"), "ancestor B\n");
+    runCommand("jj", ["rebase", "-r", workspaceChangeId, "-o", "@"], workspacePath);
+    runCommand("jj", ["edit", workspaceChangeId], workspacePath);
+
     writeFileSync(path.join(workspacePath, "landed.txt"), "landed\n");
     updateSection(workspaceChangePath, "Acceptance Criteria", "- [x] JJ workspace work is landed locally");
     updateSection(workspaceChangePath, "Completion Notes", "Implemented the workspace file. Checks ran: node -v.");
@@ -3007,9 +3125,12 @@ test("land rebases and lands a described jj workspace task commit without root w
     assert.match(runLand("CY-0001", { dryRun: true }, repo), /landingDescription: ok/);
     assert.match(runLand("CY-0001", { dryRun: true }, repo), /metadataSource: workspace/);
     assert.match(runLand("CY-0001", { dryRun: true }, repo), /targetMoved: true/);
+    assert.match(runLand("CY-0001", { dryRun: true }, repo), /rebaseRevset:/);
     assert.match(runLand("CY-0001", {}, repo), /Landed CY-0001 into main/);
 
     assert.equal(existsSync(path.join(repo, ".changeyard", "workspaces", "CY-0001")), false);
+    assert.equal(commandOutput("jj", ["file", "show", "-r", "main", "--", "ancestor-a.txt"], repo), "ancestor A");
+    assert.equal(commandOutput("jj", ["file", "show", "-r", "main", "--", "ancestor-b.txt"], repo), "ancestor B");
     assert.equal(commandOutput("jj", ["file", "show", "-r", "main", "--", "landed.txt"], repo), "landed");
     assert.equal(commandOutput("jj", ["file", "show", "-r", "main", "--", "advance.txt"], repo), "advance");
     const rootWipResult = spawnSync("jj", normalizeCommandArgs("jj", ["file", "show", "-r", "main", "--", "root-wip.txt"]), { cwd: repo, encoding: "utf8" });

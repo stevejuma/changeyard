@@ -8,7 +8,7 @@ labels:
   - agent-ready
 author: stevejuma
 createdAt: 2026-06-11T09:24:26.857Z
-updatedAt: 2026-06-18T14:53:59.285Z
+updatedAt: 2026-06-18T16:10:08.778Z
 base:
   vcs: unknown
   revision: main
@@ -18,6 +18,10 @@ workspace:
   path: .changeyard/workspaces/CY-0002/repo
 branch:
   name: cy/CY-0002-add-build-and-install-cli-script
+  required: false
+  waivedAt: 2026-06-18T16:10:08.778Z
+  waivedBy: cy doctor
+  waiverReason: Missing JJ bookmark accepted because this approved change no longer requires a PR branch.
 remote:
   provider: noop
   issueNumber: null

@@ -74,12 +74,15 @@ type MutationOptions = {
   fix?: boolean;
   verbose?: boolean;
   deleteStaleCompletedWorkspaces?: boolean;
+  checkCompletedAcceptanceCriteria?: boolean;
+  waiveMissingJjBookmarks?: boolean;
   waiveStaleCompletedReviews?: boolean;
   staleCompletedDays?: number;
 };
 
 const BOOLEAN_FLAGS = new Set([
   "dashboard",
+  "check-completed-acceptance-criteria",
   "debug",
   "delete-stale-completed-workspaces",
   "dry-run",
@@ -102,6 +105,7 @@ const BOOLEAN_FLAGS = new Set([
   "tui",
   "vcs",
   "verbose",
+  "waive-missing-jj-bookmarks",
   "version",
   "waive-stale-completed-reviews",
 ]);
@@ -500,6 +504,8 @@ async function main(): Promise<void> {
     fix,
     verbose,
     deleteStaleCompletedWorkspaces: asBooleanFlag(args.flags, "delete-stale-completed-workspaces"),
+    checkCompletedAcceptanceCriteria: asBooleanFlag(args.flags, "check-completed-acceptance-criteria"),
+    waiveMissingJjBookmarks: asBooleanFlag(args.flags, "waive-missing-jj-bookmarks"),
     waiveStaleCompletedReviews: asBooleanFlag(args.flags, "waive-stale-completed-reviews"),
     staleCompletedDays: parseNonNegativeIntegerFlag(args.flags, "stale-completed-days", guidanceColors, "cy doctor --help"),
   };
