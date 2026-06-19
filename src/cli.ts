@@ -31,7 +31,7 @@ import { getStatus, runStatus } from "./commands/status.js";
 import { runSync } from "./commands/sync.js";
 import { runTui } from "./commands/tui.js";
 import { runConfig } from "./commands/config.js";
-import { getHubStatus, runHubForeground, runHubOpen, runHubRestart, runHubStart, runHubStatus, runHubStop } from "./commands/hub.js";
+import { getHubInstances, getHubStatus, runHubForeground, runHubKill, runHubList, runHubOpen, runHubRestart, runHubStart, runHubStatus, runHubStop } from "./commands/hub.js";
 import { runValidate } from "./commands/validate.js";
 import { runVerify } from "./commands/verify.js";
 import { runVersion } from "./commands/version.js";
@@ -562,6 +562,7 @@ async function main(): Promise<void> {
         host: stringFlag(args.flags, "host"),
         port: parsePortFlag(args.flags),
         project: projectRoot,
+        startedBy: launchCommand,
       }, asBooleanFlag(args.flags, "dashboard") ? "/" : asBooleanFlag(args.flags, "vcs") ? "/vcs" : "/kanban");
       if (json) {
         console.log(JSON.stringify({ ok: true, ...jsonPayload(launchCommand, output) }, null, 2));
@@ -773,6 +774,7 @@ async function main(): Promise<void> {
           host: stringFlag(args.flags, "host"),
           port: parsePortFlag(args.flags),
           project: projectRoot,
+          startedBy: hubAction ? `hub ${hubAction}` : "hub",
         };
         const validatedHubAction = hubAction ? validateSubcommand({
           commandPath: "cy hub",
@@ -781,6 +783,8 @@ async function main(): Promise<void> {
             { value: "start", description: "Start the shared UI/runtime hub." },
             { value: "stop", description: "Stop the hub." },
             { value: "status", description: "Show hub status." },
+            { value: "list", description: "List known hub instances." },
+            { value: "kill", description: "Kill a hub instance by id or pid." },
             { value: "restart", description: "Restart the hub." },
             { value: "run", description: "Run the hub in the foreground." },
           ],
@@ -790,9 +794,21 @@ async function main(): Promise<void> {
         if (validatedHubAction === "start") {
           output = await runHubStart(repoRoot, hubOptions);
         } else if (validatedHubAction === "stop") {
-          output = await runHubStop(repoRoot);
+          output = await runHubStop(repoRoot, hubOptions);
         } else if (validatedHubAction === "status") {
-          output = json ? getHubStatus(repoRoot) : runHubStatus(repoRoot);
+          output = json ? getHubStatus(repoRoot, hubOptions) : runHubStatus(repoRoot, hubOptions);
+        } else if (validatedHubAction === "list") {
+          output = json ? getHubInstances(repoRoot) : runHubList(repoRoot);
+        } else if (validatedHubAction === "kill") {
+          const target = args.positional[1];
+          if (!target) {
+            throw new Error(formatMissingGuidance({
+              message: "Missing hub instance id, pid, `stale`, or `all`.",
+              tips: ["Usage: cy hub kill <id|pid|stale|all> [--force].", "Run cy hub --help for details."],
+              colors: guidanceColors,
+            }));
+          }
+          output = await runHubKill(repoRoot, target, { force: asBooleanFlag(args.flags, "force") });
         } else if (validatedHubAction === "restart") {
           output = await runHubRestart(repoRoot, hubOptions);
         } else if (validatedHubAction === "run") {

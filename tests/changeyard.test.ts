@@ -19,7 +19,8 @@ import {
   runPlanStrictEnable,
 } from "../src/commands/plan.js";
 import { runCreate } from "../src/commands/create.js";
-import { getHubStatus, runHubStatus } from "../src/commands/hub.js";
+import { getHubInstances, getHubStatus, killHubInstance, runHubList, runHubStatus } from "../src/commands/hub.js";
+import { changeyardAppStatePath } from "../src/app-state.js";
 import { runHydrate } from "../src/commands/hydrate.js";
 import { runInit } from "../src/commands/init.js";
 import { runLand } from "../src/commands/land.js";
@@ -74,6 +75,38 @@ function tempRepo(): string {
 
 function cleanup(dir: string): void {
   rmSync(dir, { recursive: true, force: true });
+}
+
+function withTempChangeyardHome<T>(fn: () => T): T {
+  const previous = process.env.CHANGEYARD_HOME;
+  const appState = tempRepo();
+  process.env.CHANGEYARD_HOME = appState;
+  try {
+    return fn();
+  } finally {
+    if (previous === undefined) {
+      delete process.env.CHANGEYARD_HOME;
+    } else {
+      process.env.CHANGEYARD_HOME = previous;
+    }
+    cleanup(appState);
+  }
+}
+
+async function withTempChangeyardHomeAsync<T>(fn: () => Promise<T>): Promise<T> {
+  const previous = process.env.CHANGEYARD_HOME;
+  const appState = tempRepo();
+  process.env.CHANGEYARD_HOME = appState;
+  try {
+    return await fn();
+  } finally {
+    if (previous === undefined) {
+      delete process.env.CHANGEYARD_HOME;
+    } else {
+      process.env.CHANGEYARD_HOME = previous;
+    }
+    cleanup(appState);
+  }
 }
 
 function asRecordForTest(value: unknown): Record<string, unknown> {
@@ -2283,18 +2316,107 @@ test("shell completions include core commands", () => {
 });
 
 test("hub status reports stopped when no server is recorded", () => {
-  const repo = tempRepo();
-  try {
-    runInit(repo);
-    const status = getHubStatus(repo);
-    assert.equal(status.running, false);
-    assert.equal(status.stale, false);
-    assert.equal(status.pid, null);
-    assert.equal(status.url, null);
-    assert.match(runHubStatus(repo), /hub: stopped/);
-  } finally {
-    cleanup(repo);
-  }
+  withTempChangeyardHome(() => {
+    const repo = tempRepo();
+    try {
+      runInit(repo);
+      const status = getHubStatus(repo);
+      assert.equal(status.running, false);
+      assert.equal(status.stale, false);
+      assert.equal(status.pid, null);
+      assert.equal(status.url, null);
+      assert.match(runHubStatus(repo), /hub: stopped/);
+    } finally {
+      cleanup(repo);
+    }
+  });
+});
+
+test("hub status reads the global active instance across projects", () => {
+  withTempChangeyardHome(() => {
+    const repoA = tempRepo();
+    const repoB = tempRepo();
+    try {
+      runInit(repoA);
+      runInit(repoB);
+      mkdirSync(path.dirname(changeyardAppStatePath("hub", "instances.json")), { recursive: true });
+      writeFileSync(changeyardAppStatePath("hub", "instances.json"), `${JSON.stringify({
+        version: 1,
+        activeInstanceId: "hub-current",
+        instances: [
+          {
+            id: "hub-current",
+            pid: process.pid,
+            url: "http://127.0.0.1:3484/",
+            repoRoot: repoA,
+            startedAt: "2026-06-19T09:00:00.000Z",
+            updatedAt: "2026-06-19T09:00:00.000Z",
+            logPath: changeyardAppStatePath("hub", "logs", "default.log"),
+            host: "127.0.0.1",
+            port: 3484,
+            startedBy: "dashboard",
+            startedFromCwd: repoA,
+            argv: ["cy", "--dashboard"],
+            managed: true,
+            active: true,
+            endpointKey: "127.0.0.1:3484",
+          },
+        ],
+      }, null, 2)}\n`);
+
+      const status = getHubStatus(repoB);
+      assert.equal(status.running, true);
+      assert.equal(status.pid, process.pid);
+      assert.equal(status.repoRoot, repoA);
+      assert.equal(status.active, true);
+      assert.match(runHubList(repoB), /Started by|startedBy: dashboard/);
+    } finally {
+      cleanup(repoA);
+      cleanup(repoB);
+    }
+  });
+});
+
+test("hub kill stale removes stale global records", async () => {
+  await withTempChangeyardHomeAsync(async () => {
+    const repo = tempRepo();
+    try {
+      runInit(repo);
+      mkdirSync(path.dirname(changeyardAppStatePath("hub", "instances.json")), { recursive: true });
+      writeFileSync(changeyardAppStatePath("hub", "instances.json"), `${JSON.stringify({
+        version: 1,
+        activeInstanceId: "hub-stale",
+        instances: [
+          {
+            id: "hub-stale",
+            pid: 99999999,
+            url: "http://127.0.0.1:3484/",
+            repoRoot: repo,
+            startedAt: "2026-06-19T09:00:00.000Z",
+            updatedAt: "2026-06-19T09:00:00.000Z",
+            logPath: changeyardAppStatePath("hub", "logs", "default.log"),
+            host: "127.0.0.1",
+            port: 3484,
+            startedBy: "hub start",
+            startedFromCwd: repo,
+            argv: ["cy", "hub", "start"],
+            managed: true,
+            active: true,
+            endpointKey: "127.0.0.1:3484",
+          },
+        ],
+      }, null, 2)}\n`);
+
+      const before = getHubInstances(repo);
+      assert.equal(before.instances.length, 1);
+      assert.equal(before.instances[0]?.stale, true);
+      const result = await killHubInstance(repo, "stale");
+      assert.equal(result.ok, true);
+      assert.equal(getHubInstances(repo).instances.length, 0);
+    } finally {
+      cleanup(repo);
+    }
+  });
 });
 
 test("jj workspace engine creates and verifies expected jj workspace", () => {

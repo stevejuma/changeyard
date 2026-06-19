@@ -1,5 +1,5 @@
-import { ArrowRight, Columns3, GitBranch, MonitorCheck, RotateCcw } from "lucide-react";
-import { useState, type ReactElement } from "react";
+import { ArrowRight, Columns3, GitBranch, MonitorCheck, Power, RotateCcw, Server } from "lucide-react";
+import { useCallback, useEffect, useState, type ReactElement } from "react";
 
 import { showAppToast } from "@/components/app-toaster";
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { KANBAN_BASE_PATH } from "@/hooks/app-utils";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import { useRuntimeStateStream } from "@/runtime/use-runtime-state-stream";
+import type { RuntimeHubInstance, RuntimeHubInstancesResponse } from "@runtime-contract";
 
 const CLIENT_SURFACE_LABELS = {
 	dashboard: "Dashboard",
@@ -23,6 +24,11 @@ function projectKanbanHref(projectId: string | null): string {
 
 function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function formatTimestamp(value: string): string {
+	const date = new Date(value);
+	return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
 async function waitForRestartedHub(): Promise<boolean> {
@@ -45,6 +51,10 @@ async function waitForRestartedHub(): Promise<boolean> {
 
 export default function Dashboard(): ReactElement {
 	const [isRestarting, setIsRestarting] = useState(false);
+	const [hubInstances, setHubInstances] = useState<RuntimeHubInstancesResponse | null>(null);
+	const [hubInstancesError, setHubInstancesError] = useState<string | null>(null);
+	const [loadingHubInstances, setLoadingHubInstances] = useState(false);
+	const [killingHubInstanceId, setKillingHubInstanceId] = useState<string | null>(null);
 	const {
 		currentProjectId,
 		projects,
@@ -65,6 +75,7 @@ export default function Dashboard(): ReactElement {
 		{ total: 0, active: 0, review: 0 },
 	) ?? { total: 0, active: 0, review: 0 };
 	const statusLabel = isRuntimeDisconnected ? "Disconnected" : hasReceivedSnapshot ? "Online" : "Connecting";
+	const currentHubInstance = hubInstances?.instances.find((instance) => instance.current) ?? null;
 	const clientCounts = hubClients?.bySurface ?? {
 		dashboard: 0,
 		kanban: 0,
@@ -73,6 +84,22 @@ export default function Dashboard(): ReactElement {
 		api: 0,
 		unknown: 0,
 	};
+	const loadHubInstances = useCallback(async () => {
+		setLoadingHubInstances(true);
+		setHubInstancesError(null);
+		try {
+			const response = await getRuntimeTrpcClient(null).runtime.listHubInstances.query();
+			setHubInstances(response);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			setHubInstancesError(message);
+		} finally {
+			setLoadingHubInstances(false);
+		}
+	}, []);
+	useEffect(() => {
+		void loadHubInstances();
+	}, [loadHubInstances]);
 	const handleRestartHub = async () => {
 		if (isRestarting) {
 			return;
@@ -93,6 +120,40 @@ export default function Dashboard(): ReactElement {
 			const message = error instanceof Error ? error.message : String(error);
 			showAppToast({ intent: "danger", icon: "warning-sign", message, timeout: 7000 });
 			setIsRestarting(false);
+		}
+	};
+	const handleKillHubInstance = async (instance: RuntimeHubInstance) => {
+		if (killingHubInstanceId) {
+			return;
+		}
+		const confirmed = window.confirm(
+			instance.current
+				? `Kill the hub currently serving this dashboard?\n\nPID ${instance.pid}\n${instance.url}`
+				: `Kill hub instance ${instance.id}?\n\nPID ${instance.pid}\n${instance.url}`,
+		);
+		if (!confirmed) {
+			return;
+		}
+		setKillingHubInstanceId(instance.id);
+		try {
+			const response = await getRuntimeTrpcClient(null).runtime.killHubInstance.mutate({ target: instance.id });
+			setHubInstances({
+				statePath: hubInstances?.statePath ?? "",
+				activeInstanceId: response.instances.find((candidate) => candidate.active)?.id ?? null,
+				currentPid: hubInstances?.currentPid ?? 0,
+				instances: response.instances,
+			});
+			showAppToast({
+				intent: response.ok ? "primary" : "warning",
+				icon: response.ok ? undefined : "warning-sign",
+				message: response.message,
+				timeout: 5000,
+			});
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			showAppToast({ intent: "danger", icon: "warning-sign", message, timeout: 7000 });
+		} finally {
+			setKillingHubInstanceId(null);
 		}
 	};
 
@@ -188,6 +249,91 @@ export default function Dashboard(): ReactElement {
 							))}
 						</div>
 					) : null}
+				</section>
+
+				<section className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-1)] p-4">
+					<div className="flex flex-wrap items-center justify-between gap-3">
+						<div>
+							<h2 className="text-sm font-semibold">Hub Instances</h2>
+							<p className="mt-1 text-xs text-text-tertiary">
+								Local hub processes known to the global registry.
+							</p>
+						</div>
+						<Button
+							variant="ghost"
+							size="sm"
+							icon={loadingHubInstances ? <Spinner size={14} /> : <RotateCcw size={14} />}
+							onClick={loadHubInstances}
+							disabled={loadingHubInstances}
+						>
+							Refresh
+						</Button>
+					</div>
+					<div className="mt-4 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2 text-xs">
+						<div className="flex flex-wrap items-center gap-2 text-[var(--color-text-primary)]">
+							<Server size={14} />
+							<span className="font-medium">Serving instance</span>
+							<span className="text-text-tertiary">
+								{currentHubInstance
+									? `PID ${currentHubInstance.pid} at ${currentHubInstance.url}`
+									: `PID ${hubInstances?.currentPid ?? "unknown"}`}
+							</span>
+						</div>
+					</div>
+					{hubInstancesError ? (
+						<div className="mt-3 rounded-md border border-[var(--color-status-red)] bg-[color-mix(in_srgb,var(--color-status-red)_10%,transparent)] px-3 py-2 text-xs text-[var(--color-status-red)]">
+							{hubInstancesError}
+						</div>
+					) : null}
+					<div className="mt-4 divide-y divide-[var(--color-border)] overflow-hidden rounded-md border border-[var(--color-border)]">
+						{hubInstances?.instances.length ? (
+							hubInstances.instances.map((instance) => (
+								<div
+									key={instance.id}
+									className="grid gap-3 px-3 py-3 text-xs lg:grid-cols-[1fr_auto]"
+								>
+									<div className="min-w-0">
+										<div className="flex flex-wrap items-center gap-2">
+											<span className="font-medium text-[var(--color-text-primary)]">PID {instance.pid}</span>
+											<span className={instance.running ? "text-[var(--color-status-green)]" : "text-[var(--color-status-red)]"}>
+												{instance.running ? "Live" : "Stale"}
+											</span>
+											{instance.active ? (
+												<span className="rounded-sm border border-[var(--color-accent)] px-1.5 py-0.5 text-[10px] uppercase text-[var(--color-accent)]">
+													Active
+												</span>
+											) : null}
+											{instance.current ? (
+												<span className="rounded-sm border border-[var(--color-border)] px-1.5 py-0.5 text-[10px] uppercase text-text-tertiary">
+													Current
+												</span>
+											) : null}
+										</div>
+										<div className="mt-1 truncate text-[var(--color-text-secondary)]">{instance.url}</div>
+										<div className="mt-2 grid gap-1 text-text-tertiary md:grid-cols-2">
+											<span className="truncate">Started by {instance.startedBy}</span>
+											<span className="truncate">Started {formatTimestamp(instance.startedAt)}</span>
+											<span className="truncate">Project {instance.repoRoot}</span>
+											<span className="truncate">Log {instance.logPath}</span>
+										</div>
+									</div>
+									<div className="flex items-center justify-start lg:justify-end">
+										<Button
+											variant="danger"
+											size="sm"
+											icon={killingHubInstanceId === instance.id ? <Spinner size={14} /> : <Power size={14} />}
+											onClick={() => void handleKillHubInstance(instance)}
+											disabled={killingHubInstanceId !== null}
+										>
+											Kill
+										</Button>
+									</div>
+								</div>
+							))
+						) : (
+							<div className="px-3 py-3 text-xs text-text-tertiary">No hub instances recorded.</div>
+						)}
+					</div>
 				</section>
 
 				<section className="grid gap-4 md:grid-cols-2">

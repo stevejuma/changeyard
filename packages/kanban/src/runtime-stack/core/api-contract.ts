@@ -2339,6 +2339,54 @@ export const runtimeHubRestartResponseSchema = z.object({
 });
 export type RuntimeHubRestartResponse = z.infer<typeof runtimeHubRestartResponseSchema>;
 
+export const runtimeHubInstanceSourceSchema = z.enum(["registry", "legacy-hub", "legacy-dashboard"]);
+export const runtimeHubInstanceSchema = z.object({
+	id: z.string(),
+	pid: z.number().int(),
+	url: z.string(),
+	repoRoot: z.string(),
+	startedAt: z.string(),
+	updatedAt: z.string(),
+	logPath: z.string(),
+	host: z.string().optional(),
+	port: z.union([z.number().int(), z.literal("auto")]).optional(),
+	startedBy: z.string(),
+	startedFromCwd: z.string(),
+	argv: z.array(z.string()),
+	managed: z.boolean(),
+	active: z.boolean(),
+	endpointKey: z.string(),
+	running: z.boolean(),
+	stale: z.boolean(),
+	current: z.boolean(),
+	source: runtimeHubInstanceSourceSchema,
+	statePath: z.string(),
+});
+export type RuntimeHubInstance = z.infer<typeof runtimeHubInstanceSchema>;
+
+export const runtimeHubInstancesResponseSchema = z.object({
+	statePath: z.string(),
+	activeInstanceId: z.string().nullable(),
+	currentPid: z.number().int(),
+	instances: z.array(runtimeHubInstanceSchema),
+});
+export type RuntimeHubInstancesResponse = z.infer<typeof runtimeHubInstancesResponseSchema>;
+
+export const runtimeHubKillRequestSchema = z.object({
+	target: z.string(),
+	force: z.boolean().optional(),
+});
+export type RuntimeHubKillRequest = z.infer<typeof runtimeHubKillRequestSchema>;
+
+export const runtimeHubKillResponseSchema = z.object({
+	ok: z.boolean(),
+	message: z.string(),
+	killed: z.array(z.string()),
+	removed: z.array(z.string()),
+	instances: z.array(runtimeHubInstanceSchema),
+});
+export type RuntimeHubKillResponse = z.infer<typeof runtimeHubKillResponseSchema>;
+
 export const runtimeAgentDefinitionSchema = z.object({
 	id: runtimeAgentIdSchema,
 	label: z.string(),

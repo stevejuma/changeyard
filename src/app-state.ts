@@ -29,3 +29,7 @@ export function repoAppStateRoot(repoRoot: string): string {
 export function repoAppStatePath(repoRoot: string, ...segments: string[]): string {
 	return path.join(repoAppStateRoot(repoRoot), ...segments);
 }
+
+export function changeyardAppStatePath(...segments: string[]): string {
+	return path.join(changeyardAppStateRoot(), ...segments);
+}

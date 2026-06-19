@@ -53,6 +53,9 @@ import type {
 	RuntimeGitSyncResponse,
 	RuntimeHookIngestRequest,
 	RuntimeHookIngestResponse,
+	RuntimeHubInstancesResponse,
+	RuntimeHubKillRequest,
+	RuntimeHubKillResponse,
 	RuntimeHubRestartResponse,
 	RuntimeOpenFileRequest,
 	RuntimeOpenFileResponse,
@@ -210,6 +213,9 @@ import {
 	runtimeGitSyncResponseSchema,
 	runtimeHookIngestRequestSchema,
 	runtimeHookIngestResponseSchema,
+	runtimeHubInstancesResponseSchema,
+	runtimeHubKillRequestSchema,
+	runtimeHubKillResponseSchema,
 	runtimeHubRestartResponseSchema,
 	runtimeOpenFileRequestSchema,
 	runtimeOpenFileResponseSchema,
@@ -398,6 +404,11 @@ export interface RuntimeTrpcContext {
 		getUpdateStatus: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeUpdateStatusResponse>;
 		runUpdateNow: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeRunUpdateResponse>;
 		restartHub: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeHubRestartResponse>;
+		listHubInstances: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeHubInstancesResponse>;
+		killHubInstance: (
+			scope: RuntimeTrpcWorkspaceScope | null,
+			input: RuntimeHubKillRequest,
+		) => Promise<RuntimeHubKillResponse>;
 	};
 	workspaceApi: {
 		loadGitSummary: (
@@ -795,6 +806,15 @@ export const runtimeAppRouter = t.router({
 		restartHub: t.procedure.output(runtimeHubRestartResponseSchema).mutation(async ({ ctx }) => {
 			return await ctx.runtimeApi.restartHub(ctx.workspaceScope);
 		}),
+		listHubInstances: t.procedure.output(runtimeHubInstancesResponseSchema).query(async ({ ctx }) => {
+			return await ctx.runtimeApi.listHubInstances(ctx.workspaceScope);
+		}),
+		killHubInstance: t.procedure
+			.input(runtimeHubKillRequestSchema)
+			.output(runtimeHubKillResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.runtimeApi.killHubInstance(ctx.workspaceScope, input);
+			}),
 	}),
 	vcs: t.router({
 		detect: t.procedure

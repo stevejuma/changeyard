@@ -276,6 +276,8 @@ export async function startChangeyardRuntime(options) {
 			message: `Runtime update is not configured for ${packageJson.name}.`,
 		}),
 		requestRestart: options.requestRestart,
+		listHubInstances: options.listHubInstances,
+		killHubInstance: options.killHubInstance,
 	});
 
 	let shutdownPromise = null;

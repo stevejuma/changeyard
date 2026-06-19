@@ -2,13 +2,13 @@
 id: CY-0026
 title: Global hub process registry
 type: agent-task
-status: synced
+status: ready_for_pr
 priority: medium
 labels:
   - agent-ready
 author: stevejuma
 createdAt: 2026-06-19T09:37:45.846Z
-updatedAt: 2026-06-19T09:38:37.759Z
+updatedAt: 2026-06-19T09:57:48.092Z
 base:
   vcs: unknown
   revision: main
@@ -26,8 +26,8 @@ remote:
   pullRequestUrl: null
 checks:
   profile: standard
-  lastRun: null
-  lastStatus: null
+  lastRun: 2026-06-19T09:57:48.093Z
+  lastStatus: passed
 planning:
   model: openspec-lite
   storage: inline
@@ -55,12 +55,12 @@ The current hub state is stored per repository, so opening Changeyard from multi
 
 # Plan
 
-- [ ] Add app-global hub state helpers and a registry for known hub instances.
-- [ ] Change hub start/ensure/status/stop/restart behavior to target the global default instance.
-- [ ] Add CLI commands to list and kill live or stale hub instances.
-- [ ] Expose hub instance listing and kill operations to the runtime server.
-- [ ] Update the dashboard to show the serving instance, other instances, and kill controls.
-- [ ] Update tests and CLI documentation.
+- [x] Add app-global hub state helpers and a registry for known hub instances.
+- [x] Change hub start/ensure/status/stop/restart behavior to target the global default instance.
+- [x] Add CLI commands to list and kill live or stale hub instances.
+- [x] Expose hub instance listing and kill operations to the runtime server.
+- [x] Update the dashboard to show the serving instance, other instances, and kill controls.
+- [x] Update tests and CLI documentation.
 
 <!-- cy:proposal:start -->
 # Proposal
@@ -73,18 +73,18 @@ Make the Changeyard hub behave as a shared local service by default. The CLI and
 
 ### In Scope
 
-- [ ] App-global hub registry, active-instance tracking, stale process pruning, and legacy per-repo record awareness.
-- [ ] CLI lifecycle changes for `cy hub start`, `status`, `stop`, `restart`, plus new `list` and `kill` commands.
-- [ ] Runtime/dashboard APIs for reading and terminating hub instances.
-- [ ] Dashboard UI that distinguishes connected clients from hub process instances.
-- [ ] Tests and documentation for the new behavior.
+- [x] App-global hub registry, active-instance tracking, stale process pruning, and legacy per-repo record awareness.
+- [x] CLI lifecycle changes for `cy hub start`, `status`, `stop`, `restart`, plus new `list` and `kill` commands.
+- [x] Runtime/dashboard APIs for reading and terminating hub instances.
+- [x] Dashboard UI that distinguishes connected clients from hub process instances.
+- [x] Tests and documentation for the new behavior.
 
 ### Out of Scope
 
-- [ ] Remote/shared hub hosting.
-- [ ] Authentication redesign for the local dashboard.
-- [ ] Replacing the existing workspace/project registry.
-- [ ] Full `cy doctor` cleanup integration beyond any helpers needed by the hub commands.
+- [x] Remote/shared hub hosting.
+- [x] Authentication redesign for the local dashboard.
+- [x] Replacing the existing workspace/project registry.
+- [x] Full `cy doctor` cleanup integration beyond any helpers needed by the hub commands.
 
 ## Approach
 
@@ -156,17 +156,17 @@ No provider changes are expected. This change uses a standard Changeyard workspa
 
 ## 2. Implementation
 
-- [ ] Add global registry helpers
-- [ ] Update CLI lifecycle commands
-- [ ] Add runtime APIs
-- [ ] Update dashboard UI
-- [ ] Update docs and tests
+- [x] Add global registry helpers
+- [x] Update CLI lifecycle commands
+- [x] Add runtime APIs
+- [x] Update dashboard UI
+- [x] Update docs and tests
 
 ## 3. Verification
 
-- [ ] Run automated tests
-- [ ] Run focused hub CLI smoke checks
-- [ ] Record results
+- [x] Run automated tests
+- [x] Run focused hub CLI smoke checks
+- [x] Record results
 <!-- cy:tasks:end -->
 
 <!-- cy:verification:start -->
@@ -187,7 +187,11 @@ No provider changes are expected. This change uses a standard Changeyard workspa
 
 ## Result
 
-_Not run yet._
+- `pnpm run build:cli` passed.
+- `pnpm --filter @changeyard/kanban run typecheck` passed.
+- `node --test --test-name-pattern "hub" dist/tests/changeyard.test.js` passed.
+- Isolated `CHANGEYARD_HOME` smoke checks for `cy hub status --json` and `cy hub list --json` passed.
+- `pnpm test` passed: 367 tests.
 <!-- cy:verification:end -->
 
 <!-- cy:clarifications:start -->
@@ -221,17 +225,17 @@ _Not run yet._
 
 ## Gate Result
 
-Ready for validation.
+Pass.
 <!-- cy:analysis:end -->
 
 # Acceptance Criteria
-- [ ] Default hub start/ensure reuses one live app-global instance across projects.
-- [ ] Explicit alternate endpoint starts are tracked as separate instances.
-- [ ] `cy hub list` shows live/stale instances with pid, URL, active marker, source, repo root, start time, and log path.
-- [ ] `cy hub kill` can terminate a known instance and update/prune registry state.
-- [ ] Dashboard shows the current serving instance and other known instances with kill controls.
-- [ ] Existing hub start/status/stop/restart tests are updated and passing.
-- [ ] Hub CLI docs describe global instance behavior and cleanup commands.
+- [x] Default hub start/ensure reuses one live app-global instance across projects.
+- [x] Explicit alternate endpoint starts are tracked as separate instances.
+- [x] `cy hub list` shows live/stale instances with pid, URL, active marker, source, repo root, start time, and log path.
+- [x] `cy hub kill` can terminate a known instance and update/prune registry state.
+- [x] Dashboard shows the current serving instance and other known instances with kill controls.
+- [x] Existing hub start/status/stop/restart tests are updated and passing.
+- [x] Hub CLI docs describe global instance behavior and cleanup commands.
 
 # Agent Plan
 
@@ -244,4 +248,4 @@ Ready for validation.
 
 # Completion Notes
 
-_Not started._
+Implemented a global hub process registry under app state, global start/list/status/stop/restart/kill behavior, best-effort project attach for reused hubs, runtime TRPC list/kill APIs, and a dashboard hub instances section. Updated CLI docs, README, and focused hub tests. Verification passed with `pnpm run build:cli`, `pnpm --filter @changeyard/kanban run typecheck`, focused hub tests, isolated CLI smoke checks, and `pnpm test` (367 tests). Remaining follow-up: deeper `cy doctor` integration for discovering unmanaged listeners can be added separately.

@@ -41,6 +41,8 @@ export type UiOptions = {
   project?: string;
   openPath?: "/" | "/kanban" | "/vcs";
   restartHub?: () => Promise<{ ok: boolean; message: string }>;
+  listHubInstances?: () => Promise<unknown> | unknown;
+  killHubInstance?: (target: string, options?: { force?: boolean }) => Promise<unknown> | unknown;
 };
 
 const PLANNING_SECTION_TITLES: Record<PlanningSectionId, string> = {
@@ -477,6 +479,8 @@ export async function startUiRuntime(options: UiOptions = {}, cwd = process.cwd(
     openPath: options.openPath ?? "/",
     changeyardApi: createChangeyardUiApi(),
     requestRestart: options.restartHub,
+    listHubInstances: options.listHubInstances,
+    killHubInstance: options.killHubInstance,
   });
   const displayUrl = new URL(options.openPath ?? "/", server.url).toString();
   return { server, repoRoot, displayUrl };

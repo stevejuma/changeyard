@@ -18,6 +18,8 @@ import { updateGlobalRuntimeConfig, updateRuntimeConfig } from "../config/runtim
 import type {
 	RuntimeCommandRunResponse,
 	RuntimeAgentId,
+	RuntimeHubInstancesResponse,
+	RuntimeHubKillResponse,
 	RuntimeHubRestartResponse,
 	RuntimeRunUpdateResponse,
 	RuntimeUpdateStatusResponse,
@@ -75,6 +77,8 @@ export interface CreateRuntimeApiDependencies {
 	getUpdateStatus: () => RuntimeUpdateStatusResponse;
 	runUpdateNow: () => Promise<RuntimeRunUpdateResponse>;
 	requestRestart?: () => Promise<RuntimeHubRestartResponse>;
+	listHubInstances?: () => Promise<RuntimeHubInstancesResponse> | RuntimeHubInstancesResponse;
+	killHubInstance?: (target: string, options?: { force?: boolean }) => Promise<RuntimeHubKillResponse> | RuntimeHubKillResponse;
 }
 
 async function resolveExistingTaskCwdOrEnsure(options: {
@@ -815,6 +819,29 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				};
 			}
 			return await deps.requestRestart();
+		},
+		listHubInstances: async () => {
+			if (!deps.listHubInstances) {
+				return {
+					statePath: "",
+					activeInstanceId: null,
+					currentPid: 0,
+					instances: [],
+				};
+			}
+			return await deps.listHubInstances();
+		},
+		killHubInstance: async (_workspaceScope, input) => {
+			if (!deps.killHubInstance) {
+				return {
+					ok: false,
+					message: "Hub instance management is not available for this runtime.",
+					killed: [],
+					removed: [],
+					instances: [],
+				};
+			}
+			return await deps.killHubInstance(input.target, { force: input.force });
 		},
 	};
 }

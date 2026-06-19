@@ -90,6 +90,7 @@ export async function runTui(options: TuiOptions = {}, cwd = process.cwd()): Pro
     port: options.port,
     open: false,
     project: options.project,
+    startedBy: "tui",
   });
   const runtimeUrl = options.connect ?? hub?.url;
   if (!runtimeUrl) {

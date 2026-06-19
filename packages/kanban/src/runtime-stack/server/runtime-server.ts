@@ -13,6 +13,8 @@ import { createClineWatcherRegistry } from "../cline-sdk/cline-watcher-registry.
 import type {
 	RuntimeCommandRunResponse,
 	RuntimeHubClientSurface,
+	RuntimeHubInstancesResponse,
+	RuntimeHubKillResponse,
 	RuntimeHubRestartResponse,
 	RuntimeRunUpdateResponse,
 	RuntimeUpdateStatusResponse,
@@ -83,6 +85,8 @@ export interface CreateRuntimeServerDependencies {
 	getUpdateStatus: () => RuntimeUpdateStatusResponse;
 	runUpdateNow: () => Promise<RuntimeRunUpdateResponse>;
 	requestRestart?: () => Promise<RuntimeHubRestartResponse>;
+	listHubInstances?: () => Promise<RuntimeHubInstancesResponse> | RuntimeHubInstancesResponse;
+	killHubInstance?: (target: string, options?: { force?: boolean }) => Promise<RuntimeHubKillResponse> | RuntimeHubKillResponse;
 }
 
 export interface RuntimeServer {
@@ -288,6 +292,8 @@ function writeAssetResponse(request: IncomingMessage, response: ServerResponse, 
 				getUpdateStatus: deps.getUpdateStatus,
 				runUpdateNow: deps.runUpdateNow,
 				requestRestart: deps.requestRestart,
+				listHubInstances: deps.listHubInstances,
+				killHubInstance: deps.killHubInstance,
 			}),
 			workspaceApi: createWorkspaceApi({
 				ensureTerminalManagerForWorkspace: deps.ensureTerminalManagerForWorkspace,
