@@ -32,6 +32,8 @@ import { cursorAdapter } from "../src/scaffold/command-generation/adapters/curso
 import { getCommandContents } from "../src/scaffold/templates/commands.js";
 import { CANONICAL_SKILL_RELATIVE_PATH, generateChangeyardSkillContent } from "../src/scaffold/skill-generation.js";
 import { listChanges, runList } from "../src/commands/list.js";
+import { runMarkInProgress, runNote } from "../src/commands/note.js";
+import { runRepair } from "../src/commands/repair.js";
 import { runRecover } from "../src/commands/recover.js";
 import { getReview, listReviews, runReviewComplete, runReviewStart, updateReview } from "../src/commands/review.js";
 import { attachSession } from "../src/commands/session.js";
@@ -753,6 +755,18 @@ test("cli quick --help shows quick-mode examples", () => {
 });
 
 test("cli docs loader reads command docs, topics, and possible values", () => {
+  const root = readCliHelpEntry([]);
+  assert.ok(root);
+  const missingCommandDocs = root.commands
+    .map((command) => command.name)
+    .filter((command) => !readCliHelpEntry([command]));
+  assert.deepEqual(missingCommandDocs, []);
+
+  const init = readCliHelpEntry(["init"]);
+  assert.ok(init);
+  assert.equal(init.command, "cy init");
+  assert.match(renderCliHelp(init, createColors(false)), /Create `.changeyard`, templates, skills/);
+
   const hooks = readCliHelpEntry(["hooks"]);
   assert.ok(hooks);
   assert.equal(hooks.command, "cy hooks");
@@ -1073,6 +1087,22 @@ test("cli unknown command suggestions honor forced color", () => {
 });
 
 test("cli help supports nested docs, topics, and forced color", () => {
+  const initHelpCommand = spawnSync(nodeBinary(), [cliBinPath(), "help", "init"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+  });
+  assert.equal(initHelpCommand.status, 0, initHelpCommand.stderr);
+  assert.match(initHelpCommand.stdout, /cy init \[--dry-run\]/);
+  assert.doesNotMatch(initHelpCommand.stdout, /Commands:/);
+
+  const initHelpFlag = spawnSync(nodeBinary(), [cliBinPath(), "init", "--help"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+  });
+  assert.equal(initHelpFlag.status, 0, initHelpFlag.stderr);
+  assert.match(initHelpFlag.stdout, /cy init \[--dry-run\]/);
+  assert.doesNotMatch(initHelpFlag.stdout, /Commands:/);
+
   const nested = spawnSync(nodeBinary(), [cliBinPath(), "hooks", "ingest", "--help"], {
     cwd: process.cwd(),
     encoding: "utf8",
@@ -1915,19 +1945,64 @@ test("complete can create a local-folder pull request when PRs are enabled", () 
   }
 });
 
-test("doctor reports configured provider and recover rewrites workspace marker", () => {
+test("doctor reports configured provider and recover repairs workspace marker and change file", () => {
   const repo = tempRepo();
   try {
     runInit(repo);
     runCreate({ template: "agent-task", title: "Recover workspace" }, repo);
     runStart("CY-0001", repo);
     const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
+    const workspaceChangePath = path.join(workspacePath, ".changeyard", "changes", "CY-0001-recover-workspace.md");
     rmSync(path.join(workspacePath, ".changeyard-workspace.json"), { force: true });
+    rmSync(path.dirname(workspaceChangePath), { recursive: true, force: true });
     assert.match(runDoctor(repo), /provider: noop/);
     assert.deepEqual(doctorReport(repo).warnings, ["CY-0001: missing workspace marker; run cy recover CY-0001"]);
-    assert.match(runRecover("CY-0001", repo), /Recovered CY-0001/);
+    assert.match(runRecover("CY-0001", repo), /Repaired CY-0001/);
     assert.deepEqual(doctorReport(repo).warnings, []);
     assert.match(readFileSync(path.join(workspacePath, ".changeyard-workspace.json"), "utf8"), /metadataPath/);
+    assert.equal(parseFrontmatter(readFileSync(workspaceChangePath, "utf8")).frontmatter.status, "in_progress");
+    assert.match(runRepair("CY-0001", { workspace: true }, repo), /already repairable/);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("start and verify warn when workspace dependencies are missing", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    writeFileSync(path.join(repo, "package.json"), `${JSON.stringify({ packageManager: "pnpm@10.32.1" }, null, 2)}\n`);
+    writeFileSync(path.join(repo, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+    runCreate({ template: "agent-task", title: "Dependency warning" }, repo);
+    const start = runStart("CY-0001", repo);
+    assert.match(start, /Workspace dependencies missing/);
+    assert.match(start, /pnpm install --offline/);
+    const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
+    const verify = runVerify("CY-0001", workspacePath);
+    assert.match(verify, /Workspace dependencies missing/);
+    assert.match(verify, /pnpm install --offline/);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("note and mark-in-progress write through active workspace change file", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "agent-task", title: "Active notes" }, repo);
+    runStart("CY-0001", repo);
+    const rootChangePath = path.join(repo, ".changeyard", "changes", "CY-0001-active-notes.md");
+    const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
+    const workspaceChangePath = path.join(workspacePath, ".changeyard", "changes", "CY-0001-active-notes.md");
+    assert.match(runNote("CY-0001", { message: "Checks ran: node -v." }, repo), /Updated Completion Notes/);
+    assert.match(readFileSync(rootChangePath, "utf8"), /Checks ran: node -v\./);
+    assert.match(readFileSync(workspaceChangePath, "utf8"), /Checks ran: node -v\./);
+
+    const active = parseFrontmatter(readFileSync(workspaceChangePath, "utf8"));
+    writeFileSync(workspaceChangePath, writeFrontmatter({ ...active.frontmatter, status: "blocked" }, active.body));
+    assert.match(runMarkInProgress("CY-0001", {}, repo), /Marked CY-0001 in_progress/);
+    assert.equal(parseFrontmatter(readFileSync(workspaceChangePath, "utf8")).frontmatter.status, "in_progress");
   } finally {
     cleanup(repo);
   }
@@ -3219,7 +3294,7 @@ test("doctor reports workspace drift and recover all repairs missing markers", (
     const markerPath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo", ".changeyard-workspace.json");
     rmSync(markerPath, { force: true });
     assert.match(runDoctor(repo), /missing workspace marker; run cy recover CY-0001/);
-    assert.match(runRecover("all", repo), /Recovered CY-0001/);
+    assert.match(runRecover("all", repo), /Repaired CY-0001/);
     assert.match(runDoctor(repo), /workspace: CY-0001/);
   } finally {
     cleanup(repo);

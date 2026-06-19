@@ -50,6 +50,15 @@ After \`cy start\`, all product edits belong **only** in the workspace checkout 
 
 For large or multi-step changes, make multiple logical commits inside the verified workspace so review can happen in smaller pieces. Every workspace commit message must start with the change id, for example \`CY-0001: Add parser validation\`.
 
+## VCS side effects in sandboxed sessions
+
+Changeyard commands use Git/JJ under the hood. In restricted agent sandboxes, commands that inspect or mutate workspace state may need broader filesystem permissions for \`.git\` or \`.jj\`:
+
+- Metadata-only reads: \`cy list\`, \`cy status <id>\`, and \`cy next <id>\` read Changeyard files and may read workspace metadata.
+- VCS-inspecting commands: \`cy verify <id>\`, \`cy workspace status <id>\`, \`cy doctor\`, and \`cy audit <id>\` can run Git/JJ status or conflict inspection commands.
+- VCS-mutating commands: \`cy start <id>\`, \`cy complete <id>\`, \`cy land <id>\`, \`cy repair <id> --workspace\`, \`cy recover <id>\`, and \`cy workspace delete <id>\` can write workspace, metadata, Git, or JJ state.
+- If a sandbox blocks VCS state access, stop and rerun the same gate with appropriate permissions rather than bypassing \`cy verify\`.
+
 ## Planning changes
 
 - Non-trivial agent work must use strict OpenSpec-lite planning: \`cy create --template agent-task --planning openspec-lite --strict --title "<title>"\`

@@ -22,3 +22,5 @@ cy recover all [--dry-run]
 cy recover CY-0001
 cy recover all --dry-run
 ```
+
+Recover repairs workspace marker drift and materializes the workspace-side change file when metadata is present. For a more explicit broken-start path, use `cy repair CY-0001 --workspace`.

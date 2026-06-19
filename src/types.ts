@@ -106,6 +106,7 @@ export type ChangeyardConfig = {
     branchPattern: string;
     hydrate: {
       installCommand: string;
+      warmupCommand?: string;
       copy: string[];
       link: string[];
       neverCopy: string[];

@@ -1,8 +1,8 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { loadConfig } from "../config/loadConfig.js";
 import { validateQuickStart } from "../change/quickLifecycle.js";
-import { parseFrontmatter, writeFrontmatter } from "../documents/frontmatter.js";
+import { parseFrontmatter } from "../documents/frontmatter.js";
 import { validateChangeFile } from "../documents/validateDocument.js";
 import { changesRoot, storageRoot, workspacesRoot } from "../paths.js";
 import { findChangeFile } from "../state/id.js";
@@ -11,6 +11,8 @@ import { hydrateWorkspace } from "../hydrate/hydrateWorkspace.js";
 import { createWorkspaceEngine } from "../workspace/index.js";
 import { shellCommandRunner } from "../workspace/commandRunner.js";
 import { describeJjWorkspaceCommit } from "../workspace/jjLandingDescriptions.js";
+import { dependencySetupWarning } from "../workspace/setupGuidance.js";
+import { materializeWorkspaceChangeDocument, writeChangeDocument } from "../state/activeChangeDocument.js";
 import type { Frontmatter, WorkspaceMetadata } from "../types.js";
 import { formatValidationFailure } from "./audit.js";
 
@@ -76,13 +78,9 @@ function describeStartedJjWorkspace(workspacePath: string, id: string, descripti
   }
 }
 
-function writeChangeDocument(filePath: string, frontmatter: Frontmatter, body: string): void {
-  mkdirSync(path.dirname(filePath), { recursive: true });
-  writeFileSync(filePath, writeFrontmatter(frontmatter, body));
-}
-
 type MutationOptions = {
   dryRun?: boolean;
+  warmup?: boolean;
 };
 
 export function runStart(id: string, repoRoot = process.cwd(), mutationOptions: MutationOptions = {}): string {
@@ -117,6 +115,8 @@ export function runStart(id: string, repoRoot = process.cwd(), mutationOptions: 
   const targetRef = String(asRecord(parsed.frontmatter.base).revision ?? config.project.defaultBase);
   const seedDescription = `${changeId}: ${String(parsed.frontmatter.title ?? changeId)}`;
   const workspacePath = path.resolve(repoRoot, config.storage.root, config.storage.workspacesDir, fillPattern(config.workspace.pathPattern, changeId));
+  const workspaceRootPath = path.join(workspacesRoot(repoRoot, config), changeId);
+  const workspaceRootExisted = existsSync(workspaceRootPath);
   const workspaceName = String(asRecord(parsed.frontmatter.workspace).name ?? config.workspace.namePattern.replace("{id}", changeId));
   const workspaceRelativePath = path.relative(repoRoot, workspacePath);
   const workspaceChangePath = path.join(workspacePath, path.relative(repoRoot, filePath));
@@ -145,35 +145,55 @@ export function runStart(id: string, repoRoot = process.cwd(), mutationOptions: 
   }
 
   const engine = createWorkspaceEngine(engineName);
-  const createdMetadata = engine.create({ repoRoot, workspacePath, metadata, neverCopy: config.workspace.hydrate.neverCopy });
-  const metadataPath = path.join(workspacesRoot(repoRoot, config), changeId, "metadata.json");
-  mkdirSync(path.dirname(metadataPath), { recursive: true });
-  writeFileSync(metadataPath, `${JSON.stringify(createdMetadata, null, 2)}\n`);
-  writeFileSync(path.join(workspacePath, ".changeyard-workspace.json"), `${JSON.stringify({ changeId, metadataPath }, null, 2)}\n`);
-  const hydrateResult = hydrateWorkspace(config, createdMetadata);
+  let createdMetadata: WorkspaceMetadata | null = null;
+  let hydrateResult: ReturnType<typeof hydrateWorkspace> | null = null;
+  try {
+    createdMetadata = engine.create({ repoRoot, workspacePath, metadata, neverCopy: config.workspace.hydrate.neverCopy });
+    const metadataPath = path.join(workspacesRoot(repoRoot, config), changeId, "metadata.json");
+    mkdirSync(path.dirname(metadataPath), { recursive: true });
+    writeFileSync(metadataPath, `${JSON.stringify(createdMetadata, null, 2)}\n`);
+    writeFileSync(path.join(workspacePath, ".changeyard-workspace.json"), `${JSON.stringify({ changeId, metadataPath }, null, 2)}\n`);
+    hydrateResult = hydrateWorkspace(config, createdMetadata, { warmup: mutationOptions.warmup });
 
-  const nextFrontmatter: Frontmatter = {
-    ...parsed.frontmatter,
-    status: "in_progress",
-    updatedAt: new Date().toISOString(),
-    workspace: {
-      ...asRecord(parsed.frontmatter.workspace),
-      engine: engine.name,
-      name: workspaceName,
-      path: workspaceRelativePath,
-    },
-  };
-  writeChangeDocument(engineName === "jj" ? workspaceChangePath : filePath, nextFrontmatter, parsed.body);
-  if (engineName === "jj") describeStartedJjWorkspace(workspacePath, changeId, seedDescription);
+    const nextFrontmatter: Frontmatter = {
+      ...parsed.frontmatter,
+      status: "in_progress",
+      updatedAt: new Date().toISOString(),
+      workspace: {
+        ...asRecord(parsed.frontmatter.workspace),
+        engine: engine.name,
+        name: workspaceName,
+        path: workspaceRelativePath,
+      },
+    };
+    materializeWorkspaceChangeDocument(createdMetadata, { status: "in_progress" });
+    if (engineName !== "jj") writeChangeDocument(filePath, nextFrontmatter, parsed.body);
+    if (engineName === "jj") describeStartedJjWorkspace(workspacePath, changeId, seedDescription);
+  } catch (error) {
+    if (!workspaceRootExisted) rmSync(workspaceRootPath, { recursive: true, force: true });
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error([
+      `Failed to start ${changeId}: ${message}`,
+      "",
+      "Recovery:",
+      workspaceRootExisted
+        ? `- Run cy repair ${changeId} --workspace to inspect and repair the existing workspace state.`
+        : `- Partial workspace state was removed from ${workspaceRootPath}.`,
+      `- Re-run cy start ${changeId}.`,
+    ].join("\n"));
+  }
 
+  const dependencyWarning = dependencySetupWarning(workspacePath);
   return [
     `Started ${changeId} in ${workspaceRelativePath}`,
     ...(metadataSeedMessage ? [metadataSeedMessage] : []),
-    ...(createdMetadata.targetRef ? [`Base: ${createdMetadata.targetRef} ${createdMetadata.baseCommitId ?? ""}`.trim()] : []),
-    ...(createdMetadata.workspaceChangeId ? [`Workspace change: ${createdMetadata.workspaceChangeId}`] : []),
+    ...(createdMetadata?.targetRef ? [`Base: ${createdMetadata.targetRef} ${createdMetadata.baseCommitId ?? ""}`.trim()] : []),
+    ...(createdMetadata?.workspaceChangeId ? [`Workspace change: ${createdMetadata.workspaceChangeId}`] : []),
     ...(engineName === "jj" ? [`Workspace description: ${seedDescription}`] : []),
     `Next: cd ${workspaceRelativePath}`,
-    `Hydration: copied ${hydrateResult.copied.length}, skipped ${hydrateResult.skipped.length}`,
+    `Hydration: copied ${hydrateResult?.copied.length ?? 0}, skipped ${hydrateResult?.skipped.length ?? 0}`,
+    ...(hydrateResult?.warmup.status !== "skipped" ? [`Warmup: ${hydrateResult?.warmup.status}${hydrateResult?.warmup.logPath ? ` (${hydrateResult.warmup.logPath})` : ""}`] : []),
+    ...(dependencyWarning ? ["", dependencyWarning] : []),
     `Then: cy verify ${changeId}`,
   ].join("\n");
 }

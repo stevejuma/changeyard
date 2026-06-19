@@ -364,13 +364,22 @@ export function useRuntimeStateStream(
 
 		dispatch({ type: "requested_workspace_changed" });
 
+		const closeSocket = (targetSocket: WebSocket) => {
+			targetSocket.onopen = null;
+			targetSocket.onmessage = null;
+			targetSocket.onerror = null;
+			targetSocket.onclose = null;
+			if (targetSocket.readyState === WebSocket.CONNECTING) {
+				targetSocket.addEventListener("open", () => targetSocket.close(), { once: true });
+				targetSocket.addEventListener("error", () => targetSocket.close(), { once: true });
+				return;
+			}
+			targetSocket.close();
+		};
+
 		const cleanupSocket = () => {
 			if (socket) {
-				socket.onopen = null;
-				socket.onmessage = null;
-				socket.onerror = null;
-				socket.onclose = null;
-				socket.close();
+				closeSocket(socket);
 				socket = null;
 			}
 		};
@@ -437,7 +446,7 @@ export function useRuntimeStateStream(
 							requestedWorkspaceForConnection = nextProjectId;
 							requestedWorkspacePathForConnection = null;
 							dispatch({ type: "requested_workspace_changed" });
-							connect();
+							window.queueMicrotask(connect);
 						}
 						return;
 					}

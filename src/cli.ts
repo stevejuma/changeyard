@@ -23,6 +23,8 @@ import { runLand } from "./commands/land.js";
 import { runUpdate } from "./commands/update.js";
 import { listChanges, runList } from "./commands/list.js";
 import { getNextAction, runNext } from "./commands/next.js";
+import { runMarkInProgress, runNote } from "./commands/note.js";
+import { runRepair } from "./commands/repair.js";
 import { runRecover } from "./commands/recover.js";
 import { runReviewComplete, runReviewStart, type ReviewDecision } from "./commands/review.js";
 import { attachSession, runSession } from "./commands/session.js";
@@ -60,7 +62,7 @@ import { AGENT_TOOL_IDS } from "./scaffold/agent-tools.js";
 import { readWorkspaceMetadata } from "./workspace/marker.js";
 import { storageRoot } from "./paths.js";
 
-type CommandName = "init" | "update" | "create" | "quick" | "validate" | "sync" | "start" | "verify" | "hydrate" | "complete" | "next" | "audit" | "land" | "workspace" | "review" | "doctor" | "completions" | "recover" | "list" | "status" | "plan" | "ui" | "server" | "dashboard" | "hub" | "tui" | "config" | "hooks" | "session" | "install" | "uninstall" | "version" | "help";
+type CommandName = "init" | "update" | "create" | "quick" | "validate" | "sync" | "start" | "verify" | "hydrate" | "complete" | "next" | "audit" | "land" | "workspace" | "review" | "doctor" | "completions" | "recover" | "repair" | "note" | "mark-in-progress" | "list" | "status" | "plan" | "ui" | "server" | "dashboard" | "hub" | "tui" | "config" | "hooks" | "session" | "install" | "uninstall" | "version" | "help";
 
 type ParsedArgs = {
   command: string;
@@ -98,6 +100,7 @@ const BOOLEAN_FLAGS = new Set([
   "no-pr",
   "open",
   "quiet",
+  "replace",
   "quick",
   "smoke-create-all",
   "smoke-test",
@@ -105,6 +108,8 @@ const BOOLEAN_FLAGS = new Set([
   "tui",
   "vcs",
   "verbose",
+  "warmup",
+  "workspace",
   "waive-missing-jj-bookmarks",
   "version",
   "waive-stale-completed-reviews",
@@ -622,7 +627,7 @@ async function main(): Promise<void> {
       }
       case "start": {
         const id = requireTaskId("cy start <id>", args.positional[0], guidanceColors);
-        output = runStart(id, rootForChange(id), { dryRun });
+        output = runStart(id, rootForChange(id), { dryRun, warmup: asBooleanFlag(args.flags, "warmup") });
         break;
       }
       case "verify": {
@@ -632,7 +637,7 @@ async function main(): Promise<void> {
       }
       case "hydrate": {
         const id = requireTaskId("cy hydrate <id>", args.positional[0], guidanceColors);
-        output = runHydrate(id, process.cwd(), { dryRun });
+        output = runHydrate(id, process.cwd(), { dryRun, warmup: asBooleanFlag(args.flags, "warmup") });
         break;
       }
       case "complete": {
@@ -699,6 +704,25 @@ async function main(): Promise<void> {
       case "recover": {
         const id = requireTaskId("cy recover <id|all>", args.positional[0], guidanceColors);
         output = runRecover(id, repoRoot, { dryRun });
+        break;
+      }
+      case "repair": {
+        const id = requireTaskId("cy repair <id> --workspace", args.positional[0], guidanceColors);
+        output = runRepair(id, { dryRun, workspace: asBooleanFlag(args.flags, "workspace") }, rootForChange(id));
+        break;
+      }
+      case "note": {
+        const id = requireTaskId("cy note <id> --message <text>", args.positional[0], guidanceColors);
+        output = runNote(id, {
+          message: stringFlag(args.flags, "message"),
+          replace: asBooleanFlag(args.flags, "replace"),
+          dryRun,
+        }, rootForChange(id));
+        break;
+      }
+      case "mark-in-progress": {
+        const id = requireTaskId("cy mark-in-progress <id>", args.positional[0], guidanceColors);
+        output = runMarkInProgress(id, { dryRun }, rootForChange(id));
         break;
       }
       case "review": {

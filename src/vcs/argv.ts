@@ -11,6 +11,7 @@ export function vcsNoColorEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.Proc
 		NO_COLOR: "1",
 		CLICOLOR: "0",
 		CLICOLOR_FORCE: "0",
+		GIT_OPTIONAL_LOCKS: "0",
 		FORCE_COLOR: "0",
 	};
 }

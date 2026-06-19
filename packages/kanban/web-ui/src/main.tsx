@@ -4,6 +4,7 @@ import { Provider } from "react-redux";
 import { Toaster } from "sonner";
 
 import { AppErrorBoundary } from "@/components/app-error-boundary";
+import DashboardApp from "@/Dashboard";
 import { PasscodeGateProvider } from "@/components/passcode-gate";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { isThemeId } from "@/hooks/use-theme";
@@ -27,7 +28,6 @@ if (!root) {
 }
 
 const KanbanApp = lazy(() => import("@/App"));
-const DashboardApp = lazy(() => import("@/Dashboard"));
 const VcsApp = lazy(() => import("virtual:changeyard-vcs-route"));
 
 type Surface = "dashboard" | "kanban" | "vcs";

@@ -6,7 +6,9 @@ import type { RuntimeStateStreamMessage } from "@/runtime/types";
 import { type UseRuntimeStateStreamResult, useRuntimeStateStream } from "@/runtime/use-runtime-state-stream";
 
 class MockWebSocket {
+	static readonly CONNECTING = 0;
 	static readonly OPEN = 1;
+	static readonly CLOSED = 3;
 	static instances: MockWebSocket[] = [];
 
 	readonly url: string;
@@ -15,6 +17,8 @@ class MockWebSocket {
 	onmessage: ((event: { data: string }) => void) | null = null;
 	onerror: (() => void) | null = null;
 	onclose: (() => void) | null = null;
+	private readonly listeners: Partial<Record<"open" | "error", Array<() => void>>> = {};
+	closeCallCount = 0;
 
 	constructor(url: string) {
 		this.url = url;
@@ -26,11 +30,33 @@ class MockWebSocket {
 	}
 
 	close(): void {
-		this.readyState = 3;
+		this.closeCallCount += 1;
+		this.readyState = MockWebSocket.CLOSED;
 	}
 
 	emit(payload: RuntimeStateStreamMessage): void {
 		this.onmessage?.({ data: JSON.stringify(payload) });
+	}
+
+	addEventListener(type: "open" | "error", listener: () => void): void {
+		this.listeners[type] = [...(this.listeners[type] ?? []), listener];
+	}
+
+	emitOpen(): void {
+		this.readyState = MockWebSocket.OPEN;
+		this.onopen?.();
+		for (const listener of this.listeners.open ?? []) {
+			listener();
+		}
+		this.listeners.open = [];
+	}
+
+	emitError(): void {
+		this.onerror?.();
+		for (const listener of this.listeners.error ?? []) {
+			listener();
+		}
+		this.listeners.error = [];
 	}
 }
 
@@ -134,5 +160,38 @@ describe("useRuntimeStateStream", () => {
 
 		const ignoredEventSnapshot = latestSnapshot as unknown as UseRuntimeStateStreamResult;
 		expect(ignoredEventSnapshot.latestVcsProjectEvent?.version).toBe(1);
+	});
+
+	it("defers closing a connecting socket until it opens", async () => {
+		let latestSnapshot: UseRuntimeStateStreamResult | null = null;
+
+		await act(async () => {
+			root.render(
+				<HookHarness
+					workspaceId={null}
+					onSnapshot={(snapshot) => {
+						latestSnapshot = snapshot;
+					}}
+				/>,
+			);
+		});
+
+		const socket = MockWebSocket.instances[0];
+		expect(socket).toBeTruthy();
+		if (!socket) {
+			throw new Error("Expected a runtime stream socket.");
+		}
+		socket.readyState = MockWebSocket.CONNECTING;
+
+		await act(async () => {
+			root.unmount();
+		});
+
+		expect(socket.closeCallCount).toBe(0);
+
+		socket.emitOpen();
+
+		expect(socket.closeCallCount).toBe(1);
+		expect(latestSnapshot).not.toBeNull();
 	});
 });

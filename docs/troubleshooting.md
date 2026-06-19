@@ -52,6 +52,30 @@ cy doctor
 
 Do not implement product changes in the root checkout after a `cy start` failure. Resolve the gate and verify the workspace before editing.
 
+If a start left partial state, run:
+
+```sh
+cy repair CY-0001 --workspace
+```
+
+`cy repair` reports exactly which marker, workspace change file, or lifecycle state it restored.
+
+## Agent Sandbox Prompts For VCS State
+
+Changeyard uses Git or JJ for workspace inspection and lifecycle actions. Commands such as `cy verify`, `cy workspace status`, `cy doctor`, and `cy audit` may read VCS state. Commands such as `cy start`, `cy complete`, `cy land`, `cy repair --workspace`, `cy recover`, and `cy workspace delete` can write workspace metadata or Git/JJ state.
+
+In restricted agent sandboxes, rerun the same Changeyard gate with permission to access `.git` or `.jj` rather than bypassing the gate.
+
+## Workspace Dependencies Are Missing
+
+Changeyard does not install dependencies automatically. If `cy start` or `cy verify` reports that `package.json` exists but `node_modules` is missing, run the suggested setup command from inside the workspace, for example:
+
+```sh
+pnpm install --offline
+```
+
+Projects can configure `workspace.hydrate.warmupCommand` and run `cy start CY-0001 --warmup` or `cy hydrate CY-0001 --warmup` to make this explicit.
+
 ## VCS App Has No Active Workspace
 
 The VCS app needs an active project/workspace context. Start or verify a workspace from Kanban or the CLI, then reopen VCS from the same hub.

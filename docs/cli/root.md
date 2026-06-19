@@ -28,6 +28,7 @@ cy <command> [options]
 - `sync`: Sync change metadata to the configured provider.
 - `start`: Create a task workspace.
 - `verify`: Verify a task workspace.
+- `hydrate`: Copy configured workspace support files and optionally run warmup.
 - `complete`: Validate and mark work ready to land.
 - `next`: Show the next actionable workflow command.
 - `audit`: Audit workflow gates and print recovery guidance.
@@ -36,6 +37,10 @@ cy <command> [options]
 - `review`: Manage review artifacts.
 - `plan`: Inspect and update planning sections.
 - `doctor`: Check Changeyard state and repair supported drift.
+- `recover`: Recreate missing workspace markers and repair recoverable workspace drift.
+- `repair`: Repair recoverable workspace state.
+- `note`: Update Completion Notes for a change.
+- `mark-in-progress`: Mark a recoverable change in progress.
 - `hooks`: Forward terminal-agent hook events to the local runtime.
 - `session`: Register external agent session metadata with the runtime.
 - `hub`: Manage the shared UI/runtime hub.

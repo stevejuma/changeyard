@@ -26,7 +26,7 @@
 		"build:docs": "pnpm --filter @changeyard/docs run build",
 		"dev:desktop": "pnpm --filter @changeyard/desktop install && pnpm run build:cli && pnpm run build:kanban && pnpm --filter @changeyard/desktop run dev",
 		"dev:desktop:vite": "pnpm --filter @changeyard/desktop install && pnpm run build:cli && pnpm run build:kanban && pnpm --filter @changeyard/desktop run dev:vite",
-		"build": "pnpm run build:cli && pnpm run build:merge && pnpm run build:vcs && pnpm run build:kanban && pnpm run build:tui && pnpm run build:desktop",
+		"build": "pnpm run build:cli && pnpm run build:merge && pnpm run build:vcs && pnpm run build:kanban && pnpm run build:tui",
 		"docs:dev": "pnpm --filter @changeyard/docs run dev",
 		"docs:build": "pnpm run build:docs",
 		"docs:preview": "pnpm --filter @changeyard/docs run preview",
