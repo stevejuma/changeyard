@@ -115,6 +115,13 @@ export const configSchema = {
         items: { type: "string" },
       },
     },
+    scaffold: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        trackGeneratedFiles: { type: "boolean" },
+      },
+    },
     doctor: {
       type: "object",
       additionalProperties: false,

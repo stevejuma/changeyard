@@ -51,6 +51,9 @@ export const defaultConfig: ChangeyardConfig = {
     standard: [],
     full: [],
   },
+  scaffold: {
+    trackGeneratedFiles: false,
+  },
   doctor: {
     staleCompletedDays: 3,
   },

@@ -110,18 +110,3 @@ export function generateHooksForTool(toolId: AgentToolId): GeneratedHookFile[] {
   if (toolId === "copilot") return copilotHooks();
   return [];
 }
-
-export function hookExcludePatternsForTool(toolId: AgentToolId): string[] {
-  if (toolId === "cursor") {
-    return [
-      ".cursor/hooks/kanban-*",
-      ".cursor/hooks/kanban-stop",
-      ".cursor/hooks/kanban-before-submit-prompt",
-      ".cursor/hooks/kanban-pre-tool-use",
-      ".cursor/hooks/kanban-post-tool-use",
-      ".cursor/hooks/kanban-subagent-stop",
-    ];
-  }
-  if (toolId === "copilot") return [".github/hooks/kanban.json"];
-  return [];
-}

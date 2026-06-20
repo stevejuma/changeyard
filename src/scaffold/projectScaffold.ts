@@ -11,7 +11,7 @@ import { resolveSelectedAgentTools, shouldInstallAgentTool } from "./available-t
 import { generateCommandsForTool } from "./command-generation/generator.js";
 import { getCommandAdapter } from "./command-generation/registry.js";
 import { buildScaffoldVcsConfig, detectScaffoldVcsEngine } from "./detect-vcs.js";
-import { generateHooksForTool, hookExcludePatternsForTool } from "./hook-generation.js";
+import { generateHooksForTool } from "./hook-generation.js";
 import {
   CANONICAL_SKILL_RELATIVE_PATH,
   generateChangeyardSkillContent,
@@ -20,6 +20,10 @@ import {
 
 const TEMPLATE_NAMES = ["agent-task", "feature", "bug", "refactor", "review", "quick"] as const;
 const PACKAGE_VERSION = "0.1.0";
+const MANAGED_EXCLUDE_START = "# BEGIN Changeyard generated artifacts";
+const MANAGED_EXCLUDE_END = "# END Changeyard generated artifacts";
+const WORKTREE_EXCLUDE_LABEL = ".git/info/exclude (Changeyard generated artifact ignore rules)";
+const WORKTREE_EXCLUDE_TRACKING_LABEL = ".git/info/exclude (removed Changeyard generated artifact ignore rules)";
 
 export type ScaffoldMode = "init" | "update";
 
@@ -129,43 +133,151 @@ function writeScaffoldFileWithMode(
   }
 }
 
-function removeFromWorktreeVcsExclude(repoRoot: string, patterns: string[]): void {
-  if (patterns.length === 0) {
-    return;
-  }
+function generatedScaffoldExcludePatterns(): string[] {
+  return [
+    ".changeyard/",
+    ".agents/skills/changeyard/",
+    ".cursor/skills/changeyard/",
+    ".cursor/commands/cy-*.md",
+    ".cursor/hooks.json",
+    ".cursor/hooks/kanban-*",
+    ".claude/skills/changeyard/",
+    ".claude/commands/cy/",
+    ".cline/skills/changeyard/",
+    ".clinerules/workflows/cy-*.md",
+    ".codex/skills/changeyard/",
+    ".github/skills/changeyard/",
+    ".github/prompts/cy-*.prompt.md",
+    ".github/hooks/kanban.json",
+    ".opencode/skills/changeyard/",
+    ".opencode/commands/cy-*.md",
+    ".gemini/skills/changeyard/",
+    ".gemini/commands/cy/",
+    ".kiro/skills/changeyard/",
+    ".kiro/prompts/cy-*.prompt.md",
+    ".factory/skills/changeyard/",
+    ".factory/commands/cy-*.md",
+  ];
+}
+
+function legacyGeneratedExcludePatterns(): Set<string> {
+  return new Set([
+    ".github/hooks/kanban.json",
+    ".cursor/hooks/kanban-*",
+    ".cursor/hooks/kanban-stop",
+    ".cursor/hooks/kanban-before-submit-prompt",
+    ".cursor/hooks/kanban-pre-tool-use",
+    ".cursor/hooks/kanban-post-tool-use",
+    ".cursor/hooks/kanban-subagent-stop",
+  ]);
+}
+
+function resolveWorktreeVcsExcludePath(repoRoot: string): string | null {
   try {
     const result = spawnSync("git", ["rev-parse", "--git-path", "info/exclude"], {
       cwd: repoRoot,
       encoding: "utf8",
     });
     if (result.status !== 0) {
-      return;
+      return null;
     }
     const rawPath = result.stdout.trim();
     if (!rawPath) {
-      return;
+      return null;
     }
-    const excludePath = path.isAbsolute(rawPath) ? rawPath : path.join(repoRoot, rawPath);
-    if (!existsSync(excludePath)) {
-      return;
-    }
-    const patternSet = new Set(patterns);
-    const current = readFileSync(excludePath, "utf8");
-    const next = current
-      .split(/\r?\n/)
-      .filter((line) => !patternSet.has(line.trim()))
-      .join("\n")
-      .replace(/\n*$/u, "\n");
-    if (next !== current) {
-      writeFileSync(excludePath, next);
-    }
+    return path.isAbsolute(rawPath) ? rawPath : path.join(repoRoot, rawPath);
   } catch {
-    // Local VCS exclude cleanup is best-effort. Scaffold files are still written.
+    return null;
   }
 }
 
-function scaffoldChangeyardStorage(repoRoot: string, mode: ScaffoldMode, dryRun: boolean, result: ScaffoldResult): void {
+function stripManagedExcludeBlock(content: string): string {
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  const next: string[] = [];
+  let insideBlock = false;
+  for (const line of lines) {
+    if (line.trim() === MANAGED_EXCLUDE_START) {
+      insideBlock = true;
+      continue;
+    }
+    if (line.trim() === MANAGED_EXCLUDE_END) {
+      insideBlock = false;
+      continue;
+    }
+    if (!insideBlock) {
+      next.push(line);
+    }
+  }
+  return next.join("\n").replace(/\n*$/u, "\n");
+}
+
+function appendManagedExcludeBlock(content: string, patterns: string[]): string {
+  const base = stripManagedExcludeBlock(content).replace(/\n*$/u, "\n");
+  const block = [
+    MANAGED_EXCLUDE_START,
+    "# Local-only ignore rules for files written by cy init and cy update.",
+    ...patterns,
+    MANAGED_EXCLUDE_END,
+    "",
+  ].join("\n");
+  return `${base}${base.trim().length > 0 ? "\n" : ""}${block}`;
+}
+
+function removeLegacyGeneratedExcludeLines(content: string): string {
+  const legacyPatterns = legacyGeneratedExcludePatterns();
+  return content
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .filter((line) => !legacyPatterns.has(line.trim()))
+    .join("\n")
+    .replace(/\n*$/u, "\n");
+}
+
+function updateWorktreeGeneratedArtifactExcludes(
+  repoRoot: string,
+  trackGeneratedFiles: boolean,
+  dryRun: boolean,
+  result: ScaffoldResult,
+): void {
+  const excludePath = resolveWorktreeVcsExcludePath(repoRoot);
+  if (!excludePath) {
+    return;
+  }
+  const current = existsSync(excludePath) ? readFileSync(excludePath, "utf8") : "";
+  const withoutManagedBlock = stripManagedExcludeBlock(current);
+  const next = trackGeneratedFiles
+    ? removeLegacyGeneratedExcludeLines(withoutManagedBlock)
+    : appendManagedExcludeBlock(withoutManagedBlock, generatedScaffoldExcludePatterns());
+
+  if (next === current) {
+    return;
+  }
+  result.installed.push(trackGeneratedFiles ? WORKTREE_EXCLUDE_TRACKING_LABEL : WORKTREE_EXCLUDE_LABEL);
+  if (dryRun) {
+    return;
+  }
+  mkdirSync(path.dirname(excludePath), { recursive: true });
+  writeFileSync(excludePath, next);
+}
+
+function generatedFilesAreTracked(config: ChangeyardConfig): boolean {
+  return config.scaffold?.trackGeneratedFiles === true;
+}
+
+function scaffoldChangeyardStorage(
+  repoRoot: string,
+  mode: ScaffoldMode,
+  dryRun: boolean,
+  result: ScaffoldResult,
+): ChangeyardConfig {
   const root = path.join(repoRoot, defaultConfig.storage.root);
+  const configPath = path.join(root, "config.jsonc");
+  let config = existsSync(configPath) ? readStoredConfig(configPath) : buildInitialConfig(repoRoot);
+
+  if (mode === "update") {
+    config = applyDetectedVcsToConfig(config, repoRoot);
+  }
+
   const templatesDir = path.join(root, "templates");
 
   if (!dryRun) {
@@ -174,7 +286,6 @@ function scaffoldChangeyardStorage(repoRoot: string, mode: ScaffoldMode, dryRun:
     mkdirSync(templatesDir, { recursive: true });
   }
 
-  const configPath = path.join(root, "config.jsonc");
   const detectedEngine = detectScaffoldVcsEngine(repoRoot);
   const configLabel = `${relativePath(repoRoot, configPath)} (vcs.engine=${detectedEngine})`;
 
@@ -183,9 +294,6 @@ function scaffoldChangeyardStorage(repoRoot: string, mode: ScaffoldMode, dryRun:
   } else if (dryRun) {
     result.installed.push(configLabel);
   } else {
-    const config = existsSync(configPath)
-      ? applyDetectedVcsToConfig(readStoredConfig(configPath), repoRoot)
-      : buildInitialConfig(repoRoot);
     writeJsonc(configPath, config);
     result.installed.push(configLabel);
   }
@@ -220,6 +328,7 @@ function scaffoldChangeyardStorage(repoRoot: string, mode: ScaffoldMode, dryRun:
     copyFileSync(path.join(templateSourceDir(), `${name}.md`), target);
     result.installed.push(relativePath(repoRoot, target));
   }
+  return config;
 }
 
 function installCanonicalSkill(
@@ -278,9 +387,6 @@ function installAgentArtifacts(
         hook.executable === true,
       );
     }
-    if (!dryRun && generatedHooks.length > 0) {
-      removeFromWorktreeVcsExclude(repoRoot, hookExcludePatternsForTool(tool.value));
-    }
   }
 }
 
@@ -324,9 +430,10 @@ export function scaffoldChangeyard(repoRoot = process.cwd(), options: ScaffoldOp
     skipped: [],
   };
 
-  scaffoldChangeyardStorage(repoRoot, mode, dryRun, result);
+  const config = scaffoldChangeyardStorage(repoRoot, mode, dryRun, result);
   installCanonicalSkill(repoRoot, mode, dryRun, result);
   installAgentArtifacts(repoRoot, mode, dryRun, parsedTools, result);
+  updateWorktreeGeneratedArtifactExcludes(repoRoot, generatedFilesAreTracked(config), dryRun, result);
   result.message = formatScaffoldMessage(repoRoot, mode, result, options.tools);
   if (dryRun) {
     const prefix = mode === "init" ? "Dry-run: would initialize" : "Dry-run: would update";

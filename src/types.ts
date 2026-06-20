@@ -112,6 +112,9 @@ export type ChangeyardConfig = {
     };
   };
   checks: Record<string, string[]>;
+  scaffold?: {
+    trackGeneratedFiles?: boolean;
+  };
   doctor?: {
     staleCompletedDays?: number;
   };

@@ -77,6 +77,15 @@ function cleanup(dir: string): void {
   rmSync(dir, { recursive: true, force: true });
 }
 
+function initGitRepo(repo: string): void {
+  const init = spawnSync("git", ["init"], { cwd: repo, encoding: "utf8" });
+  assert.equal(init.status, 0, init.stderr);
+}
+
+function gitExclude(repo: string): string {
+  return readFileSync(path.join(repo, ".git", "info", "exclude"), "utf8");
+}
+
 function withTempChangeyardHome<T>(fn: () => T): T {
   const previous = process.env.CHANGEYARD_HOME;
   const appState = tempRepo();
@@ -156,6 +165,7 @@ test("init creates config, templates, and storage directories", () => {
     assert.deepEqual(schema.properties.provider.properties.type.enum, ["noop", "local-folder", "forgejo", "github", "gitlab"]);
     assert.deepEqual(schema.properties.vcs.properties.engine.enum, ["plain-copy", "jj", "git-worktree"]);
     assert.equal(schema.properties.workspace.properties.hydrate.properties.warmupCommand.type, "string");
+    assert.equal(schema.properties.scaffold.properties.trackGeneratedFiles.type, "boolean");
     assert.deepEqual(schema.properties.planning.properties.defaultProfile.enum, ["none", "openspec-lite"]);
     assert.deepEqual(schema.properties.planning.properties.defaultStrictness.enum, ["normal", "strict"]);
     assert.deepEqual(schema.properties.planning.properties.quickChangeEscalation.enum, ["off", "warn", "block"]);
@@ -166,6 +176,7 @@ test("init creates config, templates, and storage directories", () => {
     assert.equal(config.planning.quickChangeCheckProfile, "minimal");
     assert.equal(config.planning.quickChangeRequiresWorkspace, true);
     assert.equal(config.planning.quickChangeEscalation, "warn");
+    assert.equal(config.scaffold.trackGeneratedFiles, false);
     assert.doesNotThrow(() => readFileSync(path.join(repo, ".changeyard", "templates", "agent-task.md"), "utf8"));
     assert.doesNotThrow(() => readFileSync(path.join(repo, ".changeyard", "templates", "quick.md"), "utf8"));
     assert.doesNotThrow(() => readFileSync(path.join(repo, CANONICAL_SKILL_RELATIVE_PATH), "utf8"));
@@ -270,20 +281,105 @@ test("update reports global codex prompts with a stable global label", () => {
   }
 });
 
-test("update removes scaffolded hook paths from local git excludes", () => {
+test("init ignores generated scaffold artifacts in local git excludes by default", () => {
   const repo = tempRepo();
   try {
-    const init = spawnSync("git", ["init"], { cwd: repo, encoding: "utf8" });
-    assert.equal(init.status, 0, init.stderr);
+    initGitRepo(repo);
+
+    const output = runInit(repo, { tools: "cursor,copilot" });
+
+    assert.match(output, /\.git\/info\/exclude \(Changeyard generated artifact ignore rules\)/);
+    const exclude = gitExclude(repo);
+    assert.match(exclude, /# BEGIN Changeyard generated artifacts/);
+    assert.match(exclude, /^\.changeyard\/$/m);
+    assert.match(exclude, /^\.agents\/skills\/changeyard\/$/m);
+    assert.match(exclude, /^\.cursor\/skills\/changeyard\/$/m);
+    assert.match(exclude, /^\.cursor\/commands\/cy-\*\.md$/m);
+    assert.match(exclude, /^\.cursor\/hooks\.json$/m);
+    assert.match(exclude, /^\.cursor\/hooks\/kanban-\*$/m);
+    assert.match(exclude, /^\.github\/skills\/changeyard\/$/m);
+    assert.match(exclude, /^\.github\/prompts\/cy-\*\.prompt\.md$/m);
+    assert.match(exclude, /^\.github\/hooks\/kanban\.json$/m);
+    assert.doesNotMatch(exclude, /^\.github\/$/m);
+    assert.match(exclude, /# END Changeyard generated artifacts/);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("update keeps managed generated artifact excludes idempotent by default", () => {
+  const repo = tempRepo();
+  try {
+    initGitRepo(repo);
+    runInit(repo, { tools: "cursor,copilot" });
+    runUpdate(repo, { tools: "cursor,copilot" });
+
+    const exclude = gitExclude(repo);
+    assert.equal((exclude.match(/# BEGIN Changeyard generated artifacts/g) ?? []).length, 1);
+    assert.equal((exclude.match(/^\.changeyard\/$/gm) ?? []).length, 1);
+    assert.equal((exclude.match(/^\.cursor\/hooks\/kanban-\*$/gm) ?? []).length, 1);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("update removes generated artifact excludes when tracking is enabled", () => {
+  const repo = tempRepo();
+  try {
+    initGitRepo(repo);
+    runInit(repo, { tools: "cursor,copilot" });
+    const configPath = path.join(repo, ".changeyard", "config.jsonc");
+    const config = JSON.parse(readFileSync(configPath, "utf8"));
+    config.scaffold.trackGeneratedFiles = true;
+    writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+
+    const output = runUpdate(repo, { tools: "cursor,copilot" });
+
+    assert.match(output, /\.git\/info\/exclude \(removed Changeyard generated artifact ignore rules\)/);
+    const exclude = gitExclude(repo);
+    assert.doesNotMatch(exclude, /# BEGIN Changeyard generated artifacts/);
+    assert.doesNotMatch(exclude, /^\.changeyard\/$/m);
+    assert.doesNotMatch(exclude, /^\.github\/hooks\/kanban\.json$/m);
+    assert.doesNotMatch(exclude, /^\.cursor\/hooks\/kanban-\*$/m);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("update dry-run does not mutate generated artifact excludes", () => {
+  const repo = tempRepo();
+  try {
+    initGitRepo(repo);
+    runInit(repo, { tools: "cursor" });
+    const before = gitExclude(repo);
+
+    const output = runUpdate(repo, { tools: "cursor", dryRun: true });
+
+    assert.doesNotMatch(output, /\.git\/info\/exclude \(Changeyard generated artifact ignore rules\)/);
+    assert.equal(gitExclude(repo), before);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("tracking opt-in removes legacy generated hook exclude lines", () => {
+  const repo = tempRepo();
+  try {
+    initGitRepo(repo);
     const excludePath = path.join(repo, ".git", "info", "exclude");
     writeFileSync(excludePath, ".github/hooks/kanban.json\n.cursor/hooks/kanban-*\n.cursor/hooks/kanban-stop\n");
+    runInit(repo, { tools: "cursor,copilot" });
+    const configPath = path.join(repo, ".changeyard", "config.jsonc");
+    const config = JSON.parse(readFileSync(configPath, "utf8"));
+    config.scaffold.trackGeneratedFiles = true;
+    writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
 
     runUpdate(repo, { tools: "cursor,copilot" });
 
-    const exclude = readFileSync(excludePath, "utf8");
-    assert.doesNotMatch(exclude, /\.github\/hooks\/kanban\.json/);
-    assert.doesNotMatch(exclude, /\.cursor\/hooks\/kanban-\*/);
-    assert.doesNotMatch(exclude, /\.cursor\/hooks\/kanban-stop/);
+    const exclude = gitExclude(repo);
+    assert.doesNotMatch(exclude, /^\.github\/hooks\/kanban\.json$/m);
+    assert.doesNotMatch(exclude, /^\.cursor\/hooks\/kanban-\*$/m);
+    assert.doesNotMatch(exclude, /^\.cursor\/hooks\/kanban-stop$/m);
   } finally {
     cleanup(repo);
   }
