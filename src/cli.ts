@@ -30,6 +30,7 @@ import { runRefresh } from "./commands/refresh.js";
 import { runRecover } from "./commands/recover.js";
 import { runReviewComplete, runReviewStart, type ReviewDecision } from "./commands/review.js";
 import { attachSession, runSession } from "./commands/session.js";
+import { runDiffSlice, runReviewSlices, runSliceCommit, runSummarizeSlices } from "./commands/slice.js";
 import { runStart } from "./commands/start.js";
 import { getStatus, runStatus } from "./commands/status.js";
 import { runSync } from "./commands/sync.js";
@@ -64,7 +65,7 @@ import { AGENT_TOOL_IDS } from "./scaffold/agent-tools.js";
 import { readWorkspaceMetadata } from "./workspace/marker.js";
 import { storageRoot } from "./paths.js";
 
-type CommandName = "init" | "update" | "create" | "quick" | "validate" | "sync" | "start" | "verify" | "hydrate" | "complete" | "next" | "audit" | "land" | "refresh" | "workspace" | "check" | "review" | "doctor" | "completions" | "recover" | "repair" | "note" | "mark-in-progress" | "list" | "status" | "plan" | "ui" | "server" | "dashboard" | "hub" | "tui" | "config" | "hooks" | "session" | "install" | "uninstall" | "version" | "help";
+type CommandName = "init" | "update" | "create" | "quick" | "validate" | "sync" | "start" | "verify" | "hydrate" | "complete" | "next" | "audit" | "land" | "refresh" | "slice" | "workspace" | "check" | "review" | "diff" | "summarize" | "doctor" | "completions" | "recover" | "repair" | "note" | "mark-in-progress" | "list" | "status" | "plan" | "ui" | "server" | "dashboard" | "hub" | "tui" | "config" | "hooks" | "session" | "install" | "uninstall" | "version" | "help";
 
 type ParsedArgs = {
   command: string;
@@ -106,6 +107,7 @@ const BOOLEAN_FLAGS = new Set([
   "quick",
   "smoke-create-all",
   "smoke-test",
+  "single-commit-ok",
   "strict",
   "tui",
   "vcs",
@@ -149,9 +151,9 @@ function parseArgs(argv: string[]): ParsedArgs {
     const next = rest[i + 1];
     const value = rawValue ?? (BOOLEAN_FLAGS.has(rawKey) ? true : next !== undefined && !next.startsWith("--") ? rest[++i] : true);
 
-    if (rawKey === "label") {
-      const existing = flags.label;
-      flags.label = Array.isArray(existing) ? [...existing, String(value)] : existing ? [String(existing), String(value)] : [String(value)];
+    if (rawKey === "label" || rawKey === "check") {
+      const existing = flags[rawKey];
+      flags[rawKey] = Array.isArray(existing) ? [...existing, String(value)] : existing ? [String(existing), String(value)] : [String(value)];
     } else {
       flags[rawKey] = value;
     }
@@ -194,6 +196,21 @@ function labelsFlag(flags: Record<string, string | boolean | string[]>): string[
   const labels = flags.label;
   if (Array.isArray(labels)) return labels;
   if (typeof labels === "string") return [labels];
+  return undefined;
+}
+
+function repeatedStringFlag(flags: Record<string, string | boolean | string[]>, name: string): string[] {
+  const value = flags[name];
+  if (Array.isArray(value)) return value;
+  if (typeof value === "string") return [value];
+  return [];
+}
+
+function shortMessageFlag(args: ParsedArgs, offset: number): string | undefined {
+  const direct = stringFlag(args.flags, "message") ?? stringFlag(args.flags, "m");
+  if (direct !== undefined) return direct;
+  const markerIndex = args.positional.indexOf("-m", offset);
+  if (markerIndex >= offset && args.positional[markerIndex + 1]) return args.positional[markerIndex + 1];
   return undefined;
 }
 
@@ -647,6 +664,7 @@ async function main(): Promise<void> {
         output = runComplete(id, {
           noPr: args.flags["no-pr"] === true || args.flags["no-pr"] === "true",
           noCodeChange: args.flags["no-code-change"] === true || args.flags["no-code-change"] === "true",
+          singleCommitOk: asBooleanFlag(args.flags, "single-commit-ok"),
           profile: stringFlag(args.flags, "profile"),
           dryRun,
         }, process.cwd());
@@ -677,6 +695,24 @@ async function main(): Promise<void> {
           target: stringFlag(args.flags, "target"),
           dryRun,
         }, rootForChange(id));
+        break;
+      }
+      case "slice": {
+        const subcommand = validateSubcommand({
+          commandPath: "cy slice",
+          value: args.positional[0] ?? "",
+          subcommands: [
+            { value: "commit", description: "Commit the current implementation slice." },
+          ],
+          colors: guidanceColors,
+          helpCommand: "cy slice --help",
+        });
+        const id = requireTaskId(`cy slice ${subcommand} <id>`, args.positional[1], guidanceColors);
+        output = runSliceCommit(id, {
+          message: shortMessageFlag(args, 2),
+          checks: repeatedStringFlag(args.flags, "check"),
+          dryRun,
+        }, process.cwd());
         break;
       }
       case "workspace": {
@@ -763,6 +799,7 @@ async function main(): Promise<void> {
           subcommands: [
             { value: "start", description: "Open a review document for a task." },
             { value: "complete", description: "Complete the active review with a decision." },
+            { value: "slices", description: "List recorded implementation slices." },
           ],
           colors: guidanceColors,
           helpCommand: "cy review --help",
@@ -773,6 +810,35 @@ async function main(): Promise<void> {
           const decision = requireChoice(stringFlag(args.flags, "decision"), "--decision", REVIEW_DECISIONS, guidanceColors, "cy review complete --help") as ReviewDecision;
           output = runReviewComplete(id, decision, repoRoot, { dryRun });
         }
+        else if (subcommand === "slices") output = runReviewSlices(id, rootForChange(id));
+        break;
+      }
+      case "diff": {
+        const subcommand = validateSubcommand({
+          commandPath: "cy diff",
+          value: args.positional[0] ?? "",
+          subcommands: [
+            { value: "slice", description: "Show the diff for one slice commit." },
+          ],
+          colors: guidanceColors,
+          helpCommand: "cy diff --help",
+        });
+        const revision = requireTaskId(`cy diff ${subcommand} <commit>`, args.positional[1], guidanceColors);
+        output = runDiffSlice(revision, repoRoot);
+        break;
+      }
+      case "summarize": {
+        const subcommand = validateSubcommand({
+          commandPath: "cy summarize",
+          value: args.positional[0] ?? "",
+          subcommands: [
+            { value: "slices", description: "Summarize recorded implementation slices." },
+          ],
+          colors: guidanceColors,
+          helpCommand: "cy summarize --help",
+        });
+        const id = requireTaskId(`cy summarize ${subcommand} <id>`, args.positional[1], guidanceColors);
+        output = runSummarizeSlices(id, rootForChange(id));
         break;
       }
       case "list":

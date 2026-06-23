@@ -11,9 +11,10 @@ Changeyard is the markdown-first local change workflow for this repository. Cano
 5. Start an isolated workspace: \`cy start <id>\`
 6. Verify workspace context before editing: \`cy verify <id>\`
 7. Work only inside the verified workspace checkout
-8. Update Completion Notes in the change markdown with changed areas, checks run, and remaining risks or follow-ups
-9. Complete locally: \`cy complete <id> --no-pr\`; planned changes stop here until the user explicitly confirms landing
-10. Review when needed: \`cy review start <id>\`, edit \`.changeyard/reviews/<id>/review-NNN.md\`, then \`cy review complete <id> --decision <approve|request-changes|reject>\`
+8. After each user-requested implementation increment, run focused validation and commit the slice with \`cy slice commit <id> -m "<summary>"\`
+9. Update Completion Notes in the change markdown with changed areas, checks run, and remaining risks or follow-ups
+10. Complete locally only on explicit user completion wording: \`cy complete <id> --no-pr\`; planned changes stop here until the user explicitly confirms landing
+11. Review when needed: \`cy review start <id>\`, edit \`.changeyard/reviews/<id>/review-NNN.md\`, then \`cy review complete <id> --decision <approve|request-changes|reject>\`
 
 ## Review gate (hard stop)
 
@@ -24,7 +25,9 @@ Changeyard is the markdown-first local change workflow for this repository. Cano
 
 ## Landing policy
 
-- \`cy complete <id> --no-pr\` is the normal stopping point for planned/OpenSpec-lite changes; report \`ready_for_pr\` and wait
+- Commit often, complete rarely. Slice commits are the normal unit of manual review; \`cy complete\` is only for explicitly ending the task.
+- Do not run \`cy complete <id> --no-pr\` for "looks good", "continue", or "next". Only run it on clear wording like "complete the Changeyard change", "mark this ready", "ready for PR", or "complete and land".
+- \`cy complete <id> --no-pr\` is the explicit stopping point for planned/OpenSpec-lite changes; report \`ready_for_pr\` and wait
 - Do not run \`cy land <id>\` for planned/OpenSpec-lite or legacy unplanned changes unless the user explicitly confirms landing in the current conversation, for example "land it", "merge it", or "run cy land"
 - Quick low-risk changes may land after successful checks when the user's task clearly asks for completion and no hold, review, or PR was requested
 - When unsure, run \`cy next <id>\`, report its landing confirmation guidance, and wait
@@ -48,7 +51,14 @@ When a gate fails:
 
 After \`cy start\`, all product edits belong **only** in the workspace checkout printed by start—not in the repository root where the change was created.
 
-For large or multi-step changes, make multiple logical commits inside the verified workspace so review can happen in smaller pieces. Every workspace commit message must start with the change id, for example \`CY-0001: Add parser validation\`.
+## Change slices
+
+- A change slice is one user-requested behavior tweak, bug fix, visual adjustment, or cleanup increment.
+- Before starting a new requested slice, commit the previous completed slice if it changed code.
+- Use \`cy slice commit <id> -m "<summary>"\` after focused validation. Commit messages must start with the change id, for example \`CY-0001: Add parser validation\`.
+- Do not accumulate multiple user-requested iterations in one mutable JJ \`@\` or Git worktree unless the user explicitly asks for an uncommitted working diff.
+- After each slice commit, report what changed and stop unless the user already provided the next requested change. Completion remains separate from committing.
+- Failure example: accumulating UI iterations, date picker work, drag preview work, and final cleanup into one landed commit is not acceptable for iterative review-heavy work.
 
 ## VCS side effects in sandboxed sessions
 

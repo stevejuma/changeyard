@@ -18,6 +18,7 @@ export { getVersion, runVersion } from "./commands/version.js";
 export { runHydrate } from "./commands/hydrate.js";
 export { runComplete } from "./commands/complete.js";
 export { runCheckRecord } from "./commands/check.js";
+export { runDiffSlice, runReviewSlices, runSliceCommit, runSummarizeSlices } from "./commands/slice.js";
 export { getNextAction, runNext } from "./commands/next.js";
 export { runLand } from "./commands/land.js";
 export { runRefresh } from "./commands/refresh.js";
@@ -64,6 +65,7 @@ export type {
   ChangeSummary,
   ChangeyardConfig,
   Frontmatter,
+  ChangeSliceRecord,
   ManualCheckRecord,
   WorkspaceMetadata,
 } from "./types.js";

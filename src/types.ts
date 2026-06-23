@@ -76,6 +76,17 @@ export type ManualCheckRecord = {
   logFile?: string;
 };
 
+export type ChangeSliceRecord = {
+  title: string;
+  vcs: "jj" | "git";
+  id: string;
+  commitId: string | null;
+  validation: string[];
+  manualReviewStatus: "pending" | "reviewed" | "changes_requested";
+  notes: string;
+  createdAt: string;
+};
+
 export type QuickChangeEscalation = "off" | "warn" | "block";
 
 export type ChangeyardConfig = {
@@ -231,4 +242,8 @@ export type WorkspaceMetadata = {
   workspaceCommitId?: string;
   seedDescription?: string;
   refreshedAt?: string;
+  lastSliceId?: string;
+  lastSliceCommitId?: string | null;
+  lastSliceTitle?: string;
+  lastSliceCommittedAt?: string;
 };

@@ -21,9 +21,10 @@ Changeyard is the markdown-first local change workflow for this repository. Cano
 5. Start an isolated workspace: `cy start <id>`
 6. Verify workspace context before editing: `cy verify <id>`
 7. Work only inside the verified workspace checkout
-8. Update Completion Notes in the change markdown with changed areas, checks run, and remaining risks or follow-ups
-9. Complete locally: `cy complete <id> --no-pr`
-10. Review when needed: `cy review start <id>`, edit `.changeyard/reviews/<id>/review-NNN.md`, then `cy review complete <id> --decision <approve|request-changes|reject>`
+8. After each user-requested implementation increment, run focused validation and commit the slice with `cy slice commit <id> -m "<summary>"`
+9. Update Completion Notes in the change markdown with changed areas, checks run, and remaining risks or follow-ups
+10. Complete locally only on explicit user completion wording: `cy complete <id> --no-pr`
+11. Review when needed: `cy review start <id>`, edit `.changeyard/reviews/<id>/review-NNN.md`, then `cy review complete <id> --decision <approve|request-changes|reject>`
 
 ## Review gate (hard stop)
 
@@ -51,7 +52,14 @@ When a gate fails:
 
 After `cy start`, all product edits belong **only** in the workspace checkout printed by start—not in the repository root where the change was created.
 
-For large or multi-step changes, make multiple logical commits inside the verified workspace so review can happen in smaller pieces. Every workspace commit message must start with the change id, for example `CY-0001: Add parser validation`.
+## Change slices
+
+- A change slice is one user-requested behavior tweak, bug fix, visual adjustment, or cleanup increment.
+- Before starting a new requested slice, commit the previous completed slice if it changed code.
+- Use `cy slice commit <id> -m "<summary>"` after focused validation. Commit messages must start with the change id, for example `CY-0001: Add parser validation`.
+- Do not accumulate multiple user-requested iterations in one mutable JJ `@` or Git worktree unless the user explicitly asks for an uncommitted working diff.
+- After each slice commit, report what changed and stop unless the user already provided the next requested change. Completion remains separate from committing.
+- Failure example: accumulating UI iterations, date picker work, drag preview work, and final cleanup into one landed commit is not acceptable for iterative review-heavy work.
 
 ## Planning changes
 

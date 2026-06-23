@@ -7,7 +7,7 @@ summary: Run completion checks and mark a workspace change ready to land or revi
 ## Usage
 
 ```text
-cy complete CY-0001 [--profile <name>] [--no-pr] [--no-code-change] [--dry-run]
+cy complete CY-0001 [--profile <name>] [--no-pr] [--no-code-change] [--single-commit-ok] [--dry-run]
 ```
 
 ## Options
@@ -15,6 +15,7 @@ cy complete CY-0001 [--profile <name>] [--no-pr] [--no-code-change] [--dry-run]
 - `--profile <name>`: Run a named completion profile.
 - `--no-pr`: Complete locally without opening a provider pull request.
 - `--no-code-change`: Allow completion when no code diff is expected.
+- `--single-commit-ok`: Allow a large code-changing workspace to complete with one recorded slice.
 - `--dry-run`: Show the completion action without writing.
 - `--color <when>`: Control ANSI color output. [possible values: always, never, auto]
 
@@ -25,4 +26,4 @@ cy complete CY-0001 --no-pr
 cy complete CY-0001 --profile full
 ```
 
-Completion requires verified workspace context, completed or deferred acceptance criteria, non-placeholder Completion Notes, and passing checks. If completion fails, run `cy audit <id>` for the expected cwd, blockers, and recovery commands.
+Completion requires explicit user completion wording, verified workspace context, completed or deferred acceptance criteria, non-placeholder Completion Notes, reviewable slice history, and passing checks. If completion fails, run `cy audit <id>` for the expected cwd, blockers, and recovery commands.

@@ -11,6 +11,7 @@ requiredSections:
   - Motivation
   - Plan
   - Acceptance Criteria
+  - Change Slices
 validation:
   requireUncheckedAcceptanceCriteria: true
   requireNonEmptySections: true
@@ -31,3 +32,7 @@ Explain the user or developer need.
 # Acceptance Criteria
 
 - [ ] Replace this item with measurable completion criteria
+
+# Change Slices
+
+No slices committed yet.

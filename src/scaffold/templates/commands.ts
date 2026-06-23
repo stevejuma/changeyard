@@ -56,8 +56,9 @@ const CHANGEYARD_COMMANDS: CommandContent[] = [
 2. Run \`cy start <id>\`.
 3. Follow the printed \`cd\` path into the workspace checkout.
 4. Run \`cy verify <id>\` from that checkout before editing files.
-5. For large or multi-step changes, make multiple logical commits inside the verified workspace so review can happen in smaller pieces. Every workspace commit message must start with the change id, for example \`CY-0001: Add parser validation\`.
-6. If start or verify fails, **halt** — use \`cy audit <id>\`, \`cy workspace status <id>\`, or \`cy recover <id>\` as directed before editing files.`,
+5. After each user-requested implementation increment, run focused validation and commit the slice with \`cy slice commit <id> -m "<summary>"\`.
+6. Do not accumulate multiple requested iterations in one mutable JJ \`@\` or Git worktree unless the user explicitly asks for an uncommitted diff.
+7. If start or verify fails, **halt** — use \`cy audit <id>\`, \`cy workspace status <id>\`, or \`cy recover <id>\` as directed before editing files.`,
   },
   {
     id: "verify",
@@ -79,17 +80,20 @@ const CHANGEYARD_COMMANDS: CommandContent[] = [
     description: "Complete local work after checks and completion notes are ready.",
     category: "Changeyard",
     tags: ["changeyard", "complete"],
-    body: `Complete a Changeyard change locally.
+    body: `Complete a Changeyard change locally only when the user explicitly asks to complete, mark ready, ready for PR, or complete and land.
 
 1. Ensure Completion Notes in the change markdown are filled in.
    They must summarize changed areas, checks run or not run, and remaining risks or follow-ups.
-2. Run \`cy verify <id>\` from the workspace.
-3. Run \`cy complete <id> --no-pr\` unless the user explicitly wants PR creation.
-4. Run \`cy next <id>\` and report its landing confirmation guidance.
-5. Do not run \`cy land <id>\` for planned/OpenSpec-lite or legacy unplanned changes unless the user explicitly confirms landing in the current conversation.
-6. Quick low-risk changes may land after successful checks when the user's task clearly asks for completion and no hold, review, or PR was requested.
-7. If completion fails, run \`cy audit <id>\` and follow the Recovery section.
-8. If a review is needed, use \`/cy-review\` — do not skip filling the review markdown.`,
+2. Review recorded slices with \`cy review slices <id>\`.
+3. Run \`cy verify <id>\` from the workspace.
+4. Run \`cy complete <id> --no-pr\` unless the user explicitly wants PR creation.
+5. Run \`cy next <id>\` and report its landing confirmation guidance.
+6. Do not run \`cy land <id>\` for planned/OpenSpec-lite or legacy unplanned changes unless the user explicitly confirms landing in the current conversation.
+7. Quick low-risk changes may land after successful checks when the user's task clearly asks for completion and no hold, review, or PR was requested.
+8. If completion fails, run \`cy audit <id>\` and follow the Recovery section.
+9. If a review is needed, use \`/cy-review\` — do not skip filling the review markdown.
+
+Do not run \`cy complete\` for "looks good", "continue", or "next"; commit another slice or wait for explicit completion wording.`,
   },
   {
     id: "audit",

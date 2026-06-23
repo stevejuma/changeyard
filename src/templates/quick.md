@@ -11,6 +11,7 @@ requiredSections:
   - Scope
   - Acceptance Criteria
   - Completion Notes
+  - Change Slices
 validation:
   requireUncheckedAcceptanceCriteria: true
   requireNonEmptySections: true
@@ -37,3 +38,7 @@ Describe the small change.
 # Completion Notes
 
 Summarize changed areas, checks run or not run, and remaining risks or follow-ups.
+
+# Change Slices
+
+No slices committed yet.

@@ -34,9 +34,12 @@ cy <command> [options]
 - `audit`: Audit workflow gates and print recovery guidance.
 - `land`: Land ready workspace work locally.
 - `refresh`: Rebase a JJ workspace change onto the current target before landing.
+- `slice`: Commit one reviewable implementation slice from a workspace.
 - `workspace`: Inspect or clean task workspaces.
 - `check`: Record manual validation evidence for a workspace change.
 - `review`: Manage review artifacts.
+- `diff`: Show focused Changeyard diffs.
+- `summarize`: Summarize recorded Changeyard artifacts.
 - `plan`: Inspect and update planning sections.
 - `doctor`: Check Changeyard state and repair supported drift.
 - `recover`: Recreate missing workspace markers and repair recoverable workspace drift.

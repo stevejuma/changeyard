@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { quickCompletionProfile, validateQuickCompletion } from "../change/quickLifecycle.js";
+import { parseSliceRecords } from "../change/slices.js";
 import { loadConfig } from "../config/loadConfig.js";
 import { parseFrontmatter, writeFrontmatter } from "../documents/frontmatter.js";
 import { parseSections } from "../documents/sections.js";
@@ -21,6 +22,7 @@ import { formatValidationFailure } from "./audit.js";
 export type CompleteOptions = {
   noPr?: boolean;
   noCodeChange?: boolean;
+  singleCommitOk?: boolean;
   profile?: string;
   dryRun?: boolean;
 };
@@ -40,6 +42,50 @@ function listFiles(root: string, neverCopy: string[], prefix = ""): string[] {
 }
 
 function hasWorkspaceChanges(repoRoot: string, workspaceRoot: string, neverCopy: string[]): boolean {
+  return changedWorkspaceFiles(repoRoot, workspaceRoot, neverCopy).length > 0;
+}
+
+function changedWorkspaceFiles(repoRoot: string, workspaceRoot: string, neverCopy: string[]): string[] {
+  const repoFiles = listFiles(repoRoot, neverCopy);
+  const workspaceFiles = listFiles(workspaceRoot, neverCopy);
+  const allFiles = [...new Set([...repoFiles, ...workspaceFiles])].sort();
+  const changed: string[] = [];
+  for (const file of allFiles) {
+    if (!repoFiles.includes(file) || !workspaceFiles.includes(file)) {
+      changed.push(file);
+      continue;
+    }
+    const repoPath = path.join(repoRoot, file);
+    const workspacePath = path.join(workspaceRoot, file);
+    const repoContent = existsSync(repoPath) ? readFileSync(repoPath, "utf8") : "";
+    const workspaceContent = existsSync(workspacePath) ? readFileSync(workspacePath, "utf8") : "";
+    if (repoContent !== workspaceContent) changed.push(file);
+  }
+  return changed;
+}
+
+function enforceSliceGuard(changeId: string, metadataPath: string, body: string, changedFiles: string[], options: CompleteOptions): void {
+  if (options.noCodeChange || options.singleCommitOk || changedFiles.length <= 3) return;
+  const slices = parseSliceRecords(body);
+  if (slices.length > 1) return;
+  throw new Error([
+    `Change ${changeId} appears to have ${changedFiles.length} changed files but only ${slices.length} recorded slice ${slices.length === 1 ? "commit" : "commits"}.`,
+    "",
+    "Changeyard expects one user-requested implementation increment per slice commit.",
+    "",
+    "Landing stack:",
+    ...(slices.length
+      ? slices.map((slice) => `- ${slice.title}: ${slice.id}${slice.commitId ? ` (${slice.commitId})` : ""}`)
+      : ["- no recorded slices"]),
+    "",
+    "Recovery:",
+    `- Split the work into reviewable slices with cy slice commit ${changeId} -m "<slice title>".`,
+    "- If this is intentionally one indivisible change, re-run cy complete with --single-commit-ok.",
+    `- Agents must only run cy complete on explicit completion wording; update protocol notes in ${metadataPath} if needed.`,
+  ].join("\n"));
+}
+
+function legacyHasWorkspaceChanges(repoRoot: string, workspaceRoot: string, neverCopy: string[]): boolean {
   const repoFiles = listFiles(repoRoot, neverCopy);
   const workspaceFiles = listFiles(workspaceRoot, neverCopy);
   if (repoFiles.join("\n") !== workspaceFiles.join("\n")) return true;
@@ -102,7 +148,8 @@ export function runComplete(id: string, options: CompleteOptions = {}, cwd = pro
     "- Update # Completion Notes with changed areas, checks run, and remaining risks or follow-ups.",
     `- Re-run cy complete ${changeId} --no-pr from ${metadata.path}.`,
   ].join("\n"));
-  if (!options.noCodeChange && !hasWorkspaceChanges(metadata.repoRoot, metadata.path, config.workspace.hydrate.neverCopy)) {
+  const changedFiles = changedWorkspaceFiles(metadata.repoRoot, metadata.path, config.workspace.hydrate.neverCopy);
+  if (!options.noCodeChange && changedFiles.length === 0 && !legacyHasWorkspaceChanges(metadata.repoRoot, metadata.path, config.workspace.hydrate.neverCopy)) {
     throw new Error([
       "No workspace changes detected; use --no-code-change to complete metadata-only work",
       "",
@@ -111,6 +158,7 @@ export function runComplete(id: string, options: CompleteOptions = {}, cwd = pro
       `- If this was intentionally metadata-only work, re-run cy complete ${changeId} --no-pr --no-code-change.`,
     ].join("\n"));
   }
+  enforceSliceGuard(changeId, changePath, parsed.body, changedFiles, options);
 
   const profile = options.profile
     ?? quickCompletionProfile(parsed.frontmatter, config)

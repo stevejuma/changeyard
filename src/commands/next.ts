@@ -1,5 +1,6 @@
 import path from "node:path";
 import { isQuickChange, planningModel, workflowMode } from "../change/changeMetadata.js";
+import { parseSliceRecords } from "../change/slices.js";
 import { readOverlayChangeDocument } from "../state/workspaceOverlay.js";
 import type { Frontmatter } from "../types.js";
 import { getStatus } from "./status.js";
@@ -11,6 +12,7 @@ export type NextCommandKind =
   | "plan"
   | "start"
   | "verify"
+  | "slice"
   | "complete"
   | "land"
   | "review"
@@ -164,11 +166,23 @@ export function getNextAction(id: string, repoRoot = process.cwd()): NextAction 
         nextCommand = `cd ${relativeOrAbsolute(repoRoot, workspace.path)} && cy verify ${changeId}`;
         ready.verify = true;
         blockers.push(...workspace.errors);
-      } else {
-        nextKind = "complete";
-        nextCommand = `cd ${relativeOrAbsolute(repoRoot, workspace.path)} && cy complete ${changeId} --no-pr`;
+      } else if (workspace.dirty) {
+        nextKind = "slice";
+        nextCommand = `cd ${relativeOrAbsolute(repoRoot, workspace.path)} && cy slice commit ${changeId} -m "<slice title>"`;
         ready.verify = true;
-        ready.complete = true;
+        blockers.push("Workspace has uncommitted slice work; commit the current slice or explicitly keep working uncommitted.");
+      } else {
+        const slices = parseSliceRecords(parsed.body);
+        if (slices.length > 0) {
+          nextKind = "review";
+          nextCommand = `cy review slices ${changeId}`;
+          blockers.push("Review the committed slice summary, then wait for the next requested implementation slice or explicit completion wording.");
+        } else {
+          nextKind = "slice";
+          nextCommand = `cd ${relativeOrAbsolute(repoRoot, workspace.path)} && cy slice commit ${changeId} -m "<slice title>"`;
+          blockers.push("No slice commits are recorded yet; implement a requested slice before completing.");
+        }
+        ready.verify = true;
       }
       break;
     case "ready_for_pr":

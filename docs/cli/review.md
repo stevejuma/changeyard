@@ -9,12 +9,14 @@ summary: Manage markdown and provider review artifacts.
 ```text
 cy review start <id> [--dry-run]
 cy review complete <id> --decision <decision> [--dry-run]
+cy review slices <id>
 ```
 
 ## Commands
 
 - `start`: Create or open the next review artifact.
 - `complete`: Complete the latest review with a decision.
+- `slices`: List recorded implementation slices.
 
 ## Options
 
@@ -26,5 +28,5 @@ cy review complete <id> --decision <decision> [--dry-run]
 ```sh
 cy review start CY-0001
 cy review complete CY-0001 --decision request-changes
+cy review slices CY-0001
 ```
-

@@ -11,6 +11,7 @@ requiredSections:
   - Motivation
   - Plan
   - Acceptance Criteria
+  - Change Slices
 validation:
   requireUncheckedAcceptanceCriteria: true
   requireNonEmptySections: true
@@ -31,3 +32,7 @@ Explain what gets simpler, safer, or easier to maintain.
 # Acceptance Criteria
 
 - [ ] Existing behavior remains covered by tests or checks
+
+# Change Slices
+
+No slices committed yet.

@@ -38,6 +38,7 @@ import { runRepair } from "../src/commands/repair.js";
 import { runRecover } from "../src/commands/recover.js";
 import { runRefresh } from "../src/commands/refresh.js";
 import { getReview, listReviews, runReviewComplete, runReviewStart, updateReview } from "../src/commands/review.js";
+import { runDiffSlice, runReviewSlices, runSliceCommit, runSummarizeSlices } from "../src/commands/slice.js";
 import { attachSession } from "../src/commands/session.js";
 import { runStart } from "../src/commands/start.js";
 import { getStatus, runStatus } from "../src/commands/status.js";
@@ -466,8 +467,9 @@ test("generated skill guidance defaults non-trivial agent work to strict plannin
   assert.match(skill, /Create a strict planned change: `cy create --template agent-task --planning openspec-lite --strict --title "<title>"`/);
   assert.match(skill, /Non-trivial agent work must use strict OpenSpec-lite planning/);
   assert.match(skill, /Use `cy quick` or `--no-planning` only for small, low-risk changes with no behavior, public API, storage\/schema, provider\/workspace lifecycle, UI workflow, or security-sensitive impact/);
-  assert.match(skill, /make multiple logical commits inside the verified workspace/);
-  assert.match(skill, /Every workspace commit message must start with the change id/);
+  assert.match(skill, /A change slice is one user-requested behavior tweak/);
+  assert.match(skill, /cy slice commit <id> -m "<summary>"/);
+  assert.match(skill, /Do not run `cy complete <id> --no-pr` for "looks good", "continue", or "next"/);
   assert.match(skill, /Landing policy/);
   assert.match(skill, /Do not run `cy land <id>` for planned\/OpenSpec-lite or legacy unplanned changes unless the user explicitly confirms landing/);
   assert.match(skill, /Quick low-risk changes may land after successful checks when the user's task clearly asks for completion/);
@@ -483,9 +485,11 @@ test("generated start and verify guidance explains workspace commit messages", (
   assert.ok(verify);
   assert.ok(complete);
   assert.ok(status);
-  assert.match(start.body, /make multiple logical commits inside the verified workspace/);
-  assert.match(start.body, /CY-0001: Add parser validation/);
+  assert.match(start.body, /cy slice commit <id> -m "<summary>"/);
+  assert.match(start.body, /Do not accumulate multiple requested iterations/);
   assert.match(verify.body, /every commit in the landing stack must start with the change id/);
+  assert.match(complete.body, /only when the user explicitly asks to complete/);
+  assert.match(complete.body, /Do not run `cy complete` for "looks good", "continue", or "next"/);
   assert.match(complete.body, /Run `cy next <id>` and report its landing confirmation guidance/);
   assert.match(complete.body, /Do not run `cy land <id>` for planned\/OpenSpec-lite or legacy unplanned changes unless the user explicitly confirms landing/);
   assert.match(status.body, /landing confirmation guidance/);
@@ -1597,8 +1601,8 @@ test("next maps lifecycle state to actionable commands", () => {
 
     runStart("CY-0001", repo);
     const inProgress = getNextAction("CY-0001", repo);
-    assert.equal(inProgress.nextKind, "complete");
-    assert.match(inProgress.nextCommand, /cy complete CY-0001 --no-pr/);
+    assert.equal(inProgress.nextKind, "slice");
+    assert.match(inProgress.nextCommand, /cy slice commit CY-0001 -m "<slice title>"/);
 
     const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-next-action-map.md");
     const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
@@ -1875,6 +1879,93 @@ test("check record preserves manual evidence and complete uses it when no checks
     const syncOutput = runSync("CY-0001", repo);
     assert.match(syncOutput, /Synced CY-0001 with noop/);
     assert.equal(parseFrontmatter(readFileSync(changePath, "utf8")).frontmatter.status, "ready_for_pr");
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("slice commit records a Git workspace slice and leaves a clean worktree", () => {
+  if (!hasCommand("git")) return;
+  const repo = tempRepo();
+  try {
+    runCommand("git", ["init", "-b", "main"], repo);
+    runCommand("git", ["config", "user.email", "changeyard@example.test"], repo);
+    runCommand("git", ["config", "user.name", "Changeyard Test"], repo);
+    runInit(repo);
+    writeFileSync(path.join(repo, "README.md"), "# repo\n");
+    runCommand("git", ["add", "README.md"], repo);
+    runCommand("git", ["commit", "-m", "initial"], repo);
+    runCreate({ template: "agent-task", title: "Git slice" }, repo);
+    runStart("CY-0001", repo);
+    const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
+    writeFileSync(path.join(workspacePath, "git-slice.txt"), "slice\n");
+
+    const output = runSliceCommit("CY-0001", { message: "Add git slice", checks: ["node -v"] }, workspacePath);
+    assert.match(output, /Committed slice for CY-0001/);
+    assert.match(output, /Message: CY-0001: Add git slice/);
+    assert.equal(commandOutput("git", ["status", "--porcelain"], workspacePath), "");
+    const workspaceChange = readFileSync(path.join(workspacePath, ".changeyard", "changes", "CY-0001-git-slice.md"), "utf8");
+    assert.match(workspaceChange, /# Change Slices/);
+    assert.match(workspaceChange, /Add git slice/);
+    assert.match(workspaceChange, /VCS: git/);
+    assert.match(runReviewSlices("CY-0001", repo), /Add git slice/);
+    assert.match(runSummarizeSlices("CY-0001", repo), /Slice summary for CY-0001/);
+    assert.match(runDiffSlice("HEAD", workspacePath), /git-slice\.txt/);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("slice commit records a JJ workspace slice and leaves a fresh empty @", () => {
+  if (!hasCommand("jj")) return;
+  const repo = tempRepo();
+  try {
+    runCommand("git", ["init", "-b", "main"], repo);
+    runCommand("jj", ["git", "init", "--colocate"], repo);
+    runCommand("jj", ["bookmark", "set", "main", "-r", "@"], repo);
+    runInit(repo);
+    runCommand("jj", ["describe", "-m", "initial"], repo);
+    runCommand("jj", ["bookmark", "set", "main", "-r", "@"], repo);
+    runCreate({ template: "agent-task", title: "JJ slice" }, repo);
+    runStart("CY-0001", repo);
+    const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
+    writeFileSync(path.join(workspacePath, "jj-slice.txt"), "slice\n");
+    const dirtyNext = runNext("CY-0001", repo);
+    assert.match(dirtyNext, /cy slice commit CY-0001 -m "<slice title>"/);
+    assert.match(dirtyNext, /commit the current slice or explicitly keep working uncommitted/);
+
+    const output = runSliceCommit("CY-0001", { message: "Add jj slice" }, workspacePath);
+    assert.match(output, /Committed slice for CY-0001/);
+    assert.match(output, /Next: review this slice/);
+    assert.match(commandOutput("jj", ["status"], workspacePath), /The working copy has no changes/);
+    assert.match(commandOutput("jj", ["log", "--ignore-working-copy", "--at-op=@", "-r", "@", "--no-graph", "-T", "description.first_line()"], workspacePath), /CY-0001: workspace/);
+    assert.match(runReviewSlices("CY-0001", repo), /Add jj slice/);
+    const cleanNext = runNext("CY-0001", repo);
+    assert.match(cleanNext, /Next: cy review slices CY-0001/);
+    assert.match(runDiffSlice(commandOutput("jj", ["log", "--ignore-working-copy", "--at-op=@", "-r", "@-", "--no-graph", "-T", "change_id.short()"], workspacePath), workspacePath), /jj-slice\.txt/);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("complete blocks large single-slice work unless explicitly allowed", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    writeFileSync(path.join(repo, ".changeyard", "config.local.jsonc"), `{"checks":{"standard":["node -v"]}}\n`);
+    runCreate({ template: "agent-task", title: "Large single commit" }, repo);
+    runStart("CY-0001", repo);
+    const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
+    for (let index = 1; index <= 4; index += 1) {
+      writeFileSync(path.join(workspacePath, `file-${index}.txt`), `file ${index}\n`);
+    }
+    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-large-single-commit.md");
+    updateSection(changePath, "Completion Notes", "Implemented workspace changes. Checks ran: node -v.");
+    assert.throws(
+      () => runComplete("CY-0001", { noPr: true }, workspacePath),
+      /only 0 recorded slice commits/,
+    );
+    assert.match(runComplete("CY-0001", { noPr: true, singleCommitOk: true }, workspacePath), /Completed CY-0001: 1 checks passed/);
   } finally {
     cleanup(repo);
   }
@@ -3664,7 +3755,7 @@ test("jj workspace status overlays root status in list, board, and next action",
     assert.match(runStatus("CY-0001", repo), /status: in_progress/);
     assert.equal(listChanges(repo).find((change) => change.id === "CY-0001")?.status, "in_progress");
     assert.match(runList(repo), /CY-0001\tin_progress/);
-    assert.equal(getNextAction("CY-0001", repo).nextKind, "complete");
+    assert.equal(getNextAction("CY-0001", repo).nextKind, "slice");
     const boardCards = createChangeyardBoardService(repo).getBoard().columns.flatMap((column) => column.cards);
     assert.equal(boardCards.find((card) => card.id === "CY-0001")?.status, "in_progress");
   } finally {
@@ -3796,7 +3887,7 @@ test("land rebases and lands a described jj workspace task commit without root w
     updateSection(workspaceChangePath, "Completion Notes", "Implemented the workspace file. Checks ran: node -v.");
     writeFileSync(path.join(repo, "root-wip.txt"), "root only\n");
 
-    assert.match(runComplete("CY-0001", { noPr: true }, workspacePath), /Next: cy land CY-0001/);
+    assert.match(runComplete("CY-0001", { noPr: true, singleCommitOk: true }, workspacePath), /Next: cy land CY-0001/);
     assert.equal(parseFrontmatter(readFileSync(rootChangePath, "utf8")).frontmatter.status, "ready");
     assert.equal(parseFrontmatter(readFileSync(workspaceChangePath, "utf8")).frontmatter.status, "ready_for_pr");
     assert.match(runLand("CY-0001", { dryRun: true }, repo), /landingDescription: ok/);

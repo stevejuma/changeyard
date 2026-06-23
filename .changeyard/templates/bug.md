@@ -11,6 +11,7 @@ requiredSections:
   - Motivation
   - Plan
   - Acceptance Criteria
+  - Change Slices
 validation:
   requireUncheckedAcceptanceCriteria: true
   requireNonEmptySections: true
@@ -31,3 +32,7 @@ Explain the impact and expected behavior.
 # Acceptance Criteria
 
 - [ ] Add regression coverage or a manual verification step
+
+# Change Slices
+
+No slices committed yet.
