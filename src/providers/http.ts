@@ -82,3 +82,24 @@ export function curlRaw(request: HttpRequest): string {
   if (response.status < 200 || response.status >= 300) throw new ChangeyardError("PROVIDER_REQUEST_FAILED", responseErrorMessage(request, response));
   return response.body;
 }
+
+export function curlGraphql(request: Omit<HttpRequest, "method" | "payload"> & { query: string; variables?: Record<string, unknown> }): any {
+  const response = curlJson({
+    method: "POST",
+    url: request.url,
+    token: request.token,
+    tokenScheme: request.tokenScheme,
+    payload: {
+      query: request.query,
+      variables: request.variables ?? {},
+    },
+    extraHeaders: request.extraHeaders,
+  });
+  if (Array.isArray(response.errors) && response.errors.length > 0) {
+    const message = response.errors
+      .map((error: unknown) => typeof error === "object" && error !== null && "message" in error ? String((error as { message?: unknown }).message) : String(error))
+      .join("; ");
+    throw new ChangeyardError("PROVIDER_REQUEST_FAILED", `GraphQL request failed from ${request.url}: ${message}`);
+  }
+  return response.data ?? response;
+}

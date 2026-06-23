@@ -600,7 +600,7 @@ function recoverIncompleteComplete(
     return;
   }
   if (!options.fix) {
-    notes.push(`${change.id}: ready_for_pr without PR metadata; run cy complete ${change.id}`);
+    notes.push(`${change.id}: ready_for_pr without PR metadata; run cy pr new ${change.id}`);
     return;
   }
 

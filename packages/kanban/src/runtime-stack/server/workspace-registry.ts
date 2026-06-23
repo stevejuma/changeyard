@@ -234,7 +234,7 @@ export async function createWorkspaceRegistry(deps: CreateWorkspaceRegistryDepen
 		if (!requestedProject) {
 			return null;
 		}
-		if (!(await deps.pathIsDirectory(requestedProject.repoPath)) || !deps.hasWorkspaceRepository(requestedProject.repoPath)) {
+		if (!(await deps.pathIsDirectory(requestedProject.repoPath))) {
 			return null;
 		}
 		rememberWorkspace(requestedProject.workspaceId, requestedProject.repoPath);

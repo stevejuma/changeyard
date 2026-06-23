@@ -11,7 +11,6 @@ import { validatePlanningForGate } from "../planning/validation.js";
 import { findChangeFile } from "../state/id.js";
 import type { Frontmatter, WorkspaceMetadata } from "../types.js";
 import { readWorkspaceMetadata, resolveWorkspaceChangePath } from "../workspace/marker.js";
-import { createWorkspaceEngine } from "../workspace/index.js";
 import { describeJjWorkspaceCommit } from "../workspace/jjLandingDescriptions.js";
 import { assertTransition } from "../state/transitions.js";
 import { createProvider } from "../providers/index.js";
@@ -201,26 +200,8 @@ export function runComplete(id: string, options: CompleteOptions = {}, cwd = pro
     },
   };
 
-  let remoteChecksSupported = false;
-  if (!options.noPr) {
-    const provider = createProvider(config.provider.type, config);
-    if (!provider.createPullRequest) throw new Error(`Provider ${provider.name} does not support pull requests; use --no-pr`);
-    remoteChecksSupported = provider.capabilities().pullRequestChecks;
-    const branch = String(metadata.branch ?? asRecord(parsed.frontmatter.branch).name ?? `cy/${changeId}`);
-    createWorkspaceEngine(metadata.engine).publish({ cwd: metadata.path, metadata, branch });
-    const base = String(asRecord(parsed.frontmatter.base).revision ?? config.project.defaultBase);
-    const pr = provider.createPullRequest({ repoRoot: metadata.repoRoot, storageRoot: path.join(metadata.repoRoot, config.storage.root), changePath, frontmatter: nextFrontmatter, body: parsed.body, title: `${changeId}: ${String(parsed.frontmatter.title ?? changeId)}`, branch, base, draft: true });
-    nextFrontmatter = {
-      ...nextFrontmatter,
-      status: "pr_open",
-      remote: {
-        ...asRecord(parsed.frontmatter.remote),
-        provider: pr.provider,
-        pullRequestNumber: pr.pullRequestNumber,
-        pullRequestUrl: pr.pullRequestUrl,
-      },
-    };
-  }
+  const provider = createProvider(config.provider.type, config);
+  const providerPrSupported = Boolean(provider.createPullRequest);
 
   writeFileSync(changePath, writeFrontmatter(nextFrontmatter, parsed.body));
   let finalDescriptionUpdated = false;
@@ -234,10 +215,10 @@ export function runComplete(id: string, options: CompleteOptions = {}, cwd = pro
     finalDescriptionUpdated = true;
   }
   const followUp = nextFrontmatter.status === "ready_for_pr"
-    ? `Next: cy land ${changeId}`
-    : nextFrontmatter.status === "pr_open" && remoteChecksSupported
-      ? `Next: cy pr checks ${changeId}`
-      : `Next: cy review start ${changeId}`;
+    ? providerPrSupported
+      ? `Next: cy pr new ${changeId}`
+      : `Next: cy land ${changeId}`
+    : `Next: cy review start ${changeId}`;
   const checkSummary = results.length > 0
     ? `${results.length} checks passed`
     : manualPassed > 0

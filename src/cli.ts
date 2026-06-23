@@ -17,7 +17,7 @@ import {
   runPlanStrictDisable,
   runPlanStrictEnable,
 } from "./commands/plan.js";
-import { getPrChecks, runPrChecks, runPrFix, runPrLogs } from "./commands/pr.js";
+import { getPrChecks, runPrAutoMerge, runPrChecks, runPrFix, runPrLogs, runPrNew, runPrSetDraft, runPrSetReady, runPrTemplate } from "./commands/pr.js";
 import { createChange, runCreate } from "./commands/create.js";
 import { runHooks } from "./commands/hooks.js";
 import { runHydrate } from "./commands/hydrate.js";
@@ -92,6 +92,7 @@ const BOOLEAN_FLAGS = new Set([
   "check-completed-acceptance-criteria",
   "debug",
   "delete-stale-completed-workspaces",
+  "draft",
   "dry-run",
   "fix",
   "failed",
@@ -104,10 +105,12 @@ const BOOLEAN_FLAGS = new Set([
   "no-open",
   "no-planning",
   "no-pr",
+  "off",
   "open",
   "quiet",
   "replace",
   "quick",
+  "ready",
   "smoke-create-all",
   "smoke-test",
   "single-commit-ok",
@@ -215,6 +218,27 @@ function shortMessageFlag(args: ParsedArgs, offset: number): string | undefined 
   const markerIndex = args.positional.indexOf("-m", offset);
   if (markerIndex >= offset && args.positional[markerIndex + 1]) return args.positional[markerIndex + 1];
   return undefined;
+}
+
+function shortFileFlag(args: ParsedArgs, offset: number): string | undefined {
+  const direct = stringFlag(args.flags, "file") ?? stringFlag(args.flags, "F");
+  if (direct !== undefined) return direct;
+  const markerIndex = args.positional.indexOf("-F", offset);
+  if (markerIndex >= offset && args.positional[markerIndex + 1]) return args.positional[markerIndex + 1];
+  return undefined;
+}
+
+function requirePrSelector(commandUsage: string, selector: string | undefined, colors: CliColors): string {
+  const value = selector?.trim() ?? "";
+  if (value) return value;
+  throw new Error(formatMissingGuidance({
+    message: "Missing change id or PR number.",
+    tips: [
+      `Usage: ${commandUsage}`,
+      "Use a Changeyard id such as CY-0001 or a numeric provider PR/MR number.",
+    ],
+    colors,
+  }));
 }
 
 function createOptionsFromFlags(
@@ -782,6 +806,11 @@ async function main(): Promise<void> {
           commandPath: "cy pr",
           value: args.positional[0] ?? "",
           subcommands: [
+            { value: "new", description: "Create a provider pull request for a locally completed change." },
+            { value: "set-draft", description: "Convert a provider pull request back to draft." },
+            { value: "set-ready", description: "Mark a draft provider pull request ready for review." },
+            { value: "auto-merge", description: "Enable or disable provider auto-merge." },
+            { value: "template", description: "List or select a repository pull request template." },
             { value: "checks", description: "Show remote pull request check status." },
             { value: "logs", description: "Retrieve a remote pull request check log." },
             { value: "fix", description: "Save failed check logs and reopen work for repair." },
@@ -789,6 +818,37 @@ async function main(): Promise<void> {
           colors: guidanceColors,
           helpCommand: "cy pr --help",
         });
+        if (subcommand === "template") {
+          output = runPrTemplate(args.positional[1], { dryRun }, repoRoot);
+          break;
+        }
+        if (subcommand === "new") {
+          const id = requireTaskId(`cy pr ${subcommand} <id>`, args.positional[1], guidanceColors);
+          output = runPrNew(id, {
+            message: shortMessageFlag(args, 2),
+            file: shortFileFlag(args, 2),
+            draft: asBooleanFlag(args.flags, "draft"),
+            ready: asBooleanFlag(args.flags, "ready"),
+            target: stringFlag(args.flags, "target"),
+            dryRun,
+          }, rootForChange(id), process.cwd());
+          break;
+        }
+        if (subcommand === "set-draft") {
+          const selector = requirePrSelector(`cy pr ${subcommand} <id|pr-number>`, args.positional[1], guidanceColors);
+          output = runPrSetDraft(selector, { dryRun }, /^\d+$/u.test(selector) ? repoRoot : rootForChange(selector));
+          break;
+        }
+        if (subcommand === "set-ready") {
+          const selector = requirePrSelector(`cy pr ${subcommand} <id|pr-number>`, args.positional[1], guidanceColors);
+          output = runPrSetReady(selector, { dryRun }, /^\d+$/u.test(selector) ? repoRoot : rootForChange(selector));
+          break;
+        }
+        if (subcommand === "auto-merge") {
+          const selector = requirePrSelector(`cy pr ${subcommand} <id|pr-number> [--off]`, args.positional[1], guidanceColors);
+          output = runPrAutoMerge(selector, { dryRun, off: asBooleanFlag(args.flags, "off") }, /^\d+$/u.test(selector) ? repoRoot : rootForChange(selector));
+          break;
+        }
         const id = requireTaskId(`cy pr ${subcommand} <id>`, args.positional[1], guidanceColors);
         if (subcommand === "checks") output = json || colors.enabled ? getPrChecks(id, rootForChange(id)) : runPrChecks(id, rootForChange(id));
         else if (subcommand === "logs") {

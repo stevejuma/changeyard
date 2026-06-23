@@ -4,7 +4,7 @@ name: workflow
 
 # Workflow
 
-The normal local lifecycle is `cy create`, `cy validate`, `cy sync`, `cy start`, `cy verify`, implementation in the verified workspace, `cy complete --no-pr`, and `cy land`.
+The normal local lifecycle is `cy create`, `cy validate`, `cy sync`, `cy start`, `cy verify`, implementation in the verified workspace, `cy complete --no-pr`, then either `cy pr new` for provider PR review or `cy land` for local landing.
 
 For non-trivial agent work, create a strict planned change:
 

@@ -29,7 +29,7 @@ cy <command> [options]
 - `start`: Create a task workspace.
 - `verify`: Verify a task workspace.
 - `hydrate`: Copy configured workspace support files and optionally run warmup.
-- `complete`: Validate and mark work ready to land.
+- `complete`: Validate and mark local work ready for PR or landing.
 - `next`: Show the next actionable workflow command.
 - `audit`: Audit workflow gates and print recovery guidance.
 - `land`: Land ready workspace work locally.
@@ -38,7 +38,7 @@ cy <command> [options]
 - `slice`: Commit one reviewable implementation slice from a workspace.
 - `workspace`: Inspect or clean task workspaces.
 - `check`: Record manual validation evidence for a workspace change.
-- `pr`: Inspect remote pull request checks, retrieve logs, and reopen failed work.
+- `pr`: Create and manage provider pull requests, checks, logs, and failed work.
 - `review`: Manage review artifacts.
 - `diff`: Show focused Changeyard diffs.
 - `summarize`: Summarize recorded Changeyard artifacts.

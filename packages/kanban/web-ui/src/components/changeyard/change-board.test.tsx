@@ -708,6 +708,75 @@ describe("ChangeBoard", () => {
 		expect(runtimeMock.getBoardSummary).toHaveBeenCalledTimes(1);
 	});
 
+	it("does not render object placeholders for structured file-list errors", async () => {
+		runtimeMock.getBoardSummary.mockResolvedValue({
+			ok: true,
+			changeId: "CY-0001",
+			version: "v1",
+			workspaceHead: "head",
+			baseRevision: "main",
+			commits: [],
+			files: { count: 0, additions: 0, deletions: 0 },
+		});
+		runtimeMock.getBoardFiles.mockRejectedValue(new Error("[object Object]"));
+
+		act(() => {
+			root.render(
+				<ChangeBoard
+					board={{ columns: [], dependencies: [] }}
+					changes={[createChange("CY-0001", "Quick change", null)]}
+					filter="changes"
+					selectedChangeId={null}
+					selectedTaskId={null}
+					workspaceId="project-1"
+					onFilterChange={vi.fn()}
+					onSelectChange={vi.fn()}
+					onSelectTask={vi.fn()}
+				/>,
+			);
+		});
+
+		await act(async () => {
+			container.querySelector('[data-change-id="CY-0001"] [role="button"]')?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+
+		expect(container.textContent).toContain("Failed to load files.");
+		expect(container.textContent).not.toContain("[object Object]");
+	});
+
+	it("shows one workspace deleted badge for unknown workspace errors", async () => {
+		runtimeMock.getBoardSummary.mockRejectedValue(new Error("Unknown workspace ID: project-1"));
+
+		act(() => {
+			root.render(
+				<ChangeBoard
+					board={{ columns: [], dependencies: [] }}
+					changes={[createChange("CY-0001", "Quick change", null, "ready_for_pr")]}
+					filter="changes"
+					selectedChangeId={null}
+					selectedTaskId={null}
+					workspaceId="project-1"
+					onFilterChange={vi.fn()}
+					onSelectChange={vi.fn()}
+					onSelectTask={vi.fn()}
+				/>,
+			);
+		});
+
+		await act(async () => {
+			container.querySelector('[data-change-id="CY-0001"] [role="button"]')?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+
+		expect(runtimeMock.getBoardSummary).toHaveBeenCalledTimes(1);
+		expect((container.textContent?.match(/Workspace deleted/g) ?? []).length).toBe(1);
+		expect(container.textContent).not.toContain("Unknown workspace ID");
+		expect(container.textContent).not.toContain("All Changes");
+	});
+
 	it("refreshes selected change files when the workspace event version changes", async () => {
 		runtimeMock.getBoardSummary.mockResolvedValue({
 			ok: true,

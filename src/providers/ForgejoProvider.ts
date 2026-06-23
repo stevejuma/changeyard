@@ -128,6 +128,9 @@ export class ForgejoProvider implements ChangeProvider {
       comments: true,
       pullRequestChecks: false,
       pullRequestCheckLogs: false,
+      pullRequestDraftState: false,
+      pullRequestAutoMerge: false,
+      pullRequestTemplates: false,
     };
   }
 

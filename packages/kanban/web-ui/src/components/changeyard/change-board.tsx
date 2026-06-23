@@ -70,6 +70,7 @@ import type {
 } from "@/runtime/types";
 import { LocalStorageKey, readLocalStorageItem, writeLocalStorageItem } from "@/storage/local-storage-store";
 import type { BoardCard as BoardCardModel, BoardColumnId, BoardData, DependencyEdge, DependencyNodeId } from "@/types";
+import { getErrorMessage, toError } from "@/utils/error-message";
 
 export type ChangeBoardFilter = "all" | "changes" | "planned";
 export type ChangeColumnId = "backlog" | "ready" | "in_progress" | "blocked" | "review" | "done" | "abandoned";
@@ -413,6 +414,10 @@ function getBoardScopeKey(scope: RuntimeChangeyardBoardFilesScope): string {
 	return scope === "all" ? "all" : `commit:${scope.commitHash}`;
 }
 
+function isWorkspaceDeletedError(error: Error | null | undefined): boolean {
+	return error ? getErrorMessage(error).startsWith("Unknown workspace ID:") : false;
+}
+
 type CopyMenuItem = {
 	label: string;
 	value: string | null | undefined;
@@ -574,7 +579,7 @@ function BoardColumnDiffPanel({
 				{isLoading ? (
 					<div className="px-2 py-2 text-[12px] text-text-tertiary">Loading diff...</div>
 				) : error ? (
-					<div className="px-2 py-2 text-[12px] text-red-600">{error.message}</div>
+					<div className="px-2 py-2 text-[12px] text-red-600">{getErrorMessage(error, "Failed to load file diff.")}</div>
 				) : rows.length > 0 ? (
 					<div className="overflow-hidden rounded-md border border-border bg-surface-0">
 						<ReadOnlyUnifiedDiff rows={rows} path={selectedFile.path} />
@@ -624,30 +629,32 @@ function ChangeFileBanner({
 
 	return (
 		<div className={cn("mx-2 mb-2 rounded-lg bg-surface-0", frameless ? null : "border border-divider")}>
-			<button
-				type="button"
-				className="flex w-full items-center gap-2 px-2 py-2 text-left"
-				onClick={(event) => {
-					event.stopPropagation();
-					if (!isExpanded) {
-						onLoad();
-					}
-					onToggle();
-				}}
-			>
-				{isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-				<span className="min-w-0 flex-1 truncate text-sm font-semibold text-text-primary">{scopeLabel(scope)}</span>
-				<span className="rounded-full bg-surface-2 px-1.5 py-0.5 text-[11px] font-semibold">{fileCount}</span>
-				<span className="text-[12px] font-medium text-green-600">{formatDelta(additions, "+")}</span>
-				<span className="text-[12px] font-medium text-red-600">{formatDelta(deletions, "-")}</span>
+			<div className="flex w-full items-center gap-2 px-2 py-2 text-left">
+				<button
+					type="button"
+					className="flex min-w-0 flex-1 items-center gap-2 text-left"
+					onClick={(event) => {
+						event.stopPropagation();
+						if (!isExpanded) {
+							onLoad();
+						}
+						onToggle();
+					}}
+				>
+					{isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+					<span className="min-w-0 flex-1 truncate text-sm font-semibold text-text-primary">{scopeLabel(scope)}</span>
+					<span className="rounded-full bg-surface-2 px-1.5 py-0.5 text-[11px] font-semibold">{fileCount}</span>
+					<span className="text-[12px] font-medium text-green-600">{formatDelta(additions, "+")}</span>
+					<span className="text-[12px] font-medium text-red-600">{formatDelta(deletions, "-")}</span>
+				</button>
 				<BoardFilesToggle mode={viewMode} onModeChange={onViewModeChange} />
-			</button>
+			</div>
 			{isExpanded ? (
 				<div className={cn(frameless ? null : "border-t border-divider")}>
 					{isLoading ? (
 						<div className="px-2 py-2 text-[12px] text-text-tertiary">Loading files...</div>
 					) : error ? (
-						<div className="px-2 py-2 text-[12px] text-red-600">{error.message}</div>
+						<div className="px-2 py-2 text-[12px] text-red-600">{getErrorMessage(error, "Failed to load files.")}</div>
 					) : (
 						<div className="max-h-[250px] overflow-y-auto px-1 py-1">
 							<BoardFileList
@@ -741,8 +748,17 @@ function ChangeCard({
 	}, []);
 
 	const loadSummary = useCallback(async () => {
+		if (isWorkspaceDeletedError(summaryError)) {
+			return null;
+		}
 		if (summaryRequestRef.current) {
-			return summaryRequestRef.current;
+			try {
+				return await summaryRequestRef.current;
+			} catch (error) {
+				const nextError = toError(error, "Failed to load board summary.");
+				setSummaryError(nextError);
+				return null;
+			}
 		}
 		const cached = readCachedChangeBoardSummary(summaryCacheKey);
 		if (cached) {
@@ -769,14 +785,14 @@ function ChangeCard({
 		try {
 			return await request;
 		} catch (error) {
-			const nextError = error instanceof Error ? error : new Error(String(error));
+			const nextError = toError(error, "Failed to load board summary.");
 			setSummaryError(nextError);
 			return null;
 		} finally {
 			summaryRequestRef.current = null;
 			setSummaryLoading(false);
 		}
-	}, [change.id, getChangeBoardSummary, summaryCacheKey, workspaceId]);
+	}, [change.id, getChangeBoardSummary, summaryCacheKey, summaryError, workspaceId]);
 
 	const fetchFiles = useCallback(
 		async (
@@ -829,7 +845,7 @@ function ChangeCard({
 			setAllFiles(response);
 			return response;
 		} catch (error) {
-			setAllFilesError(error instanceof Error ? error : new Error(String(error)));
+			setAllFilesError(toError(error, "Failed to load files."));
 			return null;
 		} finally {
 			setAllFilesLoading(false);
@@ -850,7 +866,7 @@ function ChangeCard({
 			} catch (error) {
 				setCommitFileErrors((current) => ({
 					...current,
-					[commitHash]: error instanceof Error ? error : new Error(String(error)),
+					[commitHash]: toError(error, "Failed to load commit files."),
 				}));
 				return null;
 			} finally {
@@ -892,7 +908,7 @@ function ChangeCard({
 						setAllFiles(response);
 					})
 					.catch((error: unknown) => {
-						setAllFilesError(error instanceof Error ? error : new Error(String(error)));
+						setAllFilesError(toError(error, "Failed to load files."));
 					})
 					.finally(() => {
 						setAllFilesLoading(false);
@@ -907,7 +923,7 @@ function ChangeCard({
 					.catch((error: unknown) => {
 						setCommitFileErrors((current) => ({
 							...current,
-							[expandedCommitHash]: error instanceof Error ? error : new Error(String(error)),
+							[expandedCommitHash]: toError(error, "Failed to load commit files."),
 						}));
 					})
 					.finally(() => {
@@ -983,6 +999,10 @@ function ChangeCard({
 		});
 	};
 	const isCardSelected = selected && selectedCommitHash === null;
+	const workspaceDeleted =
+		isWorkspaceDeletedError(summaryError) ||
+		isWorkspaceDeletedError(allFilesError) ||
+		Object.values(commitFileErrors).some(isWorkspaceDeletedError);
 
 	return (
 		<Draggable draggableId={encodeChangeDraggableId(change.id)} index={index} isDragDisabled={isDragDisabled}>
@@ -1063,6 +1083,13 @@ function ChangeCard({
 								{sessionSummary ? (
 									<StatusChip label={sessionSummary.state} tone={sessionSummary.state === "failed" ? "red" : "purple"} />
 								) : null}
+								{workspaceDeleted ? (
+									<StatusChip
+										label="Workspace deleted"
+										tone="neutral"
+										title="This change references a workspace that is no longer available."
+									/>
+								) : null}
 								<StatusChip label="No checks" />
 							</div>
 						</div>
@@ -1079,7 +1106,7 @@ function ChangeCard({
 							className="h-8 w-8 shrink-0 px-0"
 						/>
 					</div>
-					{selected ? (
+					{selected && !workspaceDeleted ? (
 						<ChangeFileBanner
 							scope="all"
 							summary={summary}
@@ -1121,12 +1148,12 @@ function ChangeCard({
 							]}
 						/>
 					</div>
-					{selected ? (
+					{selected && !workspaceDeleted ? (
 						<div className="py-1">
 							{summaryLoading ? (
 								<div className="px-3 py-2 text-[12px] text-text-tertiary">Loading commits...</div>
 							) : summaryError ? (
-								<div className="px-3 py-2 text-[12px] text-red-600">{summaryError.message}</div>
+								<div className="px-3 py-2 text-[12px] text-red-600">{getErrorMessage(summaryError, "Failed to load board summary.")}</div>
 							) : summary?.commits.length ? (
 								summary.commits.map((commit) => {
 									const commitSelected = selectedCommitHash === commit.hash;
@@ -1559,7 +1586,7 @@ export function ChangeBoard({
 				setFileDiffLoading(false);
 			})
 			.catch((error: unknown) => {
-				setFileDiffError(error instanceof Error ? error : new Error(String(error)));
+				setFileDiffError(toError(error, "Failed to load file diff."));
 				setFileDiffLoading(false);
 			});
 	};

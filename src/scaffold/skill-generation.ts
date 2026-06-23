@@ -14,7 +14,8 @@ Changeyard is the markdown-first local change workflow for this repository. Cano
 8. After each user-requested implementation increment, run focused validation and commit the slice with \`cy slice commit <id> -m "<summary>"\`
 9. Update Completion Notes in the change markdown with changed areas, checks run, and remaining risks or follow-ups
 10. Complete locally only on explicit user completion wording: \`cy complete <id> --no-pr\`; planned changes stop here until the user explicitly confirms landing
-11. Review when needed: \`cy review start <id>\`, edit \`.changeyard/reviews/<id>/review-NNN.md\`, then \`cy review complete <id> --decision <approve|request-changes|reject>\`
+11. Create a provider PR only when explicitly requested: \`cy pr new <id>\`
+12. Review when needed: \`cy review start <id>\`, edit \`.changeyard/reviews/<id>/review-NNN.md\`, then \`cy review complete <id> --decision <approve|request-changes|reject>\`
 
 ## Review gate (hard stop)
 
@@ -28,6 +29,7 @@ Changeyard is the markdown-first local change workflow for this repository. Cano
 - Commit often, complete rarely. Slice commits are the normal unit of manual review; \`cy complete\` is only for explicitly ending the task.
 - Do not run \`cy complete <id> --no-pr\` for "looks good", "continue", or "next". Only run it on clear wording like "complete the Changeyard change", "mark this ready", "ready for PR", or "complete and land".
 - \`cy complete <id> --no-pr\` is the explicit stopping point for planned/OpenSpec-lite changes; it writes the final PR-style JJ landing description, then agents report \`ready_for_pr\` and wait
+- \`cy pr new <id>\` is the explicit provider PR creation step after local completion; do not rerun \`cy complete\` to create a PR
 - Do not run \`cy land <id>\` for planned/OpenSpec-lite or legacy unplanned changes unless the user explicitly confirms landing in the current conversation, for example "land it", "merge it", or "run cy land"
 - Quick low-risk changes may land after successful checks when the user's task clearly asks for completion and no hold, review, or PR was requested
 - When unsure, run \`cy next <id>\`, report its landing confirmation guidance, and wait

@@ -155,6 +155,7 @@ export type ChangeyardConfig = {
     allowLocalFolder?: boolean;
     titlePattern?: string;
     bodyFromChange?: boolean;
+    templatePath?: string;
     labels?: string[];
   };
   review?: {

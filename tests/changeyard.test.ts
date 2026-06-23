@@ -20,7 +20,7 @@ import {
   runPlanStrictDisable,
   runPlanStrictEnable,
 } from "../src/commands/plan.js";
-import { getPrChecks, runPrChecks, runPrFix, runPrLogs } from "../src/commands/pr.js";
+import { getPrChecks, runPrAutoMerge, runPrChecks, runPrFix, runPrLogs, runPrNew, runPrSetDraft, runPrSetReady, runPrTemplate } from "../src/commands/pr.js";
 import { runCreate } from "../src/commands/create.js";
 import { getHubInstances, getHubStatus, killHubInstance, runHubList, runHubStatus } from "../src/commands/hub.js";
 import { changeyardAppStatePath } from "../src/app-state.js";
@@ -2114,7 +2114,7 @@ test("planned complete succeeds when tasks and verification are reconciled", () 
   }
 });
 
-test("complete can create a local-folder pull request when PRs are enabled", () => {
+test("pr new creates a local-folder pull request after local completion", () => {
   const repo = tempRepo();
   try {
     runInit(repo);
@@ -2127,15 +2127,78 @@ test("complete can create a local-folder pull request when PRs are enabled", () 
     writeFileSync(path.join(workspacePath, "implementation.txt"), "done\n");
     const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-open-local-pr.md");
     updateSection(changePath, "Completion Notes", "Implemented PR creation. Checks ran: node -v. No remaining risks.");
-    assert.match(runComplete("CY-0001", {}, workspacePath), /status pr_open/);
+    assert.match(runComplete("CY-0001", {}, workspacePath), /status ready_for_pr/);
+    assert.match(runPrNew("CY-0001", { ready: true }, repo, repo), /Created PR for CY-0001/);
     const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
     assert.equal(parsed.frontmatter.status, "pr_open");
+    assert.equal(asRecordForTest(parsed.frontmatter.remote).draft, false);
     const prRoot = path.join(repo, ".changeyard", "cache", "local-folder", "pull-requests");
     const prFile = readdirSync(prRoot).find((entry) => entry.endsWith("-CY-0001.md"));
     assert.ok(prFile);
     const pr = readFileSync(path.join(prRoot, prFile), "utf8");
-    assert.match(pr, /draft: true/);
+    assert.match(pr, /draft: false/);
     assert.match(pr, /base: main/);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("pr new rejects uncompleted changes and uses selected templates", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    writeFileSync(path.join(repo, ".changeyard", "config.local.jsonc"), `{"provider":{"type":"local-folder"},"checks":{"standard":["node -v"]}}\n`);
+    mkdirSync(path.join(repo, ".github", "PULL_REQUEST_TEMPLATE"), { recursive: true });
+    writeFileSync(path.join(repo, ".github", "PULL_REQUEST_TEMPLATE", "standard.md"), "## Checklist\n\n- [ ] Reviewed\n");
+    assert.match(runPrTemplate(undefined, {}, repo), /\.github\/PULL_REQUEST_TEMPLATE\/standard\.md/);
+    assert.match(runPrTemplate(".github/PULL_REQUEST_TEMPLATE/standard.md", {}, repo), /Set PR template/);
+
+    runCreate({ template: "agent-task", title: "Template PR" }, repo);
+    assert.throws(() => runPrNew("CY-0001", {}, repo, repo), /must be ready_for_pr/);
+    runSync("CY-0001", repo);
+    runStart("CY-0001", repo);
+    const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
+    writeFileSync(path.join(workspacePath, "implementation.txt"), "done\n");
+    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-template-pr.md");
+    updateSection(changePath, "Completion Notes", "Implemented template-backed PR creation. Checks ran: node -v.");
+    runComplete("CY-0001", { noPr: true }, workspacePath);
+
+    const dryRun = runPrNew("CY-0001", { dryRun: true }, repo, repo);
+    assert.match(dryRun, /messageSource: \.github\/PULL_REQUEST_TEMPLATE\/standard\.md/);
+    const output = runPrNew("CY-0001", {}, repo, repo);
+    assert.match(output, /Created PR for CY-0001/);
+    const prRoot = path.join(repo, ".changeyard", "cache", "local-folder", "pull-requests");
+    const prFile = readdirSync(prRoot).find((entry) => entry.endsWith("-CY-0001.md"));
+    assert.ok(prFile);
+    const pr = readFileSync(path.join(prRoot, prFile), "utf8");
+    assert.match(pr, /## Checklist/);
+    assert.match(pr, /Summary:/);
+    assert.throws(() => runPrNew("CY-0001", {}, repo, repo), /already has PR metadata/);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("pr lifecycle commands report unsupported providers without corrupting state", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    writeFileSync(path.join(repo, ".changeyard", "config.local.jsonc"), `{"provider":{"type":"local-folder"}}\n`);
+    runCreate({ template: "feature", title: "Unsupported PR lifecycle" }, repo);
+    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-unsupported-pr-lifecycle.md");
+    const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
+    writeFileSync(changePath, writeFrontmatter({
+      ...parsed.frontmatter,
+      status: "pr_open",
+      remote: { provider: "local-folder", pullRequestNumber: 1, pullRequestUrl: "file:///tmp/pr.md" },
+    }, parsed.body));
+
+    assert.match(runPrSetDraft("CY-0001", {}, repo), /unsupported: local-folder/);
+    assert.match(runPrSetReady("CY-0001", {}, repo), /unsupported: local-folder/);
+    assert.match(runPrAutoMerge("CY-0001", {}, repo), /unsupported: local-folder/);
+    const after = parseFrontmatter(readFileSync(changePath, "utf8"));
+    assert.equal(asRecordForTest(after.frontmatter.remote).pullRequestNumber, 1);
+    assert.equal(asRecordForTest(after.frontmatter.remote).draft, undefined);
   } finally {
     cleanup(repo);
   }
@@ -2775,9 +2838,15 @@ test("github and gitlab providers are registered with PR capabilities", () => {
   assert.equal(createProvider("github", baseConfig).capabilities().reviews, true);
   assert.equal(createProvider("github", baseConfig).capabilities().pullRequestChecks, true);
   assert.equal(createProvider("github", baseConfig).capabilities().pullRequestCheckLogs, true);
+  assert.equal(createProvider("github", baseConfig).capabilities().pullRequestDraftState, true);
+  assert.equal(createProvider("github", baseConfig).capabilities().pullRequestAutoMerge, true);
+  assert.equal(createProvider("github", baseConfig).capabilities().pullRequestTemplates, true);
   assert.equal(createProvider("gitlab", { ...baseConfig, provider: { type: "gitlab", owner: "example", repo: "repo" } }).capabilities().pullRequests, true);
   assert.equal(createProvider("gitlab", { ...baseConfig, provider: { type: "gitlab", owner: "example", repo: "repo" } }).capabilities().pullRequestChecks, true);
+  assert.equal(createProvider("gitlab", { ...baseConfig, provider: { type: "gitlab", owner: "example", repo: "repo" } }).capabilities().pullRequestDraftState, true);
+  assert.equal(createProvider("gitlab", { ...baseConfig, provider: { type: "gitlab", owner: "example", repo: "repo" } }).capabilities().pullRequestAutoMerge, true);
   assert.equal(createProvider("local-folder", baseConfig).capabilities().pullRequestChecks, false);
+  assert.equal(createProvider("local-folder", baseConfig).capabilities().pullRequestTemplates, true);
 });
 
 test("github and gitlab providers normalize pull request checks and logs", () => {
@@ -3522,6 +3591,68 @@ test("providers implement branch pull request operations", () => {
   } finally {
     setHttpTransportForTests();
     if (previousForgeToken === undefined) delete process.env.CHANGEYARD_TEST_FORGE_TOKEN; else process.env.CHANGEYARD_TEST_FORGE_TOKEN = previousForgeToken;
+    if (previousGitHubToken === undefined) delete process.env.CHANGEYARD_TEST_GITHUB_TOKEN; else process.env.CHANGEYARD_TEST_GITHUB_TOKEN = previousGitHubToken;
+    if (previousGitLabToken === undefined) delete process.env.CHANGEYARD_TEST_GITLAB_TOKEN; else process.env.CHANGEYARD_TEST_GITLAB_TOKEN = previousGitLabToken;
+  }
+});
+
+test("remote providers implement pull request lifecycle mutations", () => {
+  const previousGitHubToken = process.env.CHANGEYARD_TEST_GITHUB_TOKEN;
+  const previousGitLabToken = process.env.CHANGEYARD_TEST_GITLAB_TOKEN;
+  process.env.CHANGEYARD_TEST_GITHUB_TOKEN = "github-token";
+  process.env.CHANGEYARD_TEST_GITLAB_TOKEN = "gitlab-token";
+  const requests: ProviderRequest[] = [];
+  setHttpTransportForTests((request) => {
+    requests.push(request as ProviderRequest);
+    if (request.method === "GET" && request.url === "https://github.example.test/repos/example-org/example-repo/pulls/42") {
+      return { status: 200, body: JSON.stringify({ number: 42, node_id: "PR_node", html_url: "https://example.test/github/42", state: "open" }) };
+    }
+    if (request.method === "POST" && request.url === "https://github.example.test/graphql") {
+      const query = String((request.payload as { query?: string }).query ?? "");
+      if (query.includes("convertPullRequestToDraft")) {
+        return { status: 200, body: JSON.stringify({ data: { convertPullRequestToDraft: { pullRequest: { number: 42, url: "https://example.test/github/42", isDraft: true, autoMergeRequest: null } } } }) };
+      }
+      if (query.includes("markPullRequestReadyForReview")) {
+        return { status: 200, body: JSON.stringify({ data: { markPullRequestReadyForReview: { pullRequest: { number: 42, url: "https://example.test/github/42", isDraft: false, autoMergeRequest: null } } } }) };
+      }
+      if (query.includes("enablePullRequestAutoMerge")) {
+        return { status: 200, body: JSON.stringify({ data: { enablePullRequestAutoMerge: { pullRequest: { number: 42, url: "https://example.test/github/42", autoMergeRequest: { enabledAt: "now" } } } } }) };
+      }
+      if (query.includes("disablePullRequestAutoMerge")) {
+        return { status: 200, body: JSON.stringify({ data: { disablePullRequestAutoMerge: { pullRequest: { number: 42, url: "https://example.test/github/42", autoMergeRequest: null } } } }) };
+      }
+    }
+    if (request.method === "GET" && request.url === "https://gitlab.example.test/api/v4/projects/example-org%2Fexample-repo/merge_requests/43") {
+      return { status: 200, body: JSON.stringify({ iid: 43, title: "Feature", web_url: "https://example.test/gitlab/43", state: "opened" }) };
+    }
+    if (request.method === "PUT" && request.url === "https://gitlab.example.test/api/v4/projects/example-org%2Fexample-repo/merge_requests/43") {
+      return { status: 200, body: JSON.stringify({ iid: 43, title: (request.payload as { title?: string }).title, web_url: "https://example.test/gitlab/43", state: "opened" }) };
+    }
+    if (request.method === "PUT" && request.url === "https://gitlab.example.test/api/v4/projects/example-org%2Fexample-repo/merge_requests/43/merge") {
+      return { status: 200, body: JSON.stringify({ iid: 43, web_url: "https://example.test/gitlab/43", state: "opened" }) };
+    }
+    throw new Error(`Unexpected request: ${request.method} ${request.url}`);
+  });
+
+  try {
+    const github = new GitHubProvider(providerConfig("github", "CHANGEYARD_TEST_GITHUB_TOKEN"));
+    const gitlab = new GitLabProvider(providerConfig("gitlab", "CHANGEYARD_TEST_GITLAB_TOKEN"));
+    assert.equal(github.setPullRequestDraftState?.({ repoRoot: "/repo", storageRoot: "/repo/.changeyard", pullRequestNumber: 42, draft: true }).draft, true);
+    assert.equal(github.setPullRequestDraftState?.({ repoRoot: "/repo", storageRoot: "/repo/.changeyard", pullRequestNumber: 42, draft: false }).draft, false);
+    assert.equal(github.setPullRequestAutoMerge?.({ repoRoot: "/repo", storageRoot: "/repo/.changeyard", pullRequestNumber: 42, enabled: true }).enabled, true);
+    assert.equal(github.setPullRequestAutoMerge?.({ repoRoot: "/repo", storageRoot: "/repo/.changeyard", pullRequestNumber: 42, enabled: false }).enabled, false);
+
+    assert.equal(gitlab.setPullRequestDraftState?.({ repoRoot: "/repo", storageRoot: "/repo/.changeyard", pullRequestNumber: 43, draft: true }).draft, true);
+    assert.equal(gitlab.setPullRequestDraftState?.({ repoRoot: "/repo", storageRoot: "/repo/.changeyard", pullRequestNumber: 43, draft: false }).draft, false);
+    assert.equal(gitlab.setPullRequestAutoMerge?.({ repoRoot: "/repo", storageRoot: "/repo/.changeyard", pullRequestNumber: 43, enabled: true }).enabled, true);
+    const disable = gitlab.setPullRequestAutoMerge?.({ repoRoot: "/repo", storageRoot: "/repo/.changeyard", pullRequestNumber: 43, enabled: false });
+    assert.equal(disable?.supported, false);
+    assert.match(disable?.message ?? "", /disable is not supported/);
+
+    const gitlabDraftUpdate = requests.find((request) => request.method === "PUT" && request.url.endsWith("/merge_requests/43") && (request.payload as { title?: string }).title?.startsWith("Draft:"));
+    assert.equal(gitlabDraftUpdate?.payload.title, "Draft: Feature");
+  } finally {
+    setHttpTransportForTests();
     if (previousGitHubToken === undefined) delete process.env.CHANGEYARD_TEST_GITHUB_TOKEN; else process.env.CHANGEYARD_TEST_GITHUB_TOKEN = previousGitHubToken;
     if (previousGitLabToken === undefined) delete process.env.CHANGEYARD_TEST_GITLAB_TOKEN; else process.env.CHANGEYARD_TEST_GITLAB_TOKEN = previousGitLabToken;
   }

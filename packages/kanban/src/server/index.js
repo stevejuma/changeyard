@@ -94,7 +94,7 @@ function hasWorkspaceRepositoryFallback(targetPath) {
 
 async function loadWorkspaceRuntimeBridge() {
 	try {
-		return await import(WORKSPACE_RUNTIME_BRIDGE_MODULE_URL.href);
+		return await import(WORKSPACE_RUNTIME_BRIDGE_MODULE_URL);
 	} catch {
 		return {
 			detectWorkspaceRepositoryKind: detectWorkspaceRepositoryKindFallback,

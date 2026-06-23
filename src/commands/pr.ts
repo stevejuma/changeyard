@@ -1,6 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { loadConfig } from "../config/loadConfig.js";
+import { stripJsonComments } from "../config/jsonc.js";
 import { parseFrontmatter, writeFrontmatter } from "../documents/frontmatter.js";
 import { changesRoot, storageRoot, workspacesRoot } from "../paths.js";
 import { createProvider } from "../providers/index.js";
@@ -8,12 +9,16 @@ import type {
   ChangeProvider,
   RemoteCheckLog,
   RemoteCheckState,
+  RemotePullRequestAutoMerge,
   RemotePullRequestCheck,
   RemotePullRequestChecks,
 } from "../providers/ChangeProvider.js";
 import { findChangeFile } from "../state/id.js";
+import { assertTransition } from "../state/transitions.js";
 import type { ChangeStatus, Frontmatter, ParsedMarkdown, WorkspaceMetadata } from "../types.js";
+import { createWorkspaceEngine } from "../workspace/index.js";
 import { resolveWorkspaceChangePath } from "../workspace/marker.js";
+import { finalDescriptionMessage } from "./describe.js";
 import { readWorkspaceMetadataFromRoot } from "./workspace.js";
 
 export type PrLogOptions = {
@@ -28,6 +33,20 @@ export type PrFixOptions = {
   runId?: string;
   failed?: boolean;
   dryRun?: boolean;
+};
+
+export type PrNewOptions = {
+  message?: string;
+  file?: string;
+  draft?: boolean;
+  ready?: boolean;
+  target?: string;
+  dryRun?: boolean;
+};
+
+export type PrLifecycleOptions = {
+  dryRun?: boolean;
+  off?: boolean;
 };
 
 export type RemoteCheckGate = {
@@ -46,6 +65,16 @@ type LoadedChange = {
   parsed: ParsedMarkdown;
   provider: ChangeProvider;
   storageRoot: string;
+};
+
+type PrTarget = {
+  label: string;
+  provider: ChangeProvider;
+  storageRoot: string;
+  pullRequestNumber: number;
+  changePath?: string;
+  parsed?: ParsedMarkdown;
+  id?: string;
 };
 
 function asRecord(value: unknown): Frontmatter {
@@ -70,9 +99,62 @@ function loadChange(id: string, repoRoot: string): LoadedChange {
   };
 }
 
+function loadChangeOrNull(id: string, repoRoot: string): LoadedChange | null {
+  const config = loadConfig(repoRoot);
+  const changePath = findChangeFile(changesRoot(repoRoot, config), id);
+  if (!changePath) return null;
+  const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
+  return {
+    id: String(parsed.frontmatter.id ?? id),
+    path: changePath,
+    parsed,
+    provider: createProvider(config.provider.type, config),
+    storageRoot: storageRoot(repoRoot, config),
+  };
+}
+
 function pullRequestNumber(frontmatter: Frontmatter): number | null {
   const remote = asRecord(frontmatter.remote);
   return typeof remote.pullRequestNumber === "number" ? remote.pullRequestNumber : null;
+}
+
+function resolvePrTarget(selector: string, repoRoot: string): PrTarget {
+  const loaded = loadChangeOrNull(selector, repoRoot);
+  if (loaded) {
+    const pullNumber = pullRequestNumber(loaded.parsed.frontmatter);
+    if (pullNumber === null) throw new Error(`Change ${loaded.id} does not have remote.pullRequestNumber metadata.`);
+    return {
+      label: loaded.id,
+      provider: loaded.provider,
+      storageRoot: loaded.storageRoot,
+      pullRequestNumber: pullNumber,
+      changePath: loaded.path,
+      parsed: loaded.parsed,
+      id: loaded.id,
+    };
+  }
+  if (/^\d+$/u.test(selector)) {
+    const config = loadConfig(repoRoot);
+    return {
+      label: `PR ${selector}`,
+      provider: createProvider(config.provider.type, config),
+      storageRoot: storageRoot(repoRoot, config),
+      pullRequestNumber: Number(selector),
+    };
+  }
+  throw new Error(`Change or PR not found: ${selector}`);
+}
+
+function updateRemoteFrontmatter(target: PrTarget, patch: Frontmatter): void {
+  if (!target.changePath || !target.parsed) return;
+  writeFileSync(target.changePath, writeFrontmatter({
+    ...target.parsed.frontmatter,
+    updatedAt: nowIso(),
+    remote: {
+      ...asRecord(target.parsed.frontmatter.remote),
+      ...patch,
+    },
+  }, target.parsed.body));
 }
 
 function unsupportedChecks(provider: ChangeProvider, pullNumber: number | null): RemotePullRequestChecks {
@@ -216,6 +298,318 @@ function writeChangeEverywhere(changePath: string, metadata: WorkspaceMetadata |
   if (!metadata) return;
   const workspacePath = resolveWorkspaceChangePath(metadata);
   if (existsSync(workspacePath)) writeFileSync(workspacePath, document);
+}
+
+function activeChangeForPr(id: string, repoRoot: string): { loaded: LoadedChange; metadata: WorkspaceMetadata | null; changePath: string; parsed: ParsedMarkdown } {
+  const loaded = loadChange(id, repoRoot);
+  const metadata = readWorkspaceMetadataFromRoot(loaded.id, repoRoot);
+  const workspacePath = metadata?.engine === "jj" ? resolveWorkspaceChangePath(metadata) : null;
+  const changePath = workspacePath && existsSync(workspacePath) ? workspacePath : loaded.path;
+  return {
+    loaded,
+    metadata,
+    changePath,
+    parsed: parseFrontmatter(readFileSync(changePath, "utf8")),
+  };
+}
+
+function writePrBoundaryChange(rootPath: string, activePath: string, frontmatter: Frontmatter, body: string): void {
+  const document = writeFrontmatter(frontmatter, body);
+  writeFileSync(activePath, document);
+  if (activePath !== rootPath) writeFileSync(rootPath, document);
+}
+
+function commonTemplatePaths(repoRoot: string): string[] {
+  const direct = [
+    ".github/pull_request_template.md",
+    ".forgejo/PULL_REQUEST_TEMPLATE.md",
+    ".gitea/PULL_REQUEST_TEMPLATE.md",
+  ];
+  const directories = [
+    ".github/PULL_REQUEST_TEMPLATE",
+    ".gitlab/merge_request_templates",
+    ".forgejo/PULL_REQUEST_TEMPLATE",
+    ".gitea/PULL_REQUEST_TEMPLATE",
+  ];
+  const files = direct
+    .map((entry) => path.join(repoRoot, entry))
+    .filter((entry) => existsSync(entry));
+  for (const directory of directories.map((entry) => path.join(repoRoot, entry))) {
+    if (!existsSync(directory)) continue;
+    for (const entry of readdirSync(directory)) {
+      if (entry.endsWith(".md")) files.push(path.join(directory, entry));
+    }
+  }
+  return [...new Set(files)].sort();
+}
+
+function relativeTemplate(repoRoot: string, templatePath: string): string {
+  const absolute = path.resolve(repoRoot, templatePath);
+  const relative = path.relative(repoRoot, absolute);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) throw new Error(`PR template must be inside the repository: ${templatePath}`);
+  if (!existsSync(absolute)) throw new Error(`PR template not found: ${relative}`);
+  return relative;
+}
+
+function selectedTemplatePath(repoRoot: string): string | null {
+  const config = loadConfig(repoRoot);
+  const templatePath = config.pullRequests?.templatePath;
+  if (typeof templatePath !== "string" || !templatePath.trim()) return null;
+  const absolute = path.resolve(repoRoot, templatePath);
+  return existsSync(absolute) ? absolute : null;
+}
+
+function writeSelectedTemplate(repoRoot: string, templatePath: string, dryRun: boolean | undefined): string {
+  const relative = relativeTemplate(repoRoot, templatePath);
+  const localConfigPath = path.join(repoRoot, ".changeyard", "config.local.jsonc");
+  const current = existsSync(localConfigPath)
+    ? JSON.parse(stripJsonComments(readFileSync(localConfigPath, "utf8"))) as Frontmatter
+    : {};
+  const next = {
+    ...current,
+    pullRequests: {
+      ...asRecord(current.pullRequests),
+      templatePath: relative,
+    },
+  };
+  if (!dryRun) {
+    mkdirSync(path.dirname(localConfigPath), { recursive: true });
+    writeFileSync(localConfigPath, `${JSON.stringify(next, null, 2)}\n`);
+  }
+  return relative;
+}
+
+function parseReviewMessage(raw: string): { title: string; body: string } {
+  const normalized = raw.replace(/\r\n/g, "\n").trim();
+  const [firstLine = "", ...rest] = normalized.split("\n");
+  const title = firstLine.trim();
+  if (!title) throw new Error("PR message title is empty");
+  return { title, body: rest.join("\n").trim() };
+}
+
+function reviewMessageForNew(input: {
+  changeId: string;
+  metadata: WorkspaceMetadata;
+  repoRoot: string;
+  options: PrNewOptions;
+  cwd: string;
+}): { title: string; body: string; source: string } {
+  if (input.options.message) return { ...parseReviewMessage(input.options.message), source: "-m" };
+  if (input.options.file) return { ...parseReviewMessage(readFileSync(path.resolve(input.cwd, input.options.file), "utf8")), source: "-F" };
+  const generated = finalDescriptionMessage(input.changeId, input.metadata, input.repoRoot, input.options.target);
+  const templatePath = selectedTemplatePath(input.repoRoot);
+  if (templatePath) {
+    const template = readFileSync(templatePath, "utf8").trim();
+    return {
+      title: generated.subject,
+      body: [template, generated.message.trim()].filter(Boolean).join("\n\n"),
+      source: path.relative(input.repoRoot, templatePath),
+    };
+  }
+  return { title: generated.subject, body: generated.message.trim(), source: "generated" };
+}
+
+export function runPrTemplate(templatePath: string | undefined, options: { dryRun?: boolean } = {}, repoRoot = process.cwd()): string {
+  if (templatePath) {
+    const selected = writeSelectedTemplate(repoRoot, templatePath, options.dryRun);
+    return options.dryRun ? `Dry-run: would set PR template to ${selected}` : `Set PR template: ${selected}`;
+  }
+  const config = loadConfig(repoRoot);
+  const selected = typeof config.pullRequests?.templatePath === "string" ? config.pullRequests.templatePath : null;
+  const templates = commonTemplatePaths(repoRoot).map((entry) => path.relative(repoRoot, entry));
+  if (templates.length === 0) return selected ? `selected: ${selected}\nNo PR templates found` : "No PR templates found";
+  return [
+    ...(selected ? [`selected: ${selected}`] : []),
+    "templates:",
+    ...templates.map((entry) => `- ${entry}`),
+  ].join("\n");
+}
+
+export function runPrNew(id: string, options: PrNewOptions = {}, repoRoot = process.cwd(), cwd = process.cwd()): string {
+  if (!id) throw new Error("change id is required");
+  if (options.draft && options.ready) throw new Error("Choose only one of --draft or --ready.");
+  const config = loadConfig(repoRoot);
+  const { loaded, metadata, changePath, parsed } = activeChangeForPr(id, repoRoot);
+  const changeId = String(parsed.frontmatter.id ?? loaded.id);
+  const currentStatus = String(parsed.frontmatter.status ?? "unknown");
+  if (pullRequestNumber(parsed.frontmatter) !== null) {
+    throw new Error([
+      `Change ${changeId} already has PR metadata.`,
+      "",
+      "Recovery:",
+      `- Run cy pr checks ${changeId} to inspect remote checks.`,
+      `- Run cy pr set-ready ${changeId} or cy pr auto-merge ${changeId} for PR lifecycle changes.`,
+    ].join("\n"));
+  }
+  if (currentStatus !== "ready_for_pr") throw new Error(`Change ${changeId} must be ready_for_pr before creating a PR; current status is ${currentStatus}`);
+  if (!metadata) throw new Error(`Workspace metadata not found for ${changeId}; run cy workspace status ${changeId}`);
+  if (!loaded.provider.createPullRequest) throw new Error(`Provider ${loaded.provider.name} does not support pull requests; use cy complete ${changeId} --no-pr`);
+  assertTransition(currentStatus, "pr_open", `Create PR ${changeId}`);
+
+  const branch = String(metadata.branch ?? asRecord(parsed.frontmatter.branch).name ?? `cy/${changeId}`);
+  const base = options.target ?? String(asRecord(parsed.frontmatter.base).revision ?? config.project.defaultBase);
+  const draft = options.ready ? false : options.draft ? true : config.pullRequests?.draft ?? true;
+  const message = reviewMessageForNew({ changeId, metadata, repoRoot, options, cwd });
+
+  if (options.dryRun) {
+    return [
+      `Dry-run: would create PR for ${changeId}`,
+      `branch: ${branch}`,
+      `base: ${base}`,
+      `draft: ${String(draft)}`,
+      `messageSource: ${message.source}`,
+      `title: ${message.title}`,
+    ].join("\n");
+  }
+
+  createWorkspaceEngine(metadata.engine).publish({ cwd: metadata.path, metadata, branch });
+  const pr = loaded.provider.createPullRequest({
+    repoRoot,
+    storageRoot: loaded.storageRoot,
+    changePath,
+    frontmatter: parsed.frontmatter,
+    body: message.body,
+    title: message.title,
+    branch,
+    base,
+    draft,
+  });
+  const nextFrontmatter: Frontmatter = {
+    ...parsed.frontmatter,
+    status: "pr_open",
+    updatedAt: nowIso(),
+    remote: {
+      ...asRecord(parsed.frontmatter.remote),
+      provider: pr.provider,
+      pullRequestNumber: pr.pullRequestNumber,
+      pullRequestUrl: pr.pullRequestUrl,
+      draft,
+      autoMerge: pr.autoMerge ?? false,
+    },
+  };
+  writePrBoundaryChange(loaded.path, changePath, nextFrontmatter, parsed.body);
+  const next = loaded.provider.capabilities().pullRequestChecks ? `Next: cy pr checks ${changeId}` : `Next: cy review start ${changeId}`;
+  return [
+    `Created PR for ${changeId}`,
+    `PR: ${pr.pullRequestUrl ?? pr.pullRequestNumber ?? "unknown"}`,
+    `draft: ${String(draft)}`,
+    next,
+  ].join("\n");
+}
+
+function lifecycleInput(target: PrTarget, repoRoot: string) {
+  return {
+    repoRoot,
+    storageRoot: target.storageRoot,
+    pullRequestNumber: target.pullRequestNumber,
+    frontmatter: target.parsed?.frontmatter,
+  };
+}
+
+function remotePatchFromPr(pr: { provider: string; pullRequestNumber: number | null; pullRequestUrl: string | null; draft?: boolean | null; autoMerge?: boolean | null }, patch: Frontmatter = {}): Frontmatter {
+  return {
+    provider: pr.provider,
+    pullRequestNumber: pr.pullRequestNumber,
+    pullRequestUrl: pr.pullRequestUrl,
+    ...(typeof pr.draft === "boolean" ? { draft: pr.draft } : {}),
+    ...(typeof pr.autoMerge === "boolean" ? { autoMerge: pr.autoMerge } : {}),
+    ...patch,
+  };
+}
+
+function unsupportedLifecycle(provider: ChangeProvider, capability: keyof ReturnType<ChangeProvider["capabilities"]>, action: string): string | null {
+  if (provider.capabilities()[capability]) return null;
+  return `Provider ${provider.name} does not support ${action}.`;
+}
+
+export function runPrSetDraft(selector: string, options: PrLifecycleOptions = {}, repoRoot = process.cwd()): string {
+  const target = resolvePrTarget(selector, repoRoot);
+  const unsupported = unsupportedLifecycle(target.provider, "pullRequestDraftState", "pull request draft state changes");
+  if (unsupported || !target.provider.setPullRequestDraftState) {
+    return [
+      `unsupported: ${target.provider.name}`,
+      unsupported ?? `Provider ${target.provider.name} does not implement pull request draft state changes.`,
+    ].join("\n");
+  }
+  if (options.dryRun) {
+    return [
+      `Dry-run: would mark ${target.label} as draft`,
+      `pullRequest: ${target.pullRequestNumber}`,
+    ].join("\n");
+  }
+  const pr = target.provider.setPullRequestDraftState({
+    ...lifecycleInput(target, repoRoot),
+    draft: true,
+  });
+  updateRemoteFrontmatter(target, remotePatchFromPr(pr, { draft: true }));
+  return [
+    `Marked ${target.label} as draft`,
+    `PR: ${pr.pullRequestUrl ?? pr.pullRequestNumber ?? target.pullRequestNumber}`,
+  ].join("\n");
+}
+
+export function runPrSetReady(selector: string, options: PrLifecycleOptions = {}, repoRoot = process.cwd()): string {
+  const target = resolvePrTarget(selector, repoRoot);
+  const unsupported = unsupportedLifecycle(target.provider, "pullRequestDraftState", "pull request draft state changes");
+  if (unsupported || !target.provider.setPullRequestDraftState) {
+    return [
+      `unsupported: ${target.provider.name}`,
+      unsupported ?? `Provider ${target.provider.name} does not implement pull request draft state changes.`,
+    ].join("\n");
+  }
+  if (options.dryRun) {
+    return [
+      `Dry-run: would mark ${target.label} ready for review`,
+      `pullRequest: ${target.pullRequestNumber}`,
+    ].join("\n");
+  }
+  const pr = target.provider.setPullRequestDraftState({
+    ...lifecycleInput(target, repoRoot),
+    draft: false,
+  });
+  updateRemoteFrontmatter(target, remotePatchFromPr(pr, { draft: false }));
+  return [
+    `Marked ${target.label} ready for review`,
+    `PR: ${pr.pullRequestUrl ?? pr.pullRequestNumber ?? target.pullRequestNumber}`,
+    target.id ? `Next: cy pr checks ${target.id}` : "Next: cy pr checks <change-id>",
+  ].join("\n");
+}
+
+function formatAutoMergeResult(label: string, result: RemotePullRequestAutoMerge): string {
+  return [
+    result.supported ? `${result.enabled ? "Enabled" : "Disabled"} auto-merge for ${label}` : `unsupported: ${result.provider}`,
+    `PR: ${result.pullRequestUrl ?? result.pullRequestNumber ?? "unknown"}`,
+    ...(result.message ? [`message: ${result.message}`] : []),
+  ].join("\n");
+}
+
+export function runPrAutoMerge(selector: string, options: PrLifecycleOptions = {}, repoRoot = process.cwd()): string {
+  const target = resolvePrTarget(selector, repoRoot);
+  const enabled = !options.off;
+  const unsupported = unsupportedLifecycle(target.provider, "pullRequestAutoMerge", "pull request auto-merge changes");
+  if (unsupported || !target.provider.setPullRequestAutoMerge) {
+    return [
+      `unsupported: ${target.provider.name}`,
+      unsupported ?? `Provider ${target.provider.name} does not implement pull request auto-merge changes.`,
+    ].join("\n");
+  }
+  if (options.dryRun) {
+    return [
+      `Dry-run: would ${enabled ? "enable" : "disable"} auto-merge for ${target.label}`,
+      `pullRequest: ${target.pullRequestNumber}`,
+    ].join("\n");
+  }
+  const result = target.provider.setPullRequestAutoMerge({
+    ...lifecycleInput(target, repoRoot),
+    enabled,
+  });
+  if (result.supported) updateRemoteFrontmatter(target, {
+    provider: result.provider,
+    pullRequestNumber: result.pullRequestNumber,
+    pullRequestUrl: result.pullRequestUrl,
+    autoMerge: result.enabled,
+  });
+  return formatAutoMergeResult(target.label, result);
 }
 
 export function runPrFix(id: string, options: PrFixOptions = {}, repoRoot = process.cwd()): string {

@@ -86,7 +86,7 @@ const CHANGEYARD_COMMANDS: CommandContent[] = [
    They must summarize changed areas, checks run or not run, and remaining risks or follow-ups.
 2. Review recorded slices with \`cy review slices <id>\`.
 3. Run \`cy verify <id>\` from the workspace.
-4. Run \`cy complete <id> --no-pr\` unless the user explicitly wants PR creation.
+4. Run \`cy complete <id> --no-pr\`; create a provider PR later with \`cy pr new <id>\` only when explicitly requested.
 5. For JJ workspaces, completion writes the final PR-style landing description; if land later reports missing context, run \`cy describe final <id>\`.
 6. Run \`cy next <id>\` and report its landing confirmation guidance.
 6. Do not run \`cy land <id>\` for planned/OpenSpec-lite or legacy unplanned changes unless the user explicitly confirms landing in the current conversation.

@@ -23,6 +23,7 @@ describe("getErrorMessage", () => {
 	it("uses the fallback for object values without a displayable message", () => {
 		expect(getErrorMessage({ status: 500 }, "Drag failed.")).toBe("Drag failed.");
 		expect(getErrorMessage({ status: 500 })).not.toBe("[object Object]");
+		expect(getErrorMessage(new Error("[object Object]"), "Drag failed.")).toBe("Drag failed.");
 	});
 });
 
@@ -34,5 +35,9 @@ describe("toError", () => {
 
 	it("wraps structured error messages", () => {
 		expect(toError({ message: "Move rejected." }).message).toBe("Move rejected.");
+	});
+
+	it("wraps Error instances with non-displayable messages", () => {
+		expect(toError(new Error("[object Object]"), "Move rejected.").message).toBe("Move rejected.");
 	});
 });

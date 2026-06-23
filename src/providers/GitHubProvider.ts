@@ -13,22 +13,26 @@ import type {
   RemoteCheckSummary,
   RemoteIssue,
   RemotePullRequest,
+  RemotePullRequestAutoMerge,
   RemotePullRequestCheck,
   RemotePullRequestChecks,
   RemotePullRequestComment,
   RemoteReview,
+  SetPullRequestAutoMergeInput,
+  SetPullRequestDraftStateInput,
   SyncIssueInput,
   PublishReviewInput,
   UpdatePullRequestBaseInput,
   UpsertPullRequestCommentInput,
 } from "./ChangeProvider.js";
-import { curlJson, curlRaw } from "./http.js";
+import { curlGraphql, curlJson, curlRaw } from "./http.js";
 import { validateReviewCommentPath } from "./reviewHelpers.js";
 
 const GITHUB_HEADERS = ["Accept: application/vnd.github+json", "X-GitHub-Api-Version: 2022-11-28"];
 
 type PullRequestResponse = {
   number?: number;
+  node_id?: string;
   html_url?: string;
   url?: string;
   base?: {
@@ -39,6 +43,8 @@ type PullRequestResponse = {
   head?: {
     sha?: string;
   };
+  draft?: boolean;
+  auto_merge?: unknown;
 };
 
 type PullRequestListFile = {
@@ -129,6 +135,11 @@ function requireConfig(config: ChangeyardConfig): { baseUrl: string; owner: stri
   return { baseUrl: (config.provider.baseUrl ?? "https://api.github.com").replace(/\/$/, ""), owner: config.provider.owner, repo: config.provider.repo, token };
 }
 
+function graphqlUrl(baseUrl: string): string {
+  if (baseUrl.endsWith("/api/v3")) return `${baseUrl.slice(0, -"/api/v3".length)}/api/graphql`;
+  return `${baseUrl}/graphql`;
+}
+
 function inlineCommentSummary(input: PublishReviewInput): string {
   const comments = input.inlineComments ?? [];
   if (!comments.length) return "";
@@ -209,7 +220,31 @@ function remotePullRequestFromResponse(response: PullRequestResponse, fallback?:
     pullRequestUrl: typeof response.html_url === "string" ? response.html_url : typeof response.url === "string" ? response.url : null,
     baseBranch: typeof response.base?.ref === "string" ? response.base.ref : fallback?.base ?? null,
     headBranch: fallback?.head ?? null,
+    draft: typeof response.draft === "boolean" ? response.draft : null,
+    autoMerge: response.auto_merge ? true : null,
     state: response.merged_at ? "merged" : response.state === "closed" ? "closed" : response.state === "open" || fallback ? "open" : "unknown",
+  };
+}
+
+function pullRequestNodeId(cfg: { baseUrl: string; owner: string; repo: string; token: string }, pullNumber: number): { nodeId: string; response: PullRequestResponse } {
+  const response = pullRequest(cfg, pullNumber);
+  if (typeof response.node_id !== "string" || !response.node_id) {
+    throw new ChangeyardError("PROVIDER_REQUEST_FAILED", `GitHub pull request ${pullNumber} did not include a node_id`);
+  }
+  return { nodeId: response.node_id, response };
+}
+
+function githubLifecyclePrFromGraphql(provider: string, pullNumber: number, payload: unknown, fallbackUrl: string | null, stateFallback: "open" | "closed" | "merged" | "unknown" = "open"): RemotePullRequest {
+  const pullRequest = typeof payload === "object" && payload !== null && "pullRequest" in payload
+    ? (payload as { pullRequest?: { number?: number; url?: string; isDraft?: boolean; autoMergeRequest?: unknown } }).pullRequest
+    : null;
+  return {
+    provider,
+    pullRequestNumber: typeof pullRequest?.number === "number" ? pullRequest.number : pullNumber,
+    pullRequestUrl: typeof pullRequest?.url === "string" ? pullRequest.url : fallbackUrl,
+    draft: typeof pullRequest?.isDraft === "boolean" ? pullRequest.isDraft : null,
+    autoMerge: pullRequest?.autoMergeRequest ? true : null,
+    state: stateFallback,
   };
 }
 
@@ -239,6 +274,9 @@ export class GitHubProvider implements ChangeProvider {
       comments: true,
       pullRequestChecks: true,
       pullRequestCheckLogs: true,
+      pullRequestDraftState: true,
+      pullRequestAutoMerge: true,
+      pullRequestTemplates: true,
     };
   }
 
@@ -369,6 +407,63 @@ export class GitHubProvider implements ChangeProvider {
       pullRequestUrl: null,
       baseBranch: input.base,
       state: "unknown",
+    };
+  }
+
+  setPullRequestDraftState(input: SetPullRequestDraftStateInput): RemotePullRequest {
+    const cfg = requireConfig(this.config);
+    const { nodeId, response } = pullRequestNodeId(cfg, input.pullRequestNumber);
+    const mutationName = input.draft ? "convertPullRequestToDraft" : "markPullRequestReadyForReview";
+    const data = curlGraphql({
+      url: graphqlUrl(cfg.baseUrl),
+      token: cfg.token,
+      tokenScheme: "Bearer",
+      extraHeaders: GITHUB_HEADERS,
+      query: input.draft
+        ? `mutation($pullRequestId: ID!) {
+            convertPullRequestToDraft(input: { pullRequestId: $pullRequestId }) {
+              pullRequest { number url isDraft autoMergeRequest { enabledAt } }
+            }
+          }`
+        : `mutation($pullRequestId: ID!) {
+            markPullRequestReadyForReview(input: { pullRequestId: $pullRequestId }) {
+              pullRequest { number url isDraft autoMergeRequest { enabledAt } }
+            }
+          }`,
+      variables: { pullRequestId: nodeId },
+    });
+    return githubLifecyclePrFromGraphql(this.name, input.pullRequestNumber, data[mutationName], response.html_url ?? response.url ?? null);
+  }
+
+  setPullRequestAutoMerge(input: SetPullRequestAutoMergeInput): RemotePullRequestAutoMerge {
+    const cfg = requireConfig(this.config);
+    const { nodeId, response } = pullRequestNodeId(cfg, input.pullRequestNumber);
+    const mutationName = input.enabled ? "enablePullRequestAutoMerge" : "disablePullRequestAutoMerge";
+    const data = curlGraphql({
+      url: graphqlUrl(cfg.baseUrl),
+      token: cfg.token,
+      tokenScheme: "Bearer",
+      extraHeaders: GITHUB_HEADERS,
+      query: input.enabled
+        ? `mutation($pullRequestId: ID!) {
+            enablePullRequestAutoMerge(input: { pullRequestId: $pullRequestId }) {
+              pullRequest { number url autoMergeRequest { enabledAt } }
+            }
+          }`
+        : `mutation($pullRequestId: ID!) {
+            disablePullRequestAutoMerge(input: { pullRequestId: $pullRequestId }) {
+              pullRequest { number url autoMergeRequest { enabledAt } }
+            }
+          }`,
+      variables: { pullRequestId: nodeId },
+    });
+    const pullRequest = data[mutationName]?.pullRequest as { number?: number; url?: string; autoMergeRequest?: unknown } | undefined;
+    return {
+      provider: this.name,
+      pullRequestNumber: typeof pullRequest?.number === "number" ? pullRequest.number : input.pullRequestNumber,
+      pullRequestUrl: typeof pullRequest?.url === "string" ? pullRequest.url : response.html_url ?? response.url ?? null,
+      supported: true,
+      enabled: input.enabled ? true : Boolean(pullRequest?.autoMergeRequest),
     };
   }
 

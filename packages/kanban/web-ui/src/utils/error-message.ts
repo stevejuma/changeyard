@@ -8,18 +8,17 @@ function nestedValue(input: unknown, key: "data" | "error"): unknown {
 function directMessage(input: unknown): string | null {
 	if (typeof input === "string") {
 		const normalized = input.trim();
-		return normalized.length > 0 ? normalized : null;
+		return normalized.length > 0 && normalized !== "[object Object]" ? normalized : null;
 	}
 	if (input instanceof Error) {
 		const normalized = input.message.trim();
-		return normalized.length > 0 ? normalized : null;
+		return normalized.length > 0 && normalized !== "[object Object]" ? normalized : null;
 	}
 	if (!input || typeof input !== "object") {
 		return null;
 	}
-	if ("message" in input && typeof input.message === "string") {
-		const normalized = input.message.trim();
-		return normalized.length > 0 ? normalized : null;
+	if ("message" in input) {
+		return directMessage((input as Record<string, unknown>).message);
 	}
 	return null;
 }
@@ -46,5 +45,9 @@ export function getErrorMessage(error: unknown, fallback = "Request failed."): s
 }
 
 export function toError(error: unknown, fallback?: string): Error {
-	return error instanceof Error ? error : new Error(getErrorMessage(error, fallback));
+	if (error instanceof Error) {
+		const message = getErrorMessage(error, fallback);
+		return message === error.message ? error : new Error(message);
+	}
+	return new Error(getErrorMessage(error, fallback));
 }

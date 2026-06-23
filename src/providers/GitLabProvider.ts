@@ -14,10 +14,13 @@ import type {
   RemoteCheckSummary,
   RemoteIssue,
   RemotePullRequest,
+  RemotePullRequestAutoMerge,
   RemotePullRequestCheck,
   RemotePullRequestChecks,
   RemotePullRequestComment,
   RemoteReview,
+  SetPullRequestAutoMergeInput,
+  SetPullRequestDraftStateInput,
   SyncIssueInput,
   UpdatePullRequestBaseInput,
   UpsertPullRequestCommentInput,
@@ -28,6 +31,7 @@ import { validateReviewCommentPath } from "./reviewHelpers.js";
 type MergeRequestResponse = {
   iid?: number;
   id?: number;
+  title?: string;
   web_url?: string;
   source_branch?: string;
   target_branch?: string;
@@ -198,8 +202,14 @@ function remotePullRequestFromMergeRequest(response: MergeRequestResponse, fallb
     pullRequestUrl: response.web_url ?? null,
     baseBranch: response.target_branch ?? fallback?.base ?? null,
     headBranch: response.source_branch ?? fallback?.head ?? null,
+    draft: typeof response.title === "string" ? /^(Draft|WIP):\s*/iu.test(response.title) : null,
     state: response.merged_at ? "merged" : response.state === "closed" ? "closed" : response.state === "opened" || fallback ? "open" : "unknown",
   };
+}
+
+function draftTitle(title: string, draft: boolean): string {
+  const readyTitle = title.replace(/^(Draft|WIP):\s*/iu, "").trim();
+  return draft ? `Draft: ${readyTitle || title}` : readyTitle || title;
 }
 
 function mergeRequestNotes(cfg: { baseUrl: string; owner: string; repo: string; token: string }, mergeRequestNumber: number): MergeRequestNoteResponse[] {
@@ -227,6 +237,9 @@ export class GitLabProvider implements ChangeProvider {
       comments: true,
       pullRequestChecks: true,
       pullRequestCheckLogs: true,
+      pullRequestDraftState: true,
+      pullRequestAutoMerge: true,
+      pullRequestTemplates: true,
     };
   }
 
@@ -365,6 +378,55 @@ export class GitLabProvider implements ChangeProvider {
       pullRequestUrl: null,
       baseBranch: input.base,
       state: "unknown",
+    };
+  }
+
+  setPullRequestDraftState(input: SetPullRequestDraftStateInput): RemotePullRequest {
+    const cfg = requireConfig(this.config);
+    const current = mergeRequest(cfg, input.pullRequestNumber);
+    const currentTitle = typeof current.title === "string" ? current.title : `Merge request ${input.pullRequestNumber}`;
+    const response = curlJson({
+      method: "PUT",
+      url: `${cfg.baseUrl}/api/v4/projects/${encodeProject(cfg.owner, cfg.repo)}/merge_requests/${input.pullRequestNumber}`,
+      token: cfg.token,
+      tokenScheme: "Bearer",
+      payload: { title: draftTitle(currentTitle, input.draft) },
+    });
+    return remotePullRequestFromMergeRequest(response as MergeRequestResponse) ?? {
+      provider: this.name,
+      pullRequestNumber: input.pullRequestNumber,
+      pullRequestUrl: current.web_url ?? null,
+      draft: input.draft,
+      state: "open",
+    };
+  }
+
+  setPullRequestAutoMerge(input: SetPullRequestAutoMergeInput): RemotePullRequestAutoMerge {
+    const cfg = requireConfig(this.config);
+    if (!input.enabled) {
+      const current = mergeRequest(cfg, input.pullRequestNumber);
+      return {
+        provider: this.name,
+        pullRequestNumber: input.pullRequestNumber,
+        pullRequestUrl: current.web_url ?? null,
+        supported: false,
+        enabled: false,
+        message: "GitLab auto-merge disable is not supported by Changeyard v1; disable it in GitLab if needed.",
+      };
+    }
+    const response = curlJson({
+      method: "PUT",
+      url: `${cfg.baseUrl}/api/v4/projects/${encodeProject(cfg.owner, cfg.repo)}/merge_requests/${input.pullRequestNumber}/merge`,
+      token: cfg.token,
+      tokenScheme: "Bearer",
+      payload: { auto_merge: true },
+    }) as MergeRequestResponse;
+    return {
+      provider: this.name,
+      pullRequestNumber: response.iid ?? input.pullRequestNumber,
+      pullRequestUrl: response.web_url ?? null,
+      supported: true,
+      enabled: true,
     };
   }
 

@@ -180,6 +180,7 @@ export const configSchema = {
         allowLocalFolder: { type: "boolean" },
         titlePattern: { type: "string" },
         bodyFromChange: { type: "boolean" },
+        templatePath: { type: "string" },
         labels: { type: "array", items: { type: "string" } },
       },
     },

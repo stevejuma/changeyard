@@ -95,6 +95,9 @@ export class LocalFolderProvider implements ChangeProvider {
       comments: true,
       pullRequestChecks: false,
       pullRequestCheckLogs: false,
+      pullRequestDraftState: false,
+      pullRequestAutoMerge: false,
+      pullRequestTemplates: true,
     };
   }
 
