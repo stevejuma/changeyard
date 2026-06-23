@@ -38,6 +38,8 @@ Changeyard is the markdown-first local change workflow for this repository. Cano
 - Commit often, complete rarely. Slice commits are the normal unit of manual review; `cy complete` is only for explicitly ending the task.
 - Do not run `cy complete <id> --no-pr` for "looks good", "continue", or "next". Only run it on clear wording like "complete the Changeyard change", "mark this ready", "ready for PR", or "complete and land".
 - `cy complete <id> --no-pr` is the explicit stopping point for planned/OpenSpec-lite changes; it writes the final PR-style JJ landing description, then agents report `ready_for_pr` and wait
+- For PR-backed changes, run `cy pr checks <id>` after the PR opens. Supported remote checks must pass before `cy review complete <id> --decision approve` or `cy land <id>`.
+- If supported remote checks fail, run `cy pr fix <id> --failed` to save logs under `.changeyard/workspaces/<id>/logs/remote/`, reopen repair work, and commit the fix as a new slice.
 - Do not run `cy land <id>` for planned/OpenSpec-lite or legacy unplanned changes unless the user explicitly confirms landing in the current conversation, for example "land it", "merge it", or "run cy land"
 - Quick low-risk changes may land after successful checks when the user's task clearly asks for completion and no hold, review, or PR was requested
 - When unsure, run `cy next <id>`, report its landing confirmation guidance, and wait
@@ -52,6 +54,7 @@ Lifecycle commands are **gates**, not suggestions. If any gate fails, **halt all
 | 4 | `cy sync <id>` | Fix sync errors; do not start or edit in a workspace |
 | 5 | `cy start <id>` | Do not enter a workspace; use `cy doctor` |
 | 6 | `cy verify <id>` | **Stop.** Do not edit files until verify passes from the workspace checkout |
+| PR | `cy pr checks <id>` | Use `cy pr fix <id> --failed`; do not approve or land until supported checks pass |
 | 9 | `cy complete <id>` | Fix reported blockers before completing |
 
 When a gate fails:

@@ -119,7 +119,16 @@ export class ForgejoProvider implements ChangeProvider {
   constructor(private config: ChangeyardConfig) {}
 
   capabilities(): ProviderCapabilities {
-    return { issues: true, labels: true, pullRequests: true, draftPullRequests: true, reviews: true, comments: true };
+    return {
+      issues: true,
+      labels: true,
+      pullRequests: true,
+      draftPullRequests: true,
+      reviews: true,
+      comments: true,
+      pullRequestChecks: false,
+      pullRequestCheckLogs: false,
+    };
   }
 
   syncIssue(input: SyncIssueInput): RemoteIssue {

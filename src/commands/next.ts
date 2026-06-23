@@ -3,6 +3,7 @@ import { isQuickChange, planningModel, workflowMode } from "../change/changeMeta
 import { parseSliceRecords } from "../change/slices.js";
 import { readOverlayChangeDocument } from "../state/workspaceOverlay.js";
 import type { Frontmatter } from "../types.js";
+import { remoteCheckGate } from "./pr.js";
 import { getStatus } from "./status.js";
 import { getWorkspaceStatus, readWorkspaceMetadataFromRoot, type WorkspaceStatus } from "./workspace.js";
 
@@ -15,6 +16,8 @@ export type NextCommandKind =
   | "slice"
   | "complete"
   | "land"
+  | "pr-checks"
+  | "pr-fix"
   | "review"
   | "cleanup"
   | "done"
@@ -186,19 +189,43 @@ export function getNextAction(id: string, repoRoot = process.cwd()): NextAction 
       }
       break;
     case "ready_for_pr":
-      nextKind = "land";
-      nextCommand = `cy land ${changeId}`;
-      landingConfirmation = landingConfirmationFor(nextWorkflowMode);
-      ready.land = true;
+      {
+        const gate = remoteCheckGate(changeId, repoRoot, parsed.frontmatter);
+        if (gate.supported && gate.blockers.length > 0) {
+          const failedLoggable = gate.checks?.checks.some((check) => check.state === "failed" && check.logAvailable) ?? false;
+          nextKind = failedLoggable ? "pr-fix" : "pr-checks";
+          nextCommand = failedLoggable ? `cy pr fix ${changeId} --failed` : `cy pr checks ${changeId}`;
+          blockers.push(...gate.blockers);
+        } else {
+          nextKind = "land";
+          nextCommand = `cy land ${changeId}`;
+          landingConfirmation = landingConfirmationFor(nextWorkflowMode);
+          ready.land = true;
+        }
+      }
       if (workspace?.errors.length) blockers.push(...workspace.errors);
       break;
     case "pr_open":
     case "in_review":
     case "changes_requested":
     case "approved":
-      nextKind = "review";
-      nextCommand = `cy review start ${changeId}`;
-      ready.review = true;
+      {
+        const gate = remoteCheckGate(changeId, repoRoot, parsed.frontmatter);
+        if (gate.supported && gate.blockers.length > 0) {
+          const failedLoggable = gate.checks?.checks.some((check) => check.state === "failed" && check.logAvailable) ?? false;
+          nextKind = failedLoggable ? "pr-fix" : "pr-checks";
+          nextCommand = failedLoggable ? `cy pr fix ${changeId} --failed` : `cy pr checks ${changeId}`;
+          blockers.push(...gate.blockers);
+        } else if (effectiveStatus === "approved") {
+          nextKind = "land";
+          nextCommand = `cy land ${changeId}`;
+          ready.land = true;
+        } else {
+          nextKind = "review";
+          nextCommand = `cy review start ${changeId}`;
+          ready.review = true;
+        }
+      }
       break;
     case "merged":
       nextKind = workspace?.exists ? "cleanup" : "done";

@@ -20,6 +20,7 @@ import {
   runPlanStrictDisable,
   runPlanStrictEnable,
 } from "../src/commands/plan.js";
+import { getPrChecks, runPrChecks, runPrFix, runPrLogs } from "../src/commands/pr.js";
 import { runCreate } from "../src/commands/create.js";
 import { getHubInstances, getHubStatus, killHubInstance, runHubList, runHubStatus } from "../src/commands/hub.js";
 import { changeyardAppStatePath } from "../src/app-state.js";
@@ -2772,7 +2773,133 @@ test("github and gitlab providers are registered with PR capabilities", () => {
   };
   assert.equal(createProvider("github", baseConfig).capabilities().pullRequests, true);
   assert.equal(createProvider("github", baseConfig).capabilities().reviews, true);
+  assert.equal(createProvider("github", baseConfig).capabilities().pullRequestChecks, true);
+  assert.equal(createProvider("github", baseConfig).capabilities().pullRequestCheckLogs, true);
   assert.equal(createProvider("gitlab", { ...baseConfig, provider: { type: "gitlab", owner: "example", repo: "repo" } }).capabilities().pullRequests, true);
+  assert.equal(createProvider("gitlab", { ...baseConfig, provider: { type: "gitlab", owner: "example", repo: "repo" } }).capabilities().pullRequestChecks, true);
+  assert.equal(createProvider("local-folder", baseConfig).capabilities().pullRequestChecks, false);
+});
+
+test("github and gitlab providers normalize pull request checks and logs", () => {
+  const previousGitHubToken = process.env.CHANGEYARD_TEST_GITHUB_TOKEN;
+  const previousGitLabToken = process.env.CHANGEYARD_TEST_GITLAB_TOKEN;
+  process.env.CHANGEYARD_TEST_GITHUB_TOKEN = "github-token";
+  process.env.CHANGEYARD_TEST_GITLAB_TOKEN = "gitlab-token";
+  setHttpTransportForTests((request) => {
+    if (request.url.endsWith("/pulls/42")) {
+      return { status: 200, body: JSON.stringify({ number: 42, head: { sha: "abc123" } }) };
+    }
+    if (request.url.includes("/actions/runs?head_sha=abc123")) {
+      return { status: 200, body: JSON.stringify({ workflow_runs: [{ id: 100, name: "CI", status: "completed", conclusion: "failure", html_url: "https://example.test/run/100" }] }) };
+    }
+    if (request.url.endsWith("/actions/runs/100/jobs?per_page=100")) {
+      return { status: 200, body: JSON.stringify({ jobs: [{ id: 200, run_id: 100, name: "test", status: "completed", conclusion: "failure", html_url: "https://example.test/job/200" }] }) };
+    }
+    if (request.url.includes("/commits/abc123/check-runs")) {
+      return { status: 200, body: JSON.stringify({ check_runs: [{ id: 300, name: "external quality", status: "completed", conclusion: "success", html_url: "https://example.test/check/300" }] }) };
+    }
+    if (request.url.endsWith("/actions/jobs/200/logs")) {
+      return { status: 200, body: "github job log" };
+    }
+    if (request.url.endsWith("/merge_requests/43/pipelines?per_page=100")) {
+      return { status: 200, body: JSON.stringify([{ id: 400, status: "failed", web_url: "https://example.test/pipeline/400" }]) };
+    }
+    if (request.url.endsWith("/pipelines/400/jobs?per_page=100")) {
+      return { status: 200, body: JSON.stringify([{ id: 500, name: "rspec", status: "failed", web_url: "https://example.test/job/500", pipeline: { id: 400 } }]) };
+    }
+    if (request.url.endsWith("/jobs/500/trace")) {
+      return { status: 200, body: "gitlab job trace" };
+    }
+    return { status: 404, body: JSON.stringify({ message: `Unhandled ${request.url}` }) };
+  });
+
+  try {
+    const github = new GitHubProvider(providerConfig("github", "CHANGEYARD_TEST_GITHUB_TOKEN"));
+    const gitlab = new GitLabProvider(providerConfig("gitlab", "CHANGEYARD_TEST_GITLAB_TOKEN"));
+    const githubChecks = github.listPullRequestChecks!({ repoRoot: "/repo", storageRoot: "/repo/.changeyard", pullRequestNumber: 42 });
+    assert.equal(githubChecks.overallState, "failed");
+    assert.equal(githubChecks.summary.failed, 1);
+    assert.equal(githubChecks.summary.passed, 1);
+    assert.equal(githubChecks.checks.find((check) => check.name === "test")?.jobId, "200");
+    assert.equal(github.getPullRequestCheckLog!({ repoRoot: "/repo", storageRoot: "/repo/.changeyard", pullRequestNumber: 42, jobId: "200" }).content, "github job log");
+
+    const gitlabChecks = gitlab.listPullRequestChecks!({ repoRoot: "/repo", storageRoot: "/repo/.changeyard", pullRequestNumber: 43 });
+    assert.equal(gitlabChecks.overallState, "failed");
+    assert.equal(gitlabChecks.checks[0]?.jobId, "500");
+    assert.equal(gitlab.getPullRequestCheckLog!({ repoRoot: "/repo", storageRoot: "/repo/.changeyard", pullRequestNumber: 43, jobId: "500" }).content, "gitlab job trace");
+  } finally {
+    setHttpTransportForTests();
+    if (previousGitHubToken === undefined) delete process.env.CHANGEYARD_TEST_GITHUB_TOKEN; else process.env.CHANGEYARD_TEST_GITHUB_TOKEN = previousGitHubToken;
+    if (previousGitLabToken === undefined) delete process.env.CHANGEYARD_TEST_GITLAB_TOKEN; else process.env.CHANGEYARD_TEST_GITLAB_TOKEN = previousGitLabToken;
+  }
+});
+
+test("remote PR checks gate review approval and pr fix records failed logs", () => {
+  const repo = tempRepo();
+  const previousGitHubToken = process.env.CHANGEYARD_TEST_GITHUB_TOKEN;
+  process.env.CHANGEYARD_TEST_GITHUB_TOKEN = "github-token";
+  setHttpTransportForTests((request) => {
+    if (request.url.endsWith("/pulls/42")) {
+      return { status: 200, body: JSON.stringify({ number: 42, head: { sha: "abc123" } }) };
+    }
+    if (request.url.includes("/actions/runs?head_sha=abc123")) {
+      return { status: 200, body: JSON.stringify({ workflow_runs: [{ id: 100, name: "CI", status: "completed", conclusion: "failure" }] }) };
+    }
+    if (request.url.endsWith("/actions/runs/100/jobs?per_page=100")) {
+      return { status: 200, body: JSON.stringify({ jobs: [{ id: 200, run_id: 100, name: "test", status: "completed", conclusion: "failure" }] }) };
+    }
+    if (request.url.includes("/commits/abc123/check-runs")) {
+      return { status: 200, body: JSON.stringify({ check_runs: [] }) };
+    }
+    if (request.url.endsWith("/actions/jobs/200/logs")) {
+      return { status: 200, body: "stack trace\nfailure detail\n" };
+    }
+    if (request.url.includes("/issues/42/comments")) {
+      return { status: 201, body: JSON.stringify({ id: 9, html_url: "https://example.test/review/9" }) };
+    }
+    return { status: 404, body: JSON.stringify({ message: `Unhandled ${request.url}` }) };
+  });
+
+  try {
+    runInit(repo);
+    writeFileSync(path.join(repo, ".changeyard", "config.local.jsonc"), JSON.stringify({
+      provider: { type: "github", baseUrl: "https://github.example.test", owner: "example-org", repo: "example-repo", auth: { tokenEnv: "CHANGEYARD_TEST_GITHUB_TOKEN" } },
+    }, null, 2));
+    runCreate({ template: "agent-task", title: "Remote checks" }, repo);
+    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-remote-checks.md");
+    const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
+    writeFileSync(changePath, writeFrontmatter({
+      ...parsed.frontmatter,
+      status: "ready_for_pr",
+      remote: { provider: "github", pullRequestNumber: 42, pullRequestUrl: "https://example.test/pull/42" },
+    }, parsed.body));
+    assert.throws(() => runLand("CY-0001", {}, repo), /Remote PR checks are not passing/);
+    runReviewStart("CY-0001", repo);
+    const reviewPath = path.join(repo, ".changeyard", "reviews", "CY-0001", "review-001.md");
+    writeFileSync(reviewPath, readFileSync(reviewPath, "utf8").replace("Review the change here.", "Looks good."));
+
+    const checks = getPrChecks("CY-0001", repo);
+    assert.equal(checks.overallState, "failed");
+    assert.match(runPrChecks("CY-0001", repo), /Next: cy pr fix CY-0001 --failed/);
+    assert.equal(getNextAction("CY-0001", repo).nextKind, "pr-fix");
+    assert.equal(getWorkflowAuditReport("CY-0001", repo).checks.some((check) => check.name === "Remote PR Checks" && check.status === "fail"), true);
+    assert.throws(() => runReviewComplete("CY-0001", "approve", repo), /Remote PR checks are not passing/);
+
+    const outputPath = path.join(repo, "failed.log");
+    assert.match(runPrLogs("CY-0001", { failed: true, output: outputPath }, repo), /Wrote remote check log/);
+    assert.match(readFileSync(outputPath, "utf8"), /failure detail/);
+
+    const fix = runPrFix("CY-0001", { failed: true }, repo);
+    assert.match(fix, /status: changes_requested/);
+    const fixed = readFileSync(changePath, "utf8");
+    assert.match(fixed, /# Remote Checks/);
+    assert.match(fixed, /github test failed \(job:200\)/);
+    assert.match(readFileSync(path.join(repo, ".changeyard", "workspaces", "CY-0001", "logs", "remote", "github-job-200.log"), "utf8"), /stack trace/);
+  } finally {
+    setHttpTransportForTests();
+    if (previousGitHubToken === undefined) delete process.env.CHANGEYARD_TEST_GITHUB_TOKEN; else process.env.CHANGEYARD_TEST_GITHUB_TOKEN = previousGitHubToken;
+    cleanup(repo);
+  }
 });
 
 test("shell completions include core commands", () => {

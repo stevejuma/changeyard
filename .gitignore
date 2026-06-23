@@ -14,10 +14,10 @@ packages/desktop/out/
 .changeyard-workspace.json
 
 # Keep markdown specs/reviews trackable when a repo opts in
-!.changeyard/changes/
-!.changeyard/reviews/
-!.changeyard/templates/
-!.changeyard/config.jsonc
+# !.changeyard/changes/
+# !.changeyard/reviews/
+# !.changeyard/templates/
+# !.changeyard/config.jsonc
 
 # Changeyard local guard hooks
 .changeyard/bin/

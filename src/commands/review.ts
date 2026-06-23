@@ -8,6 +8,7 @@ import { renderPlanningContextForReview, renderProviderReviewBody } from "../pro
 import type { Frontmatter, ChangeStatus } from "../types.js";
 import { assertTransition } from "../state/transitions.js";
 import { createProvider } from "../providers/index.js";
+import { assertRemoteChecksPass } from "./pr.js";
 
 export type ReviewDecision = "approve" | "request-changes" | "reject" | "comment";
 
@@ -402,6 +403,9 @@ export function runReviewComplete(id: string, decision: ReviewDecision, repoRoot
     assertReviewBodyCommentable(parsedReview.body, inlineComments);
   } else {
     assertReviewBodyFilled(parsedReview.body);
+  }
+  if (decision === "approve") {
+    assertRemoteChecksPass(changeId, repoRoot, parsedChange.frontmatter);
   }
   if (mutationOptions.dryRun) {
     return `Dry-run: would complete review for ${changeId}: ${status} (${inlineComments.length} inline comments)`;

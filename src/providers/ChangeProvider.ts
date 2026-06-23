@@ -7,6 +7,8 @@ export type ProviderCapabilities = {
   draftPullRequests: boolean;
   reviews: boolean;
   comments: boolean;
+  pullRequestChecks: boolean;
+  pullRequestCheckLogs: boolean;
 };
 
 export type SyncIssueInput = {
@@ -98,6 +100,61 @@ export type RemotePullRequestComment = {
   action: "created" | "updated";
 };
 
+export type RemoteCheckState = "passed" | "failed" | "pending" | "cancelled" | "skipped" | "unknown";
+
+export type RemotePullRequestCheck = {
+  provider: string;
+  id: string;
+  name: string;
+  kind: "run" | "job" | "check";
+  state: RemoteCheckState;
+  runId?: string | null;
+  jobId?: string | null;
+  checkId?: string | null;
+  conclusion?: string | null;
+  url?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  logAvailable: boolean;
+};
+
+export type RemoteCheckSummary = Record<RemoteCheckState, number> & {
+  total: number;
+};
+
+export type RemotePullRequestChecks = {
+  provider: string;
+  pullRequestNumber: number;
+  supported: boolean;
+  overallState: RemoteCheckState;
+  summary: RemoteCheckSummary;
+  checks: RemotePullRequestCheck[];
+  message?: string;
+};
+
+export type PullRequestChecksInput = {
+  repoRoot: string;
+  storageRoot: string;
+  pullRequestNumber: number;
+  frontmatter?: Frontmatter;
+};
+
+export type PullRequestCheckLogInput = PullRequestChecksInput & {
+  runId?: string;
+  jobId?: string;
+  checkId?: string;
+};
+
+export type RemoteCheckLog = {
+  provider: string;
+  supported: boolean;
+  selector: string;
+  fileName: string;
+  content: string;
+  contentType: "text" | "archive";
+  message?: string;
+};
+
 export interface ChangeProvider {
   name: string;
   capabilities(): ProviderCapabilities;
@@ -108,6 +165,8 @@ export interface ChangeProvider {
   updatePullRequestBase?(input: UpdatePullRequestBaseInput): RemotePullRequest;
   upsertPullRequestComment?(input: UpsertPullRequestCommentInput): RemotePullRequestComment;
   publishReview?(input: PublishReviewInput): RemoteReview;
+  listPullRequestChecks?(input: PullRequestChecksInput): RemotePullRequestChecks;
+  getPullRequestCheckLog?(input: PullRequestCheckLogInput): RemoteCheckLog;
 }
 
 export const noProviderCapabilities: ProviderCapabilities = {
@@ -117,4 +176,6 @@ export const noProviderCapabilities: ProviderCapabilities = {
   draftPullRequests: false,
   reviews: false,
   comments: false,
+  pullRequestChecks: false,
+  pullRequestCheckLogs: false,
 };

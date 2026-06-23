@@ -38,6 +38,7 @@ cy <command> [options]
 - `slice`: Commit one reviewable implementation slice from a workspace.
 - `workspace`: Inspect or clean task workspaces.
 - `check`: Record manual validation evidence for a workspace change.
+- `pr`: Inspect remote pull request checks, retrieve logs, and reopen failed work.
 - `review`: Manage review artifacts.
 - `diff`: Show focused Changeyard diffs.
 - `summarize`: Summarize recorded Changeyard artifacts.

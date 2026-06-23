@@ -6,8 +6,10 @@ export type HttpRequest = {
   url: string;
   token: string;
   tokenScheme?: "token" | "Bearer";
-  payload: object;
+  payload?: object;
+  accept?: string;
   extraHeaders?: string[];
+  followRedirects?: boolean;
 };
 
 export type HttpResponse = {
@@ -23,15 +25,15 @@ function curlTransport(request: HttpRequest): HttpResponse {
   const auth = request.tokenScheme === "Bearer" ? `Bearer ${request.token}` : `token ${request.token}`;
   const args = [
     "-sS",
+    ...(request.followRedirects ? ["-L"] : []),
     "-X",
     request.method,
     "-H",
     `Authorization: ${auth}`,
-    "-H",
-    "Content-Type: application/json",
+    ...(request.accept ? ["-H", `Accept: ${request.accept}`] : []),
+    ...(request.payload === undefined ? [] : ["-H", "Content-Type: application/json"]),
     ...(request.extraHeaders ?? []).flatMap((header) => ["-H", header]),
-    "-d",
-    JSON.stringify(request.payload),
+    ...(request.payload === undefined ? [] : ["-d", JSON.stringify(request.payload)]),
     "-w",
     "\n%{http_code}",
     request.url,
@@ -73,4 +75,10 @@ export function curlJson(request: HttpRequest): any {
   } catch {
     throw new ChangeyardError("PROVIDER_REQUEST_FAILED", `Provider returned invalid JSON from ${request.url}`);
   }
+}
+
+export function curlRaw(request: HttpRequest): string {
+  const response = transport(request);
+  if (response.status < 200 || response.status >= 300) throw new ChangeyardError("PROVIDER_REQUEST_FAILED", responseErrorMessage(request, response));
+  return response.body;
 }

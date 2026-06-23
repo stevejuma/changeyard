@@ -201,9 +201,11 @@ export function runComplete(id: string, options: CompleteOptions = {}, cwd = pro
     },
   };
 
+  let remoteChecksSupported = false;
   if (!options.noPr) {
     const provider = createProvider(config.provider.type, config);
     if (!provider.createPullRequest) throw new Error(`Provider ${provider.name} does not support pull requests; use --no-pr`);
+    remoteChecksSupported = provider.capabilities().pullRequestChecks;
     const branch = String(metadata.branch ?? asRecord(parsed.frontmatter.branch).name ?? `cy/${changeId}`);
     createWorkspaceEngine(metadata.engine).publish({ cwd: metadata.path, metadata, branch });
     const base = String(asRecord(parsed.frontmatter.base).revision ?? config.project.defaultBase);
@@ -231,7 +233,11 @@ export function runComplete(id: string, options: CompleteOptions = {}, cwd = pro
     });
     finalDescriptionUpdated = true;
   }
-  const followUp = nextFrontmatter.status === "ready_for_pr" ? `Next: cy land ${changeId}` : `Next: cy review start ${changeId}`;
+  const followUp = nextFrontmatter.status === "ready_for_pr"
+    ? `Next: cy land ${changeId}`
+    : nextFrontmatter.status === "pr_open" && remoteChecksSupported
+      ? `Next: cy pr checks ${changeId}`
+      : `Next: cy review start ${changeId}`;
   const checkSummary = results.length > 0
     ? `${results.length} checks passed`
     : manualPassed > 0

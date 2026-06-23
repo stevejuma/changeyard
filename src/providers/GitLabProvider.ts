@@ -5,17 +5,24 @@ import type {
   ChangeProvider,
   CreatePullRequestInput,
   FindOpenPullRequestByHeadInput,
+  PullRequestCheckLogInput,
+  PullRequestChecksInput,
   ProviderCapabilities,
   PublishReviewInput,
+  RemoteCheckLog,
+  RemoteCheckState,
+  RemoteCheckSummary,
   RemoteIssue,
   RemotePullRequest,
+  RemotePullRequestCheck,
+  RemotePullRequestChecks,
   RemotePullRequestComment,
   RemoteReview,
   SyncIssueInput,
   UpdatePullRequestBaseInput,
   UpsertPullRequestCommentInput,
 } from "./ChangeProvider.js";
-import { curlJson } from "./http.js";
+import { curlJson, curlRaw } from "./http.js";
 import { validateReviewCommentPath } from "./reviewHelpers.js";
 
 type MergeRequestResponse = {
@@ -52,8 +59,61 @@ type MergeRequestNoteResponse = {
   body?: string;
 };
 
+type PipelineResponse = {
+  id?: number;
+  status?: string;
+  web_url?: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
+type PipelineJobResponse = {
+  id?: number;
+  name?: string;
+  status?: string;
+  web_url?: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  pipeline?: {
+    id?: number;
+  };
+};
+
 function encodeProject(owner: string, repo: string): string {
   return encodeURIComponent(`${owner}/${repo}`);
+}
+
+function gitlabCheckState(status: string | undefined): RemoteCheckState {
+  if (status === "success") return "passed";
+  if (status === "failed") return "failed";
+  if (status === "canceled") return "cancelled";
+  if (status === "skipped") return "skipped";
+  if (["created", "waiting_for_resource", "preparing", "pending", "running", "manual", "scheduled"].includes(status ?? "")) return "pending";
+  return "unknown";
+}
+
+function summarizeChecks(checks: RemotePullRequestCheck[]): RemoteCheckSummary {
+  const summary: RemoteCheckSummary = {
+    passed: 0,
+    failed: 0,
+    pending: 0,
+    cancelled: 0,
+    skipped: 0,
+    unknown: 0,
+    total: checks.length,
+  };
+  for (const check of checks) summary[check.state] += 1;
+  return summary;
+}
+
+function overallCheckState(checks: RemotePullRequestCheck[]): RemoteCheckState {
+  if (checks.length === 0) return "unknown";
+  if (checks.some((check) => check.state === "failed")) return "failed";
+  if (checks.some((check) => check.state === "pending")) return "pending";
+  if (checks.some((check) => check.state === "unknown")) return "unknown";
+  if (checks.some((check) => check.state === "cancelled")) return "cancelled";
+  if (checks.every((check) => check.state === "skipped")) return "skipped";
+  return "passed";
 }
 
 function requireConfig(config: ChangeyardConfig): { baseUrl: string; owner: string; repo: string; token: string } {
@@ -88,6 +148,26 @@ function mergeRequest(cfg: { baseUrl: string; owner: string; repo: string; token
     tokenScheme: "Bearer",
     payload: {},
   });
+}
+
+function mergeRequestPipelines(cfg: { baseUrl: string; owner: string; repo: string; token: string }, mergeRequestNumber: number): PipelineResponse[] {
+  const response = curlJson({
+    method: "GET",
+    url: `${cfg.baseUrl}/api/v4/projects/${encodeProject(cfg.owner, cfg.repo)}/merge_requests/${mergeRequestNumber}/pipelines?per_page=100`,
+    token: cfg.token,
+    tokenScheme: "Bearer",
+  });
+  return Array.isArray(response) ? response as PipelineResponse[] : [];
+}
+
+function pipelineJobs(cfg: { baseUrl: string; owner: string; repo: string; token: string }, pipelineId: number): PipelineJobResponse[] {
+  const response = curlJson({
+    method: "GET",
+    url: `${cfg.baseUrl}/api/v4/projects/${encodeProject(cfg.owner, cfg.repo)}/pipelines/${pipelineId}/jobs?per_page=100`,
+    token: cfg.token,
+    tokenScheme: "Bearer",
+  });
+  return Array.isArray(response) ? response as PipelineJobResponse[] : [];
 }
 
 function mergeRequestDiffs(cfg: { baseUrl: string; owner: string; repo: string; token: string }, mergeRequestNumber: number): MergeRequestDiffFile[] {
@@ -138,7 +218,16 @@ export class GitLabProvider implements ChangeProvider {
   constructor(private config: ChangeyardConfig) {}
 
   capabilities(): ProviderCapabilities {
-    return { issues: true, labels: true, pullRequests: true, draftPullRequests: true, reviews: true, comments: true };
+    return {
+      issues: true,
+      labels: true,
+      pullRequests: true,
+      draftPullRequests: true,
+      reviews: true,
+      comments: true,
+      pullRequestChecks: true,
+      pullRequestCheckLogs: true,
+    };
   }
 
   syncIssue(input: SyncIssueInput): RemoteIssue {
@@ -309,6 +398,79 @@ export class GitLabProvider implements ChangeProvider {
       commentNumber: response.id ?? null,
       commentUrl: response.web_url ?? null,
       action: "created",
+    };
+  }
+
+  listPullRequestChecks(input: PullRequestChecksInput): RemotePullRequestChecks {
+    const cfg = requireConfig(this.config);
+    const checks: RemotePullRequestCheck[] = [];
+    for (const pipeline of mergeRequestPipelines(cfg, input.pullRequestNumber)) {
+      if (typeof pipeline.id !== "number") continue;
+      const jobs = pipelineJobs(cfg, pipeline.id);
+      if (jobs.length === 0) {
+        checks.push({
+          provider: this.name,
+          id: `run:${pipeline.id}`,
+          name: `GitLab pipeline ${pipeline.id}`,
+          kind: "run",
+          state: gitlabCheckState(pipeline.status),
+          runId: String(pipeline.id),
+          conclusion: pipeline.status ?? null,
+          url: pipeline.web_url ?? null,
+          startedAt: pipeline.created_at ?? null,
+          completedAt: pipeline.updated_at ?? null,
+          logAvailable: false,
+        });
+        continue;
+      }
+      for (const job of jobs) {
+        if (typeof job.id !== "number") continue;
+        checks.push({
+          provider: this.name,
+          id: `job:${job.id}`,
+          name: job.name ?? `GitLab job ${job.id}`,
+          kind: "job",
+          state: gitlabCheckState(job.status),
+          runId: String(job.pipeline?.id ?? pipeline.id),
+          jobId: String(job.id),
+          conclusion: job.status ?? null,
+          url: job.web_url ?? null,
+          startedAt: job.started_at ?? null,
+          completedAt: job.finished_at ?? null,
+          logAvailable: true,
+        });
+      }
+    }
+    return {
+      provider: this.name,
+      pullRequestNumber: input.pullRequestNumber,
+      supported: true,
+      overallState: overallCheckState(checks),
+      summary: summarizeChecks(checks),
+      checks,
+      message: checks.length === 0 ? `GitLab merge request ${input.pullRequestNumber} has no pipelines yet.` : undefined,
+    };
+  }
+
+  getPullRequestCheckLog(input: PullRequestCheckLogInput): RemoteCheckLog {
+    const cfg = requireConfig(this.config);
+    if (!input.jobId) {
+      throw new ChangeyardError("PROVIDER_CONFIG_INVALID", "GitLab check log retrieval requires --job <job-id>.");
+    }
+    const content = curlRaw({
+      method: "GET",
+      url: `${cfg.baseUrl}/api/v4/projects/${encodeProject(cfg.owner, cfg.repo)}/jobs/${encodeURIComponent(input.jobId)}/trace`,
+      token: cfg.token,
+      tokenScheme: "Bearer",
+      accept: "text/plain",
+    });
+    return {
+      provider: this.name,
+      supported: true,
+      selector: `job:${input.jobId}`,
+      fileName: `gitlab-job-${input.jobId}.log`,
+      content,
+      contentType: "text",
     };
   }
 }

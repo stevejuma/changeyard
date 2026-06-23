@@ -17,6 +17,7 @@ import {
   runPlanStrictDisable,
   runPlanStrictEnable,
 } from "./commands/plan.js";
+import { getPrChecks, runPrChecks, runPrFix, runPrLogs } from "./commands/pr.js";
 import { createChange, runCreate } from "./commands/create.js";
 import { runHooks } from "./commands/hooks.js";
 import { runHydrate } from "./commands/hydrate.js";
@@ -66,7 +67,7 @@ import { AGENT_TOOL_IDS } from "./scaffold/agent-tools.js";
 import { readWorkspaceMetadata } from "./workspace/marker.js";
 import { storageRoot } from "./paths.js";
 
-type CommandName = "init" | "update" | "create" | "quick" | "validate" | "sync" | "start" | "verify" | "hydrate" | "complete" | "next" | "audit" | "land" | "refresh" | "describe" | "slice" | "workspace" | "check" | "review" | "diff" | "summarize" | "doctor" | "completions" | "recover" | "repair" | "note" | "mark-in-progress" | "list" | "status" | "plan" | "ui" | "server" | "dashboard" | "hub" | "tui" | "config" | "hooks" | "session" | "install" | "uninstall" | "version" | "help";
+type CommandName = "init" | "update" | "create" | "quick" | "validate" | "sync" | "start" | "verify" | "hydrate" | "complete" | "next" | "audit" | "land" | "refresh" | "describe" | "slice" | "workspace" | "check" | "pr" | "review" | "diff" | "summarize" | "doctor" | "completions" | "recover" | "repair" | "note" | "mark-in-progress" | "list" | "status" | "plan" | "ui" | "server" | "dashboard" | "hub" | "tui" | "config" | "hooks" | "session" | "install" | "uninstall" | "version" | "help";
 
 type ParsedArgs = {
   command: string;
@@ -93,6 +94,7 @@ const BOOLEAN_FLAGS = new Set([
   "delete-stale-completed-workspaces",
   "dry-run",
   "fix",
+  "failed",
   "force",
   "h",
   "help",
@@ -773,6 +775,37 @@ async function main(): Promise<void> {
           logFile: stringFlag(args.flags, "log-file"),
           dryRun,
         }, rootForChange(id), process.cwd());
+        break;
+      }
+      case "pr": {
+        const subcommand = validateSubcommand({
+          commandPath: "cy pr",
+          value: args.positional[0] ?? "",
+          subcommands: [
+            { value: "checks", description: "Show remote pull request check status." },
+            { value: "logs", description: "Retrieve a remote pull request check log." },
+            { value: "fix", description: "Save failed check logs and reopen work for repair." },
+          ],
+          colors: guidanceColors,
+          helpCommand: "cy pr --help",
+        });
+        const id = requireTaskId(`cy pr ${subcommand} <id>`, args.positional[1], guidanceColors);
+        if (subcommand === "checks") output = json || colors.enabled ? getPrChecks(id, rootForChange(id)) : runPrChecks(id, rootForChange(id));
+        else if (subcommand === "logs") {
+          output = runPrLogs(id, {
+            jobId: stringFlag(args.flags, "job"),
+            runId: stringFlag(args.flags, "run"),
+            failed: asBooleanFlag(args.flags, "failed"),
+            output: stringFlag(args.flags, "output"),
+          }, rootForChange(id), process.cwd());
+        } else if (subcommand === "fix") {
+          output = runPrFix(id, {
+            jobId: stringFlag(args.flags, "job"),
+            runId: stringFlag(args.flags, "run"),
+            failed: asBooleanFlag(args.flags, "failed"),
+            dryRun,
+          }, rootForChange(id));
+        }
         break;
       }
       case "doctor": {

@@ -4,18 +4,25 @@ import type {
   BranchPullRequestInput,
   ChangeProvider,
   CreatePullRequestInput,
+  FindOpenPullRequestByHeadInput,
+  PullRequestCheckLogInput,
+  PullRequestChecksInput,
   ProviderCapabilities,
+  RemoteCheckLog,
+  RemoteCheckState,
+  RemoteCheckSummary,
   RemoteIssue,
   RemotePullRequest,
+  RemotePullRequestCheck,
+  RemotePullRequestChecks,
   RemotePullRequestComment,
   RemoteReview,
   SyncIssueInput,
   PublishReviewInput,
   UpdatePullRequestBaseInput,
   UpsertPullRequestCommentInput,
-  FindOpenPullRequestByHeadInput,
 } from "./ChangeProvider.js";
-import { curlJson } from "./http.js";
+import { curlJson, curlRaw } from "./http.js";
 import { validateReviewCommentPath } from "./reviewHelpers.js";
 
 const GITHUB_HEADERS = ["Accept: application/vnd.github+json", "X-GitHub-Api-Version: 2022-11-28"];
@@ -45,6 +52,73 @@ type IssueCommentResponse = {
   url?: string;
   body?: string;
 };
+
+type WorkflowRun = {
+  id?: number;
+  name?: string;
+  status?: string;
+  conclusion?: string | null;
+  html_url?: string;
+  created_at?: string;
+  updated_at?: string;
+  run_started_at?: string;
+};
+
+type WorkflowJob = {
+  id?: number;
+  run_id?: number;
+  name?: string;
+  status?: string;
+  conclusion?: string | null;
+  html_url?: string;
+  started_at?: string;
+  completed_at?: string | null;
+};
+
+type CheckRun = {
+  id?: number;
+  name?: string;
+  status?: string;
+  conclusion?: string | null;
+  html_url?: string;
+  started_at?: string;
+  completed_at?: string | null;
+};
+
+function githubCheckState(status: string | undefined, conclusion: string | null | undefined): RemoteCheckState {
+  if (status !== "completed") {
+    return ["queued", "in_progress", "requested", "waiting", "pending"].includes(status ?? "") ? "pending" : "unknown";
+  }
+  if (conclusion === "success" || conclusion === "neutral") return "passed";
+  if (conclusion === "skipped") return "skipped";
+  if (conclusion === "cancelled" || conclusion === "timed_out") return "cancelled";
+  if (conclusion === "failure" || conclusion === "startup_failure" || conclusion === "action_required") return "failed";
+  return "unknown";
+}
+
+function summarizeChecks(checks: RemotePullRequestCheck[]): RemoteCheckSummary {
+  const summary: RemoteCheckSummary = {
+    passed: 0,
+    failed: 0,
+    pending: 0,
+    cancelled: 0,
+    skipped: 0,
+    unknown: 0,
+    total: checks.length,
+  };
+  for (const check of checks) summary[check.state] += 1;
+  return summary;
+}
+
+function overallCheckState(checks: RemotePullRequestCheck[]): RemoteCheckState {
+  if (checks.length === 0) return "unknown";
+  if (checks.some((check) => check.state === "failed")) return "failed";
+  if (checks.some((check) => check.state === "pending")) return "pending";
+  if (checks.some((check) => check.state === "unknown")) return "unknown";
+  if (checks.some((check) => check.state === "cancelled")) return "cancelled";
+  if (checks.every((check) => check.state === "skipped")) return "skipped";
+  return "passed";
+}
 
 function requireConfig(config: ChangeyardConfig): { baseUrl: string; owner: string; repo: string; token: string } {
   const tokenEnv = config.provider.auth?.tokenEnv ?? "GITHUB_TOKEN";
@@ -77,6 +151,42 @@ function pullRequest(cfg: { baseUrl: string; owner: string; repo: string; token:
     payload: {},
     extraHeaders: GITHUB_HEADERS,
   });
+}
+
+function workflowRuns(cfg: { baseUrl: string; owner: string; repo: string; token: string }, headSha: string): WorkflowRun[] {
+  const response = curlJson({
+    method: "GET",
+    url: `${cfg.baseUrl}/repos/${cfg.owner}/${cfg.repo}/actions/runs?head_sha=${encodeURIComponent(headSha)}&per_page=100`,
+    token: cfg.token,
+    tokenScheme: "Bearer",
+    extraHeaders: GITHUB_HEADERS,
+  });
+  const runs = (response as { workflow_runs?: unknown }).workflow_runs;
+  return Array.isArray(runs) ? runs as WorkflowRun[] : [];
+}
+
+function workflowJobs(cfg: { baseUrl: string; owner: string; repo: string; token: string }, runId: number): WorkflowJob[] {
+  const response = curlJson({
+    method: "GET",
+    url: `${cfg.baseUrl}/repos/${cfg.owner}/${cfg.repo}/actions/runs/${runId}/jobs?per_page=100`,
+    token: cfg.token,
+    tokenScheme: "Bearer",
+    extraHeaders: GITHUB_HEADERS,
+  });
+  const jobs = (response as { jobs?: unknown }).jobs;
+  return Array.isArray(jobs) ? jobs as WorkflowJob[] : [];
+}
+
+function commitCheckRuns(cfg: { baseUrl: string; owner: string; repo: string; token: string }, headSha: string): CheckRun[] {
+  const response = curlJson({
+    method: "GET",
+    url: `${cfg.baseUrl}/repos/${cfg.owner}/${cfg.repo}/commits/${headSha}/check-runs?per_page=100`,
+    token: cfg.token,
+    tokenScheme: "Bearer",
+    extraHeaders: GITHUB_HEADERS,
+  });
+  const checkRuns = (response as { check_runs?: unknown }).check_runs;
+  return Array.isArray(checkRuns) ? checkRuns as CheckRun[] : [];
 }
 
 function pullRequestFiles(cfg: { baseUrl: string; owner: string; repo: string; token: string }, pullNumber: number): PullRequestListFile[] {
@@ -120,7 +230,16 @@ export class GitHubProvider implements ChangeProvider {
   constructor(private config: ChangeyardConfig) {}
 
   capabilities(): ProviderCapabilities {
-    return { issues: true, labels: true, pullRequests: true, draftPullRequests: true, reviews: true, comments: true };
+    return {
+      issues: true,
+      labels: true,
+      pullRequests: true,
+      draftPullRequests: true,
+      reviews: true,
+      comments: true,
+      pullRequestChecks: true,
+      pullRequestCheckLogs: true,
+    };
   }
 
   syncIssue(input: SyncIssueInput): RemoteIssue {
@@ -286,5 +405,137 @@ export class GitHubProvider implements ChangeProvider {
       commentUrl: response.html_url ?? response.url ?? null,
       action: "created",
     };
+  }
+
+  listPullRequestChecks(input: PullRequestChecksInput): RemotePullRequestChecks {
+    const cfg = requireConfig(this.config);
+    const pull = pullRequest(cfg, input.pullRequestNumber);
+    const headSha = pull.head?.sha;
+    if (!headSha) {
+      const checks: RemotePullRequestCheck[] = [];
+      return {
+        provider: this.name,
+        pullRequestNumber: input.pullRequestNumber,
+        supported: true,
+        overallState: "unknown",
+        summary: summarizeChecks(checks),
+        checks,
+        message: `GitHub pull request ${input.pullRequestNumber} did not include a head SHA.`,
+      };
+    }
+
+    const checks: RemotePullRequestCheck[] = [];
+    const actionsJobNames = new Set<string>();
+    for (const run of workflowRuns(cfg, headSha)) {
+      if (typeof run.id !== "number") continue;
+      const jobs = workflowJobs(cfg, run.id);
+      if (jobs.length === 0) {
+        const state = githubCheckState(run.status, run.conclusion);
+        checks.push({
+          provider: this.name,
+          id: `run:${run.id}`,
+          name: run.name ?? `GitHub Actions run ${run.id}`,
+          kind: "run",
+          state,
+          runId: String(run.id),
+          conclusion: run.conclusion ?? run.status ?? null,
+          url: run.html_url ?? null,
+          startedAt: run.run_started_at ?? run.created_at ?? null,
+          completedAt: run.status === "completed" ? run.updated_at ?? null : null,
+          logAvailable: true,
+        });
+        continue;
+      }
+      for (const job of jobs) {
+        if (typeof job.id !== "number") continue;
+        const name = job.name ?? `GitHub Actions job ${job.id}`;
+        actionsJobNames.add(name);
+        checks.push({
+          provider: this.name,
+          id: `job:${job.id}`,
+          name,
+          kind: "job",
+          state: githubCheckState(job.status, job.conclusion),
+          runId: String(job.run_id ?? run.id),
+          jobId: String(job.id),
+          conclusion: job.conclusion ?? job.status ?? null,
+          url: job.html_url ?? null,
+          startedAt: job.started_at ?? null,
+          completedAt: job.completed_at ?? null,
+          logAvailable: true,
+        });
+      }
+    }
+
+    for (const checkRun of commitCheckRuns(cfg, headSha)) {
+      if (typeof checkRun.id !== "number") continue;
+      const name = checkRun.name ?? `GitHub check ${checkRun.id}`;
+      if (actionsJobNames.has(name)) continue;
+      checks.push({
+        provider: this.name,
+        id: `check:${checkRun.id}`,
+        name,
+        kind: "check",
+        state: githubCheckState(checkRun.status, checkRun.conclusion),
+        checkId: String(checkRun.id),
+        conclusion: checkRun.conclusion ?? checkRun.status ?? null,
+        url: checkRun.html_url ?? null,
+        startedAt: checkRun.started_at ?? null,
+        completedAt: checkRun.completed_at ?? null,
+        logAvailable: false,
+      });
+    }
+
+    return {
+      provider: this.name,
+      pullRequestNumber: input.pullRequestNumber,
+      supported: true,
+      overallState: overallCheckState(checks),
+      summary: summarizeChecks(checks),
+      checks,
+    };
+  }
+
+  getPullRequestCheckLog(input: PullRequestCheckLogInput): RemoteCheckLog {
+    const cfg = requireConfig(this.config);
+    if (input.jobId) {
+      const content = curlRaw({
+        method: "GET",
+        url: `${cfg.baseUrl}/repos/${cfg.owner}/${cfg.repo}/actions/jobs/${encodeURIComponent(input.jobId)}/logs`,
+        token: cfg.token,
+        tokenScheme: "Bearer",
+        accept: "text/plain",
+        followRedirects: true,
+        extraHeaders: GITHUB_HEADERS,
+      });
+      return {
+        provider: this.name,
+        supported: true,
+        selector: `job:${input.jobId}`,
+        fileName: `github-job-${input.jobId}.log`,
+        content,
+        contentType: "text",
+      };
+    }
+    if (input.runId) {
+      const content = curlRaw({
+        method: "GET",
+        url: `${cfg.baseUrl}/repos/${cfg.owner}/${cfg.repo}/actions/runs/${encodeURIComponent(input.runId)}/logs`,
+        token: cfg.token,
+        tokenScheme: "Bearer",
+        accept: "application/zip",
+        followRedirects: true,
+        extraHeaders: GITHUB_HEADERS,
+      });
+      return {
+        provider: this.name,
+        supported: true,
+        selector: `run:${input.runId}`,
+        fileName: `github-run-${input.runId}-logs.zip`,
+        content,
+        contentType: "archive",
+      };
+    }
+    throw new ChangeyardError("PROVIDER_CONFIG_INVALID", "GitHub check log retrieval requires --job <job-id> or --run <run-id>.");
   }
 }

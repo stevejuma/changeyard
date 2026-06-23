@@ -12,6 +12,7 @@ import { getJjLandingContext } from "../workspace/jjLandingContext.js";
 import { resolveWorkspaceChangePath } from "../workspace/marker.js";
 import { deleteTaskWorkspace, verifyTaskWorkspace, type WorkspaceRepositoryKind } from "../workspace/runtimeBridge.js";
 import { isDenied } from "../workspace/patterns.js";
+import { remoteCheckGate } from "./pr.js";
 
 export type WorkspaceStatus = {
   id: string;
@@ -43,6 +44,9 @@ export type WorkspaceStatus = {
   finalDescriptionValid: boolean;
   finalDescriptionSummary: string | null;
   finalDescriptionErrors: string[];
+  remoteChecksSupported: boolean;
+  remoteChecksState: string | null;
+  remoteCheckBlockers: string[];
   landable: boolean;
   landBlockers: string[];
   cleanupNeeded: boolean;
@@ -250,6 +254,9 @@ export function getWorkspaceStatus(id: string, repoRoot = process.cwd()): Worksp
       finalDescriptionValid: false,
       finalDescriptionSummary: null,
       finalDescriptionErrors: [],
+      remoteChecksSupported: false,
+      remoteChecksState: null,
+      remoteCheckBlockers: [],
       landable: false,
       landBlockers: status === "merged" ? [] : [`Workspace metadata not found for ${changeId}`],
       cleanupNeeded: false,
@@ -306,6 +313,16 @@ export function getWorkspaceStatus(id: string, repoRoot = process.cwd()): Worksp
     : null;
   const currentTargetCommitId = metadata.engine === "jj" ? jjCurrentTargetCommit(repoRoot, metadata.targetRef) : null;
   const targetMoved = Boolean(metadata.baseCommitId && currentTargetCommitId && metadata.baseCommitId !== currentTargetCommitId);
+  let remoteChecksSupported = false;
+  let remoteChecksState: string | null = null;
+  let remoteCheckBlockers: string[] = [];
+  if (rootChangePath && ["ready_for_pr", "pr_open", "in_review", "changes_requested", "approved"].includes(status)) {
+    const rootParsed = parseFrontmatter(readFileSync(rootChangePath, "utf8"));
+    const gate = remoteCheckGate(changeId, repoRoot, rootParsed.frontmatter);
+    remoteChecksSupported = gate.supported;
+    remoteChecksState = gate.overallState;
+    remoteCheckBlockers = gate.blockers;
+  }
   const activeLandBlockers = [
     ...errors,
     ...(dirtyState.conflicts ? [`Workspace ${changeId} has conflicts`] : []),
@@ -313,6 +330,7 @@ export function getWorkspaceStatus(id: string, repoRoot = process.cwd()): Worksp
     ...(metadata.engine === "jj" && workspaceChangeId && currentWorkspaceChangeId && currentWorkspaceChangeId !== workspaceChangeId ? [`Workspace ${changeId} is editing ${currentWorkspaceChangeId}, expected ${workspaceChangeId}`] : []),
     ...landingDescriptionErrors,
     ...(status === "ready_for_pr" ? finalDescriptionErrors : []),
+    ...(["ready_for_pr", "approved"].includes(status) ? remoteCheckBlockers : []),
   ];
   const cleanupNeeded = status === "merged" && Boolean(metadata);
   const cleanupErrors = cleanupNeeded ? errors : [];
@@ -348,6 +366,9 @@ export function getWorkspaceStatus(id: string, repoRoot = process.cwd()): Worksp
     finalDescriptionValid,
     finalDescriptionSummary,
     finalDescriptionErrors,
+    remoteChecksSupported,
+    remoteChecksState,
+    remoteCheckBlockers,
     landable: status === "ready_for_pr" && landBlockers.length === 0,
     landBlockers,
     cleanupNeeded,
@@ -385,10 +406,13 @@ function formatWorkspaceStatus(status: WorkspaceStatus): string {
     `landingDescription: ${status.landingDescriptionValid ? "ok" : status.landingDescriptionError ?? "unknown"}`,
     `finalDescriptionValid: ${String(status.finalDescriptionValid)}`,
     ...(status.finalDescriptionSummary ? [`finalDescriptionSummary: ${status.finalDescriptionSummary}`] : []),
+    `remoteChecksSupported: ${String(status.remoteChecksSupported)}`,
+    `remoteChecksState: ${status.remoteChecksState ?? "unknown"}`,
     `landable: ${String(status.landable)}`,
     `cleanupNeeded: ${String(status.cleanupNeeded)}`,
   ];
   if (status.landBlockers.length > 0) lines.push(`landBlockers: ${status.landBlockers.join("; ")}`);
+  if (status.remoteCheckBlockers.length > 0) lines.push(`remoteCheckBlockers: ${status.remoteCheckBlockers.join("; ")}`);
   if (status.finalDescriptionErrors.length > 0) lines.push(`finalDescriptionErrors: ${status.finalDescriptionErrors.join("; ")}`);
   if (status.cleanupErrors.length > 0) lines.push(`cleanupErrors: ${status.cleanupErrors.join("; ")}`);
   if (status.errors.length > 0) lines.push(`errors: ${status.errors.join("; ")}`);

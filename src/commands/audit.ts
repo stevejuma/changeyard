@@ -10,6 +10,7 @@ import { findChangeFile } from "../state/id.js";
 import type { Frontmatter } from "../types.js";
 import type { ValidationGate } from "../planning/validation.js";
 import { getNextAction } from "./next.js";
+import { remoteCheckGate } from "./pr.js";
 import { getStatus } from "./status.js";
 import { getWorkspaceStatus, type WorkspaceStatus } from "./workspace.js";
 
@@ -232,6 +233,30 @@ function workspaceRecovery(id: string, repoRoot: string, workspace: WorkspaceSta
   return uniq(recovery);
 }
 
+function remotePrCheckAudit(id: string, repoRoot: string, frontmatter: Frontmatter, status: string): WorkflowAuditCheck | null {
+  if (!["ready_for_pr", "pr_open", "in_review", "changes_requested", "approved"].includes(status)) return null;
+  const gate = remoteCheckGate(id, repoRoot, frontmatter);
+  if (gate.pullRequestNumber === null) return null;
+  if (!gate.supported) {
+    return {
+      name: "Remote PR Checks",
+      status: "warning",
+      command: `cy pr checks ${id}`,
+      errors: [],
+      warnings: gate.recovery,
+      recovery: [],
+    };
+  }
+  return {
+    name: "Remote PR Checks",
+    status: gate.blockers.length > 0 ? "fail" : "pass",
+    command: `cy pr checks ${id}`,
+    errors: gate.blockers,
+    warnings: [],
+    recovery: gate.recovery,
+  };
+}
+
 export function getWorkflowAuditReport(id: string, repoRoot = process.cwd()): WorkflowAuditReport {
   if (!id) throw new Error("change id is required");
   const config = loadConfig(repoRoot);
@@ -253,6 +278,8 @@ export function getWorkflowAuditReport(id: string, repoRoot = process.cwd()): Wo
     repoRoot,
     gates: selectedGates(status.status),
   });
+  const remoteCheck = remotePrCheckAudit(changeId, repoRoot, parsed.frontmatter, status.status);
+  if (remoteCheck) checks.push(remoteCheck);
   const blockers = [
     ...checks.filter((check) => check.status === "fail").flatMap((check) => check.errors),
     ...(workspace?.errors ?? []),

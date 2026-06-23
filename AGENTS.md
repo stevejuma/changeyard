@@ -8,6 +8,8 @@ Commit often, complete rarely.
 - Do not accumulate multiple user-requested iterations in one mutable JJ `@` or Git worktree unless the user explicitly asks for an uncommitted working diff.
 - After each slice commit, report what changed and stop unless the user already provided the next requested change.
 - Do not run `cy complete` for "looks good", "continue", or "next". Only run it on clear wording like "complete the Changeyard change", "mark this ready", "ready for PR", or "complete and land".
+- For PR-backed changes, run `cy pr checks <id>` after the PR opens. Do not approve, close, or land while supported remote checks are pending, failed, cancelled, or unknown.
+- When supported remote checks fail, run `cy pr fix <id> --failed` to save logs and reopen repair work, then commit the fix as a new slice.
 - The final completion commit must summarize all completed slices, validation evidence, files, and follow-up context. If landing reports missing final context, run `cy describe final <id>` before `cy land`.
 - Slice commits are the normal unit of manual review; `cy complete` is only for explicitly ending the task.
 - Failure example: accumulating UI iterations, date picker work, drag preview work, and final cleanup into one landed commit is not acceptable for iterative review-heavy work.

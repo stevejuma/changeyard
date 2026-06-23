@@ -11,6 +11,7 @@ import { shellCommandRunner, shellInspectionCommandRunner } from "../workspace/c
 import { validateJjLandingDescriptions } from "../workspace/jjLandingDescriptions.js";
 import { assertWorkspaceAtRecordedChange, getJjLandingContext } from "../workspace/jjLandingContext.js";
 import { resolveWorkspaceChangePath } from "../workspace/marker.js";
+import { assertRemoteChecksPass, remoteCheckGate } from "./pr.js";
 import { deleteWorkspace, getWorkspaceStatus, readWorkspaceMetadataFromRoot, workspaceMetadataPath } from "./workspace.js";
 
 export type LandOptions = {
@@ -93,10 +94,12 @@ export function runLand(id: string, options: LandOptions = {}, repoRoot = proces
   if (currentStatus === "merged") {
     return `Already landed ${changeId}; Next: cy workspace delete ${changeId}`;
   }
-  if (currentStatus !== "ready_for_pr") {
-    throw new Error(withLandRecovery(`Change ${changeId} must be ready_for_pr before landing; current status is ${currentStatus}`, changeId, repoRoot));
+  if (currentStatus !== "ready_for_pr" && currentStatus !== "approved") {
+    throw new Error(withLandRecovery(`Change ${changeId} must be ready_for_pr or approved before landing; current status is ${currentStatus}`, changeId, repoRoot));
   }
   assertTransition(currentStatus, "merged", `Land ${changeId}`);
+  const remoteGate = remoteCheckGate(changeId, repoRoot, parsed.frontmatter);
+  if (!options.dryRun) assertRemoteChecksPass(changeId, repoRoot, parsed.frontmatter);
 
   if (!metadata) throw new Error(withLandRecovery(`Workspace metadata not found for ${changeId}; run cy workspace status ${changeId}`, changeId, repoRoot));
   if (metadata.engine !== "jj") {
@@ -140,11 +143,14 @@ export function runLand(id: string, options: LandOptions = {}, repoRoot = proces
       `finalDescriptionSummary: ${finalDescription.summary || "unknown"}`,
       `metadataSource: ${metadata.engine === "jj" ? "workspace" : "root"}`,
       `landingFiles: ${landing.landingFiles.length === 0 ? "none" : landing.landingFiles.join(", ")}`,
+      `remoteChecksSupported: ${String(remoteGate.supported)}`,
+      `remoteChecksState: ${remoteGate.overallState}`,
       `description: ${description.split("\n")[0] ?? description}`,
     ];
     if (targetMoved) lines.push(`blocker: target ${target} moved; run cy refresh ${changeId} --target ${target}`);
     for (const error of descriptionErrors) lines.push(`blocker: ${error}`);
     for (const error of finalDescription.errors) lines.push(`blocker: ${error}`);
+    for (const blocker of remoteGate.blockers) lines.push(`blocker: ${blocker}`);
     if (!options.keepWorkspace) lines.push(`cleanup: would delete workspace ${changeId}`);
     return lines.join("\n");
   }

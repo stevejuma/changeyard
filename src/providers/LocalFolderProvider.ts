@@ -93,6 +93,8 @@ export class LocalFolderProvider implements ChangeProvider {
       draftPullRequests: true,
       reviews: true,
       comments: true,
+      pullRequestChecks: false,
+      pullRequestCheckLogs: false,
     };
   }
 
