@@ -17,8 +17,10 @@ export { runVerify } from "./commands/verify.js";
 export { getVersion, runVersion } from "./commands/version.js";
 export { runHydrate } from "./commands/hydrate.js";
 export { runComplete } from "./commands/complete.js";
+export { runCheckRecord } from "./commands/check.js";
 export { getNextAction, runNext } from "./commands/next.js";
 export { runLand } from "./commands/land.js";
+export { runRefresh } from "./commands/refresh.js";
 export {
   deleteWorkspace,
   getWorkspaceStatus,
@@ -62,6 +64,7 @@ export type {
   ChangeSummary,
   ChangeyardConfig,
   Frontmatter,
+  ManualCheckRecord,
   WorkspaceMetadata,
 } from "./types.js";
 export type {

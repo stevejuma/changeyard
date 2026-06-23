@@ -9,6 +9,7 @@ import { createProvider } from "../providers/index.js";
 import { readProviderState, writeProviderState } from "../providers/providerState.js";
 import { createWorkspaceEngine } from "../workspace/index.js";
 import { shellCommandRunner, shellInspectionCommandRunner } from "../workspace/commandRunner.js";
+import { workspaceSetupWarnings } from "../workspace/setupGuidance.js";
 import { parseInlineComments } from "./review.js";
 import { deleteWorkspace, getWorkspaceStatus } from "./workspace.js";
 import type { Frontmatter, WorkspaceMetadata } from "../types.js";
@@ -50,6 +51,7 @@ const completedLifecycleStatuses = new Set(["ready_for_pr", "pr_open", "in_revie
 const missingBookmarkWaiverStatuses = new Set(["ready_for_pr", "approved", "merged", "abandoned"]);
 const branchAwareStatuses = new Set(["ready_for_pr", "pr_open", "in_review", "changes_requested", "approved", "merged", "abandoned"]);
 const checksLogStatuses = new Set(["ready_for_pr", "pr_open", "in_review", "changes_requested", "approved", "merged", "abandoned"]);
+const localMarkerNames = new Set([".changeyard-workspace.json", ".changeyard-hydrate.json"]);
 const defaultWrapWidth = 88;
 const minimumWrapWidth = 48;
 const millisecondsPerDay = 24 * 60 * 60 * 1000;
@@ -117,6 +119,58 @@ function reviewWaived(frontmatter: Frontmatter): boolean {
 
 function branchWaived(frontmatter: Frontmatter): boolean {
   return asRecord(frontmatter.branch).required === false;
+}
+
+function commandResult(command: string, args: string[], cwd: string): { ok: true; output: string } | { ok: false; error: string } {
+  try {
+    return { ok: true, output: shellInspectionCommandRunner(command, args, cwd).trim() };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+function mutationCommandResult(command: string, args: string[], cwd: string): { ok: true; output: string } | { ok: false; error: string } {
+  try {
+    return { ok: true, output: shellCommandRunner(command, args, cwd).trim() };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+function trackedMarkerFiles(repoRoot: string): string[] {
+  const paths = new Set<string>();
+  const git = commandResult("git", ["ls-files", "--", "*changeyard-workspace.json", "*changeyard-hydrate.json"], repoRoot);
+  if (git.ok) {
+    for (const line of git.output.split("\n").map((entry) => entry.trim()).filter(Boolean)) {
+      if (localMarkerNames.has(path.basename(line))) paths.add(line);
+    }
+  }
+  const jj = commandResult("jj", ["file", "list"], repoRoot);
+  if (jj.ok) {
+    for (const line of jj.output.split("\n").map((entry) => entry.trim()).filter(Boolean)) {
+      if (localMarkerNames.has(path.basename(line))) paths.add(line);
+    }
+  }
+  return [...paths].sort();
+}
+
+function untrackMarkerFiles(repoRoot: string, tracked: string[], options: MutationOptions, warnings: string[], notes: string[], fixes: string[]): void {
+  if (tracked.length === 0) return;
+  warnings.push(`workspace marker files are tracked but must be local-only: ${tracked.join(", ")}`);
+  if (!options.fix) {
+    notes.push("Run cy doctor --fix to untrack local workspace marker files without deleting them.");
+    return;
+  }
+  if (options.dryRun) {
+    notes.push(`Would untrack local workspace marker files: ${tracked.join(", ")}`);
+    return;
+  }
+  const isJj = existsSync(path.join(repoRoot, ".jj"));
+  const result = isJj
+    ? mutationCommandResult("jj", ["file", "untrack", ...tracked], repoRoot)
+    : mutationCommandResult("git", ["rm", "--cached", "--ignore-unmatch", "--", ...tracked], repoRoot);
+  if (result.ok) fixes.push(`Untracked local workspace marker files: ${tracked.join(", ")}`);
+  else warnings.push(`Could not untrack local workspace marker files: ${result.error}`);
 }
 
 function isDeferredTask(line: string): boolean {
@@ -819,6 +873,7 @@ export function doctorReport(repoRoot = process.cwd(), options: MutationOptions 
 
   ok.push(`provider: ${provider.name}`);
   ok.push(`workspace engine: ${workspaceEngine.name}`);
+  untrackMarkerFiles(repoRoot, trackedMarkerFiles(repoRoot), options, warnings, notes, fixes);
 
   if (existsSync(root)) ok.push(`storage: ${path.relative(repoRoot, root)}`);
   else warnings.push(`missing storage root: ${path.relative(repoRoot, root)}`);
@@ -879,6 +934,7 @@ export function doctorReport(repoRoot = process.cwd(), options: MutationOptions 
         warnings.push(`${workspaceId}: workspace path missing (${metadata.path})`);
         continue;
       }
+      warnings.push(...workspaceSetupWarnings(metadata.path).map((entry) => `${workspaceId}: ${entry}`));
 
       const matchingChange = changes.find((change) => change.id === metadata.changeId);
       if (maybeDeleteStaleCompletedWorkspace({

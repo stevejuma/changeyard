@@ -7,7 +7,7 @@ import { findChangeFile } from "../state/id.js";
 import { createWorkspaceEngine } from "../workspace/index.js";
 import { validateJjLandingDescriptions } from "../workspace/jjLandingDescriptions.js";
 import { readWorkspaceMetadata, resolveWorkspaceChangePath } from "../workspace/marker.js";
-import { dependencySetupWarning } from "../workspace/setupGuidance.js";
+import { workspaceSetupWarnings } from "../workspace/setupGuidance.js";
 import type { WorkspaceMetadata } from "../types.js";
 
 function withVerifyRecovery(message: string, id: string, extraRecovery: string[] = []): string {
@@ -55,10 +55,10 @@ export function runVerify(id: string, cwd = process.cwd()): string {
   const result = engine.verify({ cwd, metadata });
   if (!result.valid) throw new Error(withVerifyRecovery(result.errors.join("\n"), changeId));
   validateJjWorkspaceDescriptions(metadata, changeId);
-  const dependencyWarning = dependencySetupWarning(metadata.path);
+  const setupWarnings = workspaceSetupWarnings(metadata.path);
   return [
     `Verified ${changeId} in ${path.relative(metadata.repoRoot, cwd) || "."}`,
-    ...(dependencyWarning ? ["", dependencyWarning] : []),
+    ...(setupWarnings.length ? ["", ...setupWarnings] : []),
     `Next: implement, update Completion Notes, then cy complete ${changeId} --no-pr`,
   ].join("\n");
 }

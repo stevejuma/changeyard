@@ -4,6 +4,7 @@ import path from "node:path";
 import { getWorkflowAuditReport } from "./commands/audit.js";
 import { runCompletions } from "./commands/completions.js";
 import { runComplete } from "./commands/complete.js";
+import { runCheckRecord } from "./commands/check.js";
 import { doctorReport, runDoctor } from "./commands/doctor.js";
 import {
   getPlanPrompt,
@@ -25,6 +26,7 @@ import { listChanges, runList } from "./commands/list.js";
 import { getNextAction, runNext } from "./commands/next.js";
 import { runMarkInProgress, runNote } from "./commands/note.js";
 import { runRepair } from "./commands/repair.js";
+import { runRefresh } from "./commands/refresh.js";
 import { runRecover } from "./commands/recover.js";
 import { runReviewComplete, runReviewStart, type ReviewDecision } from "./commands/review.js";
 import { attachSession, runSession } from "./commands/session.js";
@@ -62,7 +64,7 @@ import { AGENT_TOOL_IDS } from "./scaffold/agent-tools.js";
 import { readWorkspaceMetadata } from "./workspace/marker.js";
 import { storageRoot } from "./paths.js";
 
-type CommandName = "init" | "update" | "create" | "quick" | "validate" | "sync" | "start" | "verify" | "hydrate" | "complete" | "next" | "audit" | "land" | "workspace" | "review" | "doctor" | "completions" | "recover" | "repair" | "note" | "mark-in-progress" | "list" | "status" | "plan" | "ui" | "server" | "dashboard" | "hub" | "tui" | "config" | "hooks" | "session" | "install" | "uninstall" | "version" | "help";
+type CommandName = "init" | "update" | "create" | "quick" | "validate" | "sync" | "start" | "verify" | "hydrate" | "complete" | "next" | "audit" | "land" | "refresh" | "workspace" | "check" | "review" | "doctor" | "completions" | "recover" | "repair" | "note" | "mark-in-progress" | "list" | "status" | "plan" | "ui" | "server" | "dashboard" | "hub" | "tui" | "config" | "hooks" | "session" | "install" | "uninstall" | "version" | "help";
 
 type ParsedArgs = {
   command: string;
@@ -669,6 +671,14 @@ async function main(): Promise<void> {
         }, rootForChange(id));
         break;
       }
+      case "refresh": {
+        const id = requireTaskId("cy refresh <id>", args.positional[0], guidanceColors);
+        output = runRefresh(id, {
+          target: stringFlag(args.flags, "target"),
+          dryRun,
+        }, rootForChange(id));
+        break;
+      }
       case "workspace": {
         const subcommand = validateSubcommand({
           commandPath: "cy workspace",
@@ -688,6 +698,27 @@ async function main(): Promise<void> {
         else if (subcommand === "delete") output = deleteWorkspace(id, { dryRun, force: asBooleanFlag(args.flags, "force") }, workspaceRepoRoot);
         break;
       }
+      case "check": {
+        const subcommand = validateSubcommand({
+          commandPath: "cy check",
+          value: args.positional[0] ?? "",
+          subcommands: [
+            { value: "record", description: "Record manual validation evidence." },
+          ],
+          colors: guidanceColors,
+          helpCommand: "cy check --help",
+        });
+        const id = requireTaskId(`cy check ${subcommand} <id>`, args.positional[1], guidanceColors);
+        output = runCheckRecord(id, {
+          command: stringFlag(args.flags, "command"),
+          status: stringFlag(args.flags, "status"),
+          exitCode: parseNonNegativeIntegerFlag(args.flags, "exit-code", guidanceColors, "cy check record --help") ?? null,
+          cwd: stringFlag(args.flags, "cwd"),
+          logFile: stringFlag(args.flags, "log-file"),
+          dryRun,
+        }, rootForChange(id), process.cwd());
+        break;
+      }
       case "doctor": {
         const includeJson = asBooleanFlag(args.flags, "json");
         if (includeJson || colors.enabled) {
@@ -703,7 +734,7 @@ async function main(): Promise<void> {
         break;
       case "recover": {
         const id = requireTaskId("cy recover <id|all>", args.positional[0], guidanceColors);
-        output = runRecover(id, repoRoot, { dryRun });
+        output = runRecover(id, repoRoot, { dryRun }, process.cwd());
         break;
       }
       case "repair": {

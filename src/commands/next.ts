@@ -7,6 +7,7 @@ import { getWorkspaceStatus, readWorkspaceMetadataFromRoot, type WorkspaceStatus
 
 export type NextCommandKind =
   | "validate"
+  | "sync"
   | "plan"
   | "start"
   | "verify"
@@ -135,8 +136,8 @@ export function getNextAction(id: string, repoRoot = process.cwd()): NextAction 
         nextKind = "plan";
         nextCommand = `cy plan status ${changeId}`;
       } else {
-        nextKind = "validate";
-        nextCommand = `cy validate ${changeId}`;
+        nextKind = "sync";
+        nextCommand = `cy sync ${changeId}`;
         ready.validate = true;
       }
       break;

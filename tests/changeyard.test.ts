@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { runCompletions } from "../src/commands/completions.js";
+import { runCheckRecord } from "../src/commands/check.js";
 import { getWorkflowAuditReport } from "../src/commands/audit.js";
 import { runComplete } from "../src/commands/complete.js";
 import { doctorReport, runDoctor } from "../src/commands/doctor.js";
@@ -35,6 +36,7 @@ import { listChanges, runList } from "../src/commands/list.js";
 import { runMarkInProgress, runNote } from "../src/commands/note.js";
 import { runRepair } from "../src/commands/repair.js";
 import { runRecover } from "../src/commands/recover.js";
+import { runRefresh } from "../src/commands/refresh.js";
 import { getReview, listReviews, runReviewComplete, runReviewStart, updateReview } from "../src/commands/review.js";
 import { attachSession } from "../src/commands/session.js";
 import { runStart } from "../src/commands/start.js";
@@ -1477,6 +1479,35 @@ test("sync with local-folder writes a remote-like issue and provider cache", () 
   }
 });
 
+test("start requires sync for non-noop providers and lets noop satisfy sync locally", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    writeFileSync(path.join(repo, ".changeyard", "config.local.jsonc"), `{"provider":{"type":"local-folder"}}\n`);
+    runCreate({ template: "agent-task", title: "Start requires sync" }, repo);
+    assert.throws(
+      () => runStart("CY-0001", repo),
+      /must be synced before start when provider local-folder is configured/,
+    );
+    runSync("CY-0001", repo);
+    assert.match(runStart("CY-0001", repo), /Started CY-0001/);
+  } finally {
+    cleanup(repo);
+  }
+
+  const noopRepo = tempRepo();
+  try {
+    runInit(noopRepo);
+    runCreate({ template: "agent-task", title: "Noop start sync" }, noopRepo);
+    assert.match(runStart("CY-0001", noopRepo), /Sync: noop provider satisfied locally/);
+    const changePath = path.join(noopRepo, ".changeyard", "changes", "CY-0001-noop-start-sync.md");
+    const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
+    assert.equal(asRecordForTest(parsed.frontmatter.remote).provider, "noop");
+  } finally {
+    cleanup(noopRepo);
+  }
+});
+
 test("planned local-folder sync writes a projected planning summary while keeping local markdown canonical", () => {
   const repo = tempRepo();
   try {
@@ -1558,8 +1589,8 @@ test("next maps lifecycle state to actionable commands", () => {
   try {
     runInit(repo);
     runCreate({ template: "agent-task", title: "Next action map" }, repo);
-    assert.equal(getNextAction("CY-0001", repo).nextCommand, "cy validate CY-0001");
-    assert.match(runNext("CY-0001", repo), /Next: cy validate CY-0001/);
+    assert.equal(getNextAction("CY-0001", repo).nextCommand, "cy sync CY-0001");
+    assert.match(runNext("CY-0001", repo), /Next: cy sync CY-0001/);
 
     runSync("CY-0001", repo);
     assert.equal(getNextAction("CY-0001", repo).nextCommand, "cy start CY-0001");
@@ -1672,6 +1703,25 @@ test("workspace status and delete protect dirty unlanded work", () => {
     assert.throws(() => deleteWorkspace("CY-0001", {}, repo), /dirty unlanded work/);
     assert.match(deleteWorkspace("CY-0001", { force: true }, repo), /Deleted workspace CY-0001/);
     assert.equal(existsSync(path.join(repo, ".changeyard", "workspaces", "CY-0001")), false);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("workspace status reports merged cleanup separately from land blockers", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "agent-task", title: "Merged cleanup" }, repo);
+    runStart("CY-0001", repo);
+    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-merged-cleanup.md");
+    const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
+    writeFileSync(changePath, writeFrontmatter({ ...parsed.frontmatter, status: "merged" }, parsed.body));
+
+    const status = getWorkspaceStatus("CY-0001", repo);
+    assert.equal(status.cleanupNeeded, true);
+    assert.deepEqual(status.landBlockers, []);
+    assert.match(deleteWorkspace("CY-0001", {}, repo), /Deleted workspace CY-0001/);
   } finally {
     cleanup(repo);
   }
@@ -1795,6 +1845,36 @@ test("complete runs checks and updates ready_for_pr", () => {
     const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
     assert.equal(parsed.frontmatter.status, "ready_for_pr");
     assert.match(readFileSync(path.join(repo, ".changeyard", "workspaces", "CY-0001", "logs", "checks.log"), "utf8"), /node -v/);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("check record preserves manual evidence and complete uses it when no checks are configured", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "agent-task", title: "Manual check evidence" }, repo);
+    runStart("CY-0001", repo);
+    const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
+    writeFileSync(path.join(workspacePath, "implementation.txt"), "done\n");
+    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-manual-check-evidence.md");
+    updateSection(changePath, "Acceptance Criteria", "- [x] Manual evidence is recorded");
+    updateSection(changePath, "Completion Notes", "Implemented workspace changes. Checks ran: pnpm test.");
+
+    assert.match(runCheckRecord("CY-0001", {
+      command: "pnpm test",
+      status: "passed",
+      exitCode: 0,
+    }, repo, workspacePath), /Recorded passed check/);
+    assert.match(runComplete("CY-0001", { noPr: true }, workspacePath), /1 recorded checks passed/);
+    const log = readFileSync(path.join(repo, ".changeyard", "workspaces", "CY-0001", "logs", "checks.log"), "utf8");
+    assert.match(log, /\$ pnpm test/);
+    assert.match(log, /cy-check-record:/);
+
+    const syncOutput = runSync("CY-0001", repo);
+    assert.match(syncOutput, /Synced CY-0001 with noop/);
+    assert.equal(parseFrontmatter(readFileSync(changePath, "utf8")).frontmatter.status, "ready_for_pr");
   } finally {
     cleanup(repo);
   }
@@ -1929,6 +2009,7 @@ test("complete can create a local-folder pull request when PRs are enabled", () 
     writeFileSync(path.join(repo, ".changeyard", "config.local.jsonc"), `{"provider":{"type":"local-folder"},"checks":{"standard":["node -v"]}}
 `);
     runCreate({ template: "agent-task", title: "Open local PR" }, repo);
+    runSync("CY-0001", repo);
     runStart("CY-0001", repo);
     const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
     writeFileSync(path.join(workspacePath, "implementation.txt"), "done\n");
@@ -1937,7 +2018,10 @@ test("complete can create a local-folder pull request when PRs are enabled", () 
     assert.match(runComplete("CY-0001", {}, workspacePath), /status pr_open/);
     const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
     assert.equal(parsed.frontmatter.status, "pr_open");
-    const pr = readFileSync(path.join(repo, ".changeyard", "cache", "local-folder", "pull-requests", "0001-CY-0001.md"), "utf8");
+    const prRoot = path.join(repo, ".changeyard", "cache", "local-folder", "pull-requests");
+    const prFile = readdirSync(prRoot).find((entry) => entry.endsWith("-CY-0001.md"));
+    assert.ok(prFile);
+    const pr = readFileSync(path.join(prRoot, prFile), "utf8");
     assert.match(pr, /draft: true/);
     assert.match(pr, /base: main/);
   } finally {
@@ -1967,6 +2051,25 @@ test("doctor reports configured provider and recover repairs workspace marker an
   }
 });
 
+test("recover can repair a broken workspace when launched from inside it", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "agent-task", title: "Recover from workspace" }, repo);
+    runStart("CY-0001", repo);
+    const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
+    const markerPath = path.join(workspacePath, ".changeyard-workspace.json");
+    writeFileSync(markerPath, `${JSON.stringify({ changeId: "CY-9999", metadataPath: path.join(repo, ".changeyard", "workspaces", "CY-9999", "metadata.json") }, null, 2)}\n`);
+
+    assert.match(runRecover("CY-0001", workspacePath, {}, workspacePath), /Repaired CY-0001/);
+    const marker = JSON.parse(readFileSync(markerPath, "utf8")) as { changeId: string; metadataPath: string };
+    assert.equal(marker.changeId, "CY-0001");
+    assert.equal(marker.metadataPath, path.join(repo, ".changeyard", "workspaces", "CY-0001", "metadata.json"));
+  } finally {
+    cleanup(repo);
+  }
+});
+
 test("start and verify warn when workspace dependencies are missing", () => {
   const repo = tempRepo();
   try {
@@ -1981,6 +2084,24 @@ test("start and verify warn when workspace dependencies are missing", () => {
     const verify = runVerify("CY-0001", workspacePath);
     assert.match(verify, /Workspace dependencies missing/);
     assert.match(verify, /pnpm install --offline/);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("start verify hydrate and doctor warn when electron binary is missing", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    writeFileSync(path.join(repo, "package.json"), `${JSON.stringify({ packageManager: "pnpm@10.32.1", devDependencies: { electron: "1.0.0" } }, null, 2)}\n`);
+    runCreate({ template: "agent-task", title: "Electron warning" }, repo);
+    runStart("CY-0001", repo);
+    const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
+    mkdirSync(path.join(workspacePath, "node_modules", "electron"), { recursive: true });
+
+    assert.match(runVerify("CY-0001", workspacePath), /Electron binary missing/);
+    assert.match(runHydrate("CY-0001", workspacePath), /Electron binary missing/);
+    assert.match(runDoctor(repo), /Electron binary missing/);
   } finally {
     cleanup(repo);
   }
@@ -3301,6 +3422,23 @@ test("doctor reports workspace drift and recover all repairs missing markers", (
   }
 });
 
+test("doctor reports and fixes tracked local workspace marker files", () => {
+  if (!hasCommand("git")) return;
+  const repo = tempRepo();
+  try {
+    runCommand("git", ["init", "-b", "main"], repo);
+    runInit(repo);
+    writeFileSync(path.join(repo, ".changeyard-workspace.json"), "{}\n");
+    runCommand("git", ["add", "-f", ".changeyard-workspace.json"], repo);
+    assert.match(runDoctor(repo), /workspace marker files are tracked but must be local-only/);
+    assert.match(runDoctor(repo, { fix: true }), /Untracked local workspace marker files/);
+    assert.equal(commandOutput("git", ["ls-files", "--", ".changeyard-workspace.json"], repo), "");
+    assert.equal(existsSync(path.join(repo, ".changeyard-workspace.json")), true);
+  } finally {
+    cleanup(repo);
+  }
+});
+
 function runCommand(command: string, args: string[], cwd: string): void {
   const nextArgs = normalizeCommandArgs(command, args);
   const result = spawnSync(command, nextArgs, { cwd, encoding: "utf8" });
@@ -3461,6 +3599,39 @@ test("jj start writes active change file when changeyard metadata is locally ign
     assert.match(runComplete("CY-0001", { noPr: true }, workspacePath), /Completed CY-0001: 1 checks passed/);
     assert.equal(parseFrontmatter(readFileSync(workspaceChangePath, "utf8")).frontmatter.status, "ready_for_pr");
     assert.equal(parseFrontmatter(readFileSync(path.join(repo, ".changeyard", "changes", "CY-0001-ignored-jj-metadata.md"), "utf8")).frontmatter.status, "ready");
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("jj repair normalizes an empty child back to the recorded workspace change", () => {
+  if (!hasCommand("git") || !hasCommand("jj")) return;
+  const repo = tempRepo();
+  try {
+    runCommand("git", ["init", "-b", "main"], repo);
+    runCommand("jj", ["git", "init", "--colocate"], repo);
+    runCommand("jj", ["config", "set", "--repo", "user.name", "Changeyard Test"], repo);
+    runCommand("jj", ["config", "set", "--repo", "user.email", "changeyard@example.test"], repo);
+    runCommand("jj", ["config", "set", "--repo", "signing.behavior", "drop"], repo);
+    writeFileSync(path.join(repo, "README.md"), "# repo\n");
+    runCommand("jj", ["commit", "-m", "initial"], repo);
+    runCommand("jj", ["bookmark", "set", "main", "-r", "@-"], repo);
+
+    runInit(repo);
+    writeFileSync(path.join(repo, ".changeyard", "config.local.jsonc"), `{"vcs":{"engine":"jj","fallback":"plain-copy"},"checks":{"standard":["node -v"]}}\n`);
+    runCommand("jj", ["commit", "-m", "init changeyard"], repo);
+    runCommand("jj", ["bookmark", "set", "main", "-r", "@-"], repo);
+
+    runCreate({ template: "agent-task", title: "Repair empty child" }, repo);
+    runStart("CY-0001", repo);
+    const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
+    const metadata = JSON.parse(readFileSync(path.join(repo, ".changeyard", "workspaces", "CY-0001", "metadata.json"), "utf8")) as { workspaceChangeId: string };
+    runCommand("jj", ["new", "@"], workspacePath);
+    assert.notEqual(commandOutput("jj", ["log", "--ignore-working-copy", "--at-op=@", "-r", "@", "--no-graph", "-T", "change_id.short()"], workspacePath), metadata.workspaceChangeId);
+
+    const output = runRepair("CY-0001", { workspace: true }, repo);
+    assert.match(output, /abandoned empty child/);
+    assert.equal(commandOutput("jj", ["log", "--ignore-working-copy", "--at-op=@", "-r", "@", "--no-graph", "-T", "change_id.short()"], workspacePath), metadata.workspaceChangeId);
   } finally {
     cleanup(repo);
   }
@@ -3632,7 +3803,12 @@ test("land rebases and lands a described jj workspace task commit without root w
     assert.match(runLand("CY-0001", { dryRun: true }, repo), /landingDescriptions: ok/);
     assert.match(runLand("CY-0001", { dryRun: true }, repo), /metadataSource: workspace/);
     assert.match(runLand("CY-0001", { dryRun: true }, repo), /targetMoved: true/);
-    assert.match(runLand("CY-0001", { dryRun: true }, repo), /rebaseRevset:/);
+    assert.match(runLand("CY-0001", { dryRun: true }, repo), /landingRevset:/);
+    assert.match(runLand("CY-0001", { dryRun: true }, repo), /landingFiles: .*landed\.txt/);
+    assert.throws(() => runLand("CY-0001", {}, repo), /run cy refresh CY-0001 --target main before landing/);
+    assert.match(runRefresh("CY-0001", { dryRun: true }, repo), /Dry-run: would refresh CY-0001 onto main/);
+    assert.match(runRefresh("CY-0001", {}, repo), /Refreshed CY-0001 onto main/);
+    assert.match(runLand("CY-0001", { dryRun: true }, repo), /targetMoved: false/);
     assert.match(runLand("CY-0001", {}, repo), /Landed CY-0001 into main/);
 
     assert.equal(existsSync(path.join(repo, ".changeyard", "workspaces", "CY-0001")), false);

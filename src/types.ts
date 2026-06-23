@@ -67,6 +67,15 @@ export type ChangeChecksMetadata = {
   lastStatus?: string | null;
 };
 
+export type ManualCheckRecord = {
+  command: string;
+  status: "passed" | "failed";
+  exitCode: number | null;
+  cwd: string;
+  recordedAt: string;
+  logFile?: string;
+};
+
 export type QuickChangeEscalation = "off" | "warn" | "block";
 
 export type ChangeyardConfig = {
@@ -221,4 +230,5 @@ export type WorkspaceMetadata = {
   workspaceChangeId?: string;
   workspaceCommitId?: string;
   seedDescription?: string;
+  refreshedAt?: string;
 };

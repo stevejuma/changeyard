@@ -132,8 +132,12 @@ function renderWorkspace(status: WorkspaceStatus, colors: CliColors): string {
       `engine: ${status.engine ?? "unknown"}`,
       `dirty: ${String(status.dirty)}`,
       `conflicts: ${String(status.conflicts)}`,
+      `landingRevset: ${status.landingRevset ?? "unknown"}`,
+      `landingFiles: ${status.landingFiles.length === 0 ? "none" : status.landingFiles.join(", ")}`,
       `landable: ${String(status.landable)}`,
+      `cleanupNeeded: ${String(status.cleanupNeeded)}`,
       ...(status.landBlockers.length ? [`landBlockers: ${status.landBlockers.join("; ")}`] : []),
+      ...(status.cleanupErrors.length ? [`cleanupErrors: ${status.cleanupErrors.join("; ")}`] : []),
       ...(status.nextCommand ? [`Next: ${status.nextCommand}`] : []),
     ].join("\n");
   }
@@ -142,8 +146,10 @@ function renderWorkspace(status: WorkspaceStatus, colors: CliColors): string {
     `  path: ${status.path ?? "missing"}`,
     `  state: ${status.dirty ? colors.yellow("dirty") : colors.green("clean")}${status.conflicts ? ` ${colors.red("conflicts")}` : ""}`,
     `  landable: ${status.landable ? colors.green("true") : colors.yellow("false")}`,
+    `  cleanup needed: ${status.cleanupNeeded ? colors.yellow("true") : colors.green("false")}`,
   ];
   for (const blocker of status.landBlockers) lines.push(`  ${colors.red("blocker:")} ${blocker}`);
+  for (const error of status.cleanupErrors) lines.push(`  ${colors.yellow("cleanup:")} ${error}`);
   if (status.nextCommand) lines.push(`  next: ${colors.green(status.nextCommand)}`);
   return lines.join("\n");
 }

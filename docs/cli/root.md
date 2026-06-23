@@ -33,7 +33,9 @@ cy <command> [options]
 - `next`: Show the next actionable workflow command.
 - `audit`: Audit workflow gates and print recovery guidance.
 - `land`: Land ready workspace work locally.
+- `refresh`: Rebase a JJ workspace change onto the current target before landing.
 - `workspace`: Inspect or clean task workspaces.
+- `check`: Record manual validation evidence for a workspace change.
 - `review`: Manage review artifacts.
 - `plan`: Inspect and update planning sections.
 - `doctor`: Check Changeyard state and repair supported drift.

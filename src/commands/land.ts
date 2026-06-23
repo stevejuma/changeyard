@@ -8,6 +8,7 @@ import { assertTransition } from "../state/transitions.js";
 import type { Frontmatter, WorkspaceMetadata } from "../types.js";
 import { shellCommandRunner, shellInspectionCommandRunner } from "../workspace/commandRunner.js";
 import { validateJjLandingDescriptions } from "../workspace/jjLandingDescriptions.js";
+import { assertWorkspaceAtRecordedChange, getJjLandingContext } from "../workspace/jjLandingContext.js";
 import { resolveWorkspaceChangePath } from "../workspace/marker.js";
 import { deleteWorkspace, getWorkspaceStatus, readWorkspaceMetadataFromRoot, workspaceMetadataPath } from "./workspace.js";
 
@@ -25,33 +26,12 @@ function commandOutput(command: string, args: string[], cwd: string): string {
   return shellCommandRunner(command, args, cwd).trim();
 }
 
-function inspectionOutput(command: string, args: string[], cwd: string): string {
-  return shellInspectionCommandRunner(command, args, cwd).trim();
-}
-
-function jjWorkspaceChangeId(workspacePath: string): string {
-  return inspectionOutput("jj", ["log", "--ignore-working-copy", "--at-op=@", "-r", "@", "--no-graph", "-T", "change_id.short()"], workspacePath);
-}
-
 function jjCommitId(cwd: string, revision: string): string {
   return commandOutput("jj", ["log", "--ignore-working-copy", "--at-op=@", "-r", revision, "--no-graph", "-T", "commit_id"], cwd);
 }
 
 function jjWorkspaceCommitId(workspacePath: string): string {
   return jjCommitId(workspacePath, "@");
-}
-
-function jjDescription(cwd: string, revision: string): string {
-  return commandOutput("jj", ["log", "--ignore-working-copy", "--at-op=@", "-r", revision, "--no-graph", "-T", "description"], cwd);
-}
-
-function jjWorkspaceChangedFiles(workspacePath: string): string[] {
-  const output = inspectionOutput("jj", ["diff", "--name-only"], workspacePath);
-  return output.split("\n").map((line) => line.trim()).filter(Boolean).sort();
-}
-
-function updateJjWorkspaceStale(workspacePath: string): void {
-  commandOutput("jj", ["workspace", "update-stale"], workspacePath);
 }
 
 function writeWorkspaceMetadata(repoRoot: string, id: string, metadata: WorkspaceMetadata): void {
@@ -131,30 +111,44 @@ export function runLand(id: string, options: LandOptions = {}, repoRoot = proces
     commandOutput("jj", ["status"], metadata.path);
   }
 
-  const workspaceChangeId = metadata.workspaceChangeId ?? workspaceStatus.workspaceChangeId ?? jjWorkspaceChangeId(metadata.path);
-  const description = jjDescription(metadata.path, workspaceChangeId);
-  const descriptionValidation = validateJjLandingDescriptions(changeId, metadata, workspaceChangeId);
-  const descriptionErrors = descriptionValidation.errors;
-  const workspaceFiles = jjWorkspaceChangedFiles(metadata.path);
-  const currentTargetCommitId = workspaceStatus.currentTargetCommitId ?? jjCommitId(repoRoot, target);
-  const targetMoved = Boolean(metadata.baseCommitId && metadata.baseCommitId !== currentTargetCommitId);
-  const landingRevset = descriptionValidation.revset;
+  const landing = getJjLandingContext(changeId, metadata, target, repoRoot);
+  const workspaceChangeId = landing.workspaceChangeId;
+  const description = landing.description;
+  const descriptionErrors = landing.descriptionValidation.errors;
+  const currentTargetCommitId = landing.currentTargetCommitId;
+  const targetMoved = landing.targetMoved;
+  const landingRevset = landing.landingRevset;
+  if (landing.currentWorkspaceChangeId !== workspaceChangeId) {
+    throw new Error(withLandRecovery(`Workspace ${changeId} is editing ${landing.currentWorkspaceChangeId}, but metadata records ${workspaceChangeId}`, changeId, repoRoot, [
+      `- Run cy repair ${changeId} --workspace to normalize recoverable workspace drift.`,
+    ]));
+  }
 
   if (options.dryRun) {
     const lines = [
       `Dry-run: would land ${changeId} into ${target}`,
       `workspaceChange: ${workspaceChangeId}`,
+      `currentWorkspaceChange: ${landing.currentWorkspaceChangeId}`,
       `targetMoved: ${String(targetMoved)}`,
       ...(targetMoved ? [`rebaseRevset: ${landingRevset}`] : []),
+      `landingRevset: ${landingRevset}`,
       `landingDescription: ${descriptionErrors.length > 0 ? "blocked" : "ok"}`,
       `landingDescriptions: ${descriptionErrors.length > 0 ? "blocked" : "ok"}`,
       `metadataSource: ${metadata.engine === "jj" ? "workspace" : "root"}`,
-      `workspaceFiles: ${workspaceFiles.length === 0 ? "none" : workspaceFiles.join(", ")}`,
+      `landingFiles: ${landing.landingFiles.length === 0 ? "none" : landing.landingFiles.join(", ")}`,
       `description: ${description.split("\n")[0] ?? description}`,
     ];
+    if (targetMoved) lines.push(`blocker: target ${target} moved; run cy refresh ${changeId} --target ${target}`);
     for (const error of descriptionErrors) lines.push(`blocker: ${error}`);
     if (!options.keepWorkspace) lines.push(`cleanup: would delete workspace ${changeId}`);
     return lines.join("\n");
+  }
+  assertWorkspaceAtRecordedChange(changeId, landing);
+  if (targetMoved) {
+    throw new Error(withLandRecovery(`Target ${target} moved since ${changeId} started; run cy refresh ${changeId} --target ${target} before landing`, changeId, repoRoot, [
+      `- Current target commit: ${currentTargetCommitId}`,
+      `- Recorded base commit: ${metadata.baseCommitId ?? "unknown"}`,
+    ]));
   }
   if (descriptionErrors.length > 0) {
     throw new Error(withLandRecovery(formatJjDescriptionFailure(changeId, descriptionErrors), changeId, repoRoot, [
@@ -165,26 +159,14 @@ export function runLand(id: string, options: LandOptions = {}, repoRoot = proces
   let nextMetadata: WorkspaceMetadata = {
     ...metadata,
     workspaceChangeId,
-    workspaceCommitId: jjWorkspaceCommitId(metadata.path),
+    workspaceCommitId: landing.workspaceCommitId,
   };
-  if (targetMoved) {
-    commandOutput("jj", ["rebase", "-r", landingRevset, "-o", target], repoRoot);
-    updateJjWorkspaceStale(metadata.path);
-    workspaceStatus = getWorkspaceStatus(changeId, repoRoot);
-    if (workspaceStatus.conflicts) throw new Error(withLandRecovery(`Workspace ${changeId} has conflicts after rebasing onto ${target}; resolve them before landing`, changeId, repoRoot));
-    if (workspaceStatus.errors.length > 0) throw new Error(withLandRecovery(workspaceStatus.errors.join("\n"), changeId, repoRoot));
-    nextMetadata = {
-      ...nextMetadata,
-      baseCommitId: currentTargetCommitId,
-      workspaceCommitId: jjWorkspaceCommitId(metadata.path),
-    };
-  }
   const mergedDocument = mergedChangeDocument(parsed.body, parsed.frontmatter);
   writeChangeDocument(changePath, mergedDocument);
   if (metadata.engine === "jj" && changePath !== rootChangePath) {
     writeChangeDocument(rootChangePath, mergedDocument);
   }
-  updateJjWorkspaceStale(metadata.path);
+  commandOutput("jj", ["workspace", "update-stale"], metadata.path);
   commandOutput("jj", ["status"], metadata.path);
   nextMetadata = {
     ...nextMetadata,

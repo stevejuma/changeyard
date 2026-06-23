@@ -1,6 +1,7 @@
 import { loadConfig } from "../config/loadConfig.js";
 import { hydrateWorkspace } from "../hydrate/hydrateWorkspace.js";
 import { readWorkspaceMetadata } from "../workspace/marker.js";
+import { workspaceSetupWarnings } from "../workspace/setupGuidance.js";
 
 type MutationOptions = {
   dryRun?: boolean;
@@ -16,8 +17,10 @@ export function runHydrate(id: string, cwd = process.cwd(), mutationOptions: Mut
     return `Dry-run: would hydrate ${changeId}`;
   }
   const result = hydrateWorkspace(config, metadata, { warmup: mutationOptions.warmup });
+  const setupWarnings = workspaceSetupWarnings(metadata.path);
   return [
     `Hydrated ${changeId}: copied ${result.copied.length}, skipped ${result.skipped.length}`,
     ...(result.warmup.status !== "skipped" ? [`Warmup: ${result.warmup.status}${result.warmup.logPath ? ` (${result.warmup.logPath})` : ""}`] : []),
+    ...(setupWarnings.length ? ["", ...setupWarnings] : []),
   ].join("\n");
 }

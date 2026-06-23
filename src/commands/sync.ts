@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { isQuickChange, planningModel, workflowMetadata } from "../change/changeMetadata.js";
 import { loadConfig } from "../config/loadConfig.js";
@@ -9,8 +9,10 @@ import { createProvider } from "../providers/index.js";
 import { renderProviderIssueBody } from "../providers/renderIssueBody.js";
 import { findChangeFile } from "../state/id.js";
 import { assertTransition } from "../state/transitions.js";
+import { resolveWorkspaceChangePath } from "../workspace/marker.js";
 import type { Frontmatter } from "../types.js";
 import { formatValidationFailure } from "./audit.js";
+import { readWorkspaceMetadataFromRoot } from "./workspace.js";
 
 function asRecord(value: unknown): Frontmatter {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Frontmatter : {};
@@ -20,27 +22,48 @@ type MutationOptions = {
   dryRun?: boolean;
 };
 
+const syncedOrLaterStatuses = new Set([
+  "synced",
+  "in_progress",
+  "blocked",
+  "ready_for_pr",
+  "pr_open",
+  "in_review",
+  "changes_requested",
+  "approved",
+  "merged",
+  "abandoned",
+]);
+
 export function runSync(id: string, repoRoot = process.cwd(), mutationOptions: MutationOptions = {}): string {
   if (!id) throw new Error("change id is required");
   const config = loadConfig(repoRoot);
   const root = storageRoot(repoRoot, config);
   const filePath = findChangeFile(changesRoot(repoRoot, config), id);
   if (!filePath) throw new Error(`Change not found: ${id}`);
-  const parsed = parseFrontmatter(readFileSync(filePath, "utf8"));
-  const changeId = String(parsed.frontmatter.id ?? id);
+  const rootParsed = parseFrontmatter(readFileSync(filePath, "utf8"));
+  const changeId = String(rootParsed.frontmatter.id ?? id);
+  const metadata = readWorkspaceMetadataFromRoot(changeId, repoRoot);
+  const workspacePath = metadata?.engine === "jj" ? resolveWorkspaceChangePath(metadata) : null;
+  const activePath = workspacePath && existsSync(workspacePath) ? workspacePath : filePath;
+  const parsed = activePath === filePath ? rootParsed : parseFrontmatter(readFileSync(activePath, "utf8"));
 
-  const validation = validateChangeFile(filePath, root, { gate: "sync", config });
-  if (!validation.valid) throw new Error(formatValidationFailure({
-    id: changeId,
-    repoRoot,
-    gate: "sync",
-    result: validation,
-  }));
-
-  assertTransition(String(parsed.frontmatter.status ?? ""), "synced", `Sync ${changeId}`);
+  const currentStatus = String(parsed.frontmatter.status ?? "");
+  if (!syncedOrLaterStatuses.has(currentStatus)) {
+    const validation = validateChangeFile(filePath, root, { gate: "sync", config });
+    if (!validation.valid) throw new Error(formatValidationFailure({
+      id: changeId,
+      repoRoot,
+      gate: "sync",
+      result: validation,
+    }));
+  }
+  if (!syncedOrLaterStatuses.has(currentStatus)) {
+    assertTransition(currentStatus, "synced", `Sync ${changeId}`);
+  }
   const syncFrontmatter: Frontmatter = {
     ...parsed.frontmatter,
-    status: "synced",
+    status: syncedOrLaterStatuses.has(currentStatus) ? currentStatus : "synced",
     updatedAt: new Date().toISOString(),
   };
 
@@ -51,7 +74,7 @@ export function runSync(id: string, repoRoot = process.cwd(), mutationOptions: M
     body: parsed.body,
   });
   if (mutationOptions.dryRun) {
-    const relativeChangePath = path.relative(repoRoot, filePath);
+    const relativeChangePath = path.relative(repoRoot, activePath);
     return `Dry-run: would sync ${changeId} with ${provider.name}; updates ${relativeChangePath}`;
   }
 
@@ -73,9 +96,17 @@ export function runSync(id: string, repoRoot = process.cwd(), mutationOptions: M
     },
   };
 
-  writeFileSync(filePath, writeFrontmatter(nextFrontmatter, parsed.body));
+  writeFileSync(activePath, writeFrontmatter(nextFrontmatter, parsed.body));
+  if (activePath !== filePath) {
+    const rootNextFrontmatter: Frontmatter = {
+      ...rootParsed.frontmatter,
+      updatedAt: new Date().toISOString(),
+      remote: nextFrontmatter.remote,
+    };
+    writeFileSync(filePath, writeFrontmatter(rootNextFrontmatter, rootParsed.body));
+  }
 
-  const relativeChangePath = path.relative(repoRoot, filePath);
+  const relativeChangePath = path.relative(repoRoot, activePath);
   const target = remote.issueUrl ? ` -> ${remote.issueUrl}` : "";
   const lines = [`Synced ${changeId} with ${provider.name}${target}`];
   if (isQuickChange(nextFrontmatter)) {

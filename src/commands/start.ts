@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import path from "node:path";
 import { loadConfig } from "../config/loadConfig.js";
 import { validateQuickStart } from "../change/quickLifecycle.js";
-import { parseFrontmatter } from "../documents/frontmatter.js";
+import { parseFrontmatter, writeFrontmatter } from "../documents/frontmatter.js";
 import { validateChangeFile } from "../documents/validateDocument.js";
 import { changesRoot, storageRoot, workspacesRoot } from "../paths.js";
 import { findChangeFile } from "../state/id.js";
@@ -11,7 +11,7 @@ import { hydrateWorkspace } from "../hydrate/hydrateWorkspace.js";
 import { createWorkspaceEngine } from "../workspace/index.js";
 import { shellCommandRunner } from "../workspace/commandRunner.js";
 import { describeJjWorkspaceCommit } from "../workspace/jjLandingDescriptions.js";
-import { dependencySetupWarning } from "../workspace/setupGuidance.js";
+import { workspaceSetupWarnings } from "../workspace/setupGuidance.js";
 import { materializeWorkspaceChangeDocument, writeChangeDocument } from "../state/activeChangeDocument.js";
 import type { Frontmatter, WorkspaceMetadata } from "../types.js";
 import { formatValidationFailure } from "./audit.js";
@@ -109,11 +109,37 @@ export function runStart(id: string, repoRoot = process.cwd(), mutationOptions: 
     `- Re-run cy start ${changeId}.`,
   ].join("\n"));
   const status = String(parsed.frontmatter.status ?? "");
+  const noopSyncSatisfied = status === "ready" && config.provider.type === "noop";
+  if (status === "ready" && config.provider.type !== "noop") {
+    throw new Error([
+      `Change ${changeId} must be synced before start when provider ${config.provider.type} is configured.`,
+      "",
+      "Recovery:",
+      `- Run cy sync ${changeId}.`,
+      `- Re-run cy start ${changeId}.`,
+    ].join("\n"));
+  }
   assertTransition(status, "in_progress", `Start ${changeId}`);
+  const startFrontmatter: Frontmatter = noopSyncSatisfied
+    ? {
+        ...parsed.frontmatter,
+        remote: {
+          ...asRecord(parsed.frontmatter.remote),
+          provider: "noop",
+          issueNumber: null,
+          issueUrl: null,
+          pullRequestNumber: null,
+          pullRequestUrl: null,
+        },
+      }
+    : parsed.frontmatter;
+  if (noopSyncSatisfied && !mutationOptions.dryRun) {
+    writeFileSync(filePath, writeFrontmatter(startFrontmatter, parsed.body));
+  }
 
-  const engineName = String(asRecord(parsed.frontmatter.workspace).engine ?? config.vcs.engine);
-  const targetRef = String(asRecord(parsed.frontmatter.base).revision ?? config.project.defaultBase);
-  const seedDescription = `${changeId}: ${String(parsed.frontmatter.title ?? changeId)}`;
+  const engineName = String(asRecord(startFrontmatter.workspace).engine ?? config.vcs.engine);
+  const targetRef = String(asRecord(startFrontmatter.base).revision ?? config.project.defaultBase);
+  const seedDescription = `${changeId}: ${String(startFrontmatter.title ?? changeId)}`;
   const workspacePath = path.resolve(repoRoot, config.storage.root, config.storage.workspacesDir, fillPattern(config.workspace.pathPattern, changeId));
   const workspaceRootPath = path.join(workspacesRoot(repoRoot, config), changeId);
   const workspaceRootExisted = existsSync(workspaceRootPath);
@@ -130,7 +156,7 @@ export function runStart(id: string, repoRoot = process.cwd(), mutationOptions: 
     changePath: filePath,
     ...(engineName === "jj" ? { workspaceChangePath } : {}),
     createdAt: new Date().toISOString(),
-    branch: String(asRecord(parsed.frontmatter.branch).name ?? `cy/${changeId}`),
+    branch: String(asRecord(startFrontmatter.branch).name ?? `cy/${changeId}`),
     ...(engineName === "jj"
       ? {
           targetRef,
@@ -157,10 +183,11 @@ export function runStart(id: string, repoRoot = process.cwd(), mutationOptions: 
 
     const nextFrontmatter: Frontmatter = {
       ...parsed.frontmatter,
+      ...startFrontmatter,
       status: "in_progress",
       updatedAt: new Date().toISOString(),
       workspace: {
-        ...asRecord(parsed.frontmatter.workspace),
+        ...asRecord(startFrontmatter.workspace),
         engine: engine.name,
         name: workspaceName,
         path: workspaceRelativePath,
@@ -183,9 +210,10 @@ export function runStart(id: string, repoRoot = process.cwd(), mutationOptions: 
     ].join("\n"));
   }
 
-  const dependencyWarning = dependencySetupWarning(workspacePath);
+  const setupWarnings = workspaceSetupWarnings(workspacePath);
   return [
     `Started ${changeId} in ${workspaceRelativePath}`,
+    ...(noopSyncSatisfied ? ["Sync: noop provider satisfied locally"] : []),
     ...(metadataSeedMessage ? [metadataSeedMessage] : []),
     ...(createdMetadata?.targetRef ? [`Base: ${createdMetadata.targetRef} ${createdMetadata.baseCommitId ?? ""}`.trim()] : []),
     ...(createdMetadata?.workspaceChangeId ? [`Workspace change: ${createdMetadata.workspaceChangeId}`] : []),
@@ -193,7 +221,7 @@ export function runStart(id: string, repoRoot = process.cwd(), mutationOptions: 
     `Next: cd ${workspaceRelativePath}`,
     `Hydration: copied ${hydrateResult?.copied.length ?? 0}, skipped ${hydrateResult?.skipped.length ?? 0}`,
     ...(hydrateResult?.warmup.status !== "skipped" ? [`Warmup: ${hydrateResult?.warmup.status}${hydrateResult?.warmup.logPath ? ` (${hydrateResult.warmup.logPath})` : ""}`] : []),
-    ...(dependencyWarning ? ["", dependencyWarning] : []),
+    ...(setupWarnings.length ? ["", ...setupWarnings] : []),
     `Then: cy verify ${changeId}`,
   ].join("\n");
 }

@@ -7,6 +7,7 @@ import { findChangeFile, findWorkspaceId } from "../state/id.js";
 import type { ChangeStatus, WorkspaceMetadata } from "../types.js";
 import { shellCommandRunner, shellInspectionCommandRunner } from "../workspace/commandRunner.js";
 import { validateJjLandingDescriptions } from "../workspace/jjLandingDescriptions.js";
+import { getJjLandingContext } from "../workspace/jjLandingContext.js";
 import { resolveWorkspaceChangePath } from "../workspace/marker.js";
 import { deleteTaskWorkspace, verifyTaskWorkspace, type WorkspaceRepositoryKind } from "../workspace/runtimeBridge.js";
 import { isDenied } from "../workspace/patterns.js";
@@ -34,10 +35,14 @@ export type WorkspaceStatus = {
   workspaceCommitId: string | null;
   seedDescription: string | null;
   landingDescription: string | null;
+  landingRevset: string | null;
+  landingFiles: string[];
   landingDescriptionValid: boolean;
   landingDescriptionError: string | null;
   landable: boolean;
   landBlockers: string[];
+  cleanupNeeded: boolean;
+  cleanupErrors: string[];
 };
 
 export type WorkspaceDeleteOptions = {
@@ -234,10 +239,14 @@ export function getWorkspaceStatus(id: string, repoRoot = process.cwd()): Worksp
       workspaceCommitId: null,
       seedDescription: null,
       landingDescription: null,
+      landingRevset: null,
+      landingFiles: [],
       landingDescriptionValid: false,
       landingDescriptionError: null,
       landable: false,
       landBlockers: status === "merged" ? [] : [`Workspace metadata not found for ${changeId}`],
+      cleanupNeeded: false,
+      cleanupErrors: [],
     };
   }
 
@@ -256,21 +265,41 @@ export function getWorkspaceStatus(id: string, repoRoot = process.cwd()): Worksp
   const landed = status === "merged" && !dirtyState.dirty;
   const workspaceChangeId = metadata.workspaceChangeId ?? (metadata.engine === "jj" ? jjLogValue(metadata.path, "@", "change_id.short()") : null);
   const workspaceCommitId = metadata.workspaceCommitId ?? (metadata.engine === "jj" ? jjLogValue(metadata.path, "@", "commit_id") : null);
-  const landingDescription = metadata.engine === "jj" && workspaceChangeId ? jjLogValue(metadata.path, workspaceChangeId, "description") : null;
-  const landingDescriptionErrors = metadata.engine === "jj"
+  let landingDescription = metadata.engine === "jj" && workspaceChangeId ? jjLogValue(metadata.path, workspaceChangeId, "description") : null;
+  let landingRevset: string | null = null;
+  let landingFiles: string[] = [];
+  let currentWorkspaceChangeId: string | null = null;
+  let landingDescriptionErrors = metadata.engine === "jj"
     ? jjLandingDescriptionErrors(changeId, metadata, workspaceChangeId)
     : [];
+  if (metadata.engine === "jj") {
+    try {
+      const target = metadata.targetRef ?? config.project.defaultBase;
+      const context = getJjLandingContext(changeId, metadata, target, repoRoot);
+      currentWorkspaceChangeId = context.currentWorkspaceChangeId;
+      landingDescription = context.description;
+      landingRevset = context.landingRevset;
+      landingFiles = context.landingFiles;
+      landingDescriptionErrors = context.descriptionValidation.errors;
+    } catch (error) {
+      errors.push(`Could not inspect JJ landing context: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
   const landingDescriptionError = landingDescriptionErrors.length > 0
     ? `JJ workspace commit descriptions must start with ${changeId}: ${landingDescriptionErrors.join("; ")}`
     : null;
   const currentTargetCommitId = metadata.engine === "jj" ? jjCurrentTargetCommit(repoRoot, metadata.targetRef) : null;
   const targetMoved = Boolean(metadata.baseCommitId && currentTargetCommitId && metadata.baseCommitId !== currentTargetCommitId);
-  const landBlockers = [
+  const activeLandBlockers = [
     ...errors,
     ...(dirtyState.conflicts ? [`Workspace ${changeId} has conflicts`] : []),
     ...(metadata.engine === "jj" && !workspaceChangeId ? [`Workspace ${changeId} is missing workspaceChangeId metadata; recreate the workspace with cy start ${changeId}`] : []),
+    ...(metadata.engine === "jj" && workspaceChangeId && currentWorkspaceChangeId && currentWorkspaceChangeId !== workspaceChangeId ? [`Workspace ${changeId} is editing ${currentWorkspaceChangeId}, expected ${workspaceChangeId}`] : []),
     ...landingDescriptionErrors,
   ];
+  const cleanupNeeded = status === "merged" && Boolean(metadata);
+  const cleanupErrors = cleanupNeeded ? errors : [];
+  const landBlockers = status === "merged" ? [] : activeLandBlockers;
 
   return {
     id: changeId,
@@ -295,10 +324,14 @@ export function getWorkspaceStatus(id: string, repoRoot = process.cwd()): Worksp
     workspaceCommitId,
     seedDescription: metadata.seedDescription ?? null,
     landingDescription,
+    landingRevset,
+    landingFiles,
     landingDescriptionValid: !landingDescriptionError,
     landingDescriptionError,
     landable: status === "ready_for_pr" && landBlockers.length === 0,
     landBlockers,
+    cleanupNeeded,
+    cleanupErrors,
   };
 }
 
@@ -327,10 +360,14 @@ function formatWorkspaceStatus(status: WorkspaceStatus): string {
     `targetRef: ${status.targetRef ?? "unknown"}`,
     `targetMoved: ${String(status.targetMoved)}`,
     `workspaceChange: ${status.workspaceChangeId ?? "unknown"}`,
+    `landingRevset: ${status.landingRevset ?? "unknown"}`,
+    `landingFiles: ${status.landingFiles.length === 0 ? "none" : status.landingFiles.join(", ")}`,
     `landingDescription: ${status.landingDescriptionValid ? "ok" : status.landingDescriptionError ?? "unknown"}`,
     `landable: ${String(status.landable)}`,
+    `cleanupNeeded: ${String(status.cleanupNeeded)}`,
   ];
   if (status.landBlockers.length > 0) lines.push(`landBlockers: ${status.landBlockers.join("; ")}`);
+  if (status.cleanupErrors.length > 0) lines.push(`cleanupErrors: ${status.cleanupErrors.join("; ")}`);
   if (status.errors.length > 0) lines.push(`errors: ${status.errors.join("; ")}`);
   if (status.nextCommand) lines.push(`Next: ${status.nextCommand}`);
   return lines.join("\n");

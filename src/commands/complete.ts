@@ -14,7 +14,7 @@ import { createWorkspaceEngine } from "../workspace/index.js";
 import { assertTransition } from "../state/transitions.js";
 import { createProvider } from "../providers/index.js";
 import { isDenied } from "../workspace/patterns.js";
-import { runChecks } from "../checks/runChecks.js";
+import { countPassedManualChecks, runChecks } from "../checks/runChecks.js";
 import { runVerify } from "./verify.js";
 import { formatValidationFailure } from "./audit.js";
 
@@ -122,7 +122,8 @@ export function runComplete(id: string, options: CompleteOptions = {}, cwd = pro
     return `Dry-run: would run ${commands.length} checks using ${profile} profile and complete ${changeId}`;
   }
 
-  const results = runChecks(commands, metadata.path, logPath);
+  const manualPassed = countPassedManualChecks(logPath);
+  const results = commands.length > 0 ? runChecks(commands, metadata.path, logPath) : [];
   const failed = results.find((result) => result.status === "failed");
   if (failed) throw new Error([
     `Check failed: ${failed.command}`,
@@ -165,5 +166,10 @@ export function runComplete(id: string, options: CompleteOptions = {}, cwd = pro
 
   writeFileSync(changePath, writeFrontmatter(nextFrontmatter, parsed.body));
   const followUp = nextFrontmatter.status === "ready_for_pr" ? `Next: cy land ${changeId}` : `Next: cy review start ${changeId}`;
-  return [`Completed ${changeId}: ${results.length} checks passed; status ${String(nextFrontmatter.status)}`, followUp].join("\n");
+  const checkSummary = results.length > 0
+    ? `${results.length} checks passed`
+    : manualPassed > 0
+      ? `${manualPassed} recorded checks passed`
+      : "0 checks passed";
+  return [`Completed ${changeId}: ${checkSummary}; status ${String(nextFrontmatter.status)}`, followUp].join("\n");
 }
