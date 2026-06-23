@@ -733,6 +733,12 @@ function ChangeCard({
 	const [getChangeBoardSummary] = useLazyGetChangeBoardSummaryQuery();
 	const [getChangeBoardFiles] = useLazyGetChangeBoardFilesQuery();
 	const [getChangeBoardFileDiff] = useLazyGetChangeBoardFileDiffQuery();
+	const boardSourceBadge =
+		summary?.source?.kind === "workspace_deleted" ? (
+			<StatusChip label={summary.source.label || "Workspace deleted"} tone="gold" />
+		) : null;
+	const suppressCommitEmptyState =
+		summary?.source?.kind === "workspace_deleted" || summary?.source?.kind === "unavailable";
 	const summaryCacheKey = useMemo(
 		() => getChangeBoardSummaryCacheKey(workspaceId ?? null, change, workspaceEventVersion),
 		[workspaceEventVersion, workspaceId, change],
@@ -1091,6 +1097,7 @@ function ChangeCard({
 									/>
 								) : null}
 								<StatusChip label="No checks" />
+								{boardSourceBadge}
 							</div>
 						</div>
 						<Button
@@ -1233,7 +1240,7 @@ function ChangeCard({
 										</div>
 									);
 								})
-							) : (
+							) : suppressCommitEmptyState ? null : (
 								<div className="px-3 py-2 text-[12px] text-text-tertiary">
 									{summary?.error ?? "No commits found for this change."}
 								</div>

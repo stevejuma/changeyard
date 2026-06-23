@@ -1,8 +1,10 @@
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 import type {
 	RuntimeChangeyardBoardFileStats,
 	RuntimeChangeyardBoardFileSummary,
+	RuntimeChangeyardBoardSource,
 	RuntimeChangeyardBoardFileDiffRequest,
 	RuntimeChangeyardBoardFileDiffResponse,
 	RuntimeChangeyardBoardFilesRequest,
@@ -76,6 +78,40 @@ import {
 	getWorkspaceChanges,
 } from "../workspace/get-workspace-changes.js";
 import { readJjHeadInfo } from "../workspace/jj-utils.js";
+
+type BoardWorkspaceMetadata = {
+	changeId?: string;
+	engine?: string;
+	path?: string;
+	repoRoot?: string;
+	baseCommitId?: string;
+	workspaceChangeId?: string;
+	workspaceCommitId?: string;
+	targetRef?: string;
+};
+
+type BoardChangeSource =
+	| {
+			kind: "landed";
+			cwd: string;
+			source: RuntimeChangeyardBoardSource;
+			baseRef: string | null;
+			headRef: string;
+	  }
+	| {
+			kind: "workspace";
+			cwd: string;
+			source: RuntimeChangeyardBoardSource;
+			workspaceHead: string;
+	  }
+	| {
+			kind: "workspace_deleted";
+			source: RuntimeChangeyardBoardSource;
+	  }
+	| {
+			kind: "unavailable";
+			source: RuntimeChangeyardBoardSource;
+	  };
 
 export interface RuntimeChangeyardApiAdapter {
 	listChanges: (repoRoot: string) => Promise<RuntimeChangeyardChangesListResponse["changes"]> | RuntimeChangeyardChangesListResponse["changes"];
@@ -382,6 +418,105 @@ export function createChangesApi(deps: {
 		}));
 	};
 
+	const asOptionalString = (value: unknown): string | undefined =>
+		typeof value === "string" && value.trim() ? value.trim() : undefined;
+
+	const resolveWorkspaceMetadataPath = (workspacePath: string, rawWorkspacePath: string | null): string | null => {
+		const normalizedWorkspacePath = rawWorkspacePath?.trim();
+		if (!normalizedWorkspacePath) {
+			return null;
+		}
+		const resolvedWorkspacePath = path.isAbsolute(normalizedWorkspacePath)
+			? normalizedWorkspacePath
+			: path.resolve(workspacePath, normalizedWorkspacePath);
+		return path.resolve(resolvedWorkspacePath, "..", "metadata.json");
+	};
+
+	const readBoardWorkspaceMetadata = async (
+		workspacePath: string,
+		change: RuntimeChangeyardChangeDetail,
+		rawWorkspacePath: string | null,
+	): Promise<BoardWorkspaceMetadata | null> => {
+		const metadataPath = resolveWorkspaceMetadataPath(workspacePath, rawWorkspacePath);
+		if (!metadataPath) {
+			return null;
+		}
+		try {
+			const parsed = JSON.parse(await readFile(metadataPath, "utf8")) as Record<string, unknown>;
+			const changeId = asOptionalString(parsed.changeId);
+			if (changeId && changeId !== change.id) {
+				return null;
+			}
+			return {
+				changeId,
+				engine: asOptionalString(parsed.engine),
+				path: asOptionalString(parsed.path),
+				repoRoot: asOptionalString(parsed.repoRoot),
+				baseCommitId: asOptionalString(parsed.baseCommitId),
+				workspaceChangeId: asOptionalString(parsed.workspaceChangeId),
+				workspaceCommitId: asOptionalString(parsed.workspaceCommitId),
+				targetRef: asOptionalString(parsed.targetRef),
+			};
+		} catch {
+			return null;
+		}
+	};
+
+	const resolveBoardChangeSource = async (
+		workspacePath: string,
+		change: RuntimeChangeyardChangeDetail,
+		cwd: string | null,
+		rawWorkspacePath: string | null,
+	): Promise<BoardChangeSource> => {
+		const metadata = await readBoardWorkspaceMetadata(workspacePath, change, rawWorkspacePath);
+		const landedHeadRef = metadata?.workspaceChangeId ?? metadata?.workspaceCommitId ?? null;
+		if (change.status === "merged" && landedHeadRef) {
+			return {
+				kind: "landed",
+				cwd: metadata?.repoRoot ?? workspacePath,
+				source: { kind: "landed", label: "Landed commit" },
+				baseRef: metadata?.baseCommitId ?? null,
+				headRef: landedHeadRef,
+			};
+		}
+		if (!cwd) {
+			return {
+				kind: "unavailable",
+				source: { kind: "unavailable", label: "Workspace not started" },
+			};
+		}
+		const workspaceHead = await readWorkspaceHead(cwd).catch(() => null);
+		if (!workspaceHead) {
+			return {
+				kind: "workspace_deleted",
+				source: { kind: "workspace_deleted", label: "Workspace deleted" },
+			};
+		}
+		return {
+			kind: "workspace",
+			cwd,
+			source: { kind: "workspace", label: "Workspace" },
+			workspaceHead,
+		};
+	};
+
+	const readLandedFiles = async (
+		source: Extract<BoardChangeSource, { kind: "landed" }>,
+	): Promise<RuntimeChangeyardBoardFileSummary[]> => {
+		const response = await getCommitDiffSummary({ cwd: source.cwd, commitHash: source.headRef });
+		return response.files;
+	};
+
+	const readLandedLog = async (source: Extract<BoardChangeSource, { kind: "landed" }>) => {
+		const engine = await detectWorkspaceEngine(source.cwd);
+		const baseRef = engine === "jj" ? `${source.headRef}-` : `${source.headRef}^`;
+		const log = await getGitLogRange({ cwd: source.cwd, baseRef, headRef: source.headRef, maxCount: 1 });
+		if (log.ok && log.commits.length > 0) {
+			return log;
+		}
+		return await getGitLogRange({ cwd: source.cwd, baseRef: source.baseRef, headRef: source.headRef, maxCount: 80 });
+	};
+
 	return {
 		listChanges: async (workspacePath) => {
 			if (!deps.changeyardApi) {
@@ -547,10 +682,12 @@ export function createChangesApi(deps: {
 					baseRevision: null,
 					commits: [],
 					files: emptyStats(),
+					source: { kind: "unavailable", label: "Change unavailable" },
 					error: `Change not found: ${input.id}`,
 				};
 			}
-			if (!cwd) {
+			const source = await resolveBoardChangeSource(workspacePath, change, cwd, rawWorkspacePath);
+			if (source.kind === "workspace_deleted" || source.kind === "unavailable") {
 				return {
 					ok: true,
 					changeId: change.id,
@@ -559,15 +696,34 @@ export function createChangesApi(deps: {
 					baseRevision: change.base?.revision ?? null,
 					commits: [],
 					files: emptyStats(),
-					error: "Change workspace has not been started.",
+					source: source.source,
 				};
 			}
 
-			const workspaceHead = await readWorkspaceHead(cwd).catch(() => null);
+			if (source.kind === "landed") {
+				const [log, files] = await Promise.all([
+					readLandedLog(source),
+					readLandedFiles(source).catch(() => []),
+				]);
+				const workspaceHead = log.commits.at(-1)?.hash ?? source.headRef;
+				return {
+					ok: log.ok,
+					changeId: change.id,
+					version: makeVersion(change, workspaceHead, rawWorkspacePath),
+					workspaceHead,
+					baseRevision: source.baseRef ?? change.base?.revision ?? null,
+					commits: log.commits,
+					files: summarizeFiles(files),
+					source: source.source,
+					error: log.ok ? undefined : "Landed commit changes are unavailable.",
+				};
+			}
+
+			const workspaceHead = source.workspaceHead;
 			const baseRevision = change.base?.revision?.trim() || null;
 			const [log, files] = await Promise.all([
-				getGitLogRange({ cwd, baseRef: baseRevision, headRef: undefined, maxCount: 80 }),
-				compactWorkspaceFiles(cwd).catch(() => []),
+				getGitLogRange({ cwd: source.cwd, baseRef: baseRevision, headRef: undefined, maxCount: 80 }),
+				compactWorkspaceFiles(source.cwd).catch(() => []),
 			]);
 
 			return {
@@ -578,6 +734,7 @@ export function createChangesApi(deps: {
 				baseRevision,
 				commits: log.commits,
 				files: summarizeFiles(files),
+				source: source.source,
 				error: log.error,
 			};
 		},
@@ -593,20 +750,44 @@ export function createChangesApi(deps: {
 					error: `Change not found: ${input.id}`,
 				};
 			}
-			if (!cwd) {
+			const source = await resolveBoardChangeSource(workspacePath, change, cwd, rawWorkspacePath);
+			if (source.kind === "workspace_deleted" || source.kind === "unavailable") {
 				return {
 					ok: true,
 					changeId: change.id,
 					version: makeVersion(change, null, rawWorkspacePath),
 					scope: input.scope,
 					files: [],
-					error: "Change workspace has not been started.",
 				};
 			}
 
-			const workspaceHead = await readWorkspaceHead(cwd).catch(() => null);
+			if (source.kind === "landed") {
+				const workspaceHead = source.headRef;
+				if (input.scope === "all") {
+					const files = await readLandedFiles(source).catch(() => []);
+					return {
+						ok: true,
+						changeId: change.id,
+						version: makeVersion(change, workspaceHead, rawWorkspacePath),
+						scope: input.scope,
+						files,
+					};
+				}
+
+				const response = await getCommitDiffSummary({ cwd: source.cwd, commitHash: input.scope.commitHash });
+				return {
+					ok: response.ok,
+					changeId: change.id,
+					version: makeVersion(change, workspaceHead, rawWorkspacePath),
+					scope: input.scope,
+					files: response.files,
+					error: response.error,
+				};
+			}
+
+			const workspaceHead = source.workspaceHead;
 			if (input.scope === "all") {
-				const files = await compactWorkspaceFiles(cwd).catch(() => []);
+				const files = await compactWorkspaceFiles(source.cwd).catch(() => []);
 				return {
 					ok: true,
 					changeId: change.id,
@@ -616,7 +797,7 @@ export function createChangesApi(deps: {
 				};
 			}
 
-			const response = await getCommitDiffSummary({ cwd, commitHash: input.scope.commitHash });
+			const response = await getCommitDiffSummary({ cwd: source.cwd, commitHash: input.scope.commitHash });
 			return {
 				ok: response.ok,
 				changeId: change.id,
@@ -639,7 +820,8 @@ export function createChangesApi(deps: {
 					error: `Change not found: ${input.id}`,
 				};
 			}
-			if (!cwd) {
+			const source = await resolveBoardChangeSource(workspacePath, change, cwd, rawWorkspacePath);
+			if (source.kind === "workspace_deleted" || source.kind === "unavailable") {
 				return {
 					ok: true,
 					changeId: change.id,
@@ -647,13 +829,65 @@ export function createChangesApi(deps: {
 					scope: input.scope,
 					path: input.path,
 					file: null,
-					error: "Change workspace has not been started.",
 				};
 			}
 
-			const workspaceHead = await readWorkspaceHead(cwd).catch(() => null);
+			if (source.kind === "landed") {
+				const workspaceHead = source.headRef;
+				if (input.scope === "all") {
+					const response = await getCommitDiff({ cwd: source.cwd, commitHash: source.headRef });
+					const file = response.files.find((candidate) => candidate.path === input.path) ?? null;
+					const workspaceFile = file
+						? ({
+								path: file.path,
+								previousPath: file.previousPath,
+								status: file.status,
+								additions: file.additions,
+								deletions: file.deletions,
+								oldText: null,
+								newText: null,
+							} satisfies RuntimeWorkspaceFileChange)
+						: null;
+					return {
+						ok: response.ok && file !== null,
+						changeId: change.id,
+						version: makeVersion(change, workspaceHead, rawWorkspacePath),
+						scope: input.scope,
+						path: input.path,
+						file: workspaceFile,
+						patch: file?.patch,
+						error: file ? response.error : (response.error ?? `File not found: ${input.path}`),
+					};
+				}
+
+				const response = await getCommitDiff({ cwd: source.cwd, commitHash: input.scope.commitHash });
+				const file = response.files.find((candidate) => candidate.path === input.path) ?? null;
+				const workspaceFile = file
+					? ({
+							path: file.path,
+							previousPath: file.previousPath,
+							status: file.status,
+							additions: file.additions,
+							deletions: file.deletions,
+							oldText: null,
+							newText: null,
+						} satisfies RuntimeWorkspaceFileChange)
+					: null;
+				return {
+					ok: response.ok && file !== null,
+					changeId: change.id,
+					version: makeVersion(change, workspaceHead, rawWorkspacePath),
+					scope: input.scope,
+					path: input.path,
+					file: workspaceFile,
+					patch: file?.patch,
+					error: file ? response.error : (response.error ?? `File not found: ${input.path}`),
+				};
+			}
+
+			const workspaceHead = source.workspaceHead;
 			if (input.scope === "all") {
-				const changes = await getWorkspaceChanges(cwd);
+				const changes = await getWorkspaceChanges(source.cwd);
 				const file = changes.files.find((candidate) => candidate.path === input.path) ?? null;
 				return {
 					ok: file !== null,
@@ -666,7 +900,7 @@ export function createChangesApi(deps: {
 				};
 			}
 
-			const response = await getCommitDiff({ cwd, commitHash: input.scope.commitHash });
+			const response = await getCommitDiff({ cwd: source.cwd, commitHash: input.scope.commitHash });
 			const file = response.files.find((candidate) => candidate.path === input.path) ?? null;
 			const workspaceFile = file
 				? ({

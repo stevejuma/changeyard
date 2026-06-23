@@ -777,6 +777,45 @@ describe("ChangeBoard", () => {
 		expect(container.textContent).not.toContain("All Changes");
 	});
 
+	it("shows a single workspace deleted badge without raw workspace errors", async () => {
+		runtimeMock.getBoardSummary.mockResolvedValue({
+			ok: true,
+			changeId: "CY-0001",
+			version: "v1",
+			workspaceHead: null,
+			baseRevision: "main",
+			commits: [],
+			files: { count: 0, additions: 0, deletions: 0 },
+			source: { kind: "workspace_deleted", label: "Workspace deleted" },
+		});
+
+		act(() => {
+			root.render(
+				<ChangeBoard
+					board={{ columns: [], dependencies: [] }}
+					changes={[createChange("CY-0001", "Missing workspace", null, "in_progress")]}
+					filter="changes"
+					selectedChangeId="CY-0001"
+					selectedTaskId={null}
+					workspaceId="project-1"
+					onFilterChange={vi.fn()}
+					onSelectChange={vi.fn()}
+					onSelectTask={vi.fn()}
+				/>,
+			);
+		});
+
+		await act(async () => {
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+
+		const text = container.textContent ?? "";
+		expect(text.match(/Workspace deleted/g) ?? []).toHaveLength(1);
+		expect(text).not.toContain("No commits found");
+		expect(text).not.toContain("Failed to run Jujutsu");
+	});
+
 	it("refreshes selected change files when the workspace event version changes", async () => {
 		runtimeMock.getBoardSummary.mockResolvedValue({
 			ok: true,

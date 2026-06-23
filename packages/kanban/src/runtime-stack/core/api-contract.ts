@@ -2683,6 +2683,12 @@ export const runtimeChangeyardBoardFileStatsSchema = z.object({
 });
 export type RuntimeChangeyardBoardFileStats = z.infer<typeof runtimeChangeyardBoardFileStatsSchema>;
 
+export const runtimeChangeyardBoardSourceSchema = z.object({
+	kind: z.enum(["workspace", "landed", "workspace_deleted", "unavailable"]),
+	label: z.string(),
+});
+export type RuntimeChangeyardBoardSource = z.infer<typeof runtimeChangeyardBoardSourceSchema>;
+
 export const runtimeChangeyardBoardSummaryResponseSchema = z.object({
 	ok: z.boolean(),
 	changeId: z.string(),
@@ -2691,6 +2697,7 @@ export const runtimeChangeyardBoardSummaryResponseSchema = z.object({
 	baseRevision: z.string().nullable(),
 	commits: z.array(runtimeGitCommitSchema),
 	files: runtimeChangeyardBoardFileStatsSchema,
+	source: runtimeChangeyardBoardSourceSchema.optional(),
 	error: z.string().optional(),
 });
 export type RuntimeChangeyardBoardSummaryResponse = z.infer<typeof runtimeChangeyardBoardSummaryResponseSchema>;
