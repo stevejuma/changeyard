@@ -10,6 +10,7 @@ export type ChangeSliceRecord = {
   validation: string[];
   manualReviewStatus: SliceReviewStatus;
   notes: string;
+  descriptionSummary?: string;
   createdAt: string;
 };
 
@@ -38,6 +39,7 @@ export function formatSliceRecord(record: ChangeSliceRecord): string {
     recordLine("Validation", record.validation.length ? record.validation.join("; ") : "not recorded"),
     recordLine("Manual review", record.manualReviewStatus),
     recordLine("Notes", record.notes || "None."),
+    ...(record.descriptionSummary ? [recordLine("Description", record.descriptionSummary)] : []),
     recordLine("Created", record.createdAt),
   ].join("\n");
 }
@@ -91,6 +93,7 @@ export function parseSliceRecords(body: string): ChangeSliceRecord[] {
         .filter((entry) => entry && entry !== "not recorded"),
       manualReviewStatus: (fields.get("manual review") as SliceReviewStatus | undefined) ?? "pending",
       notes: fields.get("notes") ?? "",
+      descriptionSummary: fields.get("description"),
       createdAt: fields.get("created") ?? "",
     });
   }

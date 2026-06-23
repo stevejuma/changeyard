@@ -84,7 +84,16 @@ export type ChangeSliceRecord = {
   validation: string[];
   manualReviewStatus: "pending" | "reviewed" | "changes_requested";
   notes: string;
+  descriptionSummary?: string;
   createdAt: string;
+};
+
+export type CommitDescriptionResult = {
+  subject: string;
+  body: string;
+  message: string;
+  sourceSections: string[];
+  warnings: string[];
 };
 
 export type QuickChangeEscalation = "off" | "warn" | "block";
@@ -246,4 +255,5 @@ export type WorkspaceMetadata = {
   lastSliceCommitId?: string | null;
   lastSliceTitle?: string;
   lastSliceCommittedAt?: string;
+  finalDescriptionUpdatedAt?: string;
 };

@@ -37,7 +37,7 @@ Changeyard is the markdown-first local change workflow for this repository. Cano
 
 - Commit often, complete rarely. Slice commits are the normal unit of manual review; `cy complete` is only for explicitly ending the task.
 - Do not run `cy complete <id> --no-pr` for "looks good", "continue", or "next". Only run it on clear wording like "complete the Changeyard change", "mark this ready", "ready for PR", or "complete and land".
-- `cy complete <id> --no-pr` is the explicit stopping point for planned/OpenSpec-lite changes; report `ready_for_pr` and wait
+- `cy complete <id> --no-pr` is the explicit stopping point for planned/OpenSpec-lite changes; it writes the final PR-style JJ landing description, then agents report `ready_for_pr` and wait
 - Do not run `cy land <id>` for planned/OpenSpec-lite or legacy unplanned changes unless the user explicitly confirms landing in the current conversation, for example "land it", "merge it", or "run cy land"
 - Quick low-risk changes may land after successful checks when the user's task clearly asks for completion and no hold, review, or PR was requested
 - When unsure, run `cy next <id>`, report its landing confirmation guidance, and wait
@@ -65,7 +65,8 @@ After `cy start`, all product edits belong **only** in the workspace checkout pr
 
 - A change slice is one user-requested behavior tweak, bug fix, visual adjustment, or cleanup increment.
 - Before starting a new requested slice, commit the previous completed slice if it changed code.
-- Use `cy slice commit <id> -m "<summary>"` after focused validation. Commit messages must start with the change id, for example `CY-0001: Add parser validation`.
+- Use `cy slice commit <id> -m "<summary>"` after focused validation. Slice subjects must start with the change id, for example `CY-0001: Add parser validation`, and the generated body should read like a compact PR description with summary, validation, files, and notes.
+- The final completion commit must summarize all completed slices and validation evidence. If `cy land --dry-run` reports `finalDescriptionValid: false`, run `cy describe final <id>` before landing.
 - Do not accumulate multiple user-requested iterations in one mutable JJ `@` or Git worktree unless the user explicitly asks for an uncommitted working diff.
 - After each slice commit, report what changed and stop unless the user already provided the next requested change. Completion remains separate from committing.
 - Failure example: accumulating UI iterations, date picker work, drag preview work, and final cleanup into one landed commit is not acceptable for iterative review-heavy work.

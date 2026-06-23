@@ -5,6 +5,7 @@ import { getWorkflowAuditReport } from "./commands/audit.js";
 import { runCompletions } from "./commands/completions.js";
 import { runComplete } from "./commands/complete.js";
 import { runCheckRecord } from "./commands/check.js";
+import { runDescribeFinal } from "./commands/describe.js";
 import { doctorReport, runDoctor } from "./commands/doctor.js";
 import {
   getPlanPrompt,
@@ -65,7 +66,7 @@ import { AGENT_TOOL_IDS } from "./scaffold/agent-tools.js";
 import { readWorkspaceMetadata } from "./workspace/marker.js";
 import { storageRoot } from "./paths.js";
 
-type CommandName = "init" | "update" | "create" | "quick" | "validate" | "sync" | "start" | "verify" | "hydrate" | "complete" | "next" | "audit" | "land" | "refresh" | "slice" | "workspace" | "check" | "review" | "diff" | "summarize" | "doctor" | "completions" | "recover" | "repair" | "note" | "mark-in-progress" | "list" | "status" | "plan" | "ui" | "server" | "dashboard" | "hub" | "tui" | "config" | "hooks" | "session" | "install" | "uninstall" | "version" | "help";
+type CommandName = "init" | "update" | "create" | "quick" | "validate" | "sync" | "start" | "verify" | "hydrate" | "complete" | "next" | "audit" | "land" | "refresh" | "describe" | "slice" | "workspace" | "check" | "review" | "diff" | "summarize" | "doctor" | "completions" | "recover" | "repair" | "note" | "mark-in-progress" | "list" | "status" | "plan" | "ui" | "server" | "dashboard" | "hub" | "tui" | "config" | "hooks" | "session" | "install" | "uninstall" | "version" | "help";
 
 type ParsedArgs = {
   command: string;
@@ -697,6 +698,23 @@ async function main(): Promise<void> {
         }, rootForChange(id));
         break;
       }
+      case "describe": {
+        const subcommand = validateSubcommand({
+          commandPath: "cy describe",
+          value: args.positional[0] ?? "",
+          subcommands: [
+            { value: "final", description: "Generate or preview the final JJ landing description." },
+          ],
+          colors: guidanceColors,
+          helpCommand: "cy describe --help",
+        });
+        const id = requireTaskId(`cy describe ${subcommand} <id>`, args.positional[1], guidanceColors);
+        output = runDescribeFinal(id, {
+          target: stringFlag(args.flags, "target"),
+          dryRun,
+        }, rootForChange(id));
+        break;
+      }
       case "slice": {
         const subcommand = validateSubcommand({
           commandPath: "cy slice",
@@ -710,6 +728,8 @@ async function main(): Promise<void> {
         const id = requireTaskId(`cy slice ${subcommand} <id>`, args.positional[1], guidanceColors);
         output = runSliceCommit(id, {
           message: shortMessageFlag(args, 2),
+          body: stringFlag(args.flags, "body"),
+          bodyFile: stringFlag(args.flags, "body-file"),
           checks: repeatedStringFlag(args.flags, "check"),
           dryRun,
         }, process.cwd());

@@ -26,4 +26,4 @@ cy complete CY-0001 --no-pr
 cy complete CY-0001 --profile full
 ```
 
-Completion requires explicit user completion wording, verified workspace context, completed or deferred acceptance criteria, non-placeholder Completion Notes, reviewable slice history, and passing checks. If completion fails, run `cy audit <id>` for the expected cwd, blockers, and recovery commands.
+Completion requires explicit user completion wording, verified workspace context, completed or deferred acceptance criteria, non-placeholder Completion Notes, reviewable slice history, and passing checks. For JJ workspaces, `cy complete` also writes a final PR-style landing description to the recorded workspace change so repository history keeps the full context after landing. If completion fails, run `cy audit <id>` for the expected cwd, blockers, and recovery commands.

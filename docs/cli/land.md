@@ -23,3 +23,5 @@ cy land CY-0001 [--target <ref>] [--dry-run] [--keep-workspace]
 cy land CY-0001
 cy land CY-0001 --target main --dry-run
 ```
+
+For JJ workspaces, landing requires the recorded workspace change to have a rich final description with summary, slices, validation, files, and notes/follow-up sections. If `cy land --dry-run` reports `finalDescriptionValid: false`, run `cy describe final CY-0001` before landing.

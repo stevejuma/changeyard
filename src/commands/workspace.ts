@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import path from "node:path";
+import { validateFinalCommitDescription } from "../change/commitDescriptions.js";
 import { loadConfig } from "../config/loadConfig.js";
 import { parseFrontmatter } from "../documents/frontmatter.js";
 import { changesRoot, workspacesRoot } from "../paths.js";
@@ -39,6 +40,9 @@ export type WorkspaceStatus = {
   landingFiles: string[];
   landingDescriptionValid: boolean;
   landingDescriptionError: string | null;
+  finalDescriptionValid: boolean;
+  finalDescriptionSummary: string | null;
+  finalDescriptionErrors: string[];
   landable: boolean;
   landBlockers: string[];
   cleanupNeeded: boolean;
@@ -243,6 +247,9 @@ export function getWorkspaceStatus(id: string, repoRoot = process.cwd()): Worksp
       landingFiles: [],
       landingDescriptionValid: false,
       landingDescriptionError: null,
+      finalDescriptionValid: false,
+      finalDescriptionSummary: null,
+      finalDescriptionErrors: [],
       landable: false,
       landBlockers: status === "merged" ? [] : [`Workspace metadata not found for ${changeId}`],
       cleanupNeeded: false,
@@ -269,6 +276,9 @@ export function getWorkspaceStatus(id: string, repoRoot = process.cwd()): Worksp
   let landingRevset: string | null = null;
   let landingFiles: string[] = [];
   let currentWorkspaceChangeId: string | null = null;
+  let finalDescriptionValid = metadata.engine !== "jj";
+  let finalDescriptionSummary: string | null = null;
+  let finalDescriptionErrors: string[] = [];
   let landingDescriptionErrors = metadata.engine === "jj"
     ? jjLandingDescriptionErrors(changeId, metadata, workspaceChangeId)
     : [];
@@ -281,6 +291,12 @@ export function getWorkspaceStatus(id: string, repoRoot = process.cwd()): Worksp
       landingRevset = context.landingRevset;
       landingFiles = context.landingFiles;
       landingDescriptionErrors = context.descriptionValidation.errors;
+      const changePath = resolveWorkspaceChangePath(metadata);
+      const body = existsSync(changePath) ? parseFrontmatter(readFileSync(changePath, "utf8")).body : "";
+      const finalValidation = validateFinalCommitDescription(changeId, context.description, body);
+      finalDescriptionValid = finalValidation.valid;
+      finalDescriptionSummary = finalValidation.summary;
+      finalDescriptionErrors = finalValidation.errors;
     } catch (error) {
       errors.push(`Could not inspect JJ landing context: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -296,6 +312,7 @@ export function getWorkspaceStatus(id: string, repoRoot = process.cwd()): Worksp
     ...(metadata.engine === "jj" && !workspaceChangeId ? [`Workspace ${changeId} is missing workspaceChangeId metadata; recreate the workspace with cy start ${changeId}`] : []),
     ...(metadata.engine === "jj" && workspaceChangeId && currentWorkspaceChangeId && currentWorkspaceChangeId !== workspaceChangeId ? [`Workspace ${changeId} is editing ${currentWorkspaceChangeId}, expected ${workspaceChangeId}`] : []),
     ...landingDescriptionErrors,
+    ...(status === "ready_for_pr" ? finalDescriptionErrors : []),
   ];
   const cleanupNeeded = status === "merged" && Boolean(metadata);
   const cleanupErrors = cleanupNeeded ? errors : [];
@@ -328,6 +345,9 @@ export function getWorkspaceStatus(id: string, repoRoot = process.cwd()): Worksp
     landingFiles,
     landingDescriptionValid: !landingDescriptionError,
     landingDescriptionError,
+    finalDescriptionValid,
+    finalDescriptionSummary,
+    finalDescriptionErrors,
     landable: status === "ready_for_pr" && landBlockers.length === 0,
     landBlockers,
     cleanupNeeded,
@@ -363,10 +383,13 @@ function formatWorkspaceStatus(status: WorkspaceStatus): string {
     `landingRevset: ${status.landingRevset ?? "unknown"}`,
     `landingFiles: ${status.landingFiles.length === 0 ? "none" : status.landingFiles.join(", ")}`,
     `landingDescription: ${status.landingDescriptionValid ? "ok" : status.landingDescriptionError ?? "unknown"}`,
+    `finalDescriptionValid: ${String(status.finalDescriptionValid)}`,
+    ...(status.finalDescriptionSummary ? [`finalDescriptionSummary: ${status.finalDescriptionSummary}`] : []),
     `landable: ${String(status.landable)}`,
     `cleanupNeeded: ${String(status.cleanupNeeded)}`,
   ];
   if (status.landBlockers.length > 0) lines.push(`landBlockers: ${status.landBlockers.join("; ")}`);
+  if (status.finalDescriptionErrors.length > 0) lines.push(`finalDescriptionErrors: ${status.finalDescriptionErrors.join("; ")}`);
   if (status.cleanupErrors.length > 0) lines.push(`cleanupErrors: ${status.cleanupErrors.join("; ")}`);
   if (status.errors.length > 0) lines.push(`errors: ${status.errors.join("; ")}`);
   if (status.nextCommand) lines.push(`Next: ${status.nextCommand}`);

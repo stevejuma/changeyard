@@ -9,15 +9,17 @@ import { validateChangeFile } from "../documents/validateDocument.js";
 import { changesRoot, storageRoot, workspacesRoot } from "../paths.js";
 import { validatePlanningForGate } from "../planning/validation.js";
 import { findChangeFile } from "../state/id.js";
-import type { Frontmatter } from "../types.js";
+import type { Frontmatter, WorkspaceMetadata } from "../types.js";
 import { readWorkspaceMetadata, resolveWorkspaceChangePath } from "../workspace/marker.js";
 import { createWorkspaceEngine } from "../workspace/index.js";
+import { describeJjWorkspaceCommit } from "../workspace/jjLandingDescriptions.js";
 import { assertTransition } from "../state/transitions.js";
 import { createProvider } from "../providers/index.js";
 import { isDenied } from "../workspace/patterns.js";
 import { countPassedManualChecks, runChecks } from "../checks/runChecks.js";
 import { runVerify } from "./verify.js";
 import { formatValidationFailure } from "./audit.js";
+import { finalDescriptionMessage } from "./describe.js";
 
 export type CompleteOptions = {
   noPr?: boolean;
@@ -109,6 +111,12 @@ function completionNotesPresent(body: string): boolean {
 
 function asRecord(value: unknown): Frontmatter {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Frontmatter : {};
+}
+
+function writeWorkspaceMetadata(repoRoot: string, id: string, metadata: WorkspaceMetadata): void {
+  const config = loadConfig(repoRoot);
+  const metadataPath = path.join(workspacesRoot(repoRoot, config), id, "metadata.json");
+  writeFileSync(metadataPath, `${JSON.stringify(metadata, null, 2)}\n`);
 }
 
 export function runComplete(id: string, options: CompleteOptions = {}, cwd = process.cwd()): string {
@@ -213,11 +221,25 @@ export function runComplete(id: string, options: CompleteOptions = {}, cwd = pro
   }
 
   writeFileSync(changePath, writeFrontmatter(nextFrontmatter, parsed.body));
+  let finalDescriptionUpdated = false;
+  if (metadata.engine === "jj" && metadata.workspaceChangeId) {
+    const generated = finalDescriptionMessage(changeId, metadata, metadata.repoRoot, metadata.targetRef ?? config.project.defaultBase);
+    describeJjWorkspaceCommit(metadata.path, metadata.workspaceChangeId, generated.message);
+    writeWorkspaceMetadata(metadata.repoRoot, changeId, {
+      ...metadata,
+      finalDescriptionUpdatedAt: new Date().toISOString(),
+    });
+    finalDescriptionUpdated = true;
+  }
   const followUp = nextFrontmatter.status === "ready_for_pr" ? `Next: cy land ${changeId}` : `Next: cy review start ${changeId}`;
   const checkSummary = results.length > 0
     ? `${results.length} checks passed`
     : manualPassed > 0
       ? `${manualPassed} recorded checks passed`
       : "0 checks passed";
-  return [`Completed ${changeId}: ${checkSummary}; status ${String(nextFrontmatter.status)}`, followUp].join("\n");
+  return [
+    `Completed ${changeId}: ${checkSummary}; status ${String(nextFrontmatter.status)}`,
+    ...(finalDescriptionUpdated ? ["Final description: updated"] : []),
+    followUp,
+  ].join("\n");
 }

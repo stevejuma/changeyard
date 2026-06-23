@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { validateFinalCommitDescription } from "../change/commitDescriptions.js";
 import { loadConfig } from "../config/loadConfig.js";
 import { parseFrontmatter, writeFrontmatter } from "../documents/frontmatter.js";
 import { changesRoot } from "../paths.js";
@@ -115,6 +116,7 @@ export function runLand(id: string, options: LandOptions = {}, repoRoot = proces
   const workspaceChangeId = landing.workspaceChangeId;
   const description = landing.description;
   const descriptionErrors = landing.descriptionValidation.errors;
+  const finalDescription = validateFinalCommitDescription(changeId, description, parsed.body);
   const currentTargetCommitId = landing.currentTargetCommitId;
   const targetMoved = landing.targetMoved;
   const landingRevset = landing.landingRevset;
@@ -134,12 +136,15 @@ export function runLand(id: string, options: LandOptions = {}, repoRoot = proces
       `landingRevset: ${landingRevset}`,
       `landingDescription: ${descriptionErrors.length > 0 ? "blocked" : "ok"}`,
       `landingDescriptions: ${descriptionErrors.length > 0 ? "blocked" : "ok"}`,
+      `finalDescriptionValid: ${String(finalDescription.valid)}`,
+      `finalDescriptionSummary: ${finalDescription.summary || "unknown"}`,
       `metadataSource: ${metadata.engine === "jj" ? "workspace" : "root"}`,
       `landingFiles: ${landing.landingFiles.length === 0 ? "none" : landing.landingFiles.join(", ")}`,
       `description: ${description.split("\n")[0] ?? description}`,
     ];
     if (targetMoved) lines.push(`blocker: target ${target} moved; run cy refresh ${changeId} --target ${target}`);
     for (const error of descriptionErrors) lines.push(`blocker: ${error}`);
+    for (const error of finalDescription.errors) lines.push(`blocker: ${error}`);
     if (!options.keepWorkspace) lines.push(`cleanup: would delete workspace ${changeId}`);
     return lines.join("\n");
   }
@@ -153,6 +158,14 @@ export function runLand(id: string, options: LandOptions = {}, repoRoot = proces
   if (descriptionErrors.length > 0) {
     throw new Error(withLandRecovery(formatJjDescriptionFailure(changeId, descriptionErrors), changeId, repoRoot, [
       `- Fix each invalid workspace commit with the jj describe command shown above.`,
+    ]));
+  }
+  if (!finalDescription.valid) {
+    throw new Error(withLandRecovery([
+      `Final landing description for ${changeId} is incomplete.`,
+      ...finalDescription.errors.map((error) => `- ${error}`),
+    ].join("\n"), changeId, repoRoot, [
+      `- Run cy describe final ${changeId} from ${repoRoot}.`,
     ]));
   }
 

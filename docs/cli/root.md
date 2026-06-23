@@ -34,6 +34,7 @@ cy <command> [options]
 - `audit`: Audit workflow gates and print recovery guidance.
 - `land`: Land ready workspace work locally.
 - `refresh`: Rebase a JJ workspace change onto the current target before landing.
+- `describe`: Generate or preview rich commit descriptions.
 - `slice`: Commit one reviewable implementation slice from a workspace.
 - `workspace`: Inspect or clean task workspaces.
 - `check`: Record manual validation evidence for a workspace change.

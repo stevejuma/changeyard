@@ -1,7 +1,9 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { appendManualCheckRecord } from "../checks/runChecks.js";
+import { buildCommitDescription } from "../change/commitDescriptions.js";
 import { appendSliceRecord, parseSliceRecords, replaceSliceRecords, type ChangeSliceRecord } from "../change/slices.js";
 import { loadConfig } from "../config/loadConfig.js";
 import { parseFrontmatter, writeFrontmatter } from "../documents/frontmatter.js";
@@ -14,6 +16,8 @@ import { readWorkspaceMetadataFromRoot } from "./workspace.js";
 
 export type SliceCommitOptions = {
   message?: string;
+  body?: string;
+  bodyFile?: string;
   checks?: string[];
   dryRun?: boolean;
 };
@@ -82,13 +86,45 @@ function gitShort(cwd: string, revision: string): string {
   return requireOk(run("git", ["rev-parse", "--short", revision], cwd), "Could not shorten Git commit id");
 }
 
-function workspaceDirty(metadata: WorkspaceMetadata): boolean {
+function isLocalMarker(file: string): boolean {
+  return file === ".changeyard-workspace.json" || file === ".changeyard-hydrate.json";
+}
+
+function ensureGitMarkerExcludes(cwd: string): void {
+  const excludePath = requireOk(run("git", ["rev-parse", "--git-path", "info/exclude"], cwd), "Could not find Git exclude file");
+  const absoluteExcludePath = path.isAbsolute(excludePath) ? excludePath : path.join(cwd, excludePath);
+  const current = existsSync(absoluteExcludePath) ? readFileSync(absoluteExcludePath, "utf8") : "";
+  const entries = [".changeyard-workspace.json", ".changeyard-hydrate.json"];
+  const missing = entries.filter((entry) => !new RegExp(`^${entry.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "mu").test(current));
+  if (missing.length === 0) return;
+  writeFileSync(absoluteExcludePath, `${current.replace(/\s*$/u, "\n")}${missing.join("\n")}\n`);
+}
+
+function changedFiles(metadata: WorkspaceMetadata): string[] {
   if (metadata.engine === "jj") {
-    const status = requireOk(run("jj", ["status"], metadata.path), "Could not inspect JJ status");
-    return !status.includes("The working copy has no changes.");
+    return requireOk(run("jj", ["diff", "--name-only"], metadata.path), "Could not inspect JJ changed files")
+      .split(/\r?\n/u)
+      .map((line) => line.trim())
+      .filter((line) => line && !isLocalMarker(line))
+      .sort();
   }
   if (metadata.engine === "git-worktree") {
-    return requireOk(run("git", ["status", "--porcelain"], metadata.path), "Could not inspect Git status").trim().length > 0;
+    ensureGitMarkerExcludes(metadata.path);
+    return requireOk(run("git", ["status", "--porcelain"], metadata.path), "Could not inspect Git changed files")
+      .split(/\r?\n/u)
+      .map((line) => line.slice(3).trim().replace(/.* -> /u, ""))
+      .filter((line) => line && !isLocalMarker(line))
+      .sort();
+  }
+  return [];
+}
+
+function workspaceDirty(metadata: WorkspaceMetadata): boolean {
+  if (metadata.engine === "jj") {
+    return changedFiles(metadata).length > 0;
+  }
+  if (metadata.engine === "git-worktree") {
+    return changedFiles(metadata).length > 0;
   }
   throw new Error("cy slice commit requires a JJ or Git workspace; plain-copy workspaces do not support slice commits");
 }
@@ -136,6 +172,17 @@ function writeWorkspaceMetadata(repoRoot: string, id: string, metadata: Workspac
   writeFileSync(metadataPath, `${JSON.stringify(metadata, null, 2)}\n`);
 }
 
+function withMessageFile<T>(message: string, callback: (file: string) => T): T {
+  const directory = mkdtempSync(path.join(tmpdir(), "cy-commit-"));
+  const file = path.join(directory, "message.txt");
+  try {
+    writeFileSync(file, message);
+    return callback(file);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
 function commitJj(metadata: WorkspaceMetadata, message: string, dryRun: boolean | undefined): { id: string; commitId: string } {
   const sliceChangeId = jjValue(metadata.path, "@", "change_id.short()");
   if (!dryRun) {
@@ -148,8 +195,12 @@ function commitJj(metadata: WorkspaceMetadata, message: string, dryRun: boolean 
 
 function commitGit(metadata: WorkspaceMetadata, message: string, dryRun: boolean | undefined, changePath: string): { id: string; commitId: string } {
   if (!dryRun) {
+    ensureGitMarkerExcludes(metadata.path);
     requireOk(run("git", ["add", "-A"], metadata.path), "Could not stage Git workspace changes");
-    requireOk(run("git", ["-c", "commit.gpgsign=false", "commit", "--no-gpg-sign", "-m", message], metadata.path), "Could not commit Git slice");
+    run("git", ["reset", "-q", "--", ".changeyard-workspace.json", ".changeyard-hydrate.json"], metadata.path);
+    withMessageFile(message, (messageFile) => {
+      requireOk(run("git", ["-c", "commit.gpgsign=false", "commit", "--no-gpg-sign", "-F", messageFile], metadata.path), "Could not commit Git slice");
+    });
     const head = gitHead(metadata.path);
     const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
     const records = parseSliceRecords(parsed.body);
@@ -160,7 +211,9 @@ function commitGit(metadata: WorkspaceMetadata, message: string, dryRun: boolean
       const nextBody = replaceSliceRecords(parsed.body, records);
       writeFileSync(changePath, writeFrontmatter(parsed.frontmatter, nextBody));
       requireOk(run("git", ["add", "-f", "--", path.relative(metadata.path, changePath)], metadata.path), "Could not stage Git slice metadata");
-      requireOk(run("git", ["-c", "commit.gpgsign=false", "commit", "--amend", "--no-gpg-sign", "--no-edit"], metadata.path), "Could not amend Git slice metadata");
+      withMessageFile(message, (messageFile) => {
+        requireOk(run("git", ["-c", "commit.gpgsign=false", "commit", "--amend", "--no-gpg-sign", "-F", messageFile], metadata.path), "Could not amend Git slice metadata");
+      });
     }
   }
   const head = gitHead(metadata.path);
@@ -171,7 +224,7 @@ export function runSliceCommit(id: string, options: SliceCommitOptions = {}, cwd
   if (!id) throw new Error("change id is required");
   const metadata = readWorkspaceMetadata(id, cwd);
   const changeId = metadata.changeId;
-  const message = normalizeMessage(changeId, options.message);
+  const subject = normalizeMessage(changeId, options.message);
   runVerify(changeId, cwd);
   if (!workspaceDirty(metadata)) throw new Error(`No workspace changes detected for ${changeId}; finish the slice only after changing code or docs.`);
 
@@ -181,22 +234,40 @@ export function runSliceCommit(id: string, options: SliceCommitOptions = {}, cwd
   if (!vcs) throw new Error("cy slice commit requires a JJ or Git workspace; plain-copy workspaces do not support slice commits");
   const changePath = activeChangePath(metadata);
   const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
+  const title = shortTitle(changeId, subject);
+  const files = changedFiles(metadata);
+  const extraBody = [
+    options.bodyFile ? readFileSync(path.resolve(cwd, options.bodyFile), "utf8").trim() : "",
+    options.body?.trim() ?? "",
+  ].filter(Boolean).join("\n");
+  const description = buildCommitDescription({
+    changeId,
+    title: String(parsed.frontmatter.title ?? changeId),
+    subjectTitle: title,
+    body: parsed.body,
+    slices: [],
+    validation,
+    files,
+    notes: [`Slice: ${title}`],
+    extraBody,
+  });
   const pendingSliceId = vcs === "jj" ? jjValue(metadata.path, "@", "change_id.short()") : "pending";
   const record: ChangeSliceRecord = {
-    title: shortTitle(changeId, message),
+    title,
     vcs,
     id: pendingSliceId,
     commitId: null,
     validation,
     manualReviewStatus: "pending",
     notes: "None.",
+    descriptionSummary: description.sourceSections.join(", "),
     createdAt: new Date().toISOString(),
   };
 
   if (!options.dryRun) {
     writeFileSync(changePath, writeFrontmatter(parsed.frontmatter, appendSliceRecord(parsed.body, record)));
   }
-  const slice = vcs === "jj" ? commitJj(metadata, message, options.dryRun) : commitGit(metadata, message, options.dryRun, changePath);
+  const slice = vcs === "jj" ? commitJj(metadata, description.message, options.dryRun) : commitGit(metadata, description.message, options.dryRun, changePath);
 
   if (!options.dryRun) {
     writeWorkspaceMetadata(metadata.repoRoot, changeId, {
@@ -218,7 +289,8 @@ export function runSliceCommit(id: string, options: SliceCommitOptions = {}, cwd
 
   return [
     options.dryRun ? `Dry-run: would commit slice for ${changeId}` : `Committed slice for ${changeId}`,
-    `Message: ${message}`,
+    `Message: ${description.subject}`,
+    `Description: ${description.sourceSections.join(", ")}`,
     `Slice: ${slice.id}${slice.commitId ? ` (${slice.commitId})` : ""}`,
     `Validation: ${validation.length ? validation.join("; ") : "not recorded"}`,
     vcs === "jj" ? "Next: review this slice, then continue in the fresh empty @ only after the next requested change." : "Next: review this slice, then continue only after the next requested change.",

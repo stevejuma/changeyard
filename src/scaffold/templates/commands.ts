@@ -56,7 +56,7 @@ const CHANGEYARD_COMMANDS: CommandContent[] = [
 2. Run \`cy start <id>\`.
 3. Follow the printed \`cd\` path into the workspace checkout.
 4. Run \`cy verify <id>\` from that checkout before editing files.
-5. After each user-requested implementation increment, run focused validation and commit the slice with \`cy slice commit <id> -m "<summary>"\`.
+5. After each user-requested implementation increment, run focused validation and commit the slice with \`cy slice commit <id> -m "<summary>"\`; Changeyard generates the PR-style commit body.
 6. Do not accumulate multiple requested iterations in one mutable JJ \`@\` or Git worktree unless the user explicitly asks for an uncommitted diff.
 7. If start or verify fails, **halt** — use \`cy audit <id>\`, \`cy workspace status <id>\`, or \`cy recover <id>\` as directed before editing files.`,
   },
@@ -71,7 +71,7 @@ const CHANGEYARD_COMMANDS: CommandContent[] = [
 1. Run \`cy verify <id>\` from inside the expected workspace checkout.
 2. If verification fails, **halt all implementation work.** Do not edit files in the main repo or workspace.
 3. Diagnose with \`cy doctor\` or fix the workspace/CLI issue, then re-run verify from the path printed by \`cy start <id>\`.
-4. For JJ workspaces, every commit in the landing stack must start with the change id, for example \`CY-0001: Add parser validation\`.
+4. For JJ workspaces, every commit in the landing stack must start with the change id, for example \`CY-0001: Add parser validation\`, and the final landing tip must have summary, slices, validation, files, and notes sections.
 5. Only edit files inside the verified workspace after verify passes.`,
   },
   {
@@ -87,7 +87,8 @@ const CHANGEYARD_COMMANDS: CommandContent[] = [
 2. Review recorded slices with \`cy review slices <id>\`.
 3. Run \`cy verify <id>\` from the workspace.
 4. Run \`cy complete <id> --no-pr\` unless the user explicitly wants PR creation.
-5. Run \`cy next <id>\` and report its landing confirmation guidance.
+5. For JJ workspaces, completion writes the final PR-style landing description; if land later reports missing context, run \`cy describe final <id>\`.
+6. Run \`cy next <id>\` and report its landing confirmation guidance.
 6. Do not run \`cy land <id>\` for planned/OpenSpec-lite or legacy unplanned changes unless the user explicitly confirms landing in the current conversation.
 7. Quick low-risk changes may land after successful checks when the user's task clearly asks for completion and no hold, review, or PR was requested.
 8. If completion fails, run \`cy audit <id>\` and follow the Recovery section.
