@@ -6,6 +6,18 @@ import { createChangeyardUiApi } from "../src/commands/ui.js";
 
 const DEV_WEB_PORT = Number(process.env.VCS_WEB_UI_PORT || "4174");
 const DEV_HOST = process.env.VCS_WEB_UI_HOST || "127.0.0.1";
+const DEV_RUNTIME_PORT = process.env.VCS_RUNTIME_PORT?.trim();
+
+function parseRuntimePort(port: string | undefined): number | "auto" {
+	if (!port) {
+		return "auto";
+	}
+	const parsed = Number(port);
+	if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
+		throw new Error(`Invalid VCS_RUNTIME_PORT value "${port}". Expected an integer from 1-65535.`);
+	}
+	return parsed;
+}
 
 function killChild(child: ReturnType<typeof spawn>): Promise<void> {
 	return new Promise((resolve) => {
@@ -30,12 +42,16 @@ async function main(): Promise<void> {
 	const cwd = process.cwd();
 	const repoRoot = findRepoRoot(cwd);
 	const config = loadConfig(repoRoot);
+	const runtimePort = parseRuntimePort(DEV_RUNTIME_PORT);
+	if (runtimePort !== "auto") {
+		process.env.KANBAN_RUNTIME_PORT = String(runtimePort);
+	}
 
 	const kanbanServer = await import(new URL("../packages/kanban/src/server/index.js", import.meta.url).href);
 	const runtime = await kanbanServer.startChangeyardRuntime({
 		repoRoot,
 		host: config.ui?.host ?? DEV_HOST,
-		port: "auto",
+		port: runtimePort,
 		openBrowser: false,
 		mode: "web",
 		serveWebAssets: false,

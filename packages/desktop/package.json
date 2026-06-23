@@ -18,9 +18,9 @@
 		"dev:vite": "pnpm run stage:cli && tsc -p tsconfig.build.json && node scripts/launch-electron.mjs --vite",
 		"dev": "pnpm run dev:electron",
 		"start": "electron .",
-		"test:e2e": "vitest run test/launch-e2e.test.ts --passWithNoTests",
+		"test:e2e": "node scripts/prepare-test-artifacts.mjs && vitest run test/launch-e2e.test.ts --passWithNoTests",
 		"postinstall": "electron-builder install-app-deps && node scripts/patch-node-pty.mjs",
-		"test": "vitest run --passWithNoTests",
+		"test": "node scripts/prepare-test-artifacts.mjs && vitest run --passWithNoTests",
 		"test:watch": "vitest"
 	},
 	"devDependencies": {

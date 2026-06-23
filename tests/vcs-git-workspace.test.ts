@@ -60,7 +60,7 @@ function createGitRunner(calls: string[] = []): VcsCommandRunner {
 			case "git log --topo-order --date-order --reverse --format=\u001e%H\u001f%h\u001f%an\u001f%ae\u001f%aI\u001f%s\u001f%P origin/main..feature/api":
 				return ok("\u001ebbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001fbbbbbbb\u001fAda\u001fada@example.com\u001f2026-06-14T09:00:00Z\u001fAPI change\u001faaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
 			case "git status --porcelain=v1 -z --untracked-files=all":
-				return ok(" M src/api.ts\0A  src/new.ts\0?? tmp.txt\0");
+				return ok("M src/api.ts\0A  src/new.ts\0?? tmp.txt\0");
 			case "git diff --name-status --find-renames":
 				return ok("M\tsrc/api.ts\nA\tsrc/new.ts");
 			case "git diff --patch --find-renames --diff-algorithm=histogram":

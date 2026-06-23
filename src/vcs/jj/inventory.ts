@@ -298,7 +298,7 @@ function buildBookmarkInventoryArgs(options: JjRemoteBookmarkDiscoveryOptions | 
 	const prefixes = normalizeFilterValues(options?.prefixes).map(prefixToBookmarkPattern);
 	const remotes = normalizeFilterValues(options?.remotes);
 	const args = ["bookmark", "list"];
-	if (mode === "all") {
+	if (mode === "all" && remotes.length === 0) {
 		args.push("--all-remotes");
 	}
 	if (mode === "tracked") {

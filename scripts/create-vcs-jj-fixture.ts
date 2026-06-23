@@ -159,7 +159,12 @@ async function createFixture(options: FixtureOptions) {
 		".changeyard/config.local.jsonc": JSON.stringify(
 			{
 				provider: { type: "noop" },
-				vcs: { engine: "jj", fallback: "jj", targetBranch: "origin/main" },
+				vcs: {
+					engine: "jj",
+					fallback: "jj",
+					targetBranch: "origin/main",
+					remoteBookmarks: { mode: "all", remotes: ["origin"], prefixes: ["feature/"] },
+				},
 				project: { defaultBase: "main" },
 			},
 			null,

@@ -28,6 +28,18 @@ const forbiddenPatterns = forbiddenValues.map((value) => ({
   pattern: new RegExp(`(?<![A-Za-z0-9_-])${escapeRegex(value)}(?![A-Za-z0-9_-])`, "giu"),
 }));
 
+const allowedReleaseRegistryLine = `registry-url: https://registry.${forbiddenValues[2]}.org`;
+
+function isAllowedReference(filePath, content, index, value) {
+  if (filePath !== ".github/workflows/release.yml" || value !== forbiddenValues[2]) {
+    return false;
+  }
+  const lineStart = content.lastIndexOf("\n", index) + 1;
+  const lineEnd = content.indexOf("\n", index);
+  const line = content.slice(lineStart, lineEnd === -1 ? content.length : lineEnd).trim();
+  return line === allowedReleaseRegistryLine;
+}
+
 const failures = [];
 for (const filePath of tracked.stdout.split("\n").filter(Boolean)) {
   if (filePath.includes(forbiddenValues[3])) {
@@ -46,6 +58,9 @@ for (const filePath of tracked.stdout.split("\n").filter(Boolean)) {
   for (const { value, pattern } of forbiddenPatterns) {
     for (const match of content.matchAll(pattern)) {
       const index = match.index ?? 0;
+      if (isAllowedReference(filePath, content, index, value)) {
+        continue;
+      }
       const line = content.slice(0, index).split("\n").length;
       failures.push(`${filePath}:${line}: legacy package-manager reference ${JSON.stringify(value)}`);
     }

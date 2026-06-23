@@ -133,17 +133,28 @@ function parsePorcelainStatus(output: string): GitWorkingCopyFile[] {
 	return parsePorcelainStatusLines(output);
 }
 
+function parsePorcelainEntry(entry: string): { statusCode: string; pathPart: string } | null {
+	if (entry.length < 3) {
+		return null;
+	}
+	const hasStatusSeparator = entry[2] === " ";
+	const statusCode = hasStatusSeparator || entry[1] !== " " ? entry.slice(0, 2) : `${entry[0]} `;
+	const pathStart = hasStatusSeparator ? 3 : 2;
+	const pathPart = entry.slice(pathStart);
+	return pathPart ? { statusCode, pathPart } : null;
+}
+
 function parsePorcelainStatusLines(output: string): GitWorkingCopyFile[] {
 	const files: GitWorkingCopyFile[] = [];
 	for (const line of output.split("\n")) {
 		if (!line.trim()) {
 			continue;
 		}
-		const statusCode = line.slice(0, 2);
-		const pathPart = line.slice(2).trim();
-		if (!pathPart) {
+		const parsed = parsePorcelainEntry(line);
+		if (!parsed) {
 			continue;
 		}
+		const { statusCode, pathPart } = parsed;
 		const renameParts = pathPart.split(" -> ");
 		if (renameParts.length === 2 && renameParts[0] && renameParts[1]) {
 			files.push({
@@ -168,14 +179,11 @@ function parsePorcelainStatusZ(output: string): GitWorkingCopyFile[] {
 	const entries = output.split("\0").filter((entry) => entry.length > 0);
 	for (let index = 0; index < entries.length; index += 1) {
 		const entry = entries[index] ?? "";
-		if (entry.length < 4) {
+		const parsed = parsePorcelainEntry(entry);
+		if (!parsed) {
 			continue;
 		}
-		const statusCode = entry.slice(0, 2);
-		const pathPart = entry.slice(3);
-		if (!pathPart) {
-			continue;
-		}
+		const { statusCode, pathPart } = parsed;
 		if (statusCode.includes("R") || statusCode.includes("C")) {
 			const previousPath = entries[index + 1] ?? null;
 			if (previousPath) {

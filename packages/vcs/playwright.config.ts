@@ -5,6 +5,7 @@ import { defineConfig } from "@playwright/test";
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(currentDir, "../..");
 const port = Number(process.env.VCS_E2E_PORT || "4184");
+const runtimePort = Number(process.env.VCS_E2E_RUNTIME_PORT || port + 1_000);
 const host = process.env.VCS_E2E_HOST || "127.0.0.1";
 const baseURL = `http://${host}:${port}`;
 
@@ -20,7 +21,7 @@ export default defineConfig({
 		trace: "retain-on-failure",
 	},
 	webServer: {
-		command: `VCS_WEB_UI_HOST=${host} VCS_WEB_UI_PORT=${port} pnpm run ui:vcs:dev`,
+		command: `VCS_WEB_UI_HOST=${host} VCS_WEB_UI_PORT=${port} VCS_RUNTIME_PORT=${runtimePort} pnpm run ui:vcs:dev`,
 		cwd: repoRoot,
 		url: `${baseURL}/vcs/`,
 		reuseExistingServer: !process.env.CI,

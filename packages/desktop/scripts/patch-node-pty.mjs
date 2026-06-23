@@ -71,7 +71,7 @@ function resolveNodePtyVersion() {
 }
 
 // Only execute the file-mutating side effect when the script is run
-// directly (e.g. via `npm run postinstall`). When this module is
+// directly (e.g. via `pnpm run postinstall`). When this module is
 // imported by a test, skip the side effect and let the test drive
 // `patchContent` with fixture strings.
 const isDirectRun = fileURLToPath(import.meta.url) === process.argv[1];
@@ -79,7 +79,7 @@ if (isDirectRun) {
 	if (!existsSync(TARGET_FILE)) {
 		console.error(
 			`patch-node-pty: ERROR — node-pty not installed at ${TARGET_FILE}. ` +
-				`Run \`npm install\` in packages/desktop first.`,
+				`Run \`pnpm install\` in packages/desktop first.`,
 		);
 		process.exit(1);
 	}
@@ -107,7 +107,7 @@ if (isDirectRun) {
 				"  2. Update the REPLACEMENTS array in:",
 				`       ${fileURLToPath(import.meta.url)}`,
 				"     so that each entry's `pre` matches the current upstream source.",
-				"  3. Re-run `npm install` (or `npm run postinstall`) and confirm output is clean.",
+				"  3. Re-run `pnpm install` (or `pnpm run postinstall`) and confirm output is clean.",
 			].join("\n"),
 		);
 		process.exit(1);

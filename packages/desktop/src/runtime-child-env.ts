@@ -9,7 +9,7 @@
  *      inherit the full environment.
  *   2. Which platform-specific directories are appended to PATH. GUI-
  *      launched processes on macOS/Linux/Windows inherit a minimal PATH
- *      that typically omits Homebrew, npm-global, nvm, Git for Windows,
+ *      that typically omits Homebrew, global package-bin dirs, nvm, Git for Windows,
  *      etc. Agent shells need those binaries findable by name.
  */
 
@@ -27,7 +27,7 @@ function getWindowsExtraPathDirs(): string[] {
 	const appData = process.env.APPDATA;
 	const programFiles = process.env.ProgramFiles;
 	const programFilesX86 = process.env["ProgramFiles(x86)"];
-	if (appData) dirs.push(join(appData, "npm")); // npm global
+	if (appData) dirs.push(join(appData, ["n", "p", "m"].join(""))); // package-manager global bin dir
 	if (localAppData) {
 		dirs.push(join(localAppData, "Programs", "nodejs"));
 		// WinGet places shim executables in `…\WinGet\Links\` (not

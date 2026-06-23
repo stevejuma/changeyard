@@ -164,6 +164,29 @@ async function openSettings(page: Page, workspaceId: string): Promise<void> {
 	await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible();
 }
 
+async function openMergeEditor(page: Page): Promise<void> {
+	const launcher = page.getByTestId("vcs-conflict-edit-button");
+	await expect(launcher).toBeVisible();
+	await launcher.click();
+	await expect(page.getByTestId("cy-merge-editor")).toBeVisible();
+}
+
+async function expectCommitEditAction(page: Page, title: string, enabled: boolean): Promise<void> {
+	await page.getByRole("button", { name: `Commit actions ${title}` }).click();
+	const editAction = page.getByRole("menuitem", { name: "Edit commit" });
+	if (enabled) {
+		await expect(editAction).toBeEnabled();
+	} else {
+		await expect(editAction).toBeDisabled();
+	}
+	await page.keyboard.press("Escape");
+}
+
+async function clickCommitAction(page: Page, title: string, action: string): Promise<void> {
+	await page.getByRole("button", { name: `Commit actions ${title}` }).click();
+	await page.getByRole("menuitem", { name: action }).click();
+}
+
 test.describe.serial("VCS JJ fixture", () => {
 	let tempDir = "";
 	let workspaceId = "";
@@ -195,6 +218,7 @@ test.describe.serial("VCS JJ fixture", () => {
 		await expect(page.getByText("feature/export-json", { exact: true })).toBeVisible();
 		await expect(page.getByText("feature/cloud-observability", { exact: true })).toBeVisible();
 		await expect(page.getByText("feature/cloud-runner", { exact: true })).toBeVisible();
+		await expect(page.getByText("feature/query-filtering", { exact: true })).toBeVisible();
 		await expect(page.getByText("feature/readme-polish", { exact: true })).toBeVisible();
 
 		await page.getByText("feature/cloud-observability", { exact: true }).click();
@@ -240,10 +264,10 @@ test.describe.serial("VCS JJ fixture", () => {
 		await openWorkspace(page, workspaceId);
 
 		const nextTitle = "add json report mode polished";
-		await page.getByRole("button", { name: "Edit commit add json report mode" }).click();
+		await clickCommitAction(page, "add json report mode", "Reword commit");
 		const editDialog = page.getByRole("dialog", { name: "Edit Commit Message" });
 		await expect(editDialog).toBeVisible();
-		await editDialog.getByLabel("Commit message").fill(nextTitle);
+		await editDialog.locator("textarea").fill(nextTitle);
 		await editDialog.getByRole("button", { name: "Preview changes" }).click();
 
 		const previewDialog = page.getByRole("dialog", { name: "Workspace Operation" });
@@ -251,8 +275,8 @@ test.describe.serial("VCS JJ fixture", () => {
 		await expect(previewDialog.getByText(/Update .* description/i)).toBeVisible();
 		await previewDialog.getByRole("button", { name: "Apply operation" }).click();
 		await expect(previewDialog).toBeHidden();
-		await expect(page.getByText(nextTitle, { exact: true })).toBeVisible();
-		await expect(page.getByText("add json report mode", { exact: true })).toBeHidden();
+		await expect(page.getByTestId("vcs-workspace-commit-card").filter({ hasText: nextTitle }).first()).toBeVisible();
+		await expect(page.getByText("add json report mode", { exact: true })).toHaveCount(0);
 
 		await openBranchesRef(page, workspaceId, "origin/main");
 		await page.getByText("feature/export-json", { exact: true }).click();
@@ -485,11 +509,11 @@ test.describe.serial("VCS JJ fixture", () => {
 		const fModeSwitch = settingsDialog.getByRole("switch", { name: "Enable F Mode Navigation" });
 		await expect(fModeSwitch).toHaveAttribute("aria-checked", "false");
 		await expect(settingsDialog.getByText("F Mode Navigation", { exact: true })).toBeVisible();
-		await expect(settingsDialog.getByText("Disabled", { exact: true })).toBeVisible();
+		await expect(settingsDialog.getByText("Disabled", { exact: true }).first()).toBeVisible();
 
 		await fModeSwitch.click();
 		await expect(fModeSwitch).toHaveAttribute("aria-checked", "true");
-		await expect(settingsDialog.getByText("Enabled", { exact: true })).toBeVisible();
+		await expect(settingsDialog.getByText("Enabled", { exact: true }).first()).toBeVisible();
 		await settingsDialog.getByRole("button", { name: "Save" }).click();
 		await expect(settingsDialog).toBeHidden();
 
@@ -572,9 +596,11 @@ test.describe.serial("VCS JJ scenario fixture", () => {
 		await expect(page.getByText("Conflicted", { exact: true })).toBeVisible();
 		await expect(page.getByText(/src\/conflict\.rs/)).toBeVisible();
 		await page.locator('[data-testid="vcs-working-copy-file-row"][data-file-path="src/conflict.rs"]').first().click();
-		await expect(page.getByTestId("cy-merge-editor")).toBeVisible();
-		await expect(page.getByTestId("cy-merge-conflict-block")).toBeVisible();
-		await page.getByRole("button", { name: "Accept Right" }).first().click();
+		await openMergeEditor(page);
+		await expect(page.getByRole("button", { name: "Merge Right" })).toBeVisible();
+		await page.getByRole("button", { name: "Merge Right" }).click();
+		await expect(page.getByRole("button", { name: "Delete merged content" })).toBeVisible();
+		await page.getByRole("button", { name: "Mark Resolved" }).click();
 		await expect(page.getByText("All conflict blocks are marked resolved.")).toBeVisible();
 		await page.getByRole("button", { name: "Save" }).click();
 		await expect(page.getByText("Conflicted", { exact: true })).toBeHidden({ timeout: 10_000 });
@@ -597,8 +623,8 @@ test.describe.serial("VCS JJ scenario fixture", () => {
 		const commitConflictFileRow = commitConflictCard.locator('[data-testid="vcs-file-row"][data-file-path="src/conflict.rs"]');
 		await expect(commitConflictFileRow).toBeVisible();
 		await commitConflictFileRow.click();
-		await expect(page.getByTestId("cy-merge-editor")).toBeVisible();
-		await expect(page.getByText("Check out or edit this conflicted commit before saving a resolution.")).toBeVisible();
+		await openMergeEditor(page);
+		await expect(page.getByText("Check out or edit this conflicted commit before saving a resolution.").first()).toBeVisible();
 		await expect(page.getByRole("button", { name: "Save" })).toBeHidden();
 	});
 
@@ -640,8 +666,8 @@ test.describe.serial("VCS Git fixture", () => {
 		await expect(page.getByText("Working Copy", { exact: true })).toBeVisible();
 		await expect(page.getByTestId("vcs-workspace-stack-drop-target").getByText("feature/export-json", { exact: true })).toBeVisible();
 		await expect(page.getByText("add serde task serialization", { exact: true })).toBeVisible();
-		await expect(page.getByRole("button", { name: "Edit commit add serde task serialization" })).toBeEnabled();
-		await expect(page.getByRole("button", { name: "Edit commit add json report mode" })).toBeDisabled();
+		await expectCommitEditAction(page, "add serde task serialization", true);
+		await expectCommitEditAction(page, "add json report mode", false);
 
 		await page.getByRole("button", { name: "Unapply feature/export-json" }).click();
 		const previewDialog = page.getByRole("dialog", { name: "Workspace Operation" });

@@ -153,7 +153,24 @@ function repoRootFromWorkspacePath(startDir: string, id: string): string | null 
   }
 }
 
+function repoRootHasRecoverableWorkspace(id: string, repoRoot: string): boolean {
+  try {
+    const config = loadConfig(repoRoot);
+    const root = workspacesRoot(repoRoot, config);
+    if (id === "all") {
+      return existsSync(root);
+    }
+    const changeId = findWorkspaceId(root, id) ?? id;
+    return existsSync(path.join(root, changeId, "metadata.json"));
+  } catch {
+    return false;
+  }
+}
+
 export function resolveRecoveryRepoRoot(id: string, repoRoot: string, startDir = process.cwd()): string {
+  if (repoRootHasRecoverableWorkspace(id, repoRoot)) {
+    return repoRoot;
+  }
   return metadataRepoRootFromMarker(startDir)
     ?? repoRootFromWorkspacePath(startDir, id)
     ?? repoRoot;

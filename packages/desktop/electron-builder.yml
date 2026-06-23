@@ -8,7 +8,7 @@ directories:
 
 afterSign: ./scripts/notarize.cjs
 
-# `cli/**` is staged locally by the `stage:cli` npm script (electron-builder
+# `cli/**` is staged locally by the `stage:cli` pnpm script (electron-builder
 # rejects files outside the package root). The asarUnpack glob below matches
 # against this staged path, so rebasing with `from/to` would break unpacking.
 files:

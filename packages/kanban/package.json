@@ -13,7 +13,7 @@
     "web:typecheck": "pnpm --dir web-ui run typecheck",
     "build": "pnpm run web:build && pnpm run runtime:build && node scripts/build.mjs",
     "typecheck": "node --check src/index.js && node --check src/server/index.js && pnpm run web:typecheck && pnpm exec tsc -p tsconfig.runtime.json --noEmit",
-    "test": "node --test",
+    "test": "node --import tsx --test src/runtime-stack/server/*.test.ts",
     "runtime:build": "pnpm exec tsc -p tsconfig.runtime.json",
     "runtime:typecheck": "pnpm exec tsc -p tsconfig.runtime.json --noEmit"
   },
