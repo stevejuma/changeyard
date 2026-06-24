@@ -764,7 +764,7 @@ export const vcsApi = createApi({
 					return { error };
 				}
 			},
-			invalidatesTags: ["PullRequests", "BranchListing", "Stacks", "StackDetails"],
+			invalidatesTags: ["PullRequests", "PullRequestChecks", "BranchListing", "Stacks", "StackDetails"],
 		}),
 		getPullRequestChecks: builder.query<RuntimeVcsPullRequestChecksResponse, PullRequestSelectorArg>({
 			queryFn: async ({ workspaceId, workspacePath, input }, { signal }) => {
@@ -1143,6 +1143,10 @@ export const {
 	useGetVcsBranchesDataQuery,
 	useGetVcsWorkspaceStateQuery,
 	useGetVcsStacksQuery,
+	useGetPullRequestDetailsQuery,
+	useUpdatePullRequestMutation,
+	useGetPullRequestChecksQuery,
+	useGetBaseBranchChecksQuery,
 	useGetVcsDiffQuery,
 	useRunGitSyncActionMutation,
 	useGetVcsConflictFileQuery,

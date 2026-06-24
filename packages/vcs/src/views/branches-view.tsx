@@ -21,6 +21,7 @@ import { CopyValueButton } from "@/components/ui/copy-value-button";
 import { Dialog, DialogBody, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
 import { StatusChip } from "@/components/ui/status-chip";
+import { VcsPullRequestSummaryPill } from "@/components/vcs-pull-request-actions";
 import {
 	findFileByPath,
 	getFirstFilePath,
@@ -1143,6 +1144,7 @@ function BranchRow({
 				{isApplied ? <StatusChip label="Workspace" tone="green" /> : null}
 			</div>
 			<div className="mt-1 truncate text-xs text-text-secondary">{title}</div>
+			{item.pr ? <VcsPullRequestSummaryPill pr={item.pr} className="mt-2" /> : null}
 			<div className="mt-2 flex min-w-0 items-center justify-between gap-3 border-t border-divider pt-2">
 				<div className="flex min-w-0 items-center gap-2 text-xs text-text-tertiary">
 					<Avatar

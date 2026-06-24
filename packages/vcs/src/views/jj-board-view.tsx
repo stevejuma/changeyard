@@ -25,6 +25,7 @@ import { MarkdownMessageEditor, MarkdownMessagePreview, type MarkdownMessageEdit
 import { Spinner } from "@/components/ui/spinner";
 import { FileStatusGlyph, StatusChip } from "@/components/ui/status-chip";
 import { VcsConflictMergeEditor, VcsConflictMergeLauncher, type VcsConflictMergeSource } from "@/components/vcs-conflict-merge-editor";
+import { VcsPullRequestActions } from "@/components/vcs-pull-request-actions";
 import {
 	findFileByPath,
 	getFirstFilePath,
@@ -605,6 +606,7 @@ function toWorkspaceBoardStacks(data: VcsWorkspaceState): BranchesStack[] {
 			base: stack.baseRef ?? data.targetRef,
 			order: index,
 			isCheckedOut: stack.isCurrent,
+			pr: stack.pr ?? null,
 			heads,
 			changes,
 		};
@@ -2328,6 +2330,8 @@ function WorkspaceReady({
 							) : (
 								<WorkspaceStackLane
 										stack={stack}
+										workspaceId={workspaceId}
+											workspacePath={workspacePath}
 										width={getStackColumnWidth(stack.id)}
 										isUpdating={updatingStackId === stack.id}
 										graphRefreshOperation={pendingGraphRefreshStackIds.has(stack.id) ? pendingGraphRefresh : null}
@@ -2409,6 +2413,7 @@ function WorkspaceReady({
 									onDragLeaveCommit={(event, change, targetKey) => handleDragLeave(event, { kind: "commit", commitId: change.changeId }, targetKey)}
 									onDropCommit={(event, change) => handleDrop(event, { kind: "commit", commitId: change.changeId })}
 									onPreviewOperation={openWorkspaceOperationPreview}
+									onPullRequestUpdated={onWorkspaceStateRefresh}
 									stackDropTargetState={getDropTargetState({ kind: "stack", stackId: stack.id })}
 									stackHeaderDropTargetState={getDropTargetState({ kind: "stack_header", stackId: stack.id })}
 									getStackHeaderDropTargetState={(targetKey) => getDropTargetState({ kind: "stack_header", stackId: stack.id }, targetKey)}
@@ -2711,6 +2716,8 @@ function WorkspaceGraphRefreshOverlay({ operation }: { operation: VcsWorkspaceOp
 
 function WorkspaceStackLane({
 	stack,
+	workspaceId,
+	workspacePath,
 	width,
 	isUpdating,
 	graphRefreshOperation,
@@ -2765,12 +2772,15 @@ function WorkspaceStackLane({
 	onDragLeaveCommit,
 	onDropCommit,
 	onPreviewOperation,
+	onPullRequestUpdated,
 	stackDropTargetState,
 	stackHeaderDropTargetState,
 	getStackHeaderDropTargetState,
 	getCommitDropTargetState,
 }: {
 	stack: BranchesStack;
+	workspaceId: string | null;
+	workspacePath: string | null;
 	width: number;
 	isUpdating: boolean;
 	graphRefreshOperation: VcsWorkspaceOperation | null;
@@ -2825,6 +2835,7 @@ function WorkspaceStackLane({
 	onDragLeaveCommit: (event: ReactDragEvent<HTMLElement>, change: BranchesStackChange, targetKey: string) => void;
 	onDropCommit: (event: ReactDragEvent<HTMLElement>, change: BranchesStackChange) => void;
 	onPreviewOperation: (operation: VcsWorkspaceOperation) => void;
+	onPullRequestUpdated: () => void | Promise<void>;
 	stackDropTargetState: WorkspaceDropTargetState;
 	stackHeaderDropTargetState: WorkspaceDropTargetState;
 	getStackHeaderDropTargetState: (targetKey: string) => WorkspaceDropTargetState;
@@ -2892,6 +2903,9 @@ function WorkspaceStackLane({
 						<WorkspaceStackCard
 							key={`${group.head.bookmarkName}-${groupIndex}`}
 							stackId={stack.id}
+							workspaceId={workspaceId}
+							workspacePath={workspacePath}
+							pr={stack.pr ?? null}
 							group={group}
 							groupIndex={groupIndex}
 								selectedCommitHash={selectedCommitHash}
@@ -2930,6 +2944,7 @@ function WorkspaceStackLane({
 							onDragLeaveCommit={onDragLeaveCommit}
 							onDropCommit={onDropCommit}
 							onPreviewOperation={onPreviewOperation}
+							onPullRequestUpdated={onPullRequestUpdated}
 							getStackHeaderDropTargetState={getStackHeaderDropTargetState}
 							getCommitDropTargetState={getCommitDropTargetState}
 						/>
@@ -3530,6 +3545,9 @@ function CommitSummaryPanel({
 
 function WorkspaceStackCard({
 	stackId,
+	workspaceId,
+	workspacePath,
+	pr,
 	group,
 	groupIndex,
 	selectedCommitHash,
@@ -3568,10 +3586,14 @@ function WorkspaceStackCard({
 	onDragLeaveCommit,
 	onDropCommit,
 	onPreviewOperation,
+	onPullRequestUpdated,
 	getStackHeaderDropTargetState,
 	getCommitDropTargetState,
 }: {
 	stackId: string;
+	workspaceId: string | null;
+	workspacePath: string | null;
+	pr: BranchesStack["pr"] | null | undefined;
 	group: StackChangeGroup;
 	groupIndex: number;
 	selectedCommitHash: string | null;
@@ -3610,6 +3632,7 @@ function WorkspaceStackCard({
 	onDragLeaveCommit: (event: ReactDragEvent<HTMLElement>, change: BranchesStackChange, targetKey: string) => void;
 	onDropCommit: (event: ReactDragEvent<HTMLElement>, change: BranchesStackChange) => void;
 	onPreviewOperation: (operation: VcsWorkspaceOperation) => void;
+	onPullRequestUpdated: () => void | Promise<void>;
 	getStackHeaderDropTargetState: (targetKey: string) => WorkspaceDropTargetState;
 	getCommitDropTargetState: (change: BranchesStackChange, targetKey: string) => WorkspaceDropTargetState;
 }): React.ReactElement {
@@ -3665,10 +3688,16 @@ function WorkspaceStackCard({
 					className="mx-2 mt-2"
 				/>
 			) : null}
-			<div className="flex items-center gap-1.5 border-b border-divider bg-surface-1 px-3 py-2">
+			<div className="flex flex-wrap items-center gap-1.5 border-b border-divider bg-surface-1 px-3 py-2">
 				<Button variant="default" size="sm" icon={<Upload size={13} />} disabled>
 					Push
 				</Button>
+				<VcsPullRequestActions
+					workspaceId={workspaceId}
+					workspacePath={workspacePath}
+					pr={pr}
+					onUpdated={onPullRequestUpdated}
+				/>
 				<Button variant="ghost" size="sm" icon={<Sparkles size={13} />} aria-label="Stack actions" title="Stack actions" />
 				<StackActionMenu
 					stackId={stackId}

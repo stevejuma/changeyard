@@ -28,6 +28,7 @@ import { CopyValueButton } from "@/components/ui/copy-value-button";
 import { Dialog, DialogBody, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
 import { StatusChip, type StatusChipTone } from "@/components/ui/status-chip";
+import { VcsBaseBranchCheckStatus } from "@/components/vcs-pull-request-actions";
 import { VcsFileDiffColumn, VcsInlineFileSection, findFileByPath, type VcsFileChange } from "@/components/vcs-file-columns";
 import { VcsConsolePanel } from "@/components/vcs-console-panel";
 import { KeyValue } from "@/components/vcs-panels";
@@ -415,6 +416,7 @@ function ActiveChangeCommitGraphSvg({ row, maxLanes }: { row: ActiveGraphRow; ma
 }
 
 function VcsRepositoryStatus({
+	workspaceId,
 	status,
 	isGraphOpen,
 	onToggleGraph,
@@ -424,6 +426,7 @@ function VcsRepositoryStatus({
 	onGitPull,
 	onGitPush,
 }: {
+	workspaceId: string | null;
 	status?: VcsRepositoryStatusState;
 	isGraphOpen: boolean;
 	onToggleGraph: () => void;
@@ -489,6 +492,7 @@ function VcsRepositoryStatus({
 				<span className="text-status-green"> +{summary.additions}</span>
 				<span className="text-status-red"> -{summary.deletions}</span>)
 			</span>
+			<VcsBaseBranchCheckStatus workspaceId={workspaceId} workspacePath={status.workspacePath} />
 			<div className="flex shrink-0 items-center gap-0 text-text-tertiary">
 				<Button
 					variant="ghost"
@@ -1391,6 +1395,7 @@ export function VcsShell({
 						<div className="flex min-w-0 flex-1 items-center gap-3">
 							<div className="hidden min-w-0 flex-1 md:flex">
 								<VcsRepositoryStatus
+									workspaceId={projectState.currentProjectId}
 									status={projectState.repositoryStatus}
 									isGraphOpen={isRepositoryGraphOpen}
 									onToggleGraph={() => setRepositoryGraphOpen((current) => !current)}

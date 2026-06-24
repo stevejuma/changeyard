@@ -1,6 +1,8 @@
-import type { VcsJjInventoryItem, VcsJjStateResponse } from "./runtime/types";
+import type { RuntimeVcsPullRequestSummary, VcsJjInventoryItem, VcsJjStateResponse } from "./runtime/types";
 
-export type BranchesStack = VcsJjStateResponse["stacks"][number];
+export type BranchesStack = VcsJjStateResponse["stacks"][number] & {
+	pr?: RuntimeVcsPullRequestSummary | null;
+};
 export type BranchesStackChange = BranchesStack["changes"][number];
 export type BranchesStackHead = BranchesStack["heads"][number];
 
