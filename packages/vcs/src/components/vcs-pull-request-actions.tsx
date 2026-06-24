@@ -7,7 +7,7 @@ import {
 	type MarkdownMessageEditorMode,
 	type PullRequestAuthorDisplay,
 } from "@changeyard/web-ui";
-import { Check, Copy, ExternalLink, MoreHorizontal, Pencil, RefreshCw } from "lucide-react";
+import { Check, Copy, ExternalLink, Maximize2, MoreHorizontal, Pencil, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -29,6 +29,21 @@ import { copyTextToClipboard } from "@/utils/clipboard";
 
 type PullRequestSelectorInput = Omit<RuntimeVcsPullRequestSelector, "workspacePath">;
 const CHECK_POLLING_INTERVAL_MS = 10 * 60 * 1000;
+
+function checkBadgeToneClassName(tone: string): string {
+	switch (tone) {
+		case "green":
+			return "border-status-green/30 bg-status-green/10 text-status-green";
+		case "red":
+			return "border-status-red/30 bg-status-red/10 text-status-red";
+		case "gold":
+			return "border-status-gold/35 bg-status-gold/10 text-status-gold";
+		case "orange":
+			return "border-status-orange/35 bg-status-orange/10 text-status-orange";
+		default:
+			return "border-border bg-surface-2 text-text-secondary";
+	}
+}
 
 function errorMessage(error: unknown): string {
 	if (error instanceof Error) {
@@ -136,6 +151,7 @@ export function VcsPullRequestDetailsPanelContainer({
 	author = null,
 	filesContent,
 	isFloating = false,
+	showHeaderControls = true,
 	onUpdated,
 	onClose,
 	onFloatingChange,
@@ -148,6 +164,7 @@ export function VcsPullRequestDetailsPanelContainer({
 	author?: PullRequestAuthorDisplay | null;
 	filesContent?: ReactNode;
 	isFloating?: boolean;
+	showHeaderControls?: boolean;
 	onUpdated?: () => void | Promise<void>;
 	onClose: () => void;
 	onFloatingChange?: (floating: boolean) => void;
@@ -259,6 +276,7 @@ export function VcsPullRequestDetailsPanelContainer({
 			areChecksRefreshing={checksResult.isFetching}
 			author={author}
 			isFloating={isFloating}
+			showHeaderControls={showHeaderControls}
 			draftBody={draftBody}
 			editorMode={editorMode}
 			saveError={saveError}
@@ -281,6 +299,84 @@ export function VcsPullRequestDetailsPanelContainer({
 			}
 			className={className}
 		/>
+	);
+}
+
+export function VcsPullRequestColumnHeaderActions({
+	workspaceId,
+	workspacePath,
+	pr,
+	isFloating = false,
+	onFloatingChange,
+	onEditDescription,
+}: {
+	workspaceId: string | null;
+	workspacePath?: string | null;
+	pr: RuntimeVcsPullRequestSummary | null | undefined;
+	isFloating?: boolean;
+	onFloatingChange?: (floating: boolean) => void;
+	onEditDescription: () => void;
+}): React.ReactElement | null {
+	const selector = useMemo(() => (pr ? selectorForPullRequest(pr) : null), [pr]);
+	const checksResult = useGetPullRequestChecksQuery(
+		{ workspaceId: workspaceId ?? "", workspacePath, input: selector ?? { number: 0 } },
+		{ skip: !workspaceId || !selector || !pr, pollingInterval: CHECK_POLLING_INTERVAL_MS },
+	);
+	const rollup = checksResult.data ?? pr?.checks ?? null;
+	const meta = pullRequestCheckBadgeMeta(rollup, checksResult.isFetching && !rollup);
+	if (!pr || !selector) {
+		return null;
+	}
+	return (
+		<>
+			<button
+				type="button"
+				className={cn(
+					"inline-flex h-7 max-w-[150px] items-center justify-center gap-1.5 rounded-md border px-2 text-xs font-semibold leading-none",
+					"focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent",
+					checkBadgeToneClassName(meta.tone),
+				)}
+				title={`${meta.title} Click to refresh.`}
+				onClick={() => void checksResult.refetch()}
+			>
+				{checksResult.isFetching ? <Spinner size={11} /> : null}
+				<span className="truncate">{meta.label}</span>
+			</button>
+			{pr.url ? (
+				<a
+					href={pr.url}
+					target="_blank"
+					rel="noopener noreferrer"
+					className={cn(
+						"inline-flex h-7 select-none items-center justify-center gap-1.5 rounded-md border border-border-bright bg-surface-2 px-2 text-xs font-medium text-text-primary hover:border-border-bright hover:bg-surface-3 active:bg-surface-4",
+						"focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent",
+					)}
+				>
+					Open
+					<ExternalLink size={13} />
+				</a>
+			) : (
+				<Button variant="default" size="sm" iconRight={<ExternalLink size={13} />} disabled title="PR link unavailable">
+					Open
+				</Button>
+			)}
+			{onFloatingChange ? (
+				<Button
+					variant={isFloating ? "default" : "ghost"}
+					size="sm"
+					icon={<Maximize2 size={14} />}
+					aria-label={isFloating ? "Exit floating mode" : "Use floating mode"}
+					title={isFloating ? "Exit floating mode" : "Use floating mode"}
+					onClick={() => onFloatingChange(!isFloating)}
+				/>
+			) : null}
+			<VcsPullRequestPanelMenu
+				pr={pr}
+				isSaving={false}
+				onRefreshChecks={() => void checksResult.refetch()}
+				onEditDescription={onEditDescription}
+			/>
+		</>
 	);
 }
 

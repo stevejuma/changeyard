@@ -28,6 +28,7 @@ import { VcsConflictMergeEditor, VcsConflictMergeLauncher, type VcsConflictMerge
 import {
 	selectorForPullRequest,
 	VcsCheckStatusChip,
+	VcsPullRequestColumnHeaderActions,
 	VcsPullRequestDetailsPanelContainer,
 	VcsPullRequestViewButton,
 } from "@/components/vcs-pull-request-actions";
@@ -810,6 +811,7 @@ function WorkspaceReady({
 	const [selectedStackFilePath, setSelectedStackFilePath] = useState<string | null>(null);
 	const [stackPrEditRequest, setStackPrEditRequest] = useState<{ stackId: string; key: number } | null>(null);
 	const [hasUserClearedFile, setHasUserClearedFile] = useState(false);
+	const [hasUserClearedStackFile, setHasUserClearedStackFile] = useState(false);
 	const [isFileSectionCollapsed, setFileSectionCollapsed] = useState(false);
 	const [isUnstagedCollapsed, setUnstagedCollapsed] = useState(() =>
 		readVcsBooleanPreference(VCS_LAYOUT_STORAGE_KEYS.workspaceWorkingCopyCollapsed, false),
@@ -963,6 +965,7 @@ function WorkspaceReady({
 	};
 	const files = toFileChanges(commitDiffQuery.state);
 	const selectedHeaderStackFiles = selectedStackHeaderId ? files : [];
+	const selectedHeaderFile = findFileByPath(selectedHeaderStackFiles, selectedStackFilePath);
 	const selectedDiffFile = findFileByPath(files, selectedFilePath);
 	const unstagedDiffFiles = useMemo(() => toWorkingCopyDiffFiles(diffState), [diffState]);
 	const workingCopyFiles = useMemo(() => data.workingCopy.files.map(toUiFileChange), [data.workingCopy.files]);
@@ -1057,6 +1060,7 @@ function WorkspaceReady({
 			setSelectedStackHeaderId(null);
 			setSelectedStackFilePath(null);
 			setStackPrEditRequest(null);
+			setHasUserClearedStackFile(false);
 		}
 	}, [appliedStacks, selectedStackHeaderId]);
 
@@ -1067,8 +1071,11 @@ function WorkspaceReady({
 		if (selectedStackFilePath && selectedHeaderStackFiles.some((file) => file.path === selectedStackFilePath)) {
 			return;
 		}
+		if (hasUserClearedStackFile) {
+			return;
+		}
 		setSelectedStackFilePath(getFirstFilePath(selectedHeaderStackFiles));
-	}, [selectedHeaderStackFiles, selectedStackFilePath, selectedStackHeaderId]);
+	}, [hasUserClearedStackFile, selectedHeaderStackFiles, selectedStackFilePath, selectedStackHeaderId]);
 
 	useEffect(() => {
 		if (selectedStackHeaderId) {
@@ -1994,6 +2001,7 @@ function WorkspaceReady({
 		setSelectedUnstagedFilePath(null);
 		setSelectedComposerDiffStackId(null);
 		setHasUserClearedFile(false);
+		setHasUserClearedStackFile(false);
 		setFileSectionCollapsed(false);
 		writeQueryParam("commit", null);
 		writeQueryParam("file", null);
@@ -2006,6 +2014,7 @@ function WorkspaceReady({
 		setStackPrEditRequest(null);
 		setPullRequestSummaryFloating(false);
 		setHasUserClearedFile(true);
+		setHasUserClearedStackFile(false);
 	}
 
 	function changePullRequestSummaryFloating(floating: boolean): void {
@@ -2030,7 +2039,11 @@ function WorkspaceReady({
 	}
 
 	function selectStackFile(path: string): void {
-		setSelectedStackFilePath((current) => (current === path ? null : path));
+		setSelectedStackFilePath((current) => {
+			const next = current === path ? null : path;
+			setHasUserClearedStackFile(next === null);
+			return next;
+		});
 	}
 
 	function selectUnstagedFile(path: string): void {
@@ -2350,19 +2363,21 @@ function WorkspaceReady({
 				),
 			}
 		: null;
-	const pullRequestFilesContent = selectedHeaderStack ? (
-		<VcsInlineFileSection
-			title="Files changed"
-			files={selectedHeaderStackFiles}
-			selectedPath={selectedStackFilePath}
-			isLoading={commitDiffQuery.state.status === "loading"}
-			errorMessage={selectedHeaderDiffError}
-			viewMode={fileViewMode}
-			onViewModeChange={changeFileViewMode}
-			onSelectPath={selectStackFile}
-			className="mx-0 mb-0"
-		/>
-	) : null;
+	const stackHeaderDiffColumn =
+		selectedStackHeaderId && selectedStackFilePath ? (
+			<VcsFileDiffColumn
+				file={selectedHeaderFile}
+				isLoading={commitDiffQuery.state.status === "loading"}
+				width={diffColumnWidth}
+				minWidth={WORKSPACE_COLUMN_LIMITS.diff.min}
+				maxWidth={WORKSPACE_COLUMN_LIMITS.diff.max}
+				onWidthChange={changeDiffColumnWidth}
+				onClose={() => {
+					setSelectedStackFilePath(null);
+					setHasUserClearedStackFile(true);
+				}}
+			/>
+		) : null;
 	const pullRequestPanel =
 		selectedHeaderStack && selectedHeaderPullRequest ? (
 			<VcsPullRequestDetailsPanelContainer
@@ -2371,8 +2386,8 @@ function WorkspaceReady({
 				pr={selectedHeaderPullRequest}
 				editRequestKey={stackPrEditRequest?.stackId === selectedHeaderStack.id ? stackPrEditRequest.key : null}
 				author={selectedHeaderAuthor}
-				filesContent={pullRequestFilesContent}
 				isFloating={isPullRequestSummaryFloating}
+				showHeaderControls={isPullRequestSummaryFloating}
 				onFloatingChange={changePullRequestSummaryFloating}
 				onUpdated={onWorkspaceStateRefresh}
 				onClose={closeSelectedStackHeaderColumn}
@@ -2399,12 +2414,32 @@ function WorkspaceReady({
 				maxWidth={WORKSPACE_COLUMN_LIMITS.diff.max}
 				onCollapse={closeSelectedStackHeaderColumn}
 				onWidthChange={changeDiffColumnWidth}
+				headerActions={
+					<VcsPullRequestColumnHeaderActions
+						workspaceId={workspaceId}
+						workspacePath={workspacePath}
+						pr={selectedHeaderPullRequest}
+						isFloating={isPullRequestSummaryFloating}
+						onFloatingChange={changePullRequestSummaryFloating}
+						onEditDescription={() => {
+							const stackId = selectedHeaderStack?.id;
+							if (stackId) {
+								openStackPullRequestDescriptionEdit(stackId);
+							}
+						}}
+					/>
+				}
 			>
 				{pullRequestPanel}
 			</VcsColumn>
 		) : null;
 	const showTrailingSpacer =
-		appliedStacks.length > 0 || Boolean(selectedFile) || Boolean(selectedUnstagedFilePath) || Boolean(pullRequestColumn) || Boolean(floatingPullRequestSummary);
+		appliedStacks.length > 0 ||
+		Boolean(selectedFile) ||
+		Boolean(selectedUnstagedFilePath) ||
+		Boolean(pullRequestColumn) ||
+		Boolean(stackHeaderDiffColumn) ||
+		Boolean(floatingPullRequestSummary);
 	return (
 		<>
 		{floatingCommitSummary}
@@ -2549,15 +2584,20 @@ function WorkspaceReady({
 									getCommitDropTargetState={(change, targetKey) => getDropTargetState({ kind: "commit", commitId: change.changeId }, targetKey)}
 								/>
 							)}
-							{selectedComposerDiffStackId === stack.id
-								? stackCommitComposer?.selection?.source === "commit"
-									? diffColumn
-									: unstagedDiffColumn
-								: selectedStackId === stack.id
-									? diffColumn
-									: selectedStackHeaderId === stack.id && pullRequestColumn
-										? pullRequestColumn
-									: null}
+							{selectedComposerDiffStackId === stack.id ? (
+								stackCommitComposer?.selection?.source === "commit" ? (
+									diffColumn
+								) : (
+									unstagedDiffColumn
+								)
+							) : selectedStackId === stack.id ? (
+								diffColumn
+							) : selectedStackHeaderId === stack.id ? (
+								<>
+									{pullRequestColumn}
+									{stackHeaderDiffColumn}
+								</>
+							) : null}
 						</Fragment>
 					))
 				)}
@@ -3845,12 +3885,19 @@ function WorkspaceStackCard({
 					</div>
 				</div>
 			</header>
-			{isHeaderSelected && !pr ? (
+			{isHeaderSelected ? (
 				<VcsInlineFileSection
-					title="Stack files"
+					title="Files changed"
 					files={selectedStackFiles}
 					selectedPath={selectedStackFilePath}
-					isLoading={false}
+					isLoading={diffState.status === "loading"}
+					errorMessage={
+						diffState.status === "error"
+							? diffState.message
+							: diffState.status === "ready" && !diffState.data.ok
+								? diffState.data.error ?? "The selected stack diff could not be read."
+								: null
+					}
 					viewMode={fileViewMode}
 					onViewModeChange={onFileViewModeChange}
 					onSelectPath={onSelectStackFile}

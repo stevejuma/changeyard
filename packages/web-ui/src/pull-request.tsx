@@ -188,6 +188,7 @@ export function PullRequestDetailsPanel({
 	areChecksRefreshing = false,
 	author,
 	isFloating = false,
+	showHeaderControls = true,
 	onDraftBodyChange,
 	onEditorModeChange,
 	onStartEdit,
@@ -212,6 +213,7 @@ export function PullRequestDetailsPanel({
 	areChecksRefreshing?: boolean;
 	author?: PullRequestAuthorDisplay | null;
 	isFloating?: boolean;
+	showHeaderControls?: boolean;
 	onDraftBodyChange: (body: string) => void;
 	onEditorModeChange?: (mode: MarkdownMessageEditorMode) => void;
 	onStartEdit: () => void;
@@ -262,57 +264,66 @@ export function PullRequestDetailsPanel({
 						) : null}
 					</div>
 				</div>
-				<div className="ml-auto flex shrink-0 items-center gap-1.5">
-				{onRefreshChecks ? (
-					<button
-						type="button"
-						className={cn(
-							"inline-flex h-7 max-w-[150px] items-center justify-center gap-1.5 rounded-md border px-2 text-xs font-semibold leading-none",
-							"focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent",
-							badgeToneStyles[checkMeta.tone],
+				{showHeaderControls ? (
+					<div className="ml-auto flex shrink-0 items-center gap-1.5">
+						{onRefreshChecks ? (
+							<button
+								type="button"
+								className={cn(
+									"inline-flex h-7 max-w-[150px] items-center justify-center gap-1.5 rounded-md border px-2 text-xs font-semibold leading-none",
+									"focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent",
+									badgeToneStyles[checkMeta.tone],
+								)}
+								title={`${checkMeta.title} Click to refresh.`}
+								onClick={onRefreshChecks}
+							>
+								{areChecksRefreshing ? <Spinner size={11} /> : null}
+								<span className="truncate">{checkMeta.label}</span>
+							</button>
+						) : (
+							<PullRequestCheckBadge rollup={rollup} loading={areChecksRefreshing && !rollup} />
 						)}
-						title={`${checkMeta.title} Click to refresh.`}
-						onClick={onRefreshChecks}
-					>
-						{areChecksRefreshing ? <Spinner size={11} /> : null}
-						<span className="truncate">{checkMeta.label}</span>
-					</button>
-				) : (
-					<PullRequestCheckBadge rollup={rollup} loading={areChecksRefreshing && !rollup} />
-				)}
-				{prUrl ? (
-					<a
-						href={prUrl}
-						target="_blank"
-						rel="noopener noreferrer"
-						className={cn(
-							"inline-flex h-7 select-none items-center justify-center gap-1.5 rounded-md border border-border-bright bg-surface-2 px-2 text-xs font-medium text-text-primary hover:border-border-bright hover:bg-surface-3 active:bg-surface-4",
-							"focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent",
+						{prUrl ? (
+							<a
+								href={prUrl}
+								target="_blank"
+								rel="noopener noreferrer"
+								className={cn(
+									"inline-flex h-7 select-none items-center justify-center gap-1.5 rounded-md border border-border-bright bg-surface-2 px-2 text-xs font-medium text-text-primary hover:border-border-bright hover:bg-surface-3 active:bg-surface-4",
+									"focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent",
+								)}
+							>
+								Open
+								<ExternalLink size={13} />
+							</a>
+						) : (
+							<Button variant="default" size="sm" iconRight={<ExternalLink size={13} />} disabled title="PR link unavailable">
+								Open
+							</Button>
 						)}
-					>
-						Open
-						<ExternalLink size={13} />
-					</a>
-				) : (
-					<Button variant="default" size="sm" iconRight={<ExternalLink size={13} />} disabled title="PR link unavailable">
-						Open
-					</Button>
-				)}
-				{onFloatingChange ? (
-					<Button
-						variant={isFloating ? "default" : "ghost"}
-						size="sm"
-						icon={<Maximize2 size={14} />}
-						aria-label={isFloating ? "Exit floating mode" : "Use floating mode"}
-						title={isFloating ? "Exit floating mode" : "Use floating mode"}
-						onClick={() => onFloatingChange(!isFloating)}
-					/>
+						{onFloatingChange ? (
+							<Button
+								variant={isFloating ? "default" : "ghost"}
+								size="sm"
+								icon={<Maximize2 size={14} />}
+								aria-label={isFloating ? "Exit floating mode" : "Use floating mode"}
+								title={isFloating ? "Exit floating mode" : "Use floating mode"}
+								onClick={() => onFloatingChange(!isFloating)}
+							/>
+						) : null}
+						{actions}
+						{onClose ? (
+							<Button
+								variant="ghost"
+								size="sm"
+								icon={<X size={15} />}
+								aria-label="Close PR details"
+								title="Close PR details"
+								onClick={onClose}
+							/>
+						) : null}
+					</div>
 				) : null}
-				{actions}
-				{onClose ? (
-					<Button variant="ghost" size="sm" icon={<X size={15} />} aria-label="Close PR details" title="Close PR details" onClick={onClose} />
-				) : null}
-				</div>
 			</header>
 			<div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3 py-3">
 				{isLoading ? (
@@ -368,7 +379,7 @@ export function PullRequestDetailsPanel({
 						<MarkdownMessagePreview
 							value={body}
 							emptyLabel="_This PR description is empty._"
-							className="text-sm text-text-primary"
+							className="cy-markdown-preview--plain text-sm text-text-primary"
 						/>
 					) : (
 						<div className="px-4 py-6 text-center text-sm text-text-secondary">

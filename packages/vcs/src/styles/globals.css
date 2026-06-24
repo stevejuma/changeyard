@@ -407,6 +407,11 @@ body,
 	color: var(--color-text-primary);
 }
 
+.cy-markdown-preview.cy-markdown-preview--plain,
+.cy-markdown-preview.cy-markdown-preview--plain .wmde-markdown {
+	background: transparent;
+}
+
 .cy-markdown-preview .wmde-markdown {
 	font-family: var(--font-sans);
 	font-size: 13px;
