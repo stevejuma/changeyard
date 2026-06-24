@@ -61,6 +61,8 @@ export {
 	type PullRequestConversation,
 	type PullRequestConversationEvent,
 	type PullRequestDetails,
+	type PullRequestInlineReferenceLine,
+	type PullRequestInlineReferenceResolver,
 	type PullRequestSummary,
 } from "./pull-request";
 export {

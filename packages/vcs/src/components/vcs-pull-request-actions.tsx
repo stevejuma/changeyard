@@ -8,6 +8,7 @@ import {
 	type MarkdownMessageEditorMode,
 	type PullRequestAuthorDisplay,
 	type PullRequestConversationEvent,
+	type PullRequestInlineReferenceResolver,
 } from "@changeyard/web-ui";
 import { Check, Copy, ExternalLink, Maximize2, MoreHorizontal, Pencil, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -159,6 +160,7 @@ export function VcsPullRequestDetailsPanelContainer({
 	onUpdated,
 	onClose,
 	onOpenInlineReference,
+	resolveInlineReferenceLines,
 	onFloatingChange,
 	className,
 }: {
@@ -175,6 +177,7 @@ export function VcsPullRequestDetailsPanelContainer({
 	onUpdated?: () => void | Promise<void>;
 	onClose: () => void;
 	onOpenInlineReference?: (event: PullRequestConversationEvent) => void;
+	resolveInlineReferenceLines?: PullRequestInlineReferenceResolver;
 	onFloatingChange?: (floating: boolean) => void;
 	className?: string;
 }): React.ReactElement | null {
@@ -205,6 +208,7 @@ export function VcsPullRequestDetailsPanelContainer({
 			conversation={conversationResult.data ?? null}
 			isLoading={conversationResult.isFetching && !conversationResult.data}
 			onOpenInlineReference={onOpenInlineReference}
+			resolveInlineReferenceLines={resolveInlineReferenceLines}
 		/>
 	) : null;
 

@@ -747,6 +747,7 @@ export function DiffViewerPanel({
 	onInsertRequiredChange,
 	scrollTarget,
 	viewMode = "unified",
+	useInternalScroll = true,
 }: {
 	workspaceFiles: ReviewDiffFileChange[] | null;
 	selectedPath: string | null;
@@ -759,6 +760,7 @@ export function DiffViewerPanel({
 	onInsertRequiredChange?: (comment: DiffLineComment) => void;
 	scrollTarget?: DiffLineScrollTarget | null;
 	viewMode?: DiffViewMode;
+	useInternalScroll?: boolean;
 }): React.ReactElement {
 	const [expandedPaths, setExpandedPaths] = useState<Record<string, boolean>>({});
 	const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -874,6 +876,9 @@ export function DiffViewerPanel({
 	}, [groupedByPath, renderedGroupCount, selectedPath]);
 
 	const resolveActivePath = useCallback((): string | null => {
+		if (!useInternalScroll) {
+			return null;
+		}
 		const container = scrollContainerRef.current;
 		if (!container || groupedByPath.length === 0) {
 			return null;
@@ -894,7 +899,7 @@ export function DiffViewerPanel({
 		}
 
 		return activePath;
-	}, [groupedByPath]);
+	}, [groupedByPath, useInternalScroll]);
 
 	const syncSelectedPathToScrollPosition = useCallback(() => {
 		if (Date.now() < programmaticScrollUntilRef.current) {
@@ -916,6 +921,9 @@ export function DiffViewerPanel({
 	}, [onSelectedPathChange, resolveActivePath, selectedPath]);
 
 	const handleDiffScroll = useCallback(() => {
+		if (!useInternalScroll) {
+			return;
+		}
 		if (scrollSyncPendingRef.current) {
 			return;
 		}
@@ -925,12 +933,16 @@ export function DiffViewerPanel({
 			scrollSyncFrameRef.current = null;
 			syncSelectedPathToScrollPosition();
 		});
-	}, [syncSelectedPathToScrollPosition]);
+	}, [syncSelectedPathToScrollPosition, useInternalScroll]);
 
 	const scrollToPath = useCallback((path: string) => {
 		const container = scrollContainerRef.current;
 		const section = sectionElementsRef.current[path];
-		if (!container || !section) {
+		if (!section) {
+			return;
+		}
+		if (!useInternalScroll || !container) {
+			section.scrollIntoView({ block: "start", behavior: "auto" });
 			return;
 		}
 		programmaticScrollUntilRef.current = Date.now() + 320;
@@ -945,13 +957,13 @@ export function DiffViewerPanel({
 		const marginTop = Number.parseFloat(sectionStyle.marginTop) || 0;
 		const targetScrollTop = Math.max(0, getSectionTopWithinScrollContainer(container, section) - marginTop);
 		container.scrollTop = targetScrollTop;
-	}, []);
+	}, [useInternalScroll]);
 
 	const scrollToLine = useCallback(
 		(target: DiffLineScrollTarget) => {
 			const container = scrollContainerRef.current;
 			const section = sectionElementsRef.current[target.path];
-			if (!container || !section) {
+			if (!section) {
 				return;
 			}
 			const lineSelector = `[data-diff-line-number="${target.lineNumber}"]`;
@@ -961,6 +973,18 @@ export function DiffViewerPanel({
 				?? section.querySelector<HTMLElement>(lineSelector);
 			if (!row) {
 				scrollToPath(target.path);
+				return;
+			}
+			if (!useInternalScroll || !container) {
+				row.scrollIntoView({ block: "center", behavior: "auto" });
+				row.classList.add("kb-diff-row-linked");
+				if (highlightClearTimerRef.current) {
+					clearTimeout(highlightClearTimerRef.current);
+				}
+				highlightClearTimerRef.current = setTimeout(() => {
+					row.classList.remove("kb-diff-row-linked");
+					highlightClearTimerRef.current = null;
+				}, 1600);
 				return;
 			}
 			programmaticScrollUntilRef.current = Date.now() + 420;
@@ -982,7 +1006,7 @@ export function DiffViewerPanel({
 				highlightClearTimerRef.current = null;
 			}, 1600);
 		},
-		[scrollToPath],
+		[scrollToPath, useInternalScroll],
 	);
 
 	useEffect(() => {
@@ -1180,11 +1204,11 @@ export function DiffViewerPanel({
 		<div
 			style={{
 				display: "flex",
-				flex: "1 1 0",
+				flex: useInternalScroll ? "1 1 0" : "0 0 auto",
 				flexDirection: "column",
 				minWidth: 0,
 				minHeight: 0,
-				background: "var(--color-surface-0)",
+				background: useInternalScroll ? "var(--color-surface-0)" : "transparent",
 			}}
 		>
 			{groupedByPath.length === 0 ? (
@@ -1209,16 +1233,16 @@ export function DiffViewerPanel({
 				<>
 					<div
 						ref={scrollContainerRef}
-						onScroll={handleDiffScroll}
+						onScroll={useInternalScroll ? handleDiffScroll : undefined}
 						style={{
-							flex: "1 1 0",
+							flex: useInternalScroll ? "1 1 0" : "0 0 auto",
 							minHeight: 0,
-							overflowY: "auto",
-							overscrollBehaviorY: "contain",
-							padding: "0 12px 12px",
+							overflowY: useInternalScroll ? "auto" : "visible",
+							overscrollBehaviorY: useInternalScroll ? "contain" : undefined,
+							padding: useInternalScroll ? "0 12px 12px" : 0,
 						}}
 					>
-						{visibleGroups.map((group) => {
+						{visibleGroups.map((group, index) => {
 							const isExpanded = expandedPaths[group.path] ?? true;
 							const hasBinaryEntry = group.entries.some((entry) => entry.isBinary);
 							return (
@@ -1228,7 +1252,7 @@ export function DiffViewerPanel({
 									ref={(node) => {
 										sectionElementsRef.current[group.path] = node;
 									}}
-									style={{ marginTop: 12 }}
+									style={{ marginTop: useInternalScroll || index > 0 ? 12 : 0 }}
 								>
 									<button
 										type="button"
@@ -1245,6 +1269,9 @@ export function DiffViewerPanel({
 												...prev,
 												[group.path]: nextExpanded,
 											}));
+											if (!useInternalScroll) {
+												return;
+											}
 											requestAnimationFrame(() => {
 												if (previousTop == null || !container || !sectionEl) {
 													return;

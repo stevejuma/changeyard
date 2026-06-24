@@ -5,11 +5,13 @@ import {
 	ReviewDiffPanel,
 	type DiffLineComment,
 	type DiffLineScrollTarget,
+	type PullRequestInlineReferenceLine,
+	type PullRequestInlineReferenceResolver,
 	type PullRequestConversationEvent,
 	type ReviewDiffFileChange,
 } from "@changeyard/web-ui";
 import { AlertTriangle, ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, Copy, GitBranch, GitCommitHorizontal, GitMerge, Info, Layers, LockKeyhole, Maximize2, MoreHorizontal, Pencil, PencilLine, Play, Plus, RefreshCw, RotateCcw, Sparkles, Trash2, Type, Unlink, Upload, WrapText, X } from "lucide-react";
-import { Fragment, useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent } from "react";
 
 import {
 	applyWorkspaceStackId,
@@ -182,6 +184,39 @@ function pullRequestInlineComments(conversation: RuntimeVcsPullRequestConversati
 			},
 		];
 	});
+}
+
+function pullRequestInlineReferenceLines(
+	event: PullRequestConversationEvent,
+	files: readonly ReviewDiffFileChange[],
+): PullRequestInlineReferenceLine[] {
+	const path = event.path?.trim();
+	const lineNumber = event.line ?? event.startLine ?? null;
+	if (!path || !lineNumber) {
+		return [];
+	}
+	const file = files.find((candidate) => candidate.path === path || candidate.previousPath === path);
+	if (!file) {
+		return [];
+	}
+	const isLeftSide = event.side?.toUpperCase() === "LEFT";
+	const text = (isLeftSide ? file.oldText : file.newText) ?? file.newText ?? file.oldText ?? null;
+	if (text == null) {
+		return [];
+	}
+	const startLine = event.startLine && event.line ? Math.min(event.startLine, event.line) : lineNumber;
+	const endLine = event.startLine && event.line ? Math.max(event.startLine, event.line) : lineNumber;
+	const lines = text.split(/\r?\n/);
+	const startIndex = Math.max(0, startLine - 1);
+	const endIndex = Math.min(lines.length, endLine);
+	if (startIndex >= endIndex) {
+		return [];
+	}
+	return lines.slice(startIndex, endIndex).map((lineText, index) => ({
+		lineNumber: startLine + index,
+		text: lineText,
+		variant: isLeftSide ? "removed" : "context",
+	}));
 }
 
 function formatRelativeTime(timestamp: string | null | undefined): string | null {
@@ -1052,6 +1087,10 @@ function WorkspaceReady({
 	const selectedHeaderPullRequestComments = useMemo(
 		() => pullRequestInlineComments(selectedHeaderConversationResult.data ?? null),
 		[selectedHeaderConversationResult.data],
+	);
+	const resolvePullRequestInlineReferenceLines = useCallback<PullRequestInlineReferenceResolver>(
+		(event) => pullRequestInlineReferenceLines(event, selectedHeaderReviewFiles),
+		[selectedHeaderReviewFiles],
 	);
 	const selectedDiffFile = findFileByPath(files, selectedFilePath);
 	const unstagedDiffFiles = useMemo(() => toWorkingCopyDiffFiles(diffState), [diffState]);
@@ -2152,18 +2191,22 @@ function WorkspaceReady({
 	function openPullRequestInlineReference(event: PullRequestConversationEvent): void {
 		const path = event.path?.trim();
 		const lineNumber = event.line ?? event.startLine ?? null;
-		if (!path || !lineNumber) {
+		if (!path) {
 			return;
 		}
 		setSelectedStackFilePath(path);
 		setHasUserClearedStackFile(false);
 		setPullRequestDetailsMode("files");
-		setPullRequestDiffScrollTarget({
-			path,
-			lineNumber,
-			variant: pullRequestCommentVariant(event),
-			nonce: Date.now(),
-		});
+		setPullRequestDiffScrollTarget(
+			lineNumber
+				? {
+						path,
+						lineNumber,
+						variant: pullRequestCommentVariant(event),
+						nonce: Date.now(),
+					}
+				: null,
+		);
 	}
 
 	function selectUnstagedFile(path: string): void {
@@ -2485,7 +2528,7 @@ function WorkspaceReady({
 		: null;
 	const pullRequestDiffContent =
 		selectedStackHeaderId ? (
-			<section data-testid="vcs-pr-inline-file-diff" className="flex min-h-[320px] flex-1 flex-col border-t border-divider pt-3">
+			<section data-testid="vcs-pr-inline-file-diff" className="flex min-h-[320px] flex-1 flex-col">
 				{commitDiffQuery.state.status === "loading" ? (
 					<div className="grid gap-2 p-1">
 						<div className="kb-skeleton h-4 w-2/5" />
@@ -2507,6 +2550,7 @@ function WorkspaceReady({
 						readOnlyComments={selectedHeaderPullRequestComments}
 						scrollTarget={pullRequestDiffScrollTarget}
 						viewMode="unified"
+						useInternalScroll={false}
 					/>
 				) : (
 					<EmptyState title="No files changed">This PR stack does not include file changes.</EmptyState>
@@ -2557,10 +2601,11 @@ function WorkspaceReady({
 				showHeaderControls={isPullRequestSummaryFloating}
 				showDescriptionContent={pullRequestDetailsMode === "description"}
 				onOpenInlineReference={openPullRequestInlineReference}
+				resolveInlineReferenceLines={resolvePullRequestInlineReferenceLines}
 				onFloatingChange={changePullRequestSummaryFloating}
 				onUpdated={onWorkspaceStateRefresh}
 				onClose={closeSelectedStackHeaderColumn}
-				className="h-full"
+				className={pullRequestDetailsMode === "description" ? "h-full" : undefined}
 			/>
 		) : null;
 	const floatingPullRequestSummary =
@@ -2583,10 +2628,9 @@ function WorkspaceReady({
 					<div className="flex min-w-0 items-center gap-2">
 						{selectedHeaderPullRequest.number ? (
 							<StatusChip label={`PR #${selectedHeaderPullRequest.number}`} tone="green" />
-						) : null}
-						<span className="min-w-0 truncate text-sm font-semibold text-text-primary">
-							{selectedHeaderPullRequest.title?.trim() || "Pull Request"}
-						</span>
+						) : (
+							<span className="min-w-0 truncate text-sm font-semibold text-text-primary">Pull Request</span>
+						)}
 					</div>
 				}
 				width={diffColumnWidth}

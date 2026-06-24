@@ -67,6 +67,16 @@ export type PullRequestConversation = {
 	message?: string | null;
 };
 
+export type PullRequestInlineReferenceLine = {
+	lineNumber?: number | null;
+	text: string;
+	variant?: "added" | "removed" | "context" | null;
+};
+
+export type PullRequestInlineReferenceResolver = (
+	event: PullRequestConversationEvent,
+) => readonly PullRequestInlineReferenceLine[] | null | undefined;
+
 export type PullRequestAuthorDisplay = {
 	name?: string | null;
 	email?: string | null;
@@ -163,6 +173,16 @@ function diffHunkPreview(value: string | null | undefined): string[] {
 		.slice(-8);
 }
 
+function inlineReferenceLineTone(line: PullRequestInlineReferenceLine): string {
+	if (line.variant === "added" || line.text.startsWith("+")) {
+		return "bg-status-green/10 text-status-green";
+	}
+	if (line.variant === "removed" || line.text.startsWith("-")) {
+		return "bg-status-red/10 text-status-red";
+	}
+	return "text-text-secondary";
+}
+
 function PullRequestConversationAvatar({
 	name,
 	avatarUrl,
@@ -189,9 +209,11 @@ function PullRequestConversationAvatar({
 function PullRequestConversationInlineReference({
 	event,
 	onOpenInlineReference,
+	resolveInlineReferenceLines,
 }: {
 	event: PullRequestConversationEvent;
 	onOpenInlineReference?: (event: PullRequestConversationEvent) => void;
+	resolveInlineReferenceLines?: PullRequestInlineReferenceResolver;
 }): ReactElement | null {
 	const path = event.path?.trim();
 	const line = event.line ?? event.startLine ?? null;
@@ -199,41 +221,45 @@ function PullRequestConversationInlineReference({
 		return null;
 	}
 	const label = path ? `${path}${line ? `:${line}` : ""}` : line ? `Line ${line}` : "Code comment";
-	const preview = diffHunkPreview(event.diffHunk);
+	const resolvedLines = resolveInlineReferenceLines?.(event) ?? [];
+	const previewLines: PullRequestInlineReferenceLine[] =
+		resolvedLines.length > 0
+			? [...resolvedLines]
+			: diffHunkPreview(event.diffHunk).map((lineText) => ({ text: lineText }));
+	const canOpenReference = Boolean(path && onOpenInlineReference);
 	return (
 		<div className="overflow-hidden rounded-md border border-divider bg-surface-0">
 			<div className="flex min-w-0 items-center justify-between gap-2 border-b border-divider bg-surface-2 px-2.5 py-1.5">
-				<span className="min-w-0 truncate font-mono text-[11px] font-medium text-text-primary" title={label}>
-					{label}
-				</span>
+				{canOpenReference ? (
+					<button
+						type="button"
+						className="min-w-0 truncate font-mono text-[11px] font-medium text-accent hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+						title={`View ${label} in files changed`}
+						onClick={() => onOpenInlineReference?.(event)}
+					>
+						{label}
+					</button>
+				) : (
+					<span className="min-w-0 truncate font-mono text-[11px] font-medium text-text-primary" title={label}>
+						{label}
+					</span>
+				)}
 				<div className="flex shrink-0 items-center gap-2">
 					{event.side ? <span className="text-[10px] uppercase text-text-tertiary">{event.side}</span> : null}
-					{path && line && onOpenInlineReference ? (
-						<button
-							type="button"
-							className="text-[11px] font-medium text-accent hover:underline"
-							onClick={() => onOpenInlineReference(event)}
-						>
-							View in files
-						</button>
-					) : null}
 				</div>
 			</div>
-			{preview.length > 0 ? (
-				<pre className="max-h-48 overflow-auto px-2.5 py-2 text-[11px] leading-5 text-text-secondary">
-					{preview.map((lineText, index) => (
-						<code
-							key={`${event.id}-hunk-${index}`}
-							className={cn(
-								"block min-w-max whitespace-pre font-mono",
-								lineText.startsWith("+") && "text-status-green",
-								lineText.startsWith("-") && "text-status-red",
-							)}
+			{previewLines.length > 0 ? (
+				<div className="max-h-48 overflow-auto py-1 text-[11px] leading-5">
+					{previewLines.map((lineItem, index) => (
+						<div
+							key={`${event.id}-line-${lineItem.lineNumber ?? index}`}
+							className={cn("grid min-w-max grid-cols-[3rem_minmax(0,1fr)] font-mono", inlineReferenceLineTone(lineItem))}
 						>
-							{lineText}
-						</code>
+							<span className="select-none pr-2 text-right text-text-tertiary">{lineItem.lineNumber ?? ""}</span>
+							<code className="whitespace-pre pr-2">{lineItem.text || " "}</code>
+						</div>
 					))}
-				</pre>
+				</div>
 			) : null}
 		</div>
 	);
@@ -242,9 +268,11 @@ function PullRequestConversationInlineReference({
 function PullRequestConversationCard({
 	event,
 	onOpenInlineReference,
+	resolveInlineReferenceLines,
 }: {
 	event: PullRequestConversationEvent;
 	onOpenInlineReference?: (event: PullRequestConversationEvent) => void;
+	resolveInlineReferenceLines?: PullRequestInlineReferenceResolver;
 }): ReactElement {
 	const author = event.author?.trim() || "Someone";
 	const date = formatConversationDate(event.createdAt);
@@ -272,7 +300,11 @@ function PullRequestConversationCard({
 					{date ? <span className="shrink-0 text-[11px] text-text-tertiary">{date}</span> : null}
 				</div>
 				<div className="grid gap-3 p-3 text-sm text-text-primary">
-					<PullRequestConversationInlineReference event={event} onOpenInlineReference={onOpenInlineReference} />
+					<PullRequestConversationInlineReference
+						event={event}
+						onOpenInlineReference={onOpenInlineReference}
+						resolveInlineReferenceLines={resolveInlineReferenceLines}
+					/>
 					{hasBody ? (
 						<MarkdownMessagePreview value={event.body} emptyLabel="" className="cy-markdown-preview--plain text-sm" />
 					) : isReview ? (
@@ -289,15 +321,17 @@ export function PullRequestConversationTimeline({
 	isLoading = false,
 	className,
 	onOpenInlineReference,
+	resolveInlineReferenceLines,
 }: {
 	conversation?: PullRequestConversation | null;
 	isLoading?: boolean;
 	className?: string;
 	onOpenInlineReference?: (event: PullRequestConversationEvent) => void;
+	resolveInlineReferenceLines?: PullRequestInlineReferenceResolver;
 }): ReactElement {
 	if (isLoading && !conversation) {
 		return (
-			<div className={cn("grid gap-3 border-t border-divider pt-3", className)} role="status" aria-label="Loading pull request conversation">
+			<div className={cn("grid gap-3 pt-1", className)} role="status" aria-label="Loading pull request conversation">
 				<div className="kb-skeleton h-20 rounded-md" />
 				<div className="kb-skeleton h-28 rounded-md" />
 			</div>
@@ -305,7 +339,7 @@ export function PullRequestConversationTimeline({
 	}
 	if (!conversation) {
 		return (
-			<div className={cn("border-t border-divider pt-3 text-sm text-text-tertiary", className)}>
+			<div className={cn("pt-1 text-sm text-text-tertiary", className)}>
 				Conversation has not been loaded.
 			</div>
 		);
@@ -325,12 +359,13 @@ export function PullRequestConversationTimeline({
 		);
 	}
 	return (
-		<div className={cn("grid gap-3 border-t border-divider pt-3", className)}>
+		<div className={cn("grid gap-3 pt-1", className)}>
 			{conversation.events.map((event) => (
 				<PullRequestConversationCard
 					key={`${event.kind}:${event.id}`}
 					event={event}
 					onOpenInlineReference={onOpenInlineReference}
+					resolveInlineReferenceLines={resolveInlineReferenceLines}
 				/>
 			))}
 		</div>
@@ -499,9 +534,17 @@ export function PullRequestDetailsPanel({
 	const authorName = details?.author?.trim() || author?.name?.trim() || null;
 	const hasBody = body.trim().length > 0;
 	const prUrl = pr?.url?.trim() || null;
+	const shouldUseInternalScroll = showDescriptionContent || isEditing;
+	const state = pr?.state?.trim() || null;
 
 	return (
-		<section className={cn("flex h-full min-h-0 flex-col overflow-hidden", className)}>
+		<section
+			className={cn(
+				"flex min-h-0 flex-col",
+				shouldUseInternalScroll ? "h-full overflow-hidden" : "min-h-full overflow-visible",
+				className,
+			)}
+		>
 			<header className="flex min-h-11 items-center gap-2 border-b border-divider px-3 py-2">
 				<div className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-accent text-accent-fg">
 					<GitPullRequest size={14} />
@@ -588,24 +631,48 @@ export function PullRequestDetailsPanel({
 					</div>
 				) : null}
 			</header>
-			<div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3 py-3">
+			<div
+				className={cn(
+					"flex min-h-0 flex-1 flex-col gap-3 px-3 py-3",
+					shouldUseInternalScroll ? "overflow-y-auto" : "overflow-visible",
+				)}
+			>
 				{isLoading ? (
 					<div className="grid gap-2" role="status" aria-label="Loading pull request details">
 						<div className="kb-skeleton h-4 w-1/2 rounded" />
 						<div className="kb-skeleton h-16 rounded" />
 					</div>
 				) : null}
-				<div className="grid gap-2 border-b border-divider pb-3 text-xs text-text-secondary">
-					<div className="flex min-w-0 flex-wrap items-center gap-2">
-						<span className="shrink-0 text-text-tertiary">Head</span>
-						<span className="min-w-0 truncate font-mono text-text-primary">{branchValue(pr?.headBranch)}</span>
-						<span className="text-text-tertiary">→</span>
-						<span className="shrink-0 text-text-tertiary">Base</span>
-						<span className="min-w-0 truncate font-mono text-text-primary">{branchValue(pr?.baseBranch)}</span>
-					</div>
-					<div className="flex min-w-0 flex-wrap items-center gap-2">
-						{pr?.state ? <span className="capitalize text-text-tertiary">{pr.state}</span> : null}
-						{details?.draft ? <span className="text-text-tertiary">Draft</span> : null}
+				<div className="border-b border-divider pb-3 text-xs text-text-secondary">
+					<div className="flex min-w-0 items-start justify-between gap-3">
+						<div className="flex min-w-0 flex-wrap items-center gap-2">
+							<span className="shrink-0 text-text-tertiary">Head</span>
+							<span className="min-w-0 truncate font-mono text-text-primary">{branchValue(pr?.headBranch)}</span>
+							<span className="text-text-tertiary">→</span>
+							<span className="shrink-0 text-text-tertiary">Base</span>
+							<span className="min-w-0 truncate font-mono text-text-primary">{branchValue(pr?.baseBranch)}</span>
+						</div>
+						<div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+							{state ? (
+								<span
+									className={cn(
+										"inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold capitalize leading-4",
+										state.toLowerCase() === "open"
+											? "border-status-green/35 bg-status-green/10 text-status-green"
+											: state.toLowerCase() === "closed"
+												? "border-status-red/35 bg-status-red/10 text-status-red"
+												: "border-border bg-surface-2 text-text-secondary",
+									)}
+								>
+									{state}
+								</span>
+							) : null}
+							{details?.draft ? (
+								<span className="inline-flex items-center rounded-full border border-border bg-surface-2 px-2 py-0.5 text-[11px] font-semibold leading-4 text-text-secondary">
+									Draft
+								</span>
+							) : null}
+						</div>
 					</div>
 				</div>
 				{showDescriptionContent || isEditing ? (

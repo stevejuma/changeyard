@@ -150,7 +150,7 @@ describe("pull request shared UI", () => {
 		expect(saveButton?.disabled).toBe(true);
 	});
 
-	it("links inline conversation comments to files without showing missing snippet text", async () => {
+	it("links inline conversation comment paths to files without showing missing snippet text", async () => {
 		const onOpenInlineReference = vi.fn();
 		const conversation: PullRequestConversation = {
 			provider: "github",
@@ -180,12 +180,49 @@ describe("pull request shared UI", () => {
 
 		expect(container.textContent).toContain("src/a.ts:12");
 		expect(container.textContent).not.toContain("Line snippet unavailable");
+		expect(container.textContent).not.toContain("View in files");
 
 		await act(async () => {
 			Array.from(container.querySelectorAll("button"))
-				.find((button) => button.textContent?.includes("View in files"))
+				.find((button) => button.textContent?.includes("src/a.ts:12"))
 				?.click();
 		});
 		expect(onOpenInlineReference).toHaveBeenCalledWith(conversation.events[0]);
+	});
+
+	it("renders inline conversation snippets from resolved file text", async () => {
+		const conversation: PullRequestConversation = {
+			provider: "github",
+			pullRequestNumber: 5,
+			supported: true,
+			events: [
+				{
+					id: "comment-1",
+					kind: "review_comment",
+					author: "Ada",
+					body: "This context line should be visible.",
+					path: "src/a.ts",
+					line: 2,
+					side: "RIGHT",
+				},
+			],
+		};
+
+		await act(async () => {
+			root.render(
+				<PullRequestConversationTimeline
+					conversation={conversation}
+					resolveInlineReferenceLines={() => [
+						{
+							lineNumber: 2,
+							text: "const value = computeValue();",
+							variant: "context",
+						},
+					]}
+				/>,
+			);
+		});
+
+		expect(container.textContent).toContain("const value = computeValue();");
 	});
 });

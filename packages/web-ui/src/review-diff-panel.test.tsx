@@ -104,4 +104,36 @@ describe("ReviewDiffPanel", () => {
 		expect(container.textContent).toContain("Can we keep this stable?");
 		expect(container.querySelector('[aria-label^="Edit comment"]')).toBeNull();
 	});
+
+	it("can render without owning vertical scroll", async () => {
+		const files: ReviewDiffFileChange[] = [
+			{
+				path: "src/a.ts",
+				status: "modified",
+				additions: 1,
+				deletions: 0,
+				oldText: "const a = 1;\n",
+				newText: "const a = 2;\n",
+			},
+		];
+
+		await act(async () => {
+			root.render(
+				<ReviewDiffPanel
+					workspaceFiles={files}
+					selectedPath={null}
+					onSelectedPathChange={() => {}}
+					comments={new Map()}
+					onCommentsChange={() => {}}
+					useInternalScroll={false}
+				/>,
+			);
+		});
+
+		const rootElement = container.firstElementChild as HTMLElement | null;
+		const diffContainer = container.querySelector(".kb-diff-file-section")?.parentElement as HTMLElement | null;
+		expect(rootElement?.style.background).toBe("transparent");
+		expect(diffContainer?.style.overflowY).toBe("visible");
+		expect(diffContainer?.style.padding).toBe("0px");
+	});
 });
