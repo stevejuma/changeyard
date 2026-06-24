@@ -1,4 +1,4 @@
-import type { VcsDiagnostic } from "@/runtime/types";
+import type { RuntimeVcsPullRequestSummary, VcsDiagnostic } from "@/runtime/types";
 
 export type VcsProviderKind = "jj" | "git";
 
@@ -51,6 +51,7 @@ export interface VcsWorkspaceStack {
 	isApplied: boolean;
 	isCurrent: boolean;
 	commits: VcsWorkspaceCommit[];
+	pr?: RuntimeVcsPullRequestSummary | null;
 	metadata?: VcsProviderMetadata;
 }
 

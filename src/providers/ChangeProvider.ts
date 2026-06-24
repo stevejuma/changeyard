@@ -9,6 +9,9 @@ export type ProviderCapabilities = {
   comments: boolean;
   pullRequestChecks: boolean;
   pullRequestCheckLogs: boolean;
+  pullRequestDetails: boolean;
+  pullRequestUpdates: boolean;
+  branchChecks: boolean;
   pullRequestDraftState: boolean;
   pullRequestAutoMerge: boolean;
   pullRequestTemplates: boolean;
@@ -58,6 +61,11 @@ export type PullRequestLifecycleInput = {
   storageRoot: string;
   pullRequestNumber: number;
   frontmatter?: Frontmatter;
+};
+
+export type UpdatePullRequestDetailsInput = PullRequestLifecycleInput & {
+  title?: string;
+  body?: string;
 };
 
 export type SetPullRequestDraftStateInput = PullRequestLifecycleInput & {
@@ -128,6 +136,13 @@ export type RemotePullRequest = {
   state?: "open" | "closed" | "merged" | "unknown";
 };
 
+export type RemotePullRequestDetails = RemotePullRequest & {
+  title: string;
+  body: string;
+  author?: string | null;
+  updatedAt?: string | null;
+};
+
 export type RemotePullRequestComment = {
   provider: string;
   commentNumber: number | null;
@@ -167,11 +182,28 @@ export type RemotePullRequestChecks = {
   message?: string;
 };
 
+export type RemoteBranchChecks = {
+  provider: string;
+  branch: string;
+  sha: string | null;
+  supported: boolean;
+  overallState: RemoteCheckState;
+  summary: RemoteCheckSummary;
+  checks: RemotePullRequestCheck[];
+  message?: string;
+};
+
 export type PullRequestChecksInput = {
   repoRoot: string;
   storageRoot: string;
   pullRequestNumber: number;
   frontmatter?: Frontmatter;
+};
+
+export type BranchChecksInput = {
+  repoRoot: string;
+  storageRoot: string;
+  branch: string;
 };
 
 export type PullRequestCheckLogInput = PullRequestChecksInput & {
@@ -198,12 +230,15 @@ export interface ChangeProvider {
   findOpenPullRequestByHead?(input: FindOpenPullRequestByHeadInput): RemotePullRequest | null;
   createBranchPullRequest?(input: BranchPullRequestInput): RemotePullRequest;
   updatePullRequestBase?(input: UpdatePullRequestBaseInput): RemotePullRequest;
+  getPullRequestDetails?(input: PullRequestLifecycleInput): RemotePullRequestDetails;
+  updatePullRequestDetails?(input: UpdatePullRequestDetailsInput): RemotePullRequestDetails;
   setPullRequestDraftState?(input: SetPullRequestDraftStateInput): RemotePullRequest;
   setPullRequestAutoMerge?(input: SetPullRequestAutoMergeInput): RemotePullRequestAutoMerge;
   listPullRequestTemplates?(input: PullRequestLifecycleInput): RemotePullRequestTemplate[];
   upsertPullRequestComment?(input: UpsertPullRequestCommentInput): RemotePullRequestComment;
   publishReview?(input: PublishReviewInput): RemoteReview;
   listPullRequestChecks?(input: PullRequestChecksInput): RemotePullRequestChecks;
+  listBranchChecks?(input: BranchChecksInput): RemoteBranchChecks;
   getPullRequestCheckLog?(input: PullRequestCheckLogInput): RemoteCheckLog;
 }
 
@@ -216,6 +251,9 @@ export const noProviderCapabilities: ProviderCapabilities = {
   comments: false,
   pullRequestChecks: false,
   pullRequestCheckLogs: false,
+  pullRequestDetails: false,
+  pullRequestUpdates: false,
+  branchChecks: false,
   pullRequestDraftState: false,
   pullRequestAutoMerge: false,
   pullRequestTemplates: false,

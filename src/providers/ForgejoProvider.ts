@@ -2,17 +2,23 @@ import type { ChangeyardConfig } from "../types.js";
 import { ChangeyardError } from "../errors.js";
 import type {
   BranchPullRequestInput,
+  BranchChecksInput,
   ChangeProvider,
   CreatePullRequestInput,
   FindOpenPullRequestByHeadInput,
+  PullRequestLifecycleInput,
   ProviderCapabilities,
   PublishReviewInput,
+  RemoteBranchChecks,
+  RemoteCheckSummary,
   RemoteIssue,
   RemotePullRequest,
   RemotePullRequestComment,
+  RemotePullRequestDetails,
   RemoteReview,
   SyncIssueInput,
   UpdatePullRequestBaseInput,
+  UpdatePullRequestDetailsInput,
   UpsertPullRequestCommentInput,
 } from "./ChangeProvider.js";
 import { curlJson } from "./http.js";
@@ -26,6 +32,8 @@ type PullRequestFile = {
 
 type PullRequestResponse = {
   number?: number;
+  title?: string;
+  body?: string | null;
   html_url?: string;
   url?: string;
   base?: {
@@ -36,8 +44,16 @@ type PullRequestResponse = {
   merged?: boolean;
   merged_at?: string | null;
   head?: {
+    ref?: string;
+    label?: string;
     sha?: string;
   };
+  user?: {
+    login?: string;
+    username?: string;
+    full_name?: string;
+  };
+  updated_at?: string;
 };
 
 type IssueCommentResponse = {
@@ -98,9 +114,31 @@ function remotePullRequestFromResponse(response: PullRequestResponse, fallback?:
     pullRequestNumber: response.number,
     pullRequestUrl: typeof response.html_url === "string" ? response.html_url : typeof response.url === "string" ? response.url : null,
     baseBranch,
-    headBranch: fallback?.head ?? null,
+    headBranch: typeof response.head?.ref === "string" ? response.head.ref : typeof response.head?.label === "string" ? response.head.label : fallback?.head ?? null,
     state: response.merged || response.merged_at ? "merged" : response.state === "closed" ? "closed" : response.state === "open" || fallback ? "open" : "unknown",
   };
+}
+
+function remotePullRequestDetailsFromResponse(response: PullRequestResponse, fallback?: { head?: string; base?: string }): RemotePullRequestDetails | null {
+  const base = remotePullRequestFromResponse(response, fallback);
+  if (!base) return null;
+  return {
+    ...base,
+    title: typeof response.title === "string" ? response.title : `Pull request ${base.pullRequestNumber}`,
+    body: typeof response.body === "string" ? response.body : "",
+    author: typeof response.user?.login === "string"
+      ? response.user.login
+      : typeof response.user?.username === "string"
+        ? response.user.username
+        : typeof response.user?.full_name === "string"
+          ? response.user.full_name
+          : null,
+    updatedAt: typeof response.updated_at === "string" ? response.updated_at : null,
+  };
+}
+
+function emptyCheckSummary(): RemoteCheckSummary {
+  return { passed: 0, failed: 0, pending: 0, cancelled: 0, skipped: 0, unknown: 0, total: 0 };
 }
 
 function issueComments(cfg: { baseUrl: string; owner: string; repo: string; token: string }, pullNumber: number): IssueCommentResponse[] {
@@ -128,6 +166,9 @@ export class ForgejoProvider implements ChangeProvider {
       comments: true,
       pullRequestChecks: false,
       pullRequestCheckLogs: false,
+      pullRequestDetails: true,
+      pullRequestUpdates: true,
+      branchChecks: false,
       pullRequestDraftState: false,
       pullRequestAutoMerge: false,
       pullRequestTemplates: false,
@@ -259,6 +300,47 @@ export class ForgejoProvider implements ChangeProvider {
       pullRequestUrl: null,
       baseBranch: input.base,
       state: "unknown",
+    };
+  }
+
+  getPullRequestDetails(input: PullRequestLifecycleInput): RemotePullRequestDetails {
+    const cfg = requireConfig(this.config);
+    const response = pullRequest(cfg, input.pullRequestNumber);
+    return remotePullRequestDetailsFromResponse(response) ?? {
+      provider: this.name,
+      pullRequestNumber: input.pullRequestNumber,
+      pullRequestUrl: null,
+      title: `Pull request ${input.pullRequestNumber}`,
+      body: "",
+      state: "unknown",
+    };
+  }
+
+  updatePullRequestDetails(input: UpdatePullRequestDetailsInput): RemotePullRequestDetails {
+    const cfg = requireConfig(this.config);
+    const payload: Record<string, string> = {};
+    if (input.title !== undefined) payload.title = input.title;
+    if (input.body !== undefined) payload.body = input.body;
+    const response = curlJson({
+      method: "PATCH",
+      url: `${cfg.baseUrl}/api/v1/repos/${cfg.owner}/${cfg.repo}/pulls/${input.pullRequestNumber}`,
+      token: cfg.token,
+      tokenScheme: "token",
+      payload,
+    });
+    return remotePullRequestDetailsFromResponse(response as PullRequestResponse) ?? this.getPullRequestDetails(input);
+  }
+
+  listBranchChecks(input: BranchChecksInput): RemoteBranchChecks {
+    return {
+      provider: this.name,
+      branch: input.branch,
+      sha: null,
+      supported: false,
+      overallState: "unknown",
+      summary: emptyCheckSummary(),
+      checks: [],
+      message: "Forgejo branch checks are not supported by Changeyard v1.",
     };
   }
 

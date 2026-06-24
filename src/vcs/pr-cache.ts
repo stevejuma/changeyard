@@ -13,6 +13,7 @@ export type VcsPullRequestCacheEntry = {
 	base: string | null;
 	number: number;
 	url: string | null;
+	title?: string | null;
 	state: VcsPullRequestCacheState;
 	updatedAt: string;
 };
@@ -56,6 +57,7 @@ function normalizeEntry(value: unknown): VcsPullRequestCacheEntry | null {
 		base: typeof entry.base === "string" ? entry.base : null,
 		number: entry.number,
 		url: typeof entry.url === "string" ? entry.url : null,
+		title: typeof entry.title === "string" ? entry.title : null,
 		state: normalizeState(entry.state),
 		updatedAt: typeof entry.updatedAt === "string" ? entry.updatedAt : new Date(0).toISOString(),
 	};
@@ -136,7 +138,7 @@ export function remotePullRequestToCacheEntry(input: {
 	repository: string;
 	head: string;
 	fallbackBase: string | null;
-	pullRequest: RemotePullRequest;
+	pullRequest: RemotePullRequest & { title?: string | null };
 }): Omit<VcsPullRequestCacheEntry, "updatedAt"> | null {
 	if (typeof input.pullRequest.pullRequestNumber !== "number") {
 		return null;
@@ -148,6 +150,7 @@ export function remotePullRequestToCacheEntry(input: {
 		base: input.pullRequest.baseBranch ?? input.fallbackBase,
 		number: input.pullRequest.pullRequestNumber,
 		url: input.pullRequest.pullRequestUrl,
+		title: input.pullRequest.title ?? null,
 		state: normalizeState(input.pullRequest.state ?? "open"),
 	};
 }
@@ -162,6 +165,7 @@ export function cachedPullRequestToInventoryPr(
 		number: entry.number,
 		url: entry.url,
 		baseBranch: entry.base,
+		title: entry.title ?? null,
 	};
 }
 

@@ -61,6 +61,12 @@ import type {
 	RuntimeVcsSubmitStackPreviewRequest,
 	RuntimeVcsSubmitStackPreviewResponse,
 	RuntimeVcsSubmitStackResponse,
+	RuntimeVcsBaseBranchChecksRequest,
+	RuntimeVcsBranchChecksResponse,
+	RuntimeVcsPullRequestChecksResponse,
+	RuntimeVcsPullRequestDetails,
+	RuntimeVcsPullRequestSelector,
+	RuntimeVcsPullRequestUpdateRequest,
 	RuntimeVcsResolveConflictFileRequest,
 	RuntimeVcsResolveConflictFileResponse,
 	RuntimeVcsWorkspaceOperationRequest,
@@ -279,6 +285,22 @@ export interface RuntimeChangeyardApiAdapter {
 		repoRoot: string,
 		input: RuntimeVcsSubmitStackPreviewRequest,
 	) => Promise<RuntimeVcsSubmitStackResponse> | RuntimeVcsSubmitStackResponse;
+	getVcsPullRequestDetails?: (
+		repoRoot: string,
+		input: RuntimeVcsPullRequestSelector,
+	) => Promise<RuntimeVcsPullRequestDetails> | RuntimeVcsPullRequestDetails;
+	updateVcsPullRequestDetails?: (
+		repoRoot: string,
+		input: RuntimeVcsPullRequestUpdateRequest,
+	) => Promise<RuntimeVcsPullRequestDetails> | RuntimeVcsPullRequestDetails;
+	getVcsPullRequestChecks?: (
+		repoRoot: string,
+		input: RuntimeVcsPullRequestSelector,
+	) => Promise<RuntimeVcsPullRequestChecksResponse> | RuntimeVcsPullRequestChecksResponse;
+	getVcsBaseBranchChecks?: (
+		repoRoot: string,
+		input?: RuntimeVcsBaseBranchChecksRequest,
+	) => Promise<RuntimeVcsBranchChecksResponse> | RuntimeVcsBranchChecksResponse;
 }
 
 export interface RuntimeTrpcChangesApi {

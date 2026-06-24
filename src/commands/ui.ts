@@ -27,7 +27,7 @@ import { listGlobalTemplateProfiles } from "../config/templateProfiles.js";
 import { runInit } from "./init.js";
 import { runUpdate } from "./update.js";
 import { doctorReport } from "./doctor.js";
-import { applyVcsOperation, applyVcsWorkspaceOperation, createJjSnapshot, detectVcs, getJjBranchesData, getJjDiff, getJjInventory, getJjOperationDiff, getJjOperations, getJjState, getVcsBranchesData, getVcsConflictFile, getVcsDiff, getVcsWorkspaceStacks, getVcsWorkspaceState, previewVcsOperation, previewVcsWorkspaceOperation, resolveVcsConflictFile, revertJjOperationById, submitVcsStack, submitVcsStackPreview } from "../vcs/adapter.js";
+import { applyVcsOperation, applyVcsWorkspaceOperation, createJjSnapshot, detectVcs, getJjBranchesData, getJjDiff, getJjInventory, getJjOperationDiff, getJjOperations, getJjState, getVcsBaseChecks, getVcsBranchesData, getVcsConflictFile, getVcsDiff, getVcsPrChecks, getVcsPrDetails, getVcsWorkspaceStacks, getVcsWorkspaceState, previewVcsOperation, previewVcsWorkspaceOperation, resolveVcsConflictFile, revertJjOperationById, submitVcsStack, submitVcsStackPreview, updateVcsPrDetails } from "../vcs/adapter.js";
 import type { VcsApplyOperationInput, VcsPreviewOperationInput, VcsSubmitStackPreviewInput } from "../vcs/types.js";
 import { installCliShutdownHandlers } from "./gracefulShutdown.js";
 import { DEFAULT_PLANNING_SECTION_ORDER, STRICT_PLANNING_SECTION_ORDER, type PlanningSectionId } from "../planning/types.js";
@@ -115,6 +115,7 @@ export function createChangeyardUiApi() {
         ? {
             provider: change.provider.type,
             issueUrl: change.provider.issueUrl,
+            pullRequestNumber: typeof change.provider.pullRequestNumber === "number" ? change.provider.pullRequestNumber : undefined,
             pullRequestUrl: change.provider.pullRequestUrl,
           }
         : undefined,
@@ -437,6 +438,18 @@ export function createChangeyardUiApi() {
     },
     submitVcsStack(repoRoot: string, input: VcsSubmitStackPreviewInput) {
       return submitVcsStack(repoRoot, input);
+    },
+    getVcsPullRequestDetails(repoRoot: string, input: Parameters<typeof getVcsPrDetails>[1]) {
+      return getVcsPrDetails(repoRoot, input);
+    },
+    updateVcsPullRequestDetails(repoRoot: string, input: Parameters<typeof updateVcsPrDetails>[1]) {
+      return updateVcsPrDetails(repoRoot, input);
+    },
+    getVcsPullRequestChecks(repoRoot: string, input: Parameters<typeof getVcsPrChecks>[1]) {
+      return getVcsPrChecks(repoRoot, input);
+    },
+    getVcsBaseBranchChecks(repoRoot: string, input?: Parameters<typeof getVcsBaseChecks>[1]) {
+      return getVcsBaseChecks(repoRoot, input);
     },
   };
 }

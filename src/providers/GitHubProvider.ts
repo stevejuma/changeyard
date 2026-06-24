@@ -2,12 +2,15 @@ import type { ChangeyardConfig } from "../types.js";
 import { ChangeyardError } from "../errors.js";
 import type {
   BranchPullRequestInput,
+  BranchChecksInput,
   ChangeProvider,
   CreatePullRequestInput,
   FindOpenPullRequestByHeadInput,
   PullRequestCheckLogInput,
   PullRequestChecksInput,
+  PullRequestLifecycleInput,
   ProviderCapabilities,
+  RemoteBranchChecks,
   RemoteCheckLog,
   RemoteCheckState,
   RemoteCheckSummary,
@@ -17,12 +20,14 @@ import type {
   RemotePullRequestCheck,
   RemotePullRequestChecks,
   RemotePullRequestComment,
+  RemotePullRequestDetails,
   RemoteReview,
   SetPullRequestAutoMergeInput,
   SetPullRequestDraftStateInput,
   SyncIssueInput,
   PublishReviewInput,
   UpdatePullRequestBaseInput,
+  UpdatePullRequestDetailsInput,
   UpsertPullRequestCommentInput,
 } from "./ChangeProvider.js";
 import { curlGraphql, curlJson, curlRaw } from "./http.js";
@@ -33,6 +38,8 @@ const GITHUB_HEADERS = ["Accept: application/vnd.github+json", "X-GitHub-Api-Ver
 type PullRequestResponse = {
   number?: number;
   node_id?: string;
+  title?: string;
+  body?: string | null;
   html_url?: string;
   url?: string;
   base?: {
@@ -41,10 +48,19 @@ type PullRequestResponse = {
   state?: string;
   merged_at?: string | null;
   head?: {
+    ref?: string;
     sha?: string;
   };
+  user?: {
+    login?: string;
+  };
+  updated_at?: string;
   draft?: boolean;
   auto_merge?: unknown;
+};
+
+type CommitResponse = {
+  sha?: string;
 };
 
 type PullRequestListFile = {
@@ -200,6 +216,17 @@ function commitCheckRuns(cfg: { baseUrl: string; owner: string; repo: string; to
   return Array.isArray(checkRuns) ? checkRuns as CheckRun[] : [];
 }
 
+function branchCommit(cfg: { baseUrl: string; owner: string; repo: string; token: string }, branch: string): CommitResponse {
+  return curlJson({
+    method: "GET",
+    url: `${cfg.baseUrl}/repos/${cfg.owner}/${cfg.repo}/commits/${encodeURIComponent(branch)}`,
+    token: cfg.token,
+    tokenScheme: "Bearer",
+    payload: {},
+    extraHeaders: GITHUB_HEADERS,
+  }) as CommitResponse;
+}
+
 function pullRequestFiles(cfg: { baseUrl: string; owner: string; repo: string; token: string }, pullNumber: number): PullRequestListFile[] {
   const response = curlJson({
     method: "GET",
@@ -219,11 +246,88 @@ function remotePullRequestFromResponse(response: PullRequestResponse, fallback?:
     pullRequestNumber: response.number,
     pullRequestUrl: typeof response.html_url === "string" ? response.html_url : typeof response.url === "string" ? response.url : null,
     baseBranch: typeof response.base?.ref === "string" ? response.base.ref : fallback?.base ?? null,
-    headBranch: fallback?.head ?? null,
+    headBranch: typeof response.head?.ref === "string" ? response.head.ref : fallback?.head ?? null,
     draft: typeof response.draft === "boolean" ? response.draft : null,
     autoMerge: response.auto_merge ? true : null,
     state: response.merged_at ? "merged" : response.state === "closed" ? "closed" : response.state === "open" || fallback ? "open" : "unknown",
   };
+}
+
+function remotePullRequestDetailsFromResponse(response: PullRequestResponse, fallback?: { head?: string; base?: string }): RemotePullRequestDetails | null {
+  const base = remotePullRequestFromResponse(response, fallback);
+  if (!base) return null;
+  return {
+    ...base,
+    title: typeof response.title === "string" ? response.title : `Pull request ${base.pullRequestNumber}`,
+    body: typeof response.body === "string" ? response.body : "",
+    author: typeof response.user?.login === "string" ? response.user.login : null,
+    updatedAt: typeof response.updated_at === "string" ? response.updated_at : null,
+  };
+}
+
+function githubChecksForSha(cfg: { baseUrl: string; owner: string; repo: string; token: string }, headSha: string): RemotePullRequestCheck[] {
+  const checks: RemotePullRequestCheck[] = [];
+  const actionsJobNames = new Set<string>();
+  for (const run of workflowRuns(cfg, headSha)) {
+    if (typeof run.id !== "number") continue;
+    const jobs = workflowJobs(cfg, run.id);
+    if (jobs.length === 0) {
+      const state = githubCheckState(run.status, run.conclusion);
+      checks.push({
+        provider: "github",
+        id: `run:${run.id}`,
+        name: run.name ?? `GitHub Actions run ${run.id}`,
+        kind: "run",
+        state,
+        runId: String(run.id),
+        conclusion: run.conclusion ?? run.status ?? null,
+        url: run.html_url ?? null,
+        startedAt: run.run_started_at ?? run.created_at ?? null,
+        completedAt: run.status === "completed" ? run.updated_at ?? null : null,
+        logAvailable: true,
+      });
+      continue;
+    }
+    for (const job of jobs) {
+      if (typeof job.id !== "number") continue;
+      const name = job.name ?? `GitHub Actions job ${job.id}`;
+      actionsJobNames.add(name);
+      checks.push({
+        provider: "github",
+        id: `job:${job.id}`,
+        name,
+        kind: "job",
+        state: githubCheckState(job.status, job.conclusion),
+        runId: String(job.run_id ?? run.id),
+        jobId: String(job.id),
+        conclusion: job.conclusion ?? job.status ?? null,
+        url: job.html_url ?? null,
+        startedAt: job.started_at ?? null,
+        completedAt: job.completed_at ?? null,
+        logAvailable: true,
+      });
+    }
+  }
+
+  for (const checkRun of commitCheckRuns(cfg, headSha)) {
+    if (typeof checkRun.id !== "number") continue;
+    const name = checkRun.name ?? `GitHub check ${checkRun.id}`;
+    if (actionsJobNames.has(name)) continue;
+    checks.push({
+      provider: "github",
+      id: `check:${checkRun.id}`,
+      name,
+      kind: "check",
+      state: githubCheckState(checkRun.status, checkRun.conclusion),
+      checkId: String(checkRun.id),
+      conclusion: checkRun.conclusion ?? checkRun.status ?? null,
+      url: checkRun.html_url ?? null,
+      startedAt: checkRun.started_at ?? null,
+      completedAt: checkRun.completed_at ?? null,
+      logAvailable: false,
+    });
+  }
+  return checks;
 }
 
 function pullRequestNodeId(cfg: { baseUrl: string; owner: string; repo: string; token: string }, pullNumber: number): { nodeId: string; response: PullRequestResponse } {
@@ -274,6 +378,9 @@ export class GitHubProvider implements ChangeProvider {
       comments: true,
       pullRequestChecks: true,
       pullRequestCheckLogs: true,
+      pullRequestDetails: true,
+      pullRequestUpdates: true,
+      branchChecks: true,
       pullRequestDraftState: true,
       pullRequestAutoMerge: true,
       pullRequestTemplates: true,
@@ -410,6 +517,35 @@ export class GitHubProvider implements ChangeProvider {
     };
   }
 
+  getPullRequestDetails(input: PullRequestLifecycleInput): RemotePullRequestDetails {
+    const cfg = requireConfig(this.config);
+    const response = pullRequest(cfg, input.pullRequestNumber);
+    return remotePullRequestDetailsFromResponse(response) ?? {
+      provider: this.name,
+      pullRequestNumber: input.pullRequestNumber,
+      pullRequestUrl: null,
+      title: `Pull request ${input.pullRequestNumber}`,
+      body: "",
+      state: "unknown",
+    };
+  }
+
+  updatePullRequestDetails(input: UpdatePullRequestDetailsInput): RemotePullRequestDetails {
+    const cfg = requireConfig(this.config);
+    const payload: Record<string, string> = {};
+    if (input.title !== undefined) payload.title = input.title;
+    if (input.body !== undefined) payload.body = input.body;
+    const response = curlJson({
+      method: "PATCH",
+      url: `${cfg.baseUrl}/repos/${cfg.owner}/${cfg.repo}/pulls/${input.pullRequestNumber}`,
+      token: cfg.token,
+      tokenScheme: "Bearer",
+      payload,
+      extraHeaders: GITHUB_HEADERS,
+    });
+    return remotePullRequestDetailsFromResponse(response as PullRequestResponse) ?? this.getPullRequestDetails(input);
+  }
+
   setPullRequestDraftState(input: SetPullRequestDraftStateInput): RemotePullRequest {
     const cfg = requireConfig(this.config);
     const { nodeId, response } = pullRequestNodeId(cfg, input.pullRequestNumber);
@@ -519,67 +655,7 @@ export class GitHubProvider implements ChangeProvider {
       };
     }
 
-    const checks: RemotePullRequestCheck[] = [];
-    const actionsJobNames = new Set<string>();
-    for (const run of workflowRuns(cfg, headSha)) {
-      if (typeof run.id !== "number") continue;
-      const jobs = workflowJobs(cfg, run.id);
-      if (jobs.length === 0) {
-        const state = githubCheckState(run.status, run.conclusion);
-        checks.push({
-          provider: this.name,
-          id: `run:${run.id}`,
-          name: run.name ?? `GitHub Actions run ${run.id}`,
-          kind: "run",
-          state,
-          runId: String(run.id),
-          conclusion: run.conclusion ?? run.status ?? null,
-          url: run.html_url ?? null,
-          startedAt: run.run_started_at ?? run.created_at ?? null,
-          completedAt: run.status === "completed" ? run.updated_at ?? null : null,
-          logAvailable: true,
-        });
-        continue;
-      }
-      for (const job of jobs) {
-        if (typeof job.id !== "number") continue;
-        const name = job.name ?? `GitHub Actions job ${job.id}`;
-        actionsJobNames.add(name);
-        checks.push({
-          provider: this.name,
-          id: `job:${job.id}`,
-          name,
-          kind: "job",
-          state: githubCheckState(job.status, job.conclusion),
-          runId: String(job.run_id ?? run.id),
-          jobId: String(job.id),
-          conclusion: job.conclusion ?? job.status ?? null,
-          url: job.html_url ?? null,
-          startedAt: job.started_at ?? null,
-          completedAt: job.completed_at ?? null,
-          logAvailable: true,
-        });
-      }
-    }
-
-    for (const checkRun of commitCheckRuns(cfg, headSha)) {
-      if (typeof checkRun.id !== "number") continue;
-      const name = checkRun.name ?? `GitHub check ${checkRun.id}`;
-      if (actionsJobNames.has(name)) continue;
-      checks.push({
-        provider: this.name,
-        id: `check:${checkRun.id}`,
-        name,
-        kind: "check",
-        state: githubCheckState(checkRun.status, checkRun.conclusion),
-        checkId: String(checkRun.id),
-        conclusion: checkRun.conclusion ?? checkRun.status ?? null,
-        url: checkRun.html_url ?? null,
-        startedAt: checkRun.started_at ?? null,
-        completedAt: checkRun.completed_at ?? null,
-        logAvailable: false,
-      });
-    }
+    const checks = githubChecksForSha(cfg, headSha);
 
     return {
       provider: this.name,
@@ -588,6 +664,36 @@ export class GitHubProvider implements ChangeProvider {
       overallState: overallCheckState(checks),
       summary: summarizeChecks(checks),
       checks,
+    };
+  }
+
+  listBranchChecks(input: BranchChecksInput): RemoteBranchChecks {
+    const cfg = requireConfig(this.config);
+    const commit = branchCommit(cfg, input.branch);
+    const sha = typeof commit.sha === "string" ? commit.sha : null;
+    if (!sha) {
+      const checks: RemotePullRequestCheck[] = [];
+      return {
+        provider: this.name,
+        branch: input.branch,
+        sha: null,
+        supported: true,
+        overallState: "unknown",
+        summary: summarizeChecks(checks),
+        checks,
+        message: `GitHub branch ${input.branch} did not resolve to a commit SHA.`,
+      };
+    }
+    const checks = githubChecksForSha(cfg, sha);
+    return {
+      provider: this.name,
+      branch: input.branch,
+      sha,
+      supported: true,
+      overallState: overallCheckState(checks),
+      summary: summarizeChecks(checks),
+      checks,
+      message: checks.length === 0 ? `GitHub branch ${input.branch} has no checks for ${sha}.` : undefined,
     };
   }
 

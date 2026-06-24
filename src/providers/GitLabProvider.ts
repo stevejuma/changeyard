@@ -2,13 +2,16 @@ import type { ChangeyardConfig } from "../types.js";
 import { ChangeyardError } from "../errors.js";
 import type {
   BranchPullRequestInput,
+  BranchChecksInput,
   ChangeProvider,
   CreatePullRequestInput,
   FindOpenPullRequestByHeadInput,
   PullRequestCheckLogInput,
   PullRequestChecksInput,
+  PullRequestLifecycleInput,
   ProviderCapabilities,
   PublishReviewInput,
+  RemoteBranchChecks,
   RemoteCheckLog,
   RemoteCheckState,
   RemoteCheckSummary,
@@ -18,11 +21,13 @@ import type {
   RemotePullRequestCheck,
   RemotePullRequestChecks,
   RemotePullRequestComment,
+  RemotePullRequestDetails,
   RemoteReview,
   SetPullRequestAutoMergeInput,
   SetPullRequestDraftStateInput,
   SyncIssueInput,
   UpdatePullRequestBaseInput,
+  UpdatePullRequestDetailsInput,
   UpsertPullRequestCommentInput,
 } from "./ChangeProvider.js";
 import { curlJson, curlRaw } from "./http.js";
@@ -32,11 +37,17 @@ type MergeRequestResponse = {
   iid?: number;
   id?: number;
   title?: string;
+  description?: string | null;
   web_url?: string;
   source_branch?: string;
   target_branch?: string;
   state?: string;
   merged_at?: string | null;
+  author?: {
+    username?: string;
+    name?: string;
+  };
+  updated_at?: string;
   head_pipeline?: {
     sha?: string;
   };
@@ -65,6 +76,8 @@ type MergeRequestNoteResponse = {
 
 type PipelineResponse = {
   id?: number;
+  sha?: string;
+  ref?: string;
   status?: string;
   web_url?: string;
   created_at?: string;
@@ -80,6 +93,13 @@ type PipelineJobResponse = {
   finished_at?: string | null;
   pipeline?: {
     id?: number;
+  };
+};
+
+type BranchResponse = {
+  name?: string;
+  commit?: {
+    id?: string;
   };
 };
 
@@ -174,6 +194,26 @@ function pipelineJobs(cfg: { baseUrl: string; owner: string; repo: string; token
   return Array.isArray(response) ? response as PipelineJobResponse[] : [];
 }
 
+function branch(cfg: { baseUrl: string; owner: string; repo: string; token: string }, branchName: string): BranchResponse {
+  return curlJson({
+    method: "GET",
+    url: `${cfg.baseUrl}/api/v4/projects/${encodeProject(cfg.owner, cfg.repo)}/repository/branches/${encodeURIComponent(branchName)}`,
+    token: cfg.token,
+    tokenScheme: "Bearer",
+    payload: {},
+  }) as BranchResponse;
+}
+
+function branchPipelines(cfg: { baseUrl: string; owner: string; repo: string; token: string }, branchName: string): PipelineResponse[] {
+  const response = curlJson({
+    method: "GET",
+    url: `${cfg.baseUrl}/api/v4/projects/${encodeProject(cfg.owner, cfg.repo)}/pipelines?ref=${encodeURIComponent(branchName)}&per_page=20`,
+    token: cfg.token,
+    tokenScheme: "Bearer",
+  });
+  return Array.isArray(response) ? response as PipelineResponse[] : [];
+}
+
 function mergeRequestDiffs(cfg: { baseUrl: string; owner: string; repo: string; token: string }, mergeRequestNumber: number): MergeRequestDiffFile[] {
   const response = curlJson({
     method: "GET",
@@ -207,6 +247,18 @@ function remotePullRequestFromMergeRequest(response: MergeRequestResponse, fallb
   };
 }
 
+function remotePullRequestDetailsFromMergeRequest(response: MergeRequestResponse, fallback?: { head?: string; base?: string }): RemotePullRequestDetails | null {
+  const base = remotePullRequestFromMergeRequest(response, fallback);
+  if (!base) return null;
+  return {
+    ...base,
+    title: typeof response.title === "string" ? response.title : `Merge request ${base.pullRequestNumber}`,
+    body: typeof response.description === "string" ? response.description : "",
+    author: typeof response.author?.username === "string" ? response.author.username : typeof response.author?.name === "string" ? response.author.name : null,
+    updatedAt: typeof response.updated_at === "string" ? response.updated_at : null,
+  };
+}
+
 function draftTitle(title: string, draft: boolean): string {
   const readyTitle = title.replace(/^(Draft|WIP):\s*/iu, "").trim();
   return draft ? `Draft: ${readyTitle || title}` : readyTitle || title;
@@ -223,6 +275,51 @@ function mergeRequestNotes(cfg: { baseUrl: string; owner: string; repo: string; 
   return Array.isArray(response) ? response as MergeRequestNoteResponse[] : [];
 }
 
+function gitlabChecksFromPipelines(
+  cfg: { baseUrl: string; owner: string; repo: string; token: string },
+  pipelines: PipelineResponse[],
+): RemotePullRequestCheck[] {
+  const checks: RemotePullRequestCheck[] = [];
+  for (const pipeline of pipelines) {
+    if (typeof pipeline.id !== "number") continue;
+    const jobs = pipelineJobs(cfg, pipeline.id);
+    if (jobs.length === 0) {
+      checks.push({
+        provider: "gitlab",
+        id: `run:${pipeline.id}`,
+        name: `GitLab pipeline ${pipeline.id}`,
+        kind: "run",
+        state: gitlabCheckState(pipeline.status),
+        runId: String(pipeline.id),
+        conclusion: pipeline.status ?? null,
+        url: pipeline.web_url ?? null,
+        startedAt: pipeline.created_at ?? null,
+        completedAt: pipeline.updated_at ?? null,
+        logAvailable: false,
+      });
+      continue;
+    }
+    for (const job of jobs) {
+      if (typeof job.id !== "number") continue;
+      checks.push({
+        provider: "gitlab",
+        id: `job:${job.id}`,
+        name: job.name ?? `GitLab job ${job.id}`,
+        kind: "job",
+        state: gitlabCheckState(job.status),
+        runId: String(job.pipeline?.id ?? pipeline.id),
+        jobId: String(job.id),
+        conclusion: job.status ?? null,
+        url: job.web_url ?? null,
+        startedAt: job.started_at ?? null,
+        completedAt: job.finished_at ?? null,
+        logAvailable: true,
+      });
+    }
+  }
+  return checks;
+}
+
 export class GitLabProvider implements ChangeProvider {
   name = "gitlab";
   constructor(private config: ChangeyardConfig) {}
@@ -237,6 +334,9 @@ export class GitLabProvider implements ChangeProvider {
       comments: true,
       pullRequestChecks: true,
       pullRequestCheckLogs: true,
+      pullRequestDetails: true,
+      pullRequestUpdates: true,
+      branchChecks: true,
       pullRequestDraftState: true,
       pullRequestAutoMerge: true,
       pullRequestTemplates: true,
@@ -381,6 +481,34 @@ export class GitLabProvider implements ChangeProvider {
     };
   }
 
+  getPullRequestDetails(input: PullRequestLifecycleInput): RemotePullRequestDetails {
+    const cfg = requireConfig(this.config);
+    const response = mergeRequest(cfg, input.pullRequestNumber);
+    return remotePullRequestDetailsFromMergeRequest(response) ?? {
+      provider: this.name,
+      pullRequestNumber: input.pullRequestNumber,
+      pullRequestUrl: null,
+      title: `Merge request ${input.pullRequestNumber}`,
+      body: "",
+      state: "unknown",
+    };
+  }
+
+  updatePullRequestDetails(input: UpdatePullRequestDetailsInput): RemotePullRequestDetails {
+    const cfg = requireConfig(this.config);
+    const payload: Record<string, string> = {};
+    if (input.title !== undefined) payload.title = input.title;
+    if (input.body !== undefined) payload.description = input.body;
+    const response = curlJson({
+      method: "PUT",
+      url: `${cfg.baseUrl}/api/v4/projects/${encodeProject(cfg.owner, cfg.repo)}/merge_requests/${input.pullRequestNumber}`,
+      token: cfg.token,
+      tokenScheme: "Bearer",
+      payload,
+    });
+    return remotePullRequestDetailsFromMergeRequest(response as MergeRequestResponse) ?? this.getPullRequestDetails(input);
+  }
+
   setPullRequestDraftState(input: SetPullRequestDraftStateInput): RemotePullRequest {
     const cfg = requireConfig(this.config);
     const current = mergeRequest(cfg, input.pullRequestNumber);
@@ -465,44 +593,7 @@ export class GitLabProvider implements ChangeProvider {
 
   listPullRequestChecks(input: PullRequestChecksInput): RemotePullRequestChecks {
     const cfg = requireConfig(this.config);
-    const checks: RemotePullRequestCheck[] = [];
-    for (const pipeline of mergeRequestPipelines(cfg, input.pullRequestNumber)) {
-      if (typeof pipeline.id !== "number") continue;
-      const jobs = pipelineJobs(cfg, pipeline.id);
-      if (jobs.length === 0) {
-        checks.push({
-          provider: this.name,
-          id: `run:${pipeline.id}`,
-          name: `GitLab pipeline ${pipeline.id}`,
-          kind: "run",
-          state: gitlabCheckState(pipeline.status),
-          runId: String(pipeline.id),
-          conclusion: pipeline.status ?? null,
-          url: pipeline.web_url ?? null,
-          startedAt: pipeline.created_at ?? null,
-          completedAt: pipeline.updated_at ?? null,
-          logAvailable: false,
-        });
-        continue;
-      }
-      for (const job of jobs) {
-        if (typeof job.id !== "number") continue;
-        checks.push({
-          provider: this.name,
-          id: `job:${job.id}`,
-          name: job.name ?? `GitLab job ${job.id}`,
-          kind: "job",
-          state: gitlabCheckState(job.status),
-          runId: String(job.pipeline?.id ?? pipeline.id),
-          jobId: String(job.id),
-          conclusion: job.status ?? null,
-          url: job.web_url ?? null,
-          startedAt: job.started_at ?? null,
-          completedAt: job.finished_at ?? null,
-          logAvailable: true,
-        });
-      }
-    }
+    const checks = gitlabChecksFromPipelines(cfg, mergeRequestPipelines(cfg, input.pullRequestNumber));
     return {
       provider: this.name,
       pullRequestNumber: input.pullRequestNumber,
@@ -511,6 +602,27 @@ export class GitLabProvider implements ChangeProvider {
       summary: summarizeChecks(checks),
       checks,
       message: checks.length === 0 ? `GitLab merge request ${input.pullRequestNumber} has no pipelines yet.` : undefined,
+    };
+  }
+
+  listBranchChecks(input: BranchChecksInput): RemoteBranchChecks {
+    const cfg = requireConfig(this.config);
+    const branchResponse = branch(cfg, input.branch);
+    const sha = typeof branchResponse.commit?.id === "string" ? branchResponse.commit.id : null;
+    const pipelines = branchPipelines(cfg, input.branch);
+    const checks = gitlabChecksFromPipelines(
+      cfg,
+      sha ? pipelines.filter((pipeline) => pipeline.sha === undefined || pipeline.sha === sha) : pipelines,
+    );
+    return {
+      provider: this.name,
+      branch: input.branch,
+      sha,
+      supported: true,
+      overallState: overallCheckState(checks),
+      summary: summarizeChecks(checks),
+      checks,
+      message: checks.length === 0 ? `GitLab branch ${input.branch} has no pipelines yet.` : undefined,
     };
   }
 

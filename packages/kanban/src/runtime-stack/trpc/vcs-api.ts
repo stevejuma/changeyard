@@ -27,6 +27,12 @@ import type {
 	RuntimeVcsSubmitStackPreviewRequest,
 	RuntimeVcsSubmitStackPreviewResponse,
 	RuntimeVcsSubmitStackResponse,
+	RuntimeVcsBaseBranchChecksRequest,
+	RuntimeVcsBranchChecksResponse,
+	RuntimeVcsPullRequestChecksResponse,
+	RuntimeVcsPullRequestDetails,
+	RuntimeVcsPullRequestSelector,
+	RuntimeVcsPullRequestUpdateRequest,
 	RuntimeVcsWorkspaceOperationRequest,
 	RuntimeVcsWorkspaceStacksResponse,
 	RuntimeVcsWorkspaceStateRequest,
@@ -439,6 +445,56 @@ function createUnavailableSubmitResponse(
 	};
 }
 
+function createUnavailablePullRequestDetailsResponse(reason: string): RuntimeVcsPullRequestDetails {
+	return {
+		provider: "none",
+		number: 0,
+		url: null,
+		baseBranch: null,
+		headBranch: null,
+		title: "Pull request unavailable",
+		body: "",
+		state: "unknown",
+		draft: null,
+		autoMerge: null,
+		author: null,
+		updatedAt: null,
+		checks: {
+			provider: "none",
+			supported: false,
+			overallState: "unknown",
+			summary: { passed: 0, failed: 0, pending: 0, cancelled: 0, skipped: 0, unknown: 0, total: 0 },
+			checks: [],
+			message: reason,
+		},
+	};
+}
+
+function createUnavailablePullRequestChecksResponse(reason: string): RuntimeVcsPullRequestChecksResponse {
+	return {
+		provider: "none",
+		pullRequestNumber: 0,
+		supported: false,
+		overallState: "unknown",
+		summary: { passed: 0, failed: 0, pending: 0, cancelled: 0, skipped: 0, unknown: 0, total: 0 },
+		checks: [],
+		message: reason,
+	};
+}
+
+function createUnavailableBranchChecksResponse(reason: string, input?: RuntimeVcsBaseBranchChecksRequest): RuntimeVcsBranchChecksResponse {
+	return {
+		provider: "none",
+		branch: input?.branch ?? "",
+		sha: null,
+		supported: false,
+		overallState: "unknown",
+		summary: { passed: 0, failed: 0, pending: 0, cancelled: 0, skipped: 0, unknown: 0, total: 0 },
+		checks: [],
+		message: reason,
+	};
+}
+
 function resolveVcsWorkspacePath(
 	workspaceScope: RuntimeTrpcWorkspaceScope | null,
 	input: unknown,
@@ -731,6 +787,58 @@ export function createVcsApi(deps: CreateVcsApiDependencies): RuntimeTrpcContext
 				return createUnavailableSubmitResponse("Changeyard VCS submit is not available in this runtime.");
 			}
 			return await deps.changeyardApi.submitVcsStack(workspacePath, input);
+		},
+		pullRequestDetails: async (
+			workspaceScope: RuntimeTrpcWorkspaceScope | null,
+			input: RuntimeVcsPullRequestSelector,
+		) => {
+			const workspacePath = resolveVcsWorkspacePath(workspaceScope, input, deps);
+			if (!workspacePath) {
+				return createUnavailablePullRequestDetailsResponse("No active workspace is available for PR details.");
+			}
+			if (!deps.changeyardApi?.getVcsPullRequestDetails) {
+				return createUnavailablePullRequestDetailsResponse("Changeyard PR details are not available in this runtime.");
+			}
+			return await deps.changeyardApi.getVcsPullRequestDetails(workspacePath, input);
+		},
+		updatePullRequest: async (
+			workspaceScope: RuntimeTrpcWorkspaceScope | null,
+			input: RuntimeVcsPullRequestUpdateRequest,
+		) => {
+			const workspacePath = resolveVcsWorkspacePath(workspaceScope, input, deps);
+			if (!workspacePath) {
+				return createUnavailablePullRequestDetailsResponse("No active workspace is available for PR updates.");
+			}
+			if (!deps.changeyardApi?.updateVcsPullRequestDetails) {
+				return createUnavailablePullRequestDetailsResponse("Changeyard PR updates are not available in this runtime.");
+			}
+			return await deps.changeyardApi.updateVcsPullRequestDetails(workspacePath, input);
+		},
+		pullRequestChecks: async (
+			workspaceScope: RuntimeTrpcWorkspaceScope | null,
+			input: RuntimeVcsPullRequestSelector,
+		) => {
+			const workspacePath = resolveVcsWorkspacePath(workspaceScope, input, deps);
+			if (!workspacePath) {
+				return createUnavailablePullRequestChecksResponse("No active workspace is available for PR checks.");
+			}
+			if (!deps.changeyardApi?.getVcsPullRequestChecks) {
+				return createUnavailablePullRequestChecksResponse("Changeyard PR checks are not available in this runtime.");
+			}
+			return await deps.changeyardApi.getVcsPullRequestChecks(workspacePath, input);
+		},
+		baseBranchChecks: async (
+			workspaceScope: RuntimeTrpcWorkspaceScope | null,
+			input?: RuntimeVcsBaseBranchChecksRequest,
+		) => {
+			const workspacePath = resolveVcsWorkspacePath(workspaceScope, input, deps);
+			if (!workspacePath) {
+				return createUnavailableBranchChecksResponse("No active workspace is available for base branch checks.", input);
+			}
+			if (!deps.changeyardApi?.getVcsBaseBranchChecks) {
+				return createUnavailableBranchChecksResponse("Changeyard base branch checks are not available in this runtime.", input);
+			}
+			return await deps.changeyardApi.getVcsBaseBranchChecks(workspacePath, input);
 		},
 	};
 }

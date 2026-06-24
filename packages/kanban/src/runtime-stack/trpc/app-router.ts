@@ -117,6 +117,12 @@ import type {
 	RuntimeVcsSubmitStackPreviewRequest,
 	RuntimeVcsSubmitStackPreviewResponse,
 	RuntimeVcsSubmitStackResponse,
+	RuntimeVcsBaseBranchChecksRequest,
+	RuntimeVcsBranchChecksResponse,
+	RuntimeVcsPullRequestChecksResponse,
+	RuntimeVcsPullRequestDetails,
+	RuntimeVcsPullRequestSelector,
+	RuntimeVcsPullRequestUpdateRequest,
 	RuntimeVcsWorkspaceOperationRequest,
 	RuntimeVcsWorkspaceStacksResponse,
 	RuntimeVcsWorkspaceStateRequest,
@@ -277,6 +283,12 @@ import {
 	runtimeVcsSubmitStackPreviewRequestSchema,
 	runtimeVcsSubmitStackPreviewResponseSchema,
 	runtimeVcsSubmitStackResponseSchema,
+	runtimeVcsBaseBranchChecksRequestSchema,
+	runtimeVcsBranchChecksResponseSchema,
+	runtimeVcsPullRequestChecksResponseSchema,
+	runtimeVcsPullRequestDetailsSchema,
+	runtimeVcsPullRequestSelectorSchema,
+	runtimeVcsPullRequestUpdateRequestSchema,
 	runtimeVcsWorkspaceOperationRequestSchema,
 	runtimeVcsWorkspaceStacksResponseSchema,
 	runtimeVcsWorkspaceStateRequestSchema,
@@ -543,6 +555,22 @@ export interface RuntimeTrpcContext {
 			scope: RuntimeTrpcWorkspaceScope | null,
 			input: RuntimeVcsSubmitStackPreviewRequest,
 		) => Promise<RuntimeVcsSubmitStackResponse>;
+		pullRequestDetails: (
+			scope: RuntimeTrpcWorkspaceScope | null,
+			input: RuntimeVcsPullRequestSelector,
+		) => Promise<RuntimeVcsPullRequestDetails>;
+		updatePullRequest: (
+			scope: RuntimeTrpcWorkspaceScope | null,
+			input: RuntimeVcsPullRequestUpdateRequest,
+		) => Promise<RuntimeVcsPullRequestDetails>;
+		pullRequestChecks: (
+			scope: RuntimeTrpcWorkspaceScope | null,
+			input: RuntimeVcsPullRequestSelector,
+		) => Promise<RuntimeVcsPullRequestChecksResponse>;
+		baseBranchChecks: (
+			scope: RuntimeTrpcWorkspaceScope | null,
+			input?: RuntimeVcsBaseBranchChecksRequest,
+		) => Promise<RuntimeVcsBranchChecksResponse>;
 	};
 	projectsApi: {
 		listProjects: (preferredWorkspaceId: string | null) => Promise<RuntimeProjectsResponse>;
@@ -942,6 +970,30 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeVcsSubmitStackResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.vcsApi.submitStack(ctx.workspaceScope, input);
+			}),
+		pullRequestDetails: t.procedure
+			.input(runtimeVcsPullRequestSelectorSchema)
+			.output(runtimeVcsPullRequestDetailsSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.vcsApi.pullRequestDetails(ctx.workspaceScope, input);
+			}),
+		updatePullRequest: t.procedure
+			.input(runtimeVcsPullRequestUpdateRequestSchema)
+			.output(runtimeVcsPullRequestDetailsSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.vcsApi.updatePullRequest(ctx.workspaceScope, input);
+			}),
+		pullRequestChecks: t.procedure
+			.input(runtimeVcsPullRequestSelectorSchema)
+			.output(runtimeVcsPullRequestChecksResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.vcsApi.pullRequestChecks(ctx.workspaceScope, input);
+			}),
+		baseBranchChecks: t.procedure
+			.input(runtimeVcsBaseBranchChecksRequestSchema.optional())
+			.output(runtimeVcsBranchChecksResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.vcsApi.baseBranchChecks(ctx.workspaceScope, input);
 			}),
 	}),
 	workspace: t.router({

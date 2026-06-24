@@ -22,6 +22,12 @@ import type {
 	RuntimeStateStreamVcsProjectEventMessage,
 	RuntimeTaskSessionStopRequest,
 	RuntimeTaskSessionStopResponse,
+	RuntimeVcsBaseBranchChecksRequest,
+	RuntimeVcsBranchChecksResponse,
+	RuntimeVcsPullRequestChecksResponse,
+	RuntimeVcsPullRequestDetails,
+	RuntimeVcsPullRequestSelector,
+	RuntimeVcsPullRequestUpdateRequest,
 	RuntimeVcsProjectEventKind,
 	VcsBranchesDataResponse,
 	VcsDetectResponse,
@@ -68,6 +74,9 @@ export type VcsApiTag =
 	| "OperationHistory"
 	| "OperationDetails"
 	| "RepositoryLog"
+	| "PullRequests"
+	| "PullRequestChecks"
+	| "BaseBranchChecks"
 	| "Projects";
 
 export const VCS_WORKSPACE_OPERATION_INVALIDATION_TAGS = [
@@ -104,6 +113,9 @@ const VCS_API_TAGS = new Set<VcsApiTag>([
 	"OperationHistory",
 	"OperationDetails",
 	"RepositoryLog",
+	"PullRequests",
+	"PullRequestChecks",
+	"BaseBranchChecks",
 	"Projects",
 ]);
 
@@ -166,6 +178,18 @@ type RepositoryLogQueryArg = ActiveWorkspaceQueryArg & {
 type GitSyncActionArg = ActiveWorkspaceQueryArg & {
 	action: RuntimeGitSyncAction;
 	targetRef?: string | null;
+};
+
+type PullRequestSelectorArg = ActiveWorkspaceQueryArg & {
+	input: Omit<RuntimeVcsPullRequestSelector, "workspacePath">;
+};
+
+type PullRequestUpdateArg = ActiveWorkspaceQueryArg & {
+	input: Omit<RuntimeVcsPullRequestUpdateRequest, "workspacePath">;
+};
+
+type BaseBranchChecksArg = ActiveWorkspaceQueryArg & {
+	input?: Omit<RuntimeVcsBaseBranchChecksRequest, "workspacePath">;
 };
 
 function withActiveWorkspaceInput<T extends Record<string, unknown>>(
@@ -371,9 +395,12 @@ export function tagsForVcsEvent(kind: RuntimeVcsProjectEventKind): VcsApiTag[] {
 				"OperationHistory",
 				"OperationDetails",
 				"RepositoryLog",
+				"PullRequests",
+				"PullRequestChecks",
+				"BaseBranchChecks",
 			];
 		case "vcs/fetch":
-			return ["BranchListing", "BaseBranchData", "DivergentBookmarks", "VcsDetection"];
+			return ["BranchListing", "BaseBranchData", "DivergentBookmarks", "VcsDetection", "BaseBranchChecks", "PullRequestChecks"];
 	}
 }
 
@@ -418,6 +445,9 @@ export const vcsApi = createApi({
 		"OperationHistory",
 		"OperationDetails",
 		"RepositoryLog",
+		"PullRequests",
+		"PullRequestChecks",
+		"BaseBranchChecks",
 		"Projects",
 	],
 	endpoints: (builder) => ({
@@ -699,6 +729,79 @@ export const vcsApi = createApi({
 			providesTags: ["Stacks", "StackDetails", "BranchListing", "BranchDetails", "BaseBranchData"],
 			onCacheEntryAdded: ({ workspaceId }, { dispatch, cacheDataLoaded, cacheEntryRemoved }) =>
 				subscribeToWorkspaceEvents(workspaceId, dispatch, cacheDataLoaded, cacheEntryRemoved),
+		}),
+		getPullRequestDetails: builder.query<RuntimeVcsPullRequestDetails, PullRequestSelectorArg>({
+			queryFn: async ({ workspaceId, workspacePath, input }, { signal }) => {
+				try {
+					return {
+						data: await fetchTrpcQuery<RuntimeVcsPullRequestDetails>(
+							"vcs.pullRequestDetails",
+							withActiveWorkspaceInput(input, workspacePath),
+							workspaceId,
+							{ signal },
+						),
+					};
+				} catch (error) {
+					return { error };
+				}
+			},
+			providesTags: (_result, _error, arg) => [
+				"PullRequests",
+				{ type: "PullRequests", id: JSON.stringify(arg.input) },
+			],
+		}),
+		updatePullRequest: builder.mutation<RuntimeVcsPullRequestDetails, PullRequestUpdateArg>({
+			queryFn: async ({ workspaceId, workspacePath, input }) => {
+				try {
+					return {
+						data: await postTrpcMutation<RuntimeVcsPullRequestDetails>(
+							"vcs.updatePullRequest",
+							withActiveWorkspaceInput(input, workspacePath),
+							workspaceId,
+						),
+					};
+				} catch (error) {
+					return { error };
+				}
+			},
+			invalidatesTags: ["PullRequests", "BranchListing", "Stacks", "StackDetails"],
+		}),
+		getPullRequestChecks: builder.query<RuntimeVcsPullRequestChecksResponse, PullRequestSelectorArg>({
+			queryFn: async ({ workspaceId, workspacePath, input }, { signal }) => {
+				try {
+					return {
+						data: await fetchTrpcQuery<RuntimeVcsPullRequestChecksResponse>(
+							"vcs.pullRequestChecks",
+							withActiveWorkspaceInput(input, workspacePath),
+							workspaceId,
+							{ signal },
+						),
+					};
+				} catch (error) {
+					return { error };
+				}
+			},
+			providesTags: (_result, _error, arg) => [
+				"PullRequestChecks",
+				{ type: "PullRequestChecks", id: JSON.stringify(arg.input) },
+			],
+		}),
+		getBaseBranchChecks: builder.query<RuntimeVcsBranchChecksResponse, BaseBranchChecksArg>({
+			queryFn: async ({ workspaceId, workspacePath, input }, { signal }) => {
+				try {
+					return {
+						data: await fetchTrpcQuery<RuntimeVcsBranchChecksResponse>(
+							"vcs.baseBranchChecks",
+							withActiveWorkspaceInput(input ?? {}, workspacePath),
+							workspaceId,
+							{ signal },
+						),
+					};
+				} catch (error) {
+					return { error };
+				}
+			},
+			providesTags: ["BaseBranchChecks"],
 		}),
 		getVcsDiff: builder.query<VcsDiffResult, VcsDiffQueryArg>({
 			queryFn: async ({ workspaceId, workspacePath, input }, { signal }) => {

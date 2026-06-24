@@ -378,11 +378,69 @@ export const runtimeVcsJjStateResponseSchema = runtimeVcsDetectResponseSchema.ex
 });
 export type RuntimeVcsJjStateResponse = z.infer<typeof runtimeVcsJjStateResponseSchema>;
 
-export const runtimeVcsJjInventoryPullRequestSchema = z.object({
+export const runtimeVcsCheckStateSchema = z.enum(["passed", "failed", "pending", "cancelled", "skipped", "unknown"]);
+export type RuntimeVcsCheckState = z.infer<typeof runtimeVcsCheckStateSchema>;
+
+export const runtimeVcsCheckSummarySchema = z.object({
+	passed: z.number().int().nonnegative(),
+	failed: z.number().int().nonnegative(),
+	pending: z.number().int().nonnegative(),
+	cancelled: z.number().int().nonnegative(),
+	skipped: z.number().int().nonnegative(),
+	unknown: z.number().int().nonnegative(),
+	total: z.number().int().nonnegative(),
+});
+export type RuntimeVcsCheckSummary = z.infer<typeof runtimeVcsCheckSummarySchema>;
+
+export const runtimeVcsCheckSchema = z.object({
+	provider: z.string(),
+	id: z.string(),
+	name: z.string(),
+	kind: z.enum(["run", "job", "check"]),
+	state: runtimeVcsCheckStateSchema,
+	runId: z.string().nullable().optional(),
+	jobId: z.string().nullable().optional(),
+	checkId: z.string().nullable().optional(),
+	conclusion: z.string().nullable().optional(),
+	url: z.string().nullable().optional(),
+	startedAt: z.string().nullable().optional(),
+	completedAt: z.string().nullable().optional(),
+	logAvailable: z.boolean(),
+});
+export type RuntimeVcsCheck = z.infer<typeof runtimeVcsCheckSchema>;
+
+export const runtimeVcsCheckRollupSchema = z.object({
+	provider: z.string(),
+	supported: z.boolean(),
+	overallState: runtimeVcsCheckStateSchema,
+	summary: runtimeVcsCheckSummarySchema,
+	checks: z.array(runtimeVcsCheckSchema),
+	message: z.string().optional(),
+});
+export type RuntimeVcsCheckRollup = z.infer<typeof runtimeVcsCheckRollupSchema>;
+
+export const runtimeVcsPullRequestSummarySchema = z.object({
 	number: z.number().int(),
 	url: z.string().nullable(),
 	baseBranch: z.string().nullable(),
+	headBranch: z.string().nullable().optional(),
+	title: z.string().nullable().optional(),
+	state: z.enum(["open", "closed", "merged", "unknown"]).optional(),
+	checks: runtimeVcsCheckRollupSchema.nullable().optional(),
 });
+export type RuntimeVcsPullRequestSummary = z.infer<typeof runtimeVcsPullRequestSummarySchema>;
+
+export const runtimeVcsPullRequestDetailsSchema = runtimeVcsPullRequestSummarySchema.extend({
+	provider: z.string(),
+	body: z.string(),
+	draft: z.boolean().nullable().optional(),
+	autoMerge: z.boolean().nullable().optional(),
+	author: z.string().nullable().optional(),
+	updatedAt: z.string().nullable().optional(),
+});
+export type RuntimeVcsPullRequestDetails = z.infer<typeof runtimeVcsPullRequestDetailsSchema>;
+
+export const runtimeVcsJjInventoryPullRequestSchema = runtimeVcsPullRequestSummarySchema;
 export type RuntimeVcsJjInventoryPullRequest = z.infer<typeof runtimeVcsJjInventoryPullRequestSchema>;
 
 export const runtimeVcsJjInventoryItemSchema = z.object({
@@ -507,6 +565,7 @@ export const runtimeVcsWorkspaceStackSchema = z.object({
 	isApplied: z.boolean(),
 	isCurrent: z.boolean(),
 	commits: z.array(runtimeVcsWorkspaceCommitSchema),
+	pr: runtimeVcsPullRequestSummarySchema.nullable().optional(),
 	metadata: runtimeVcsProviderMetadataSchema.optional(),
 });
 export type RuntimeVcsWorkspaceStack = z.infer<typeof runtimeVcsWorkspaceStackSchema>;
@@ -552,6 +611,47 @@ export const runtimeVcsWorkspaceStateRequestSchema = runtimeVcsActiveWorkspaceRe
 	appliedStackIds: z.array(z.string()).optional(),
 });
 export type RuntimeVcsWorkspaceStateRequest = z.infer<typeof runtimeVcsWorkspaceStateRequestSchema>;
+
+export const runtimeVcsPullRequestSelectorSchema = runtimeVcsActiveWorkspaceRequestSchema.extend({
+	changeId: z.string().min(1).nullable().optional(),
+	number: z.number().int().positive().nullable().optional(),
+	headBranch: z.string().min(1).nullable().optional(),
+}).superRefine((input, context) => {
+	const count = [
+		input.changeId?.trim() ? "changeId" : null,
+		typeof input.number === "number" ? "number" : null,
+		input.headBranch?.trim() ? "headBranch" : null,
+	].filter(Boolean).length;
+	if (count !== 1) {
+		context.addIssue({
+			code: z.ZodIssueCode.custom,
+			message: "Select exactly one pull request target: changeId, number, or headBranch.",
+		});
+	}
+});
+export type RuntimeVcsPullRequestSelector = z.infer<typeof runtimeVcsPullRequestSelectorSchema>;
+
+export const runtimeVcsPullRequestUpdateRequestSchema = runtimeVcsPullRequestSelectorSchema.and(z.object({
+	title: z.string().optional(),
+	body: z.string().optional(),
+}));
+export type RuntimeVcsPullRequestUpdateRequest = z.infer<typeof runtimeVcsPullRequestUpdateRequestSchema>;
+
+export const runtimeVcsPullRequestChecksResponseSchema = runtimeVcsCheckRollupSchema.extend({
+	pullRequestNumber: z.number().int(),
+});
+export type RuntimeVcsPullRequestChecksResponse = z.infer<typeof runtimeVcsPullRequestChecksResponseSchema>;
+
+export const runtimeVcsBaseBranchChecksRequestSchema = runtimeVcsActiveWorkspaceRequestSchema.extend({
+	branch: z.string().min(1).nullable().optional(),
+});
+export type RuntimeVcsBaseBranchChecksRequest = z.infer<typeof runtimeVcsBaseBranchChecksRequestSchema>;
+
+export const runtimeVcsBranchChecksResponseSchema = runtimeVcsCheckRollupSchema.extend({
+	branch: z.string(),
+	sha: z.string().nullable(),
+});
+export type RuntimeVcsBranchChecksResponse = z.infer<typeof runtimeVcsBranchChecksResponseSchema>;
 
 export const runtimeVcsWorkspaceStateResponseSchema = z.object({
 	projectId: z.string(),
@@ -1391,6 +1491,7 @@ export type RuntimeChangeyardBaseSummary = z.infer<typeof runtimeChangeyardBaseS
 export const runtimeChangeyardRemoteSummarySchema = z.object({
 	provider: z.string().optional(),
 	issueUrl: z.string().optional(),
+	pullRequestNumber: z.number().int().optional(),
 	pullRequestUrl: z.string().optional(),
 });
 export type RuntimeChangeyardRemoteSummary = z.infer<typeof runtimeChangeyardRemoteSummarySchema>;

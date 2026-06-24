@@ -4,17 +4,23 @@ import { parseFrontmatter, writeFrontmatter } from "../documents/frontmatter.js"
 import type { Frontmatter } from "../types.js";
 import type {
   BranchPullRequestInput,
+  BranchChecksInput,
   ChangeProvider,
   CreatePullRequestInput,
   FindOpenPullRequestByHeadInput,
+  PullRequestLifecycleInput,
   ProviderCapabilities,
   PublishReviewInput,
+  RemoteBranchChecks,
+  RemoteCheckSummary,
   RemoteIssue,
   RemotePullRequest,
   RemotePullRequestComment,
+  RemotePullRequestDetails,
   RemoteReview,
   SyncIssueInput,
   UpdatePullRequestBaseInput,
+  UpdatePullRequestDetailsInput,
   UpsertPullRequestCommentInput,
 } from "./ChangeProvider.js";
 import { issueNumberFor } from "./providerState.js";
@@ -64,6 +70,22 @@ function remotePullRequestFromLocal(filePath: string, frontmatter: Frontmatter):
   };
 }
 
+function remotePullRequestDetailsFromLocal(filePath: string, frontmatter: Frontmatter, body: string): RemotePullRequestDetails | null {
+  const base = remotePullRequestFromLocal(filePath, frontmatter);
+  if (!base) return null;
+  return {
+    ...base,
+    title: typeof frontmatter.title === "string" ? frontmatter.title : `Pull request ${base.pullRequestNumber}`,
+    body,
+    author: typeof frontmatter.author === "string" ? frontmatter.author : null,
+    updatedAt: typeof frontmatter.updatedAt === "string" ? frontmatter.updatedAt : null,
+  };
+}
+
+function emptyCheckSummary(): RemoteCheckSummary {
+  return { passed: 0, failed: 0, pending: 0, cancelled: 0, skipped: 0, unknown: 0, total: 0 };
+}
+
 function findLocalPullRequestByNumber(storageRoot: string, number: number): { path: string; frontmatter: Frontmatter; body: string } | null {
   for (const filePath of localPullRequestFiles(storageRoot)) {
     const parsed = readLocalPullRequest(filePath);
@@ -95,6 +117,9 @@ export class LocalFolderProvider implements ChangeProvider {
       comments: true,
       pullRequestChecks: false,
       pullRequestCheckLogs: false,
+      pullRequestDetails: true,
+      pullRequestUpdates: true,
+      branchChecks: false,
       pullRequestDraftState: false,
       pullRequestAutoMerge: false,
       pullRequestTemplates: true,
@@ -213,6 +238,61 @@ export class LocalFolderProvider implements ChangeProvider {
       baseBranch: input.base,
       headBranch: typeof frontmatter.head === "string" ? frontmatter.head : typeof frontmatter.branch === "string" ? frontmatter.branch : null,
       state: frontmatter.state === "closed" || frontmatter.state === "merged" || frontmatter.state === "unknown" ? frontmatter.state : "open",
+    };
+  }
+
+  getPullRequestDetails(input: PullRequestLifecycleInput): RemotePullRequestDetails {
+    const existing = findLocalPullRequestByNumber(input.storageRoot, input.pullRequestNumber);
+    if (existing) {
+      const details = remotePullRequestDetailsFromLocal(existing.path, existing.frontmatter, existing.body);
+      if (details) return details;
+    }
+    const prPath = path.join(pullRequestsRoot(input.storageRoot), `${String(input.pullRequestNumber).padStart(4, "0")}-pull-request.md`);
+    return {
+      provider: this.name,
+      pullRequestNumber: input.pullRequestNumber,
+      pullRequestUrl: `file://${prPath}`,
+      title: `Pull request ${input.pullRequestNumber}`,
+      body: "",
+      state: "unknown",
+    };
+  }
+
+  updatePullRequestDetails(input: UpdatePullRequestDetailsInput): RemotePullRequestDetails {
+    const existing = findLocalPullRequestByNumber(input.storageRoot, input.pullRequestNumber);
+    const frontmatter: Frontmatter = {
+      ...asRecord(existing?.frontmatter),
+      provider: this.name,
+      pullRequestNumber: input.pullRequestNumber,
+      updatedAt: new Date().toISOString(),
+    };
+    if (input.title !== undefined) {
+      frontmatter.title = input.title;
+    }
+    const body = input.body ?? existing?.body ?? "";
+    const prPath = existing?.path ?? path.join(pullRequestsRoot(input.storageRoot), `${String(input.pullRequestNumber).padStart(4, "0")}-pull-request.md`);
+    mkdirSync(path.dirname(prPath), { recursive: true });
+    writeFileSync(prPath, writeFrontmatter(frontmatter, body));
+    return remotePullRequestDetailsFromLocal(prPath, frontmatter, body) ?? {
+      provider: this.name,
+      pullRequestNumber: input.pullRequestNumber,
+      pullRequestUrl: `file://${prPath}`,
+      title: input.title ?? `Pull request ${input.pullRequestNumber}`,
+      body,
+      state: "unknown",
+    };
+  }
+
+  listBranchChecks(input: BranchChecksInput): RemoteBranchChecks {
+    return {
+      provider: this.name,
+      branch: input.branch,
+      sha: null,
+      supported: false,
+      overallState: "unknown",
+      summary: emptyCheckSummary(),
+      checks: [],
+      message: "Local-folder provider does not support remote branch checks.",
     };
   }
 

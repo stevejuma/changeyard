@@ -19,6 +19,7 @@ import { previewJjOperation } from "./jj/preview.js";
 import { previewJjStackSubmit, submitJjStack } from "./jj/stack-submit.js";
 import { loadJjState, loadJjStateFromDetect } from "./jj/state.js";
 import { cachedPullRequestToInventoryPr, findCachedPullRequest, providerRepositoryIdentity, readVcsPullRequestCache } from "./pr-cache.js";
+import { getVcsBaseBranchChecks, getVcsPullRequestChecks, getVcsPullRequestDetails, updateVcsPullRequestDetails } from "./pr-actions.js";
 import {
 	applyJjWorkspaceOperation,
 	loadJjConflictFile,
@@ -48,7 +49,7 @@ type NeutralWorkspaceStateResult = {
 	mode: string;
 	conflicts: unknown[];
 	workingCopy: unknown;
-	stacks: Array<{ stackId: string; commits: Array<{ commitId: string }> }>;
+	stacks: Array<{ stackId: string; name?: string; pr?: unknown; commits: Array<{ commitId: string }> }>;
 	appliedStackIds: string[];
 	stateVersion?: number;
 } & Record<string, unknown>;
@@ -246,6 +247,26 @@ function hydrateInventoryPullRequests(
 	};
 }
 
+function hydrateWorkspacePullRequests<TState extends { stacks: Array<{ name?: string; pr?: unknown }> }>(
+	repoRoot: string,
+	config: ChangeyardConfig,
+	state: TState,
+): TState {
+	const root = storageRoot(repoRoot, config);
+	const provider = config.provider.type;
+	const repository = providerRepositoryIdentity(config, repoRoot);
+	const pullRequests = readVcsPullRequestCache(root);
+	return {
+		...state,
+		stacks: state.stacks.map((stack) => {
+			const head = stack.name?.trim();
+			if (!head) return stack;
+			const cached = findCachedPullRequest(pullRequests, { provider, repository, head });
+			return cached ? { ...stack, pr: cachedPullRequestToInventoryPr(cached) } : stack;
+		}),
+	};
+}
+
 function gitWorkspaceToBranchesData(
 	detect: Awaited<ReturnType<typeof detectVcsState>>,
 	repoRoot: string,
@@ -393,14 +414,14 @@ export async function getVcsWorkspaceState(
 			targetBranch: input?.targetRef ?? config.vcs.targetBranch ?? null,
 			appliedStackIds: input?.appliedStackIds ?? config.vcs.appliedStacks ?? [],
 		});
-		return cacheWorkspaceState(repoRoot, input, state);
+		return cacheWorkspaceState(repoRoot, input, hydrateWorkspacePullRequests(repoRoot, config, state));
 	}
 	if (detect.repository.kind === "git") {
 		const state = await loadGitWorkspaceState(repoRoot, runVcsCommand, {
 			targetBranch: input?.targetRef ?? config.vcs.targetBranch ?? null,
 			appliedStackIds: input?.appliedStackIds ?? config.vcs.appliedStacks ?? [],
 		});
-		return cacheWorkspaceState(repoRoot, input, state);
+		return cacheWorkspaceState(repoRoot, input, hydrateWorkspacePullRequests(repoRoot, config, state));
 	}
 	const targetRef = input?.targetRef ?? config.vcs.targetBranch ?? detect.jj.defaultBase ?? detect.git.defaultBranch ?? "";
 	return cacheWorkspaceState(repoRoot, input, {
@@ -649,4 +670,37 @@ export async function submitVcsStackPreview(repoRoot: string, input: VcsSubmitSt
 
 export async function submitVcsStack(repoRoot: string, input: VcsSubmitStackPreviewInput) {
 	return await submitJjStack(repoRoot, input, runVcsCommand);
+}
+
+function toRuntimePullRequestDetails(details: ReturnType<typeof getVcsPullRequestDetails>) {
+	return {
+		provider: details.provider,
+		number: details.pullRequestNumber ?? 0,
+		url: details.pullRequestUrl,
+		baseBranch: details.baseBranch ?? null,
+		headBranch: details.headBranch ?? null,
+		title: details.title,
+		body: details.body,
+		state: details.state ?? "unknown",
+		draft: details.draft ?? null,
+		autoMerge: details.autoMerge ?? null,
+		author: details.author ?? null,
+		updatedAt: details.updatedAt ?? null,
+	};
+}
+
+export async function getVcsPrDetails(repoRoot: string, input: Parameters<typeof getVcsPullRequestDetails>[1]) {
+	return toRuntimePullRequestDetails(getVcsPullRequestDetails(repoRoot, input));
+}
+
+export async function updateVcsPrDetails(repoRoot: string, input: Parameters<typeof updateVcsPullRequestDetails>[1]) {
+	return toRuntimePullRequestDetails(updateVcsPullRequestDetails(repoRoot, input));
+}
+
+export async function getVcsPrChecks(repoRoot: string, input: Parameters<typeof getVcsPullRequestChecks>[1]) {
+	return getVcsPullRequestChecks(repoRoot, input);
+}
+
+export async function getVcsBaseChecks(repoRoot: string, input?: Parameters<typeof getVcsBaseBranchChecks>[1]) {
+	return getVcsBaseBranchChecks(repoRoot, input);
 }

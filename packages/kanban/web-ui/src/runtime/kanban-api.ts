@@ -34,6 +34,10 @@ import type {
 	RuntimeProjectRemoveResponse,
 	RuntimeProjectsResponse,
 	RuntimeStateStreamMessage,
+	RuntimeVcsPullRequestChecksResponse,
+	RuntimeVcsPullRequestDetails,
+	RuntimeVcsPullRequestSelector,
+	RuntimeVcsPullRequestUpdateRequest,
 	RuntimeWorkspaceChangesResponse,
 	RuntimeWorkspaceStateResponse,
 	RuntimeWorkspaceStateSaveRequest,
@@ -55,6 +59,8 @@ export type KanbanApiTag =
 	| "ChangeBoardFileDiff"
 	| "ChangeWorkspaceChanges"
 	| "ChangeReviews"
+	| "PullRequests"
+	| "PullRequestChecks"
 	| "Directory";
 
 type WorkspaceQueryArg = {
@@ -68,6 +74,14 @@ type OptionalWorkspaceQueryArg = {
 };
 
 type ChangeQueryArg = WorkspaceQueryArg & RuntimeChangeyardChangeGetRequest;
+
+type PullRequestSelectorArg = WorkspaceQueryArg & {
+	input: Omit<RuntimeVcsPullRequestSelector, "workspacePath">;
+};
+
+type PullRequestUpdateArg = WorkspaceQueryArg & {
+	input: Omit<RuntimeVcsPullRequestUpdateRequest, "workspacePath">;
+};
 
 type ChangeMutationArg<TInput> = WorkspaceQueryArg & {
 	input: TInput;
@@ -288,6 +302,8 @@ export const kanbanApi = createApi({
 		"ChangeBoardFileDiff",
 		"ChangeWorkspaceChanges",
 		"ChangeReviews",
+		"PullRequests",
+		"PullRequestChecks",
 		"Directory",
 	],
 	endpoints: (builder) => ({
@@ -433,6 +449,42 @@ export const kanbanApi = createApi({
 				}
 			},
 			providesTags: (_result, _error, arg) => [changeDetailTag(arg.id)],
+		}),
+		getPullRequestDetails: builder.query<RuntimeVcsPullRequestDetails, PullRequestSelectorArg>({
+			queryFn: async ({ workspaceId, workspacePath, input }, { signal }) => {
+				try {
+					return { data: await query<RuntimeVcsPullRequestDetails>("vcs.pullRequestDetails", input, workspaceId, signal, workspacePath) };
+				} catch (error) {
+					return { error: toKanbanQueryError(error) };
+				}
+			},
+			providesTags: (_result, _error, arg) => [
+				"PullRequests",
+				{ type: "PullRequests", id: JSON.stringify(arg.input) },
+			],
+		}),
+		updatePullRequest: builder.mutation<RuntimeVcsPullRequestDetails, PullRequestUpdateArg>({
+			queryFn: async ({ workspaceId, workspacePath, input }) => {
+				try {
+					return { data: await mutation<RuntimeVcsPullRequestDetails>("vcs.updatePullRequest", input, workspaceId, workspacePath) };
+				} catch (error) {
+					return { error: toKanbanQueryError(error) };
+				}
+			},
+			invalidatesTags: ["PullRequests", "ChangeList"],
+		}),
+		getPullRequestChecks: builder.query<RuntimeVcsPullRequestChecksResponse, PullRequestSelectorArg>({
+			queryFn: async ({ workspaceId, workspacePath, input }, { signal }) => {
+				try {
+					return { data: await query<RuntimeVcsPullRequestChecksResponse>("vcs.pullRequestChecks", input, workspaceId, signal, workspacePath) };
+				} catch (error) {
+					return { error: toKanbanQueryError(error) };
+				}
+			},
+			providesTags: (_result, _error, arg) => [
+				"PullRequestChecks",
+				{ type: "PullRequestChecks", id: JSON.stringify(arg.input) },
+			],
 		}),
 		getChangeWorkspaceChanges: builder.query<RuntimeWorkspaceChangesResponse, ChangeQueryArg>({
 			queryFn: async ({ workspaceId, workspacePath, id }, { signal }) => {
@@ -650,6 +702,9 @@ export const {
 	useSaveChangeyardProjectConfigMutation,
 	useListChangesQuery,
 	useGetChangeQuery,
+	useGetPullRequestDetailsQuery,
+	useUpdatePullRequestMutation,
+	useGetPullRequestChecksQuery,
 	useGetChangeWorkspaceChangesQuery,
 	useCreateChangeMutation,
 	useUpdateChangeStatusMutation,

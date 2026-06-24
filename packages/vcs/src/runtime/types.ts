@@ -168,7 +168,87 @@ export type VcsJjInventoryItem = {
 		number: number;
 		url: string | null;
 		baseBranch: string | null;
+		headBranch?: string | null;
+		title?: string | null;
+		state?: "open" | "closed" | "merged" | "unknown";
+		checks?: RuntimeVcsCheckRollup | null;
 	} | null;
+};
+
+export type RuntimeVcsCheckState = "passed" | "failed" | "pending" | "cancelled" | "skipped" | "unknown";
+
+export type RuntimeVcsCheckSummary = Record<RuntimeVcsCheckState, number> & {
+	total: number;
+};
+
+export type RuntimeVcsCheck = {
+	provider: string;
+	id: string;
+	name: string;
+	kind: "run" | "job" | "check";
+	state: RuntimeVcsCheckState;
+	runId?: string | null;
+	jobId?: string | null;
+	checkId?: string | null;
+	conclusion?: string | null;
+	url?: string | null;
+	startedAt?: string | null;
+	completedAt?: string | null;
+	logAvailable: boolean;
+};
+
+export type RuntimeVcsCheckRollup = {
+	provider: string;
+	supported: boolean;
+	overallState: RuntimeVcsCheckState;
+	summary: RuntimeVcsCheckSummary;
+	checks: RuntimeVcsCheck[];
+	message?: string;
+};
+
+export type RuntimeVcsPullRequestSummary = {
+	number: number;
+	url: string | null;
+	baseBranch: string | null;
+	headBranch?: string | null;
+	title?: string | null;
+	state?: "open" | "closed" | "merged" | "unknown";
+	checks?: RuntimeVcsCheckRollup | null;
+};
+
+export type RuntimeVcsPullRequestDetails = RuntimeVcsPullRequestSummary & {
+	provider: string;
+	body: string;
+	draft?: boolean | null;
+	autoMerge?: boolean | null;
+	author?: string | null;
+	updatedAt?: string | null;
+};
+
+export type RuntimeVcsPullRequestSelector = {
+	workspacePath?: string;
+	changeId?: string | null;
+	number?: number | null;
+	headBranch?: string | null;
+};
+
+export type RuntimeVcsPullRequestUpdateRequest = RuntimeVcsPullRequestSelector & {
+	title?: string;
+	body?: string;
+};
+
+export type RuntimeVcsPullRequestChecksResponse = RuntimeVcsCheckRollup & {
+	pullRequestNumber: number;
+};
+
+export type RuntimeVcsBaseBranchChecksRequest = {
+	workspacePath?: string;
+	branch?: string | null;
+};
+
+export type RuntimeVcsBranchChecksResponse = RuntimeVcsCheckRollup & {
+	branch: string;
+	sha: string | null;
 };
 
 export type VcsJjInventoryResponse = VcsDetectResponse & {

@@ -129,6 +129,7 @@ export interface VcsJjInventoryPullRequest {
 	number: number;
 	url: string | null;
 	baseBranch: string | null;
+	title?: string | null;
 }
 
 export interface VcsJjInventoryItem {
