@@ -36,6 +36,7 @@ const WATCH_DEBOUNCE_MS = 150;
 const WATCH_READY_TIMEOUT_MS = 5_000;
 const WATCH_POLL_INTERVAL_MS = 700;
 const WATCH_BINARY_POLL_INTERVAL_MS = 1_500;
+const CHANGEYARD_MANAGED_WORKSPACES_PATH = ".changeyard/workspaces";
 const IGNORED_DIRECTORY_NAMES = new Set([
 	"node_modules",
 	".cache",
@@ -68,6 +69,9 @@ export function shouldIgnoreVcsWatchPath(root: string, candidatePath: string): b
 	}
 	const parts = relativePath.split("/");
 	if (parts.some((part) => IGNORED_DIRECTORY_NAMES.has(part))) {
+		return true;
+	}
+	if (relativePath === CHANGEYARD_MANAGED_WORKSPACES_PATH || isPathInside(relativePath, CHANGEYARD_MANAGED_WORKSPACES_PATH)) {
 		return true;
 	}
 	if (

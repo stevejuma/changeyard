@@ -26,6 +26,8 @@ test("ignores cache directories and non-targeted VCS metadata", () => {
 	const root = "/repo";
 	assert.equal(shouldIgnoreVcsWatchPath(root, path.join(root, "node_modules/pkg/index.js")), true);
 	assert.equal(shouldIgnoreVcsWatchPath(root, path.join(root, "dist/app.js")), true);
+	assert.equal(shouldIgnoreVcsWatchPath(root, path.join(root, ".changeyard/workspaces/CY-0001/repo/src/app.ts")), true);
+	assert.equal(shouldIgnoreVcsWatchPath(root, path.join(root, ".changeyard/changes/CY-0001-test.md")), false);
 	assert.equal(shouldIgnoreVcsWatchPath(root, path.join(root, ".jj/repo/store/data")), true);
 	assert.equal(shouldIgnoreVcsWatchPath(root, path.join(root, ".git/objects/aa/bb")), true);
 	assert.equal(shouldIgnoreVcsWatchPath(root, path.join(root, ".jj/repo/op_heads")), false);
@@ -37,16 +39,17 @@ test("ignores cache directories and non-targeted VCS metadata", () => {
 function waitForWatcherEvent(
 	events: VcsProjectEvent[],
 	kind: VcsProjectEventKind,
+	predicate: (event: VcsProjectEvent) => boolean = () => true,
 	timeoutMs = 4_000,
 ): Promise<VcsProjectEvent> {
-	const existing = events.find((event) => event.kind === kind);
+	const existing = events.find((event) => event.kind === kind && predicate(event));
 	if (existing) {
 		return Promise.resolve(existing);
 	}
 	return new Promise((resolve, reject) => {
 		const timeout = setTimeout(() => reject(new Error(`Timed out waiting for ${kind}.`)), timeoutMs);
 		const interval = setInterval(() => {
-			const event = events.find((candidate) => candidate.kind === kind);
+			const event = events.find((candidate) => candidate.kind === kind && predicate(candidate));
 			if (!event) {
 				return;
 			}
@@ -79,10 +82,12 @@ test("chokidar watcher emits semantic worktree and JJ metadata events", async ()
 		assert.deepEqual(worktreeEvent.paths, ["README.md"]);
 
 		await writeFile(path.join(root, ".jj/repo/op_heads/heads/updated"), "updated\n");
-		const activityEvent = await waitForWatcherEvent(events, "vcs/activity");
-		assert.ok(
-			activityEvent.paths.includes(".jj/repo/op_heads/heads/updated") ||
-				activityEvent.paths.includes("watcher-fallback:polling"),
+		await waitForWatcherEvent(
+			events,
+			"vcs/activity",
+			(event) =>
+				event.paths.includes(".jj/repo/op_heads/heads/updated") ||
+				event.paths.includes("watcher-fallback:polling"),
 		);
 
 		await writeFile(path.join(root, ".jj/working_copy/state"), "updated\n");

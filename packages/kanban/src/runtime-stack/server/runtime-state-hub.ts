@@ -30,6 +30,7 @@ import type { ResolvedWorkspaceStreamTarget, WorkspaceRegistry } from "./workspa
 import { createChokidarVcsProjectWatcher } from "./vcs-project-watcher.js";
 
 const TASK_SESSION_STREAM_BATCH_MS = 150;
+const VCS_WATCHER_IDLE_STOP_DELAY_MS = 30_000;
 const HUB_CLIENT_SURFACES: readonly RuntimeHubClientSurface[] = [
 	"dashboard",
 	"kanban",
@@ -84,6 +85,7 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 	const clinePreviousSummaryByWorkspaceId = new Map<string, Map<string, RuntimeTaskSessionSummary>>();
 	const pendingTaskSessionSummariesByWorkspaceId = new Map<string, Map<string, RuntimeTaskSessionSummary>>();
 	const taskSessionBroadcastTimersByWorkspaceId = new Map<string, NodeJS.Timeout>();
+	const vcsWatcherIdleStopTimersByWorkspaceId = new Map<string, NodeJS.Timeout>();
 	const runtimeStateClientsByWorkspaceScopeKey = new Map<string, Set<WebSocket>>();
 	const runtimeStateClients = new Set<WebSocket>();
 	const runtimeStateWorkspaceScopeByClient = new Map<
@@ -211,6 +213,11 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 	});
 
 	const startVcsWatcher = (workspaceId: string, workspacePath: string): void => {
+		const pendingStop = vcsWatcherIdleStopTimersByWorkspaceId.get(workspaceId);
+		if (pendingStop) {
+			clearTimeout(pendingStop);
+			vcsWatcherIdleStopTimersByWorkspaceId.delete(workspaceId);
+		}
 		void vcsProjectWatcher.start(workspaceId, workspacePath).catch((error) => {
 			const message = error instanceof Error ? error.message : String(error);
 			process.stderr.write(`Failed to start VCS watcher for ${workspaceId}: ${message}\n`);
@@ -223,9 +230,20 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 		if (clients.size > 0) {
 			return;
 		}
-		void vcsProjectWatcher.stop(workspaceId).catch(() => {
-			// Ignore watcher cleanup failures during client disconnects.
-		});
+		if (vcsWatcherIdleStopTimersByWorkspaceId.has(workspaceId)) {
+			return;
+		}
+		const timer = setTimeout(() => {
+			vcsWatcherIdleStopTimersByWorkspaceId.delete(workspaceId);
+			if (allRuntimeStateClientsForWorkspace(workspaceId).size > 0) {
+				return;
+			}
+			void vcsProjectWatcher.stop(workspaceId).catch(() => {
+				// Ignore watcher cleanup failures during client disconnects.
+			});
+		}, VCS_WATCHER_IDLE_STOP_DELAY_MS);
+		timer.unref();
+		vcsWatcherIdleStopTimersByWorkspaceId.set(workspaceId, timer);
 	};
 
 	const broadcastRuntimeProjectsUpdated = async (preferredCurrentProjectId: string | null): Promise<void> => {
@@ -404,6 +422,11 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 		clineMessageUnsubscribeByWorkspaceId.delete(workspaceId);
 		disposeTaskSessionSummaryBroadcast(workspaceId);
 		workspaceMetadataMonitor.disposeWorkspace(workspaceId);
+		const pendingVcsWatcherStop = vcsWatcherIdleStopTimersByWorkspaceId.get(workspaceId);
+		if (pendingVcsWatcherStop) {
+			clearTimeout(pendingVcsWatcherStop);
+			vcsWatcherIdleStopTimersByWorkspaceId.delete(workspaceId);
+		}
 		void vcsProjectWatcher.stop(workspaceId).catch(() => {
 			// Ignore watcher cleanup failures during workspace disposal.
 		});
@@ -757,6 +780,10 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 			}
 			taskSessionBroadcastTimersByWorkspaceId.clear();
 			pendingTaskSessionSummariesByWorkspaceId.clear();
+			for (const timer of vcsWatcherIdleStopTimersByWorkspaceId.values()) {
+				clearTimeout(timer);
+			}
+			vcsWatcherIdleStopTimersByWorkspaceId.clear();
 			runtimeHubClientSummaryByClient.clear();
 			for (const unsubscribe of terminalSummaryUnsubscribeByWorkspaceId.values()) {
 				try {

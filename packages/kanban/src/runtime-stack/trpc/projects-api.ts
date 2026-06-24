@@ -7,7 +7,6 @@ import type {
 	RuntimeProjectSummary,
 	RuntimeProjectTaskCounts,
 } from "../core/api-contract.js";
-import { summarizeProjectWorkspaces } from "../server/project-workspaces.js";
 import { parseDirectoryListRequest, parseProjectAddRequest, parseProjectRemoveRequest } from "../core/api-validation.js";
 import {
 	listWorkspaceIndexEntries,
@@ -72,27 +71,9 @@ export function createProjectsApi(deps: CreateProjectsApiDependencies): RuntimeT
 		}
 	}
 
-	async function enrichProjectSummary(project: RuntimeProjectSummary): Promise<RuntimeProjectSummary> {
-		const workspaces = await summarizeProjectWorkspaces(project.path, deps);
-		return workspaces.length > 0 ? { ...project, workspaces } : project;
-	}
-
-	async function enrichProjectsPayload(payload: {
-		currentProjectId: string | null;
-		projects: RuntimeProjectSummary[];
-	}): Promise<{
-		currentProjectId: string | null;
-		projects: RuntimeProjectSummary[];
-	}> {
-		return {
-			currentProjectId: payload.currentProjectId,
-			projects: await Promise.all(payload.projects.map((project) => enrichProjectSummary(project))),
-		};
-	}
-
 	return {
 		listProjects: async (preferredWorkspaceId) => {
-			const payload = await enrichProjectsPayload(await deps.buildProjectsPayload(preferredWorkspaceId));
+			const payload = await deps.buildProjectsPayload(preferredWorkspaceId);
 			return {
 				currentProjectId: payload.currentProjectId,
 				projects: payload.projects,
@@ -168,13 +149,14 @@ export function createProjectsApi(deps: CreateProjectsApiDependencies): RuntimeT
 				}
 				const taskCounts = await deps.summarizeProjectTaskCounts(context.workspaceId, context.repoPath);
 				void deps.broadcastRuntimeProjectsUpdated(context.workspaceId);
-				const project = await enrichProjectSummary(
+				const projectsPayload = await deps.buildProjectsPayload(context.workspaceId);
+				const project =
+					projectsPayload.projects.find((candidate) => candidate.id === context.workspaceId) ??
 					deps.createProjectSummary({
 						workspaceId: context.workspaceId,
 						repoPath: context.repoPath,
 						taskCounts,
-					}),
-				);
+					});
 				return {
 					ok: true,
 					project,
