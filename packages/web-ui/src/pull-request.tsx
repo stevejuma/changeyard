@@ -1,4 +1,4 @@
-import { ExternalLink, GitPullRequest, Pencil, RefreshCw, Save, X } from "lucide-react";
+import { ExternalLink, GitPullRequest, Maximize2, Save, X } from "lucide-react";
 import type { ReactElement, ReactNode } from "react";
 
 import { Button } from "./button";
@@ -37,6 +37,12 @@ export type PullRequestDetails = PullRequestSummary & {
 	autoMerge?: boolean | null;
 	author?: string | null;
 	updatedAt?: string | null;
+};
+
+export type PullRequestAuthorDisplay = {
+	name?: string | null;
+	email?: string | null;
+	avatar?: ReactNode;
 };
 
 export type PullRequestCheckBadgeTone = "neutral" | "green" | "red" | "gold" | "orange";
@@ -143,23 +149,29 @@ export function PullRequestViewButton({
 	className?: string;
 }): ReactElement {
 	const hasUrl = Boolean(url);
+	if (!hasUrl) {
+		return (
+			<Button variant="default" size="sm" icon={<ExternalLink size={13} />} disabled title="PR link unavailable" className={className}>
+				View PR
+			</Button>
+		);
+	}
 	return (
-		<Button
-			variant="default"
-			size="sm"
-			icon={<ExternalLink size={13} />}
-			disabled={!hasUrl}
-			title={hasUrl ? `Open PR #${number ?? ""}`.trim() : "PR link unavailable"}
-			className={className}
-			onClick={(event) => {
-				event.stopPropagation();
-				if (url) {
-					window.open(url, "_blank", "noopener,noreferrer");
-				}
-			}}
+		<a
+			href={url ?? undefined}
+			target="_blank"
+			rel="noopener noreferrer"
+			title={`Open PR #${number ?? ""}`.trim()}
+			className={cn(
+				"inline-flex h-7 select-none items-center justify-center gap-1.5 rounded-md border border-border-bright bg-surface-2 px-2 text-xs font-medium text-text-primary hover:border-border-bright hover:bg-surface-3 active:bg-surface-4",
+				"focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent",
+				className,
+			)}
+			onClick={(event) => event.stopPropagation()}
 		>
+			<ExternalLink size={13} />
 			View PR
-		</Button>
+		</a>
 	);
 }
 
@@ -173,6 +185,9 @@ export function PullRequestDetailsPanel({
 	draftBody,
 	editorMode = "preview",
 	saveError = null,
+	areChecksRefreshing = false,
+	author,
+	isFloating = false,
 	onDraftBodyChange,
 	onEditorModeChange,
 	onStartEdit,
@@ -180,8 +195,10 @@ export function PullRequestDetailsPanel({
 	onSave,
 	onClose,
 	onRefreshChecks,
+	onFloatingChange,
 	className,
 	actions,
+	belowContent,
 }: {
 	summary?: PullRequestSummary | null;
 	details?: PullRequestDetails | null;
@@ -192,6 +209,9 @@ export function PullRequestDetailsPanel({
 	draftBody: string;
 	editorMode?: MarkdownMessageEditorMode;
 	saveError?: string | null;
+	areChecksRefreshing?: boolean;
+	author?: PullRequestAuthorDisplay | null;
+	isFloating?: boolean;
 	onDraftBodyChange: (body: string) => void;
 	onEditorModeChange?: (mode: MarkdownMessageEditorMode) => void;
 	onStartEdit: () => void;
@@ -199,8 +219,10 @@ export function PullRequestDetailsPanel({
 	onSave: () => void;
 	onClose?: () => void;
 	onRefreshChecks?: () => void;
+	onFloatingChange?: (floating: boolean) => void;
 	className?: string;
 	actions?: ReactNode;
+	belowContent?: ReactNode;
 }): ReactElement {
 	const pr = details ?? summary ?? null;
 	const title = pr?.title?.trim() || (pr?.number ? `PR #${pr.number}` : "Pull request");
@@ -208,10 +230,13 @@ export function PullRequestDetailsPanel({
 	const provider = details?.provider ?? checks?.provider ?? "Provider";
 	const updatedAt = formatUpdatedAt(details?.updatedAt);
 	const rollup = checks ?? details?.checks ?? summary?.checks ?? null;
+	const checkMeta = pullRequestCheckBadgeMeta(rollup, areChecksRefreshing && !rollup);
+	const authorName = details?.author?.trim() || author?.name?.trim() || null;
 	const hasBody = body.trim().length > 0;
+	const prUrl = pr?.url?.trim() || null;
 
 	return (
-		<section className={cn("flex h-full min-h-0 flex-col overflow-hidden bg-surface-1", className)}>
+		<section className={cn("flex h-full min-h-0 flex-col overflow-hidden", className)}>
 			<header className="flex min-h-11 items-center gap-2 border-b border-divider px-3 py-2">
 				<div className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-accent text-accent-fg">
 					<GitPullRequest size={14} />
@@ -222,10 +247,11 @@ export function PullRequestDetailsPanel({
 						{pr?.number ? <span>PR #{pr.number}</span> : null}
 						{pr?.number ? <span aria-hidden>·</span> : null}
 						<span className="truncate">{provider}</span>
-						{details?.author ? (
+						{authorName ? (
 							<>
 								<span aria-hidden>·</span>
-								<span className="truncate">{details.author}</span>
+								{author?.avatar ? <span className="shrink-0">{author.avatar}</span> : null}
+								<span className="truncate">{authorName}</span>
 							</>
 						) : null}
 						{updatedAt ? (
@@ -236,29 +262,57 @@ export function PullRequestDetailsPanel({
 						) : null}
 					</div>
 				</div>
+				<div className="ml-auto flex shrink-0 items-center gap-1.5">
 				{onRefreshChecks ? (
-					<Button
-						variant="ghost"
-						size="sm"
-						icon={<RefreshCw size={14} />}
-						aria-label="Refresh PR checks"
-						title="Refresh PR checks"
+					<button
+						type="button"
+						className={cn(
+							"inline-flex h-7 max-w-[150px] items-center justify-center gap-1.5 rounded-md border px-2 text-xs font-semibold leading-none",
+							"focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent",
+							badgeToneStyles[checkMeta.tone],
+						)}
+						title={`${checkMeta.title} Click to refresh.`}
 						onClick={onRefreshChecks}
+					>
+						{areChecksRefreshing ? <Spinner size={11} /> : null}
+						<span className="truncate">{checkMeta.label}</span>
+					</button>
+				) : (
+					<PullRequestCheckBadge rollup={rollup} loading={areChecksRefreshing && !rollup} />
+				)}
+				{prUrl ? (
+					<a
+						href={prUrl}
+						target="_blank"
+						rel="noopener noreferrer"
+						className={cn(
+							"inline-flex h-7 select-none items-center justify-center gap-1.5 rounded-md border border-border-bright bg-surface-2 px-2 text-xs font-medium text-text-primary hover:border-border-bright hover:bg-surface-3 active:bg-surface-4",
+							"focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent",
+						)}
+					>
+						Open
+						<ExternalLink size={13} />
+					</a>
+				) : (
+					<Button variant="default" size="sm" iconRight={<ExternalLink size={13} />} disabled title="PR link unavailable">
+						Open
+					</Button>
+				)}
+				{onFloatingChange ? (
+					<Button
+						variant={isFloating ? "default" : "ghost"}
+						size="sm"
+						icon={<Maximize2 size={14} />}
+						aria-label={isFloating ? "Exit floating mode" : "Use floating mode"}
+						title={isFloating ? "Exit floating mode" : "Use floating mode"}
+						onClick={() => onFloatingChange(!isFloating)}
 					/>
 				) : null}
-				<Button
-					variant={isEditing ? "default" : "ghost"}
-					size="sm"
-					icon={<Pencil size={14} />}
-					aria-label="Edit PR description"
-					title="Edit PR description"
-					disabled={isSaving}
-					onClick={onStartEdit}
-				/>
 				{actions}
 				{onClose ? (
 					<Button variant="ghost" size="sm" icon={<X size={15} />} aria-label="Close PR details" title="Close PR details" onClick={onClose} />
 				) : null}
+				</div>
 			</header>
 			<div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3 py-3">
 				{isLoading ? (
@@ -267,7 +321,7 @@ export function PullRequestDetailsPanel({
 						<div className="kb-skeleton h-16 rounded" />
 					</div>
 				) : null}
-				<div className="grid gap-2 rounded-md border border-divider bg-surface-0 px-3 py-2 text-xs text-text-secondary">
+				<div className="grid gap-2 border-b border-divider pb-3 text-xs text-text-secondary">
 					<div className="flex min-w-0 flex-wrap items-center gap-2">
 						<span className="shrink-0 text-text-tertiary">Head</span>
 						<span className="min-w-0 truncate font-mono text-text-primary">{branchValue(pr?.headBranch)}</span>
@@ -276,7 +330,6 @@ export function PullRequestDetailsPanel({
 						<span className="min-w-0 truncate font-mono text-text-primary">{branchValue(pr?.baseBranch)}</span>
 					</div>
 					<div className="flex min-w-0 flex-wrap items-center gap-2">
-						<PullRequestCheckBadge rollup={rollup} />
 						{pr?.state ? <span className="capitalize text-text-tertiary">{pr.state}</span> : null}
 						{details?.draft ? <span className="text-text-tertiary">Draft</span> : null}
 					</div>
@@ -315,14 +368,15 @@ export function PullRequestDetailsPanel({
 						<MarkdownMessagePreview
 							value={body}
 							emptyLabel="_This PR description is empty._"
-							className="rounded-md border border-divider bg-surface-0 px-4 py-3 text-sm text-text-primary"
+							className="text-sm text-text-primary"
 						/>
 					) : (
-						<div className="rounded-md border border-dashed border-divider bg-surface-0 px-4 py-6 text-center text-sm text-text-secondary">
+						<div className="px-4 py-6 text-center text-sm text-text-secondary">
 							This PR description is empty.
 						</div>
 					)}
 				</div>
+				{belowContent}
 			</div>
 		</section>
 	);

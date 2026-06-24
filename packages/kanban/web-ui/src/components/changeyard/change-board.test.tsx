@@ -328,7 +328,9 @@ describe("ChangeBoard", () => {
 		expect(container.textContent).toContain("Checks unknown");
 		expect(container.textContent).not.toContain("No checks");
 		expect(noPrCard?.textContent).not.toContain("View PR");
-		expect(prCard?.querySelectorAll("button")).toHaveLength(3);
+		const viewPrLink = prCard?.querySelector<HTMLAnchorElement>('a[target="_blank"]');
+		expect(viewPrLink?.textContent).toContain("View PR");
+		expect(prCard?.querySelectorAll("button")).toHaveLength(2);
 
 		const trigger = prCard?.querySelector<HTMLButtonElement>('button[aria-label="More actions for CY-0002"]');
 		await act(async () => {

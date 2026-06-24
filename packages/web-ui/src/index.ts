@@ -51,6 +51,7 @@ export {
 	pullRequestCheckBadgeMeta,
 	PullRequestDetailsPanel,
 	PullRequestViewButton,
+	type PullRequestAuthorDisplay,
 	type PullRequestCheckBadgeMeta,
 	type PullRequestCheckBadgeTone,
 	type PullRequestCheckRollup,

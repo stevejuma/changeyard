@@ -821,10 +821,14 @@ function WorkspaceReady({
 	const [commitSummaryEdit, setCommitSummaryEdit] = useState<CommitSummaryEditState | null>(null);
 	const [isCommitSummaryCollapsed, setCommitSummaryCollapsed] = useState(false);
 	const [isCommitSummaryFloating, setCommitSummaryFloating] = useState(false);
+	const [isPullRequestSummaryFloating, setPullRequestSummaryFloating] = useState(false);
 	const [isCommitSummaryWrapEnabled, setCommitSummaryWrapEnabled] = useState(true);
 	const [floatingCommitSummaryMode, setFloatingCommitSummaryMode] = useState<FloatingCommitSummaryMode>("description");
 	const [floatingCommitSummaryFilePath, setFloatingCommitSummaryFilePath] = useState<string | null>(null);
 	const [commitSummaryFloatingGeometry, setCommitSummaryFloatingGeometry] = useState<FloatingSummaryGeometry>(() =>
+		createDefaultFloatingSummaryGeometry(),
+	);
+	const [pullRequestFloatingGeometry, setPullRequestFloatingGeometry] = useState<FloatingSummaryGeometry>(() =>
 		createDefaultFloatingSummaryGeometry(),
 	);
 	const [commitEditMode, setCommitEditMode] = useState<CommitEditModeState | null>(null);
@@ -946,7 +950,9 @@ function WorkspaceReady({
 		(selectedWorkspaceCommit
 			? metadataString(selectedWorkspaceCommit.metadata?.commitHash) ?? selectedWorkspaceCommit.displayId ?? selectedWorkspaceCommit.commitId
 			: selectedCommitHash);
-	const selectedCommitDiffBaseHash = selectedHeaderStack?.base;
+	const selectedCommitDiffBaseHash = selectedHeaderStack
+		? selectedHeaderPullRequest?.baseBranch ?? selectedHeaderStack.base
+		: undefined;
 	const commitDiffResult = useGetRepositoryCommitDiffQuery(
 		{ workspaceId: workspaceId ?? "", workspacePath, commitHash: selectedCommitDiffHash ?? "", baseCommitHash: selectedCommitDiffBaseHash },
 		{ skip: !workspaceId || !selectedCommitDiffHash },
@@ -1037,6 +1043,11 @@ function WorkspaceReady({
 		setFloatingCommitSummaryFilePath(null);
 		setCommitSummaryFloatingGeometry(createDefaultFloatingSummaryGeometry());
 	}, [selectedCommitHash]);
+
+	useEffect(() => {
+		setPullRequestSummaryFloating(false);
+		setPullRequestFloatingGeometry(createDefaultFloatingSummaryGeometry());
+	}, [selectedStackHeaderId]);
 
 	useEffect(() => {
 		if (!selectedStackHeaderId) {
@@ -1993,7 +2004,15 @@ function WorkspaceReady({
 		setSelectedStackHeaderId(null);
 		setSelectedStackFilePath(null);
 		setStackPrEditRequest(null);
+		setPullRequestSummaryFloating(false);
 		setHasUserClearedFile(true);
+	}
+
+	function changePullRequestSummaryFloating(floating: boolean): void {
+		if (floating) {
+			setPullRequestFloatingGeometry(createDefaultFloatingSummaryGeometry());
+		}
+		setPullRequestSummaryFloating(floating);
 	}
 
 	function selectStackHeader(stackId: string): void {
@@ -2308,8 +2327,70 @@ function WorkspaceReady({
 			}
 		/>
 	) : null;
-	const pullRequestColumn =
+	const selectedHeaderDiffError =
+		commitDiffQuery.state.status === "error"
+			? commitDiffQuery.state.message
+			: commitDiffQuery.state.status === "ready" && !commitDiffQuery.state.data.ok
+				? commitDiffQuery.state.data.error ?? "The selected stack diff could not be read."
+				: null;
+	const selectedHeaderAuthorChange = selectedHeaderStack?.changes[0] ?? null;
+	const selectedHeaderAuthorName = selectedHeaderAuthorChange?.authorName?.trim() || null;
+	const selectedHeaderAuthor = selectedHeaderAuthorChange
+		? {
+				name: selectedHeaderAuthorName,
+				email: selectedHeaderAuthorChange.authorEmail,
+				avatar: (
+					<Avatar
+						src={selectedHeaderAuthorChange.authorAvatarUrl}
+						name={selectedHeaderAuthorName}
+						email={selectedHeaderAuthorChange.authorEmail}
+						initials={authorInitials(selectedHeaderAuthorName)}
+						className="h-5 w-5"
+					/>
+				),
+			}
+		: null;
+	const pullRequestFilesContent = selectedHeaderStack ? (
+		<VcsInlineFileSection
+			title="Files changed"
+			files={selectedHeaderStackFiles}
+			selectedPath={selectedStackFilePath}
+			isLoading={commitDiffQuery.state.status === "loading"}
+			errorMessage={selectedHeaderDiffError}
+			viewMode={fileViewMode}
+			onViewModeChange={changeFileViewMode}
+			onSelectPath={selectStackFile}
+			className="mx-0 mb-0"
+		/>
+	) : null;
+	const pullRequestPanel =
 		selectedHeaderStack && selectedHeaderPullRequest ? (
+			<VcsPullRequestDetailsPanelContainer
+				workspaceId={workspaceId}
+				workspacePath={workspacePath}
+				pr={selectedHeaderPullRequest}
+				editRequestKey={stackPrEditRequest?.stackId === selectedHeaderStack.id ? stackPrEditRequest.key : null}
+				author={selectedHeaderAuthor}
+				filesContent={pullRequestFilesContent}
+				isFloating={isPullRequestSummaryFloating}
+				onFloatingChange={changePullRequestSummaryFloating}
+				onUpdated={onWorkspaceStateRefresh}
+				onClose={closeSelectedStackHeaderColumn}
+				className="h-full"
+			/>
+		) : null;
+	const floatingPullRequestSummary =
+		isPullRequestSummaryFloating && pullRequestPanel ? (
+			<FloatingCommitSummaryWindow
+				geometry={pullRequestFloatingGeometry}
+				isCollapsed={false}
+				onGeometryChange={setPullRequestFloatingGeometry}
+			>
+				{pullRequestPanel}
+			</FloatingCommitSummaryWindow>
+		) : null;
+	const pullRequestColumn =
+		pullRequestPanel && !isPullRequestSummaryFloating && selectedHeaderPullRequest ? (
 			<VcsColumn
 				id="pull-request"
 				title={selectedHeaderPullRequest.number ? `PR #${selectedHeaderPullRequest.number}` : "Pull Request"}
@@ -2319,22 +2400,15 @@ function WorkspaceReady({
 				onCollapse={closeSelectedStackHeaderColumn}
 				onWidthChange={changeDiffColumnWidth}
 			>
-				<VcsPullRequestDetailsPanelContainer
-					workspaceId={workspaceId}
-					workspacePath={workspacePath}
-					pr={selectedHeaderPullRequest}
-					editRequestKey={stackPrEditRequest?.stackId === selectedHeaderStack.id ? stackPrEditRequest.key : null}
-					onUpdated={onWorkspaceStateRefresh}
-					onClose={closeSelectedStackHeaderColumn}
-					className="h-full"
-				/>
+				{pullRequestPanel}
 			</VcsColumn>
 		) : null;
 	const showTrailingSpacer =
-		appliedStacks.length > 0 || Boolean(selectedFile) || Boolean(selectedUnstagedFilePath) || Boolean(pullRequestColumn);
+		appliedStacks.length > 0 || Boolean(selectedFile) || Boolean(selectedUnstagedFilePath) || Boolean(pullRequestColumn) || Boolean(floatingPullRequestSummary);
 	return (
 		<>
 		{floatingCommitSummary}
+		{floatingPullRequestSummary}
 			<div className="relative h-full min-h-0 overflow-x-auto overflow-y-hidden bg-surface-0 p-3" onDragEnd={clearDragState}>
 				<div className="flex h-full min-h-0 min-w-full gap-3">
 				{isUnstagedCollapsed ? (
@@ -3705,7 +3779,7 @@ function WorkspaceStackCard({
 	const prSelector = useMemo(() => (pr ? selectorForPullRequest(pr) : null), [pr]);
 	const prChecksResult = useGetPullRequestChecksQuery(
 		{ workspaceId: workspaceId ?? "", workspacePath, input: prSelector ?? { number: 0 } },
-		{ skip: !workspaceId || !pr || !prSelector, pollingInterval: 30_000 },
+		{ skip: !workspaceId || !pr || !prSelector, pollingInterval: 10 * 60 * 1000 },
 	);
 	const prChecks = prChecksResult.data ?? pr?.checks ?? null;
 	const headerChange = group.changes[0] ?? null;
