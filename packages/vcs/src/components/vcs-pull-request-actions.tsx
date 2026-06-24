@@ -150,8 +150,10 @@ export function VcsPullRequestDetailsPanelContainer({
 	editRequestKey = null,
 	author = null,
 	filesContent,
+	headerViewModeControl,
 	isFloating = false,
 	showHeaderControls = true,
+	showDescriptionContent = true,
 	onUpdated,
 	onClose,
 	onFloatingChange,
@@ -163,8 +165,10 @@ export function VcsPullRequestDetailsPanelContainer({
 	editRequestKey?: number | null;
 	author?: PullRequestAuthorDisplay | null;
 	filesContent?: ReactNode;
+	headerViewModeControl?: ReactNode;
 	isFloating?: boolean;
 	showHeaderControls?: boolean;
+	showDescriptionContent?: boolean;
 	onUpdated?: () => void | Promise<void>;
 	onClose: () => void;
 	onFloatingChange?: (floating: boolean) => void;
@@ -277,6 +281,7 @@ export function VcsPullRequestDetailsPanelContainer({
 			author={author}
 			isFloating={isFloating}
 			showHeaderControls={showHeaderControls}
+			showDescriptionContent={showDescriptionContent}
 			draftBody={draftBody}
 			editorMode={editorMode}
 			saveError={saveError}
@@ -290,12 +295,15 @@ export function VcsPullRequestDetailsPanelContainer({
 			onFloatingChange={onFloatingChange}
 			belowContent={filesContent}
 			actions={
-				<VcsPullRequestPanelMenu
-					pr={details ?? pr}
-					isSaving={updateState.isLoading}
-					onRefreshChecks={() => void checksResult.refetch()}
-					onEditDescription={startEdit}
-				/>
+				<>
+					{headerViewModeControl}
+					<VcsPullRequestPanelMenu
+						pr={details ?? pr}
+						isSaving={updateState.isLoading}
+						onRefreshChecks={() => void checksResult.refetch()}
+						onEditDescription={startEdit}
+					/>
+				</>
 			}
 			className={className}
 		/>

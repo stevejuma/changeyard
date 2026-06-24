@@ -272,6 +272,7 @@ type CommitSummaryEditState = {
 };
 
 type FloatingCommitSummaryMode = "description" | "diff";
+type PullRequestDetailsMode = "description" | "files";
 
 type FloatingSummaryGeometry = {
 	left: number;
@@ -826,6 +827,7 @@ function WorkspaceReady({
 	const [isPullRequestSummaryFloating, setPullRequestSummaryFloating] = useState(false);
 	const [isCommitSummaryWrapEnabled, setCommitSummaryWrapEnabled] = useState(true);
 	const [floatingCommitSummaryMode, setFloatingCommitSummaryMode] = useState<FloatingCommitSummaryMode>("description");
+	const [pullRequestDetailsMode, setPullRequestDetailsMode] = useState<PullRequestDetailsMode>("description");
 	const [floatingCommitSummaryFilePath, setFloatingCommitSummaryFilePath] = useState<string | null>(null);
 	const [commitSummaryFloatingGeometry, setCommitSummaryFloatingGeometry] = useState<FloatingSummaryGeometry>(() =>
 		createDefaultFloatingSummaryGeometry(),
@@ -1049,6 +1051,7 @@ function WorkspaceReady({
 
 	useEffect(() => {
 		setPullRequestSummaryFloating(false);
+		setPullRequestDetailsMode("description");
 		setPullRequestFloatingGeometry(createDefaultFloatingSummaryGeometry());
 	}, [selectedStackHeaderId]);
 
@@ -1071,11 +1074,15 @@ function WorkspaceReady({
 		if (selectedStackFilePath && selectedHeaderStackFiles.some((file) => file.path === selectedStackFilePath)) {
 			return;
 		}
+		if (selectedHeaderPullRequest) {
+			setSelectedStackFilePath(null);
+			return;
+		}
 		if (hasUserClearedStackFile) {
 			return;
 		}
 		setSelectedStackFilePath(getFirstFilePath(selectedHeaderStackFiles));
-	}, [hasUserClearedStackFile, selectedHeaderStackFiles, selectedStackFilePath, selectedStackHeaderId]);
+	}, [hasUserClearedStackFile, selectedHeaderPullRequest, selectedHeaderStackFiles, selectedStackFilePath, selectedStackHeaderId]);
 
 	useEffect(() => {
 		if (selectedStackHeaderId) {
@@ -2002,6 +2009,7 @@ function WorkspaceReady({
 		setSelectedComposerDiffStackId(null);
 		setHasUserClearedFile(false);
 		setHasUserClearedStackFile(false);
+		setPullRequestDetailsMode("description");
 		setFileSectionCollapsed(false);
 		writeQueryParam("commit", null);
 		writeQueryParam("file", null);
@@ -2013,6 +2021,7 @@ function WorkspaceReady({
 		setSelectedStackFilePath(null);
 		setStackPrEditRequest(null);
 		setPullRequestSummaryFloating(false);
+		setPullRequestDetailsMode("description");
 		setHasUserClearedFile(true);
 		setHasUserClearedStackFile(false);
 	}
@@ -2035,6 +2044,7 @@ function WorkspaceReady({
 
 	function openStackPullRequestDescriptionEdit(stackId: string): void {
 		openStackHeader(stackId);
+		setPullRequestDetailsMode("description");
 		setStackPrEditRequest({ stackId, key: Date.now() });
 	}
 
@@ -2042,6 +2052,7 @@ function WorkspaceReady({
 		setSelectedStackFilePath((current) => {
 			const next = current === path ? null : path;
 			setHasUserClearedStackFile(next === null);
+			setPullRequestDetailsMode(next ? "files" : "description");
 			return next;
 		});
 	}
@@ -2364,7 +2375,7 @@ function WorkspaceReady({
 			}
 		: null;
 	const pullRequestDiffContent =
-		selectedStackHeaderId && selectedStackFilePath ? (
+		selectedStackHeaderId ? (
 			<section data-testid="vcs-pr-inline-file-diff" className="grid min-h-0 gap-2 border-t border-divider pt-3">
 				<div className="flex h-9 min-w-0 items-center gap-2 rounded-md border border-divider bg-surface-0 px-2">
 					{selectedHeaderFile ? <FileTypeIcon path={selectedHeaderFile.path} title={selectedHeaderFile.path} /> : <FileTypeIcon path="diff" />}
@@ -2381,6 +2392,7 @@ function WorkspaceReady({
 						onClick={() => {
 							setSelectedStackFilePath(null);
 							setHasUserClearedStackFile(true);
+							setPullRequestDetailsMode("description");
 						}}
 					/>
 				</div>
@@ -2401,6 +2413,36 @@ function WorkspaceReady({
 				</div>
 			</section>
 		) : null;
+	const pullRequestModeToggle = selectedHeaderPullRequest ? (
+		<div className="inline-flex shrink-0 rounded-md border border-border bg-surface-0 p-0.5">
+			<button
+				type="button"
+				className={cn(
+					"rounded px-2 py-1 text-[11px] font-medium transition-colors",
+					pullRequestDetailsMode === "description"
+						? "bg-accent text-accent-foreground"
+						: "text-text-secondary hover:bg-surface-2 hover:text-text-primary",
+				)}
+				aria-pressed={pullRequestDetailsMode === "description"}
+				onClick={() => setPullRequestDetailsMode("description")}
+			>
+				PR description
+			</button>
+			<button
+				type="button"
+				className={cn(
+					"rounded px-2 py-1 text-[11px] font-medium transition-colors",
+					pullRequestDetailsMode === "files"
+						? "bg-accent text-accent-foreground"
+						: "text-text-secondary hover:bg-surface-2 hover:text-text-primary",
+				)}
+				aria-pressed={pullRequestDetailsMode === "files"}
+				onClick={() => setPullRequestDetailsMode("files")}
+			>
+				Files changed
+			</button>
+		</div>
+	) : null;
 	const pullRequestPanel =
 		selectedHeaderStack && selectedHeaderPullRequest ? (
 			<VcsPullRequestDetailsPanelContainer
@@ -2409,9 +2451,11 @@ function WorkspaceReady({
 				pr={selectedHeaderPullRequest}
 				editRequestKey={stackPrEditRequest?.stackId === selectedHeaderStack.id ? stackPrEditRequest.key : null}
 				author={selectedHeaderAuthor}
-				filesContent={pullRequestDiffContent}
+				filesContent={pullRequestDetailsMode === "files" ? pullRequestDiffContent : null}
+				headerViewModeControl={pullRequestModeToggle}
 				isFloating={isPullRequestSummaryFloating}
 				showHeaderControls={isPullRequestSummaryFloating}
+				showDescriptionContent={pullRequestDetailsMode === "description"}
 				onFloatingChange={changePullRequestSummaryFloating}
 				onUpdated={onWorkspaceStateRefresh}
 				onClose={closeSelectedStackHeaderColumn}
@@ -2439,19 +2483,22 @@ function WorkspaceReady({
 				onCollapse={closeSelectedStackHeaderColumn}
 				onWidthChange={changeDiffColumnWidth}
 				headerActions={
-					<VcsPullRequestColumnHeaderActions
-						workspaceId={workspaceId}
-						workspacePath={workspacePath}
-						pr={selectedHeaderPullRequest}
-						isFloating={isPullRequestSummaryFloating}
-						onFloatingChange={changePullRequestSummaryFloating}
-						onEditDescription={() => {
-							const stackId = selectedHeaderStack?.id;
-							if (stackId) {
-								openStackPullRequestDescriptionEdit(stackId);
-							}
-						}}
-					/>
+					<>
+						{pullRequestModeToggle}
+						<VcsPullRequestColumnHeaderActions
+							workspaceId={workspaceId}
+							workspacePath={workspacePath}
+							pr={selectedHeaderPullRequest}
+							isFloating={isPullRequestSummaryFloating}
+							onFloatingChange={changePullRequestSummaryFloating}
+							onEditDescription={() => {
+								const stackId = selectedHeaderStack?.id;
+								if (stackId) {
+									openStackPullRequestDescriptionEdit(stackId);
+								}
+							}}
+						/>
+					</>
 				}
 			>
 				{pullRequestPanel}

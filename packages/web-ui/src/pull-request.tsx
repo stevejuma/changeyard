@@ -189,6 +189,7 @@ export function PullRequestDetailsPanel({
 	author,
 	isFloating = false,
 	showHeaderControls = true,
+	showDescriptionContent = true,
 	onDraftBodyChange,
 	onEditorModeChange,
 	onStartEdit,
@@ -214,6 +215,7 @@ export function PullRequestDetailsPanel({
 	author?: PullRequestAuthorDisplay | null;
 	isFloating?: boolean;
 	showHeaderControls?: boolean;
+	showDescriptionContent?: boolean;
 	onDraftBodyChange: (body: string) => void;
 	onEditorModeChange?: (mode: MarkdownMessageEditorMode) => void;
 	onStartEdit: () => void;
@@ -345,48 +347,50 @@ export function PullRequestDetailsPanel({
 						{details?.draft ? <span className="text-text-tertiary">Draft</span> : null}
 					</div>
 				</div>
-				<div className="min-h-0 flex-1">
-					{isEditing ? (
-						<div className="grid gap-3">
-							<MarkdownMessageEditor
-								value={draftBody}
-								onChange={onDraftBodyChange}
-								mode={editorMode}
-								onModeChange={onEditorModeChange}
-								height="min(48vh, 360px)"
-								placeholder="PR description"
-								disabled={isSaving}
-								autoFocus
-								previewEmptyLabel="_This PR description is empty._"
-							/>
-							{saveError ? <div className="text-xs text-status-red">{saveError}</div> : null}
-							<div className="flex gap-2">
-								<Button variant="default" fill disabled={isSaving} onClick={onCancelEdit}>
-									Cancel
-								</Button>
-								<Button
-									variant="primary"
-									fill
-									icon={isSaving ? <Spinner size={14} /> : <Save size={14} />}
+				{showDescriptionContent || isEditing ? (
+					<div className="min-h-0 flex-1">
+						{isEditing ? (
+							<div className="grid gap-3">
+								<MarkdownMessageEditor
+									value={draftBody}
+									onChange={onDraftBodyChange}
+									mode={editorMode}
+									onModeChange={onEditorModeChange}
+									height="min(48vh, 360px)"
+									placeholder="PR description"
 									disabled={isSaving}
-									onClick={onSave}
-								>
-									Save description
-								</Button>
+									autoFocus
+									previewEmptyLabel="_This PR description is empty._"
+								/>
+								{saveError ? <div className="text-xs text-status-red">{saveError}</div> : null}
+								<div className="flex gap-2">
+									<Button variant="default" fill disabled={isSaving} onClick={onCancelEdit}>
+										Cancel
+									</Button>
+									<Button
+										variant="primary"
+										fill
+										icon={isSaving ? <Spinner size={14} /> : <Save size={14} />}
+										disabled={isSaving}
+										onClick={onSave}
+									>
+										Save description
+									</Button>
+								</div>
 							</div>
-						</div>
-					) : hasBody ? (
-						<MarkdownMessagePreview
-							value={body}
-							emptyLabel="_This PR description is empty._"
-							className="cy-markdown-preview--plain text-sm text-text-primary"
-						/>
-					) : (
-						<div className="px-4 py-6 text-center text-sm text-text-secondary">
-							This PR description is empty.
-						</div>
-					)}
-				</div>
+						) : hasBody ? (
+							<MarkdownMessagePreview
+								value={body}
+								emptyLabel="_This PR description is empty._"
+								className="cy-markdown-preview--plain text-sm text-text-primary"
+							/>
+						) : (
+							<div className="px-4 py-6 text-center text-sm text-text-secondary">
+								This PR description is empty.
+							</div>
+						)}
+					</div>
+				) : null}
 				{belowContent}
 			</div>
 		</section>
