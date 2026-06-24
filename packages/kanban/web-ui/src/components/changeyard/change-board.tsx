@@ -14,11 +14,14 @@ import {
 	ChevronLeft,
 	ChevronRight,
 	Copy,
+	ExternalLink,
 	FileText,
 	GitCommitVertical,
 	GitPullRequest,
 	MoreHorizontal,
+	Pencil,
 	Plus,
+	RefreshCw,
 	Search,
 	X,
 } from "lucide-react";
@@ -53,11 +56,15 @@ import { buildUnifiedDiffRows, parsePatchToRows, ReadOnlyUnifiedDiff } from "@/c
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { ColumnIndicator } from "@/components/ui/column-indicator";
-import { ChangeStatusChip, StatusChip } from "@/components/ui/status-chip";
+import { Dialog, DialogBody, DialogFooter, DialogHeader } from "@/components/ui/dialog";
+import { ChangeStatusChip, StatusChip, type StatusChipTone } from "@/components/ui/status-chip";
 import {
 	useLazyGetChangeBoardFileDiffQuery,
 	useLazyGetChangeBoardFilesQuery,
 	useLazyGetChangeBoardSummaryQuery,
+	useGetPullRequestChecksQuery,
+	useGetPullRequestDetailsQuery,
+	useUpdatePullRequestMutation,
 } from "@/runtime/kanban-api";
 import type {
 	RuntimeChangeyardBoardFilesResponse,
@@ -67,6 +74,8 @@ import type {
 	RuntimeChangeyardBoardSummaryResponse,
 	RuntimeChangeyardChangeListItem,
 	RuntimeTaskSessionSummary,
+	RuntimeVcsCheckState,
+	RuntimeVcsPullRequestDetails,
 } from "@/runtime/types";
 import { LocalStorageKey, readLocalStorageItem, writeLocalStorageItem } from "@/storage/local-storage-store";
 import type { BoardCard as BoardCardModel, BoardColumnId, BoardData, DependencyEdge, DependencyNodeId } from "@/types";
@@ -478,6 +487,213 @@ function CopyKebabMenu({
 				</DropdownMenu.Content>
 			</DropdownMenu.Portal>
 		</DropdownMenu.Root>
+	);
+}
+
+function getPullRequestNumber(change: RuntimeChangeyardChangeListItem): number | null {
+	return typeof change.remote?.pullRequestNumber === "number" ? change.remote.pullRequestNumber : null;
+}
+
+function hasPullRequest(change: RuntimeChangeyardChangeListItem): boolean {
+	return getPullRequestNumber(change) !== null || Boolean(change.remote?.pullRequestUrl);
+}
+
+function checkStateMeta(
+	state: RuntimeVcsCheckState | undefined,
+	supported: boolean | undefined,
+	total: number | undefined,
+): { label: string; tone: StatusChipTone } {
+	if (supported === false) return { label: "Checks unsupported", tone: "neutral" };
+	if (!state || total === undefined) return { label: "Checks", tone: "neutral" };
+	if (total === 0) return { label: "No checks", tone: "neutral" };
+	if (state === "passed") return { label: "Checks passed", tone: "green" };
+	if (state === "failed") return { label: "Checks failed", tone: "red" };
+	if (state === "pending") return { label: "Checks running", tone: "blue" };
+	if (state === "cancelled") return { label: "Checks cancelled", tone: "gold" };
+	if (state === "skipped") return { label: "Checks skipped", tone: "neutral" };
+	return { label: "Checks unknown", tone: "neutral" };
+}
+
+function ChangePullRequestEditDialog({
+	open,
+	change,
+	workspaceId,
+	onOpenChange,
+	onSaved,
+}: {
+	open: boolean;
+	change: RuntimeChangeyardChangeListItem;
+	workspaceId?: string | null;
+	onOpenChange: (open: boolean) => void;
+	onSaved: () => void;
+}): ReactElement {
+	const queryArg = { workspaceId: workspaceId ?? "__missing__", input: { changeId: change.id } };
+	const detailsQuery = useGetPullRequestDetailsQuery(queryArg, { skip: !open || !workspaceId || !hasPullRequest(change) });
+	const [updatePullRequest, updateState] = useUpdatePullRequestMutation();
+	const [title, setTitle] = useState("");
+	const [body, setBody] = useState("");
+	const details = detailsQuery.data;
+
+	useEffect(() => {
+		if (!details || !open) return;
+		setTitle(details.title ?? "");
+		setBody(details.body ?? "");
+	}, [details, open]);
+
+	const handleSave = async () => {
+		if (!workspaceId) return;
+		const response = await updatePullRequest({
+			workspaceId,
+			input: {
+				changeId: change.id,
+				title,
+				body,
+			},
+		}).unwrap();
+		setTitle(response.title ?? "");
+		setBody(response.body ?? "");
+		onSaved();
+		onOpenChange(false);
+	};
+
+	return (
+		<Dialog open={open} onOpenChange={onOpenChange} contentClassName="max-w-2xl">
+			<DialogHeader title={details?.title ?? `PR #${getPullRequestNumber(change) ?? ""}`} icon={<GitPullRequest size={16} />} />
+			<DialogBody className="flex flex-col gap-4">
+				{detailsQuery.isError ? (
+					<div className="rounded-md border border-status-red/30 bg-status-red/10 px-3 py-2 text-[12px] text-status-red">
+						{getErrorMessage(detailsQuery.error, "Failed to load pull request details.")}
+					</div>
+				) : null}
+				<div className="grid grid-cols-2 gap-3 text-[12px] text-text-secondary">
+					<div>
+						<div className="font-medium text-text-tertiary">Head</div>
+						<div className="truncate text-text-primary">{details?.headBranch ?? change.workspace?.branch ?? "Unknown"}</div>
+					</div>
+					<div>
+						<div className="font-medium text-text-tertiary">Base</div>
+						<div className="truncate text-text-primary">{details?.baseBranch ?? "Unknown"}</div>
+					</div>
+				</div>
+				<label className="flex flex-col gap-1 text-[12px] font-medium text-text-secondary">
+					Title
+					<input
+						value={title}
+						onChange={(event) => setTitle(event.currentTarget.value)}
+						className="h-9 rounded-md border border-border-bright bg-surface-0 px-3 text-[13px] text-text-primary outline-none focus:border-accent"
+					/>
+				</label>
+				<label className="flex flex-col gap-1 text-[12px] font-medium text-text-secondary">
+					Description
+					<textarea
+						value={body}
+						onChange={(event) => setBody(event.currentTarget.value)}
+						className="min-h-[220px] resize-y rounded-md border border-border-bright bg-surface-0 px-3 py-2 font-mono text-[12px] text-text-primary outline-none focus:border-accent"
+					/>
+				</label>
+			</DialogBody>
+			<DialogFooter>
+				<Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
+					Cancel
+				</Button>
+				<Button
+					variant="primary"
+					size="sm"
+					onClick={() => {
+						void handleSave();
+					}}
+					disabled={!workspaceId || updateState.isLoading || detailsQuery.isFetching}
+				>
+					{updateState.isLoading ? "Saving..." : "Save"}
+				</Button>
+			</DialogFooter>
+		</Dialog>
+	);
+}
+
+function ChangePullRequestControls({
+	change,
+	workspaceId,
+}: {
+	change: RuntimeChangeyardChangeListItem;
+	workspaceId?: string | null;
+}): ReactElement | null {
+	const [editOpen, setEditOpen] = useState(false);
+	const prNumber = getPullRequestNumber(change);
+	const prUrl = change.remote?.pullRequestUrl ?? null;
+	const shouldFetch = Boolean(workspaceId && hasPullRequest(change));
+	const checksQuery = useGetPullRequestChecksQuery(
+		{ workspaceId: workspaceId ?? "__missing__", input: { changeId: change.id } },
+		{ skip: !shouldFetch },
+	);
+	if (!hasPullRequest(change)) return null;
+	const checks = checksQuery.data;
+	const meta = checkStateMeta(checks?.overallState, checks?.supported, checks?.summary.total);
+	return (
+		<>
+			<div className="flex min-w-0 flex-wrap items-center gap-2" onClick={(event) => event.stopPropagation()}>
+				{prUrl ? (
+					<Button
+						variant="ghost"
+						size="sm"
+						icon={<ExternalLink size={14} />}
+						onClick={() => {
+							window.open(prUrl, "_blank", "noopener,noreferrer");
+						}}
+					>
+						View PR
+					</Button>
+				) : null}
+				<StatusChip
+					label={checksQuery.isFetching && !checks ? "Checks..." : meta.label}
+					tone={meta.tone}
+					title={checks?.message}
+				/>
+				<Button
+					variant="ghost"
+					size="sm"
+					icon={<RefreshCw size={14} />}
+					aria-label={`Refresh PR checks for ${change.id}`}
+					title="Refresh checks"
+					className="h-7 w-7 px-0"
+					disabled={!shouldFetch}
+					onClick={() => {
+						void checksQuery.refetch();
+					}}
+				/>
+				{prUrl ? (
+					<Button
+						variant="ghost"
+						size="sm"
+						icon={<Copy size={14} />}
+						aria-label={`Copy PR link for ${change.id}`}
+						title="Copy PR link"
+						className="h-7 w-7 px-0"
+						onClick={() => copyText(prUrl)}
+					/>
+				) : null}
+				<Button
+					variant="ghost"
+					size="sm"
+					icon={<Pencil size={14} />}
+					aria-label={`Edit PR details for ${change.id}`}
+					title="Edit PR details"
+					className="h-7 w-7 px-0"
+					disabled={!workspaceId}
+					onClick={() => setEditOpen(true)}
+				/>
+				<span className="text-[12px] font-medium text-text-secondary">{prNumber ? `PR #${prNumber}` : "PR"}</span>
+			</div>
+			<ChangePullRequestEditDialog
+				open={editOpen}
+				change={change}
+				workspaceId={workspaceId}
+				onOpenChange={setEditOpen}
+				onSaved={() => {
+					void checksQuery.refetch();
+				}}
+			/>
+		</>
 	);
 }
 
@@ -1009,6 +1225,7 @@ function ChangeCard({
 		isWorkspaceDeletedError(summaryError) ||
 		isWorkspaceDeletedError(allFilesError) ||
 		Object.values(commitFileErrors).some(isWorkspaceDeletedError);
+	const prNumber = getPullRequestNumber(change);
 
 	return (
 		<Draggable draggableId={encodeChangeDraggableId(change.id)} index={index} isDragDisabled={isDragDisabled}>
@@ -1075,8 +1292,8 @@ function ChangeCard({
 								{change.workspace?.branch ? <span className="truncate">{change.workspace.branch}</span> : null}
 								{change.workspace?.branch ? <span aria-hidden>•</span> : null}
 								<ChangeStatusChip status={change.status} />
-								{change.remote?.pullRequestUrl ? (
-									<StatusChip label="PR" icon={<GitPullRequest size={12} />} tone="green" />
+								{hasPullRequest(change) ? (
+									<StatusChip label={prNumber ? `PR #${prNumber}` : "PR"} icon={<GitPullRequest size={12} />} tone="green" />
 								) : null}
 								{sessionProvider ? (
 									<StatusChip
@@ -1096,7 +1313,6 @@ function ChangeCard({
 										title="This change references a workspace that is no longer available."
 									/>
 								) : null}
-								<StatusChip label="No checks" />
 								{boardSourceBadge}
 							</div>
 						</div>
@@ -1141,6 +1357,7 @@ function ChangeCard({
 					<div className={cn("flex items-center gap-2 bg-surface-1 px-3 py-2", isCardSelected ? null : "border-y border-divider")}>
 						<StatusChip label={change.type} />
 						<PlanningBadge planning={change.planning} />
+						<ChangePullRequestControls change={change} workspaceId={workspaceId} />
 						<span className="min-w-0 flex-1" />
 						<CopyKebabMenu
 							label={`More actions for ${change.id}`}

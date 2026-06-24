@@ -18,6 +18,7 @@ const runtimeMock = vi.hoisted(() => ({
 	getBoardSummary: vi.fn(),
 	getBoardFiles: vi.fn(),
 	getBoardFileDiff: vi.fn(),
+	updatePullRequest: vi.fn(),
 }));
 
 vi.mock("@/runtime/kanban-api", () => ({
@@ -35,6 +36,26 @@ vi.mock("@/runtime/kanban-api", () => ({
 		(arg: { input: unknown }) => ({
 			unwrap: async () => await runtimeMock.getBoardFileDiff(arg.input),
 		}),
+	],
+	useGetPullRequestDetailsQuery: () => ({
+		data: undefined,
+		isFetching: false,
+		isError: false,
+		error: undefined,
+		refetch: vi.fn(),
+	}),
+	useGetPullRequestChecksQuery: () => ({
+		data: undefined,
+		isFetching: false,
+		isError: false,
+		error: undefined,
+		refetch: vi.fn(),
+	}),
+	useUpdatePullRequestMutation: () => [
+		(arg: { input: unknown }) => ({
+			unwrap: async () => await runtimeMock.updatePullRequest(arg.input),
+		}),
+		{ isLoading: false },
 	],
 }));
 
@@ -161,6 +182,18 @@ describe("ChangeBoard", () => {
 		container = document.createElement("div");
 		document.body.appendChild(container);
 		root = createRoot(container);
+		runtimeMock.updatePullRequest.mockResolvedValue({
+			number: 1,
+			url: null,
+			provider: "unknown",
+			title: "",
+			body: "",
+			headBranch: null,
+			baseBranch: null,
+			state: null,
+			author: null,
+			updatedAt: null,
+		});
 	});
 
 	afterEach(() => {
@@ -173,6 +206,7 @@ describe("ChangeBoard", () => {
 		runtimeMock.getBoardSummary.mockReset();
 		runtimeMock.getBoardFiles.mockReset();
 		runtimeMock.getBoardFileDiff.mockReset();
+		runtimeMock.updatePullRequest.mockReset();
 		dndMock.onDragStart = null;
 		dndMock.onDragEnd = null;
 	});
