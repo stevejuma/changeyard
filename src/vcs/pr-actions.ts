@@ -14,6 +14,11 @@ import type {
 import { findChangeFile } from "../state/id.js";
 import type { ChangeyardConfig, Frontmatter, ParsedMarkdown } from "../types.js";
 import {
+	getGitHubCliPullRequestChecks,
+	getGitHubCliPullRequestDetails,
+	updateGitHubCliPullRequestDetails,
+} from "./github-cli-pr.js";
+import {
 	cachedPullRequestToRemotePullRequest,
 	findCachedPullRequest,
 	providerRepositoryIdentity,
@@ -155,6 +160,22 @@ function resolveHeadBranchTarget(repoRoot: string, config: ChangeyardConfig, pro
 			cachedPullRequest,
 		};
 	}
+	if (config.provider.type === "noop") {
+		const discovered = getGitHubCliPullRequestDetails(repoRoot, { headBranch });
+		if (discovered?.pullRequestNumber) {
+			const target: PullRequestTarget = {
+				provider,
+				config,
+				storageRoot: root,
+				pullRequestNumber: discovered.pullRequestNumber,
+				headBranch,
+				baseBranch: discovered.baseBranch ?? null,
+				cachedPullRequest: discovered,
+			};
+			cachePullRequest(repoRoot, target, discovered);
+			return target;
+		}
+	}
 	if (!provider.findOpenPullRequestByHead) {
 		throw new Error(`Provider ${provider.name} cannot find pull requests by head branch.`);
 	}
@@ -241,6 +262,14 @@ function normalizeBranchName(branch: string): string {
 export function getVcsPullRequestDetails(repoRoot: string, selector: VcsPullRequestSelector): RemotePullRequestDetails {
 	const target = resolvePullRequestTarget(repoRoot, selector);
 	if (!target.provider.capabilities().pullRequestDetails || !target.provider.getPullRequestDetails) {
+		const discovered = getGitHubCliPullRequestDetails(repoRoot, {
+			number: target.pullRequestNumber,
+			headBranch: target.headBranch,
+		});
+		if (discovered) {
+			cachePullRequest(repoRoot, target, discovered);
+			return discovered;
+		}
 		return fallbackDetails(target);
 	}
 	const details = target.provider.getPullRequestDetails({
@@ -256,6 +285,15 @@ export function getVcsPullRequestDetails(repoRoot: string, selector: VcsPullRequ
 export function updateVcsPullRequestDetails(repoRoot: string, input: VcsPullRequestUpdateInput): RemotePullRequestDetails {
 	const target = resolvePullRequestTarget(repoRoot, input);
 	if (!target.provider.capabilities().pullRequestUpdates || !target.provider.updatePullRequestDetails) {
+		const discovered = updateGitHubCliPullRequestDetails(
+			repoRoot,
+			{ number: target.pullRequestNumber, headBranch: target.headBranch },
+			{ title: input.title, body: input.body },
+		);
+		if (discovered) {
+			cachePullRequest(repoRoot, target, discovered);
+			return discovered;
+		}
 		throw new Error(`Provider ${target.provider.name} does not support pull request detail updates.`);
 	}
 	const details = target.provider.updatePullRequestDetails({
@@ -273,6 +311,13 @@ export function updateVcsPullRequestDetails(repoRoot: string, input: VcsPullRequ
 export function getVcsPullRequestChecks(repoRoot: string, selector: VcsPullRequestSelector): RemotePullRequestChecks {
 	const target = resolvePullRequestTarget(repoRoot, selector);
 	if (!target.provider.capabilities().pullRequestChecks || !target.provider.listPullRequestChecks) {
+		const discovered = getGitHubCliPullRequestChecks(repoRoot, {
+			number: target.pullRequestNumber,
+			headBranch: target.headBranch,
+		});
+		if (discovered) {
+			return discovered;
+		}
 		return unsupportedPullRequestChecks(target.provider, target.pullRequestNumber);
 	}
 	return target.provider.listPullRequestChecks({

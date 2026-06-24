@@ -17,6 +17,7 @@ import { loadJjInventory, loadJjInventoryFromDetect } from "./jj/inventory.js";
 import { createJjOperationSnapshot, loadJjOperationDiff, loadJjOperations, revertJjOperation } from "./jj/operations.js";
 import { previewJjOperation } from "./jj/preview.js";
 import { previewJjStackSubmit, submitJjStack } from "./jj/stack-submit.js";
+import { listGitHubCliPullRequests } from "./github-cli-pr.js";
 import { loadJjState, loadJjStateFromDetect } from "./jj/state.js";
 import { cachedPullRequestToInventoryPr, findCachedPullRequest, providerRepositoryIdentity, readVcsPullRequestCache } from "./pr-cache.js";
 import { getVcsBaseBranchChecks, getVcsPullRequestChecks, getVcsPullRequestDetails, updateVcsPullRequestDetails } from "./pr-actions.js";
@@ -34,6 +35,7 @@ import { runVcsCommand } from "./process.js";
 import type {
 	VcsApplyOperationInput,
 	VcsJjBranchesDataResult,
+	VcsJjInventoryPullRequest,
 	VcsJjInventoryItem,
 	VcsJjInventoryResult,
 	VcsJjStateResult,
@@ -232,19 +234,40 @@ function hydrateInventoryPullRequests(
 	const provider = config.provider.type;
 	const repository = providerRepositoryIdentity(config, repoRoot);
 	const pullRequests = readVcsPullRequestCache(root);
+	const discoveredPullRequests = discoveredPullRequestsByHead(repoRoot, config);
 	const hydrateItem = (item: VcsJjInventoryItem | null): VcsJjInventoryItem | null => {
 		if (!item) {
 			return null;
 		}
 		const head = item.target ?? item.name;
 		const cached = findCachedPullRequest(pullRequests, { provider, repository, head });
-		return cached ? { ...item, pr: cachedPullRequestToInventoryPr(cached) } : item;
+		const pr = cachedPullRequestToInventoryPr(cached) ?? discoveredPullRequests.get(head) ?? null;
+		return pr ? { ...item, pr } : item;
 	};
 	return {
 		...inventory,
 		workspaceTarget: hydrateItem(inventory.workspaceTarget),
 		items: inventory.items.map((item) => hydrateItem(item) ?? item),
 	};
+}
+
+function discoveredPullRequestsByHead(repoRoot: string, config: ChangeyardConfig): Map<string, VcsJjInventoryPullRequest> {
+	if (config.provider.type !== "noop") {
+		return new Map();
+	}
+	return new Map(
+		listGitHubCliPullRequests(repoRoot)
+			.filter((pullRequest) => typeof pullRequest.pullRequestNumber === "number" && pullRequest.headBranch)
+			.map((pullRequest) => [
+				pullRequest.headBranch as string,
+				{
+					number: pullRequest.pullRequestNumber as number,
+					url: pullRequest.pullRequestUrl,
+					baseBranch: pullRequest.baseBranch ?? null,
+					title: pullRequest.title,
+				},
+			]),
+	);
 }
 
 function hydrateWorkspacePullRequests<TState extends { stacks: Array<{ name?: string; pr?: unknown }> }>(
@@ -256,13 +279,15 @@ function hydrateWorkspacePullRequests<TState extends { stacks: Array<{ name?: st
 	const provider = config.provider.type;
 	const repository = providerRepositoryIdentity(config, repoRoot);
 	const pullRequests = readVcsPullRequestCache(root);
+	const discoveredPullRequests = discoveredPullRequestsByHead(repoRoot, config);
 	return {
 		...state,
 		stacks: state.stacks.map((stack) => {
 			const head = stack.name?.trim();
 			if (!head) return stack;
 			const cached = findCachedPullRequest(pullRequests, { provider, repository, head });
-			return cached ? { ...stack, pr: cachedPullRequestToInventoryPr(cached) } : stack;
+			const pr = cachedPullRequestToInventoryPr(cached) ?? discoveredPullRequests.get(head) ?? null;
+			return pr ? { ...stack, pr } : stack;
 		}),
 	};
 }
