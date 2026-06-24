@@ -611,6 +611,8 @@ export type RuntimeGitCommitDiffFile = {
 	additions: number;
 	deletions: number;
 	patch: string;
+	oldText?: string | null;
+	newText?: string | null;
 };
 
 export type RuntimeGitCommitDiffResponse = {

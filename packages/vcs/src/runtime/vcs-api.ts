@@ -152,6 +152,7 @@ type VcsWorkspaceOperationArg = ActiveWorkspaceQueryArg & {
 type CommitDiffQueryArg = ActiveWorkspaceQueryArg & {
 	commitHash: string;
 	baseCommitHash?: string;
+	includeFileText?: boolean;
 };
 
 type UpdateProjectConfigArg = WorkspaceQueryArg & {
@@ -968,12 +969,12 @@ export const vcsApi = createApi({
 			},
 		}),
 		getRepositoryCommitDiff: builder.query<RuntimeGitCommitDiffResponse, CommitDiffQueryArg>({
-			queryFn: async ({ workspaceId, workspacePath, commitHash, baseCommitHash }, { signal }) => {
+			queryFn: async ({ workspaceId, workspacePath, commitHash, baseCommitHash, includeFileText }, { signal }) => {
 				try {
 					return {
 						data: await fetchTrpcQuery<RuntimeGitCommitDiffResponse>(
 							"workspace.getRepositoryCommitDiff",
-							{ commitHash, baseCommitHash, workspacePath: workspacePath ?? undefined },
+							{ commitHash, baseCommitHash, includeFileText, workspacePath: workspacePath ?? undefined },
 							workspaceId,
 							{ signal },
 						),

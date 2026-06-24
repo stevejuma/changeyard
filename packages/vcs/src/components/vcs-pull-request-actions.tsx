@@ -7,6 +7,7 @@ import {
 	pullRequestCheckBadgeMeta,
 	type MarkdownMessageEditorMode,
 	type PullRequestAuthorDisplay,
+	type PullRequestConversationEvent,
 } from "@changeyard/web-ui";
 import { Check, Copy, ExternalLink, Maximize2, MoreHorizontal, Pencil, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -157,6 +158,7 @@ export function VcsPullRequestDetailsPanelContainer({
 	showDescriptionContent = true,
 	onUpdated,
 	onClose,
+	onOpenInlineReference,
 	onFloatingChange,
 	className,
 }: {
@@ -172,6 +174,7 @@ export function VcsPullRequestDetailsPanelContainer({
 	showDescriptionContent?: boolean;
 	onUpdated?: () => void | Promise<void>;
 	onClose: () => void;
+	onOpenInlineReference?: (event: PullRequestConversationEvent) => void;
 	onFloatingChange?: (floating: boolean) => void;
 	className?: string;
 }): React.ReactElement | null {
@@ -201,6 +204,7 @@ export function VcsPullRequestDetailsPanelContainer({
 		<PullRequestConversationTimeline
 			conversation={conversationResult.data ?? null}
 			isLoading={conversationResult.isFetching && !conversationResult.data}
+			onOpenInlineReference={onOpenInlineReference}
 		/>
 	) : null;
 

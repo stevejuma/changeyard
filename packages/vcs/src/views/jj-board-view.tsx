@@ -1,5 +1,13 @@
 import * as RadixDropdownMenu from "@radix-ui/react-dropdown-menu";
-import { FileListing, FileListingViewModeToggle } from "@changeyard/web-ui";
+import {
+	FileListing,
+	FileListingViewModeToggle,
+	ReviewDiffPanel,
+	type DiffLineComment,
+	type DiffLineScrollTarget,
+	type PullRequestConversationEvent,
+	type ReviewDiffFileChange,
+} from "@changeyard/web-ui";
 import { AlertTriangle, ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, Copy, GitBranch, GitCommitHorizontal, GitMerge, Info, Layers, LockKeyhole, Maximize2, MoreHorizontal, Pencil, PencilLine, Play, Plus, RefreshCw, RotateCcw, Sparkles, Trash2, Type, Unlink, Upload, WrapText, X } from "lucide-react";
 import { Fragment, useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent } from "react";
 
@@ -52,12 +60,14 @@ import type {
 	RuntimeGitCommitDiffResponse,
 	RuntimeProjectConfigResponse,
 	RuntimeProjectConfigUpdateRequest,
+	RuntimeVcsPullRequestConversation,
 } from "@/runtime/types";
 import {
 	toRuntimeQueryState,
 	useApplyVcsOperationMutation,
 	useGetProjectConfigQuery,
 	useGetRepositoryCommitDiffQuery,
+	useGetPullRequestConversationQuery,
 	useLazyPreviewVcsOperationQuery,
 	useLazyGetPullRequestChecksQuery,
 	useUpdateProjectConfigMutation,
@@ -107,6 +117,7 @@ const WORKSPACE_COLUMN_LIMITS = {
 } as const;
 const WORKSPACE_TRAILING_SPACER_WIDTH = WORKSPACE_COLUMN_LIMITS.diff.fallback;
 const EMPTY_CONFLICT_PATHS = new Set<string>();
+const EMPTY_DIFF_COMMENTS = new Map<string, DiffLineComment>();
 const SUMMARY_EDIT_HEIGHT = "190px";
 const COMMIT_CONFLICT_READ_ONLY_REASON = "Check out or edit this conflicted commit before saving a resolution.";
 
@@ -123,6 +134,54 @@ function toFileChanges(diffState: QueryState<RuntimeGitCommitDiffResponse>): Vcs
 		return [];
 	}
 	return diffState.data.files;
+}
+
+function toReviewDiffFileChanges(diffState: QueryState<RuntimeGitCommitDiffResponse>): ReviewDiffFileChange[] {
+	if (diffState.status !== "ready" || !diffState.data.ok) {
+		return [];
+	}
+	return diffState.data.files.map((file) => ({
+		path: file.path,
+		previousPath: file.previousPath,
+		status: file.status,
+		additions: file.additions,
+		deletions: file.deletions,
+		oldText: file.oldText ?? null,
+		newText: file.newText ?? null,
+	}));
+}
+
+function pullRequestCommentVariant(event: PullRequestConversationEvent): DiffLineComment["variant"] {
+	return event.side?.toUpperCase() === "LEFT" ? "removed" : "added";
+}
+
+function pullRequestInlineComments(conversation: RuntimeVcsPullRequestConversation | null | undefined): DiffLineComment[] {
+	if (!conversation?.supported) {
+		return [];
+	}
+	return conversation.events.flatMap((event) => {
+		const path = event.path?.trim();
+		const lineNumber = event.line ?? event.startLine ?? null;
+		if (event.kind !== "review_comment" || !path || !lineNumber || event.body.trim().length === 0) {
+			return [];
+		}
+		return [
+			{
+				id: `${event.kind}:${event.id}`,
+				filePath: path,
+				lineNumber,
+				lineText: "",
+				variant: pullRequestCommentVariant(event),
+				comment: event.body,
+				author: event.author ?? null,
+				authorAvatarUrl: event.authorAvatarUrl ?? null,
+				authorAssociation: event.authorAssociation ?? null,
+				createdAt: event.createdAt ?? null,
+				url: event.url ?? null,
+				readOnly: true,
+			},
+		];
+	});
 }
 
 function formatRelativeTime(timestamp: string | null | undefined): string | null {
@@ -828,6 +887,7 @@ function WorkspaceReady({
 	const [isCommitSummaryWrapEnabled, setCommitSummaryWrapEnabled] = useState(true);
 	const [floatingCommitSummaryMode, setFloatingCommitSummaryMode] = useState<FloatingCommitSummaryMode>("description");
 	const [pullRequestDetailsMode, setPullRequestDetailsMode] = useState<PullRequestDetailsMode>("description");
+	const [pullRequestDiffScrollTarget, setPullRequestDiffScrollTarget] = useState<DiffLineScrollTarget | null>(null);
 	const [floatingCommitSummaryFilePath, setFloatingCommitSummaryFilePath] = useState<string | null>(null);
 	const [commitSummaryFloatingGeometry, setCommitSummaryFloatingGeometry] = useState<FloatingSummaryGeometry>(() =>
 		createDefaultFloatingSummaryGeometry(),
@@ -958,7 +1018,13 @@ function WorkspaceReady({
 		? selectedHeaderPullRequest?.baseBranch ?? selectedHeaderStack.base
 		: undefined;
 	const commitDiffResult = useGetRepositoryCommitDiffQuery(
-		{ workspaceId: workspaceId ?? "", workspacePath, commitHash: selectedCommitDiffHash ?? "", baseCommitHash: selectedCommitDiffBaseHash },
+		{
+			workspaceId: workspaceId ?? "",
+			workspacePath,
+			commitHash: selectedCommitDiffHash ?? "",
+			baseCommitHash: selectedCommitDiffBaseHash,
+			includeFileText: Boolean(selectedHeaderPullRequest),
+		},
 		{ skip: !workspaceId || !selectedCommitDiffHash },
 	);
 	const commitDiffQuery = {
@@ -967,7 +1033,26 @@ function WorkspaceReady({
 	};
 	const files = toFileChanges(commitDiffQuery.state);
 	const selectedHeaderStackFiles = selectedStackHeaderId ? files : [];
-	const selectedHeaderFile = findFileByPath(selectedHeaderStackFiles, selectedStackFilePath);
+	const selectedHeaderReviewFiles = useMemo(
+		() => (selectedStackHeaderId ? toReviewDiffFileChanges(commitDiffQuery.state) : []),
+		[selectedStackHeaderId, commitDiffResult.data, commitDiffResult.error, commitDiffResult.isError, commitDiffResult.isLoading],
+	);
+	const selectedHeaderPrSelector = useMemo(
+		() => (selectedHeaderPullRequest ? selectorForPullRequest(selectedHeaderPullRequest) : null),
+		[selectedHeaderPullRequest],
+	);
+	const selectedHeaderConversationResult = useGetPullRequestConversationQuery(
+		{
+			workspaceId: workspaceId ?? "",
+			workspacePath,
+			input: selectedHeaderPrSelector ?? { number: 0 },
+		},
+		{ skip: !workspaceId || !selectedHeaderPullRequest || !selectedHeaderPrSelector },
+	);
+	const selectedHeaderPullRequestComments = useMemo(
+		() => pullRequestInlineComments(selectedHeaderConversationResult.data ?? null),
+		[selectedHeaderConversationResult.data],
+	);
 	const selectedDiffFile = findFileByPath(files, selectedFilePath);
 	const unstagedDiffFiles = useMemo(() => toWorkingCopyDiffFiles(diffState), [diffState]);
 	const workingCopyFiles = useMemo(() => data.workingCopy.files.map(toUiFileChange), [data.workingCopy.files]);
@@ -2049,11 +2134,35 @@ function WorkspaceReady({
 	}
 
 	function selectStackFile(path: string): void {
+		if (selectedHeaderPullRequest) {
+			setSelectedStackFilePath(path);
+			setHasUserClearedStackFile(false);
+			setPullRequestDetailsMode("files");
+			setPullRequestDiffScrollTarget(null);
+			return;
+		}
 		setSelectedStackFilePath((current) => {
 			const next = current === path ? null : path;
 			setHasUserClearedStackFile(next === null);
 			setPullRequestDetailsMode(next ? "files" : "description");
 			return next;
+		});
+	}
+
+	function openPullRequestInlineReference(event: PullRequestConversationEvent): void {
+		const path = event.path?.trim();
+		const lineNumber = event.line ?? event.startLine ?? null;
+		if (!path || !lineNumber) {
+			return;
+		}
+		setSelectedStackFilePath(path);
+		setHasUserClearedStackFile(false);
+		setPullRequestDetailsMode("files");
+		setPullRequestDiffScrollTarget({
+			path,
+			lineNumber,
+			variant: pullRequestCommentVariant(event),
+			nonce: Date.now(),
 		});
 	}
 
@@ -2376,41 +2485,32 @@ function WorkspaceReady({
 		: null;
 	const pullRequestDiffContent =
 		selectedStackHeaderId ? (
-			<section data-testid="vcs-pr-inline-file-diff" className="grid min-h-0 gap-2 border-t border-divider pt-3">
-				<div className="flex h-9 min-w-0 items-center gap-2 rounded-md border border-divider bg-surface-0 px-2">
-					{selectedHeaderFile ? <FileTypeIcon path={selectedHeaderFile.path} title={selectedHeaderFile.path} /> : <FileTypeIcon path="diff" />}
-					<span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-text-primary" title={selectedHeaderFile?.path}>
-						{selectedHeaderFile?.path ?? (commitDiffQuery.state.status === "loading" ? "Loading diff" : "Diff")}
-					</span>
-					{selectedHeaderFile ? <FileStatusGlyph status={selectedHeaderFile.status} /> : null}
-					<Button
-						variant="ghost"
-						size="sm"
-						icon={<X size={14} />}
-						aria-label="Close PR file diff"
-						title="Close diff"
-						onClick={() => {
-							setSelectedStackFilePath(null);
-							setHasUserClearedStackFile(true);
-							setPullRequestDetailsMode("description");
+			<section data-testid="vcs-pr-inline-file-diff" className="flex min-h-[320px] flex-1 flex-col border-t border-divider pt-3">
+				{commitDiffQuery.state.status === "loading" ? (
+					<div className="grid gap-2 p-1">
+						<div className="kb-skeleton h-4 w-2/5" />
+						<div className="kb-skeleton h-32 w-full" />
+						<div className="kb-skeleton h-24 w-full" />
+					</div>
+				) : selectedHeaderDiffError ? (
+					<div className="px-2 py-2 text-[12px] text-status-red">{selectedHeaderDiffError}</div>
+				) : selectedHeaderReviewFiles.length > 0 ? (
+					<ReviewDiffPanel
+						workspaceFiles={selectedHeaderReviewFiles}
+						selectedPath={selectedStackFilePath}
+						onSelectedPathChange={(path) => {
+							setSelectedStackFilePath(path);
+							setHasUserClearedStackFile(false);
 						}}
+						comments={EMPTY_DIFF_COMMENTS}
+						onCommentsChange={() => undefined}
+						readOnlyComments={selectedHeaderPullRequestComments}
+						scrollTarget={pullRequestDiffScrollTarget}
+						viewMode="unified"
 					/>
-				</div>
-				<div className="min-h-[220px] overflow-auto rounded-md border border-divider bg-surface-0 p-2">
-					{commitDiffQuery.state.status === "loading" ? (
-						<div className="grid gap-2 p-1">
-							<div className="kb-skeleton h-4 w-2/5" />
-							<div className="kb-skeleton h-32 w-full" />
-							<div className="kb-skeleton h-24 w-full" />
-						</div>
-					) : selectedHeaderDiffError ? (
-						<div className="px-2 py-2 text-[12px] text-status-red">{selectedHeaderDiffError}</div>
-					) : selectedHeaderFile ? (
-						<VcsFileDiffContent file={selectedHeaderFile} />
-					) : (
-						<EmptyState title="Select a file">Choose a PR file to inspect its diff.</EmptyState>
-					)}
-				</div>
+				) : (
+					<EmptyState title="No files changed">This PR stack does not include file changes.</EmptyState>
+				)}
 			</section>
 		) : null;
 	const pullRequestModeToggle = selectedHeaderPullRequest ? (
@@ -2420,7 +2520,7 @@ function WorkspaceReady({
 				className={cn(
 					"rounded px-2 py-1 text-[11px] font-medium transition-colors",
 					pullRequestDetailsMode === "description"
-						? "bg-accent text-accent-foreground"
+						? "bg-accent text-accent-fg"
 						: "text-text-secondary hover:bg-surface-2 hover:text-text-primary",
 				)}
 				aria-pressed={pullRequestDetailsMode === "description"}
@@ -2433,7 +2533,7 @@ function WorkspaceReady({
 				className={cn(
 					"rounded px-2 py-1 text-[11px] font-medium transition-colors",
 					pullRequestDetailsMode === "files"
-						? "bg-accent text-accent-foreground"
+						? "bg-accent text-accent-fg"
 						: "text-text-secondary hover:bg-surface-2 hover:text-text-primary",
 				)}
 				aria-pressed={pullRequestDetailsMode === "files"}
@@ -2456,6 +2556,7 @@ function WorkspaceReady({
 				isFloating={isPullRequestSummaryFloating}
 				showHeaderControls={isPullRequestSummaryFloating}
 				showDescriptionContent={pullRequestDetailsMode === "description"}
+				onOpenInlineReference={openPullRequestInlineReference}
 				onFloatingChange={changePullRequestSummaryFloating}
 				onUpdated={onWorkspaceStateRefresh}
 				onClose={closeSelectedStackHeaderColumn}
@@ -2476,7 +2577,18 @@ function WorkspaceReady({
 		pullRequestPanel && !isPullRequestSummaryFloating && selectedHeaderPullRequest ? (
 			<VcsColumn
 				id="pull-request"
-				title={selectedHeaderPullRequest.number ? `PR #${selectedHeaderPullRequest.number}` : "Pull Request"}
+				title="Pull Request"
+				hideHeader
+				headerContent={
+					<div className="flex min-w-0 items-center gap-2">
+						{selectedHeaderPullRequest.number ? (
+							<StatusChip label={`PR #${selectedHeaderPullRequest.number}`} tone="green" />
+						) : null}
+						<span className="min-w-0 truncate text-sm font-semibold text-text-primary">
+							{selectedHeaderPullRequest.title?.trim() || "Pull Request"}
+						</span>
+					</div>
+				}
 				width={diffColumnWidth}
 				minWidth={WORKSPACE_COLUMN_LIMITS.diff.min}
 				maxWidth={WORKSPACE_COLUMN_LIMITS.diff.max}

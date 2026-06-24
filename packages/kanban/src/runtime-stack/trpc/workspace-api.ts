@@ -256,7 +256,13 @@ async function getWorkspaceApiRepositoryRefs(
 
 async function getWorkspaceApiRepositoryCommitDiff(
 	workspaceScope: { workspacePath: string },
-	input: { commitHash: string; baseCommitHash?: string; taskScope?: { taskId: string; baseRef: string } | null; workspacePath?: string | null },
+	input: {
+		commitHash: string;
+		baseCommitHash?: string;
+		includeFileText?: boolean;
+		taskScope?: { taskId: string; baseRef: string } | null;
+		workspacePath?: string | null;
+	},
 ) {
 	const taskScope = normalizeOptionalTaskWorkspaceScopeInput(input.taskScope ?? null);
 	const diffCwd = await resolveScopedRepositoryCwd(workspaceScope, taskScope, input.workspacePath);
@@ -264,6 +270,7 @@ async function getWorkspaceApiRepositoryCommitDiff(
 		cwd: diffCwd,
 		commitHash: input.commitHash,
 		baseCommitHash: input.baseCommitHash,
+		includeFileText: input.includeFileText,
 	});
 }
 
@@ -521,6 +528,7 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 				cwd: diffCwd,
 				commitHash: input.commitHash,
 				baseCommitHash: input.baseCommitHash,
+				includeFileText: input.includeFileText,
 			});
 		},
 		loadRepositoryCommitDiff: async (workspaceScope, input) => {

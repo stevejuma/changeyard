@@ -186,7 +186,13 @@ function PullRequestConversationAvatar({
 	);
 }
 
-function PullRequestConversationInlineReference({ event }: { event: PullRequestConversationEvent }): ReactElement | null {
+function PullRequestConversationInlineReference({
+	event,
+	onOpenInlineReference,
+}: {
+	event: PullRequestConversationEvent;
+	onOpenInlineReference?: (event: PullRequestConversationEvent) => void;
+}): ReactElement | null {
 	const path = event.path?.trim();
 	const line = event.line ?? event.startLine ?? null;
 	if (!path && !line && !event.diffHunk) {
@@ -200,7 +206,18 @@ function PullRequestConversationInlineReference({ event }: { event: PullRequestC
 				<span className="min-w-0 truncate font-mono text-[11px] font-medium text-text-primary" title={label}>
 					{label}
 				</span>
-				{event.side ? <span className="shrink-0 text-[10px] uppercase text-text-tertiary">{event.side}</span> : null}
+				<div className="flex shrink-0 items-center gap-2">
+					{event.side ? <span className="text-[10px] uppercase text-text-tertiary">{event.side}</span> : null}
+					{path && line && onOpenInlineReference ? (
+						<button
+							type="button"
+							className="text-[11px] font-medium text-accent hover:underline"
+							onClick={() => onOpenInlineReference(event)}
+						>
+							View in files
+						</button>
+					) : null}
+				</div>
 			</div>
 			{preview.length > 0 ? (
 				<pre className="max-h-48 overflow-auto px-2.5 py-2 text-[11px] leading-5 text-text-secondary">
@@ -217,14 +234,18 @@ function PullRequestConversationInlineReference({ event }: { event: PullRequestC
 						</code>
 					))}
 				</pre>
-			) : (
-				<div className="px-2.5 py-2 text-[11px] text-text-tertiary">Line snippet unavailable.</div>
-			)}
+			) : null}
 		</div>
 	);
 }
 
-function PullRequestConversationCard({ event }: { event: PullRequestConversationEvent }): ReactElement {
+function PullRequestConversationCard({
+	event,
+	onOpenInlineReference,
+}: {
+	event: PullRequestConversationEvent;
+	onOpenInlineReference?: (event: PullRequestConversationEvent) => void;
+}): ReactElement {
 	const author = event.author?.trim() || "Someone";
 	const date = formatConversationDate(event.createdAt);
 	const action = conversationActionLabel(event);
@@ -251,7 +272,7 @@ function PullRequestConversationCard({ event }: { event: PullRequestConversation
 					{date ? <span className="shrink-0 text-[11px] text-text-tertiary">{date}</span> : null}
 				</div>
 				<div className="grid gap-3 p-3 text-sm text-text-primary">
-					<PullRequestConversationInlineReference event={event} />
+					<PullRequestConversationInlineReference event={event} onOpenInlineReference={onOpenInlineReference} />
 					{hasBody ? (
 						<MarkdownMessagePreview value={event.body} emptyLabel="" className="cy-markdown-preview--plain text-sm" />
 					) : isReview ? (
@@ -267,10 +288,12 @@ export function PullRequestConversationTimeline({
 	conversation,
 	isLoading = false,
 	className,
+	onOpenInlineReference,
 }: {
 	conversation?: PullRequestConversation | null;
 	isLoading?: boolean;
 	className?: string;
+	onOpenInlineReference?: (event: PullRequestConversationEvent) => void;
 }): ReactElement {
 	if (isLoading && !conversation) {
 		return (
@@ -304,7 +327,11 @@ export function PullRequestConversationTimeline({
 	return (
 		<div className={cn("grid gap-3 border-t border-divider pt-3", className)}>
 			{conversation.events.map((event) => (
-				<PullRequestConversationCard key={`${event.kind}:${event.id}`} event={event} />
+				<PullRequestConversationCard
+					key={`${event.kind}:${event.id}`}
+					event={event}
+					onOpenInlineReference={onOpenInlineReference}
+				/>
 			))}
 		</div>
 	);
@@ -582,7 +609,7 @@ export function PullRequestDetailsPanel({
 					</div>
 				</div>
 				{showDescriptionContent || isEditing ? (
-					<div className="min-h-0">
+					<div className="grid gap-3">
 						{isEditing ? (
 							<div className="grid gap-3">
 								<MarkdownMessageEditor
@@ -625,7 +652,9 @@ export function PullRequestDetailsPanel({
 						)}
 					</div>
 				) : null}
-				{belowContent}
+				{belowContent ? (
+					<div className={showDescriptionContent || isEditing ? "shrink-0" : "min-h-0 flex-1"}>{belowContent}</div>
+				) : null}
 			</div>
 		</section>
 	);

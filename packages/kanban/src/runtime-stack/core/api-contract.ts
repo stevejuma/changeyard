@@ -2917,6 +2917,8 @@ export const runtimeGitCommitDiffFileSchema = z.object({
 	additions: z.number(),
 	deletions: z.number(),
 	patch: z.string(),
+	oldText: z.string().nullable().optional(),
+	newText: z.string().nullable().optional(),
 });
 export type RuntimeGitCommitDiffFile = z.infer<typeof runtimeGitCommitDiffFileSchema>;
 
@@ -2924,6 +2926,7 @@ export const runtimeGitCommitDiffRequestSchema = z.object({
 	workspacePath: z.string().min(1).optional(),
 	commitHash: z.string(),
 	baseCommitHash: z.string().optional(),
+	includeFileText: z.boolean().optional(),
 	taskScope: runtimeTaskWorkspaceInfoRequestSchema.nullable().optional(),
 });
 export type RuntimeGitCommitDiffRequest = z.infer<typeof runtimeGitCommitDiffRequestSchema>;

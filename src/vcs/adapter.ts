@@ -225,6 +225,22 @@ function createGitInventoryItem(input: {
 	};
 }
 
+function mergeInventoryPullRequestMetadata(
+	cached: VcsJjInventoryPullRequest | null,
+	live: VcsJjInventoryPullRequest | null,
+): VcsJjInventoryPullRequest | null {
+	if (!cached && !live) {
+		return null;
+	}
+	const source = live ?? cached;
+	return {
+		number: source!.number,
+		url: live?.url ?? cached?.url ?? null,
+		baseBranch: live?.baseBranch ?? cached?.baseBranch ?? null,
+		title: live?.title ?? cached?.title ?? null,
+	};
+}
+
 function hydrateInventoryPullRequests(
 	repoRoot: string,
 	config: ChangeyardConfig,
@@ -241,7 +257,10 @@ function hydrateInventoryPullRequests(
 		}
 		const head = item.target ?? item.name;
 		const cached = findCachedPullRequest(pullRequests, { provider, repository, head });
-		const pr = cachedPullRequestToInventoryPr(cached) ?? discoveredPullRequests.get(head) ?? null;
+		const pr = mergeInventoryPullRequestMetadata(
+			cachedPullRequestToInventoryPr(cached),
+			discoveredPullRequests.get(head) ?? null,
+		);
 		return pr ? { ...item, pr } : item;
 	};
 	return {
@@ -286,7 +305,10 @@ function hydrateWorkspacePullRequests<TState extends { stacks: Array<{ name?: st
 			const head = stack.name?.trim();
 			if (!head) return stack;
 			const cached = findCachedPullRequest(pullRequests, { provider, repository, head });
-			const pr = cachedPullRequestToInventoryPr(cached) ?? discoveredPullRequests.get(head) ?? null;
+			const pr = mergeInventoryPullRequestMetadata(
+				cachedPullRequestToInventoryPr(cached),
+				discoveredPullRequests.get(head) ?? null,
+			);
 			return pr ? { ...stack, pr } : stack;
 		}),
 	};

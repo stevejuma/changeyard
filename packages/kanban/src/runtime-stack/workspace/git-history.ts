@@ -9,7 +9,7 @@ import type {
 	RuntimeGitRef,
 	RuntimeGitRefsResponse,
 } from "../core/api-contract.js";
-import { runGit } from "./git-utils.js";
+import { getGitStdout, runGit } from "./git-utils.js";
 import { detectWorkspaceEngine } from "./git-sync.js";
 import { parseGitStylePatchEntries } from "./git-style-patch.js";
 import { getJjCurrentChangeId, getJjStdout, runJj } from "./jj-utils.js";
@@ -639,10 +639,67 @@ function parseCommitNumstatEntries(output: string): CommitDiffStatEntry[] {
 	return entries;
 }
 
+async function readGitFileAtRef(repoRoot: string, ref: string, path: string): Promise<string | null> {
+	try {
+		return await getGitStdout(["show", `${ref}:${path}`], repoRoot, { trimStdout: false });
+	} catch {
+		return null;
+	}
+}
+
+async function readJjFileAtRef(repoRoot: string, ref: string, path: string): Promise<string | null> {
+	try {
+		return await getJjStdout(["file", "show", "-r", ref, path], repoRoot);
+	} catch {
+		return null;
+	}
+}
+
+async function attachGitFileText(
+	repoRoot: string,
+	files: RuntimeGitCommitDiffResponse["files"],
+	commitHash: string,
+	baseCommitHash?: string,
+): Promise<void> {
+	const fromRef = baseCommitHash ?? `${commitHash}^`;
+	await Promise.all(
+		files.map(async (file) => {
+			const basePath = file.previousPath ?? file.path;
+			const [oldText, newText] = await Promise.all([
+				file.status === "added" ? Promise.resolve(null) : readGitFileAtRef(repoRoot, fromRef, basePath),
+				file.status === "deleted" ? Promise.resolve(null) : readGitFileAtRef(repoRoot, commitHash, file.path),
+			]);
+			file.oldText = oldText;
+			file.newText = newText;
+		}),
+	);
+}
+
+async function attachJjFileText(
+	repoRoot: string,
+	files: RuntimeGitCommitDiffResponse["files"],
+	commitHash: string,
+	baseCommitHash?: string,
+): Promise<void> {
+	const fromRef = baseCommitHash ?? `${commitHash}^-`;
+	await Promise.all(
+		files.map(async (file) => {
+			const basePath = file.previousPath ?? file.path;
+			const [oldText, newText] = await Promise.all([
+				file.status === "added" ? Promise.resolve(null) : readJjFileAtRef(repoRoot, fromRef, basePath),
+				file.status === "deleted" ? Promise.resolve(null) : readJjFileAtRef(repoRoot, commitHash, file.path),
+			]);
+			file.oldText = oldText;
+			file.newText = newText;
+		}),
+	);
+}
+
 export async function getCommitDiff(options: {
 	cwd: string;
 	commitHash: string;
 	baseCommitHash?: string;
+	includeFileText?: boolean;
 }): Promise<RuntimeGitCommitDiffResponse> {
 	const engine = await detectWorkspaceEngine(options.cwd);
 	if (engine === "jj") {
@@ -728,6 +785,10 @@ export async function getCommitDiff(options: {
 	const files: RuntimeGitCommitDiffResponse["files"] = [];
 	for (const file of filesByKey.values()) {
 		files.push(file);
+	}
+
+	if (options.includeFileText) {
+		await attachGitFileText(repoRoot, files, commitHash, baseCommitHash);
 	}
 
 	files.sort((a, b) => a.path.localeCompare(b.path));
@@ -1035,6 +1096,7 @@ async function getJjCommitDiff(options: {
 	cwd: string;
 	commitHash: string;
 	baseCommitHash?: string;
+	includeFileText?: boolean;
 }): Promise<RuntimeGitCommitDiffResponse> {
 	const repoRoot = await getJjStdout(["workspace", "root"], options.cwd).catch(() => null);
 	if (!repoRoot) {
@@ -1064,6 +1126,10 @@ async function getJjCommitDiff(options: {
 			patch: entry.patch,
 		}))
 		.sort((left, right) => left.path.localeCompare(right.path));
+
+	if (options.includeFileText) {
+		await attachJjFileText(repoRoot, files, options.commitHash, options.baseCommitHash);
+	}
 
 	return { ok: true, commitHash: options.commitHash, files };
 }

@@ -3,8 +3,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+	PullRequestConversationTimeline,
 	PullRequestDetailsPanel,
 	pullRequestCheckBadgeMeta,
+	type PullRequestConversation,
 	type PullRequestCheckRollup,
 } from "./pull-request";
 
@@ -146,5 +148,44 @@ describe("pull request shared UI", () => {
 			button.textContent?.includes("Save description"),
 		);
 		expect(saveButton?.disabled).toBe(true);
+	});
+
+	it("links inline conversation comments to files without showing missing snippet text", async () => {
+		const onOpenInlineReference = vi.fn();
+		const conversation: PullRequestConversation = {
+			provider: "github",
+			pullRequestNumber: 5,
+			supported: true,
+			events: [
+				{
+					id: "comment-1",
+					kind: "review_comment",
+					author: "Ada",
+					body: "Can we keep this stable?",
+					path: "src/a.ts",
+					line: 12,
+					side: "RIGHT",
+				},
+			],
+		};
+
+		await act(async () => {
+			root.render(
+				<PullRequestConversationTimeline
+					conversation={conversation}
+					onOpenInlineReference={onOpenInlineReference}
+				/>,
+			);
+		});
+
+		expect(container.textContent).toContain("src/a.ts:12");
+		expect(container.textContent).not.toContain("Line snippet unavailable");
+
+		await act(async () => {
+			Array.from(container.querySelectorAll("button"))
+				.find((button) => button.textContent?.includes("View in files"))
+				?.click();
+		});
+		expect(onOpenInlineReference).toHaveBeenCalledWith(conversation.events[0]);
 	});
 });

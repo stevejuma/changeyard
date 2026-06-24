@@ -63,5 +63,14 @@ export {
 	type PullRequestDetails,
 	type PullRequestSummary,
 } from "./pull-request";
+export {
+	DiffViewerPanel,
+	ReviewDiffPanel,
+	type DiffLineComment,
+	type DiffLineScrollTarget,
+	type DiffViewMode,
+	type ReviewDiffFileChange,
+	type ReviewDiffFileStatus,
+} from "./review-diff-panel";
 export { Spinner } from "./spinner";
 export { Tooltip, TooltipProvider } from "./tooltip";
