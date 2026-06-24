@@ -296,6 +296,24 @@ test("selectAppliedWorkspaceStacks preserves applied order and ignores missing s
 	]);
 });
 
+test("selectAppliedWorkspaceStacks preserves stack pull request metadata", () => {
+	const first: BranchesStack = {
+		...stack("feature/first"),
+		pr: {
+			number: 7,
+			url: "https://example.test/pull/7",
+			baseBranch: "main",
+			headBranch: "feature/first",
+			title: "Feature first",
+			state: "open",
+		},
+	};
+	const [selected] = selectAppliedWorkspaceStacks([first], ["feature/first"]);
+
+	assert.equal(selected?.pr?.number, 7);
+	assert.equal(selected?.pr?.title, "Feature first");
+});
+
 test("selectActiveAppliedStackIds prefers edit mode snapshot over configured and provider stacks", () => {
 	assert.deepEqual(selectActiveAppliedStackIds(["configured"], ["provider"], ["editing"]), ["editing"]);
 	assert.deepEqual(selectActiveAppliedStackIds(["configured"], ["provider"], []), ["configured"]);

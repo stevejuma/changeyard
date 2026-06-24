@@ -281,6 +281,50 @@ describe("ChangeBoard", () => {
 		expect(onFilterChange).toHaveBeenCalledWith("planned");
 	});
 
+	it("renders PR metadata and actions only when a change has a PR", () => {
+		const board: BoardData = {
+			columns: [
+				{ id: "backlog", title: "Backlog", cards: [] },
+				{ id: "in_progress", title: "In Progress", cards: [] },
+				{ id: "review", title: "Review", cards: [] },
+				{ id: "trash", title: "Done", cards: [] },
+			],
+			dependencies: [],
+		};
+		const change = {
+			...createChange("CY-0002", "PR-backed change", null, "ready_for_pr"),
+			remote: {
+				provider: "github",
+				pullRequestNumber: 2,
+				pullRequestUrl: "https://example.test/pull/2",
+			},
+		};
+
+		act(() => {
+			root.render(
+				<ChangeBoard
+					board={board}
+					changes={[createChange("CY-0001", "No PR change", null), change]}
+					filter="all"
+					selectedChangeId={null}
+					selectedTaskId={null}
+					onFilterChange={vi.fn()}
+					onSelectChange={vi.fn()}
+					onSelectTask={vi.fn()}
+					onCreateChange={vi.fn()}
+					onCreateTask={vi.fn()}
+					onMoveChange={vi.fn()}
+				/>,
+			);
+		});
+
+		expect(container.textContent).toContain("PR #2");
+		expect(container.textContent).toContain("View PR");
+		expect(container.textContent).toContain("Checks");
+		expect(container.textContent).not.toContain("No checks");
+		expect(container.querySelector('[data-change-id="CY-0001"]')?.textContent).not.toContain("View PR");
+	});
+
 	it("filters visible board cards from the header search and clears inline", async () => {
 		const board: BoardData = {
 			columns: [

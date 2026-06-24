@@ -2838,14 +2838,26 @@ test("github and gitlab providers are registered with PR capabilities", () => {
   assert.equal(createProvider("github", baseConfig).capabilities().reviews, true);
   assert.equal(createProvider("github", baseConfig).capabilities().pullRequestChecks, true);
   assert.equal(createProvider("github", baseConfig).capabilities().pullRequestCheckLogs, true);
+  assert.equal(createProvider("github", baseConfig).capabilities().pullRequestDetails, true);
+  assert.equal(createProvider("github", baseConfig).capabilities().pullRequestUpdates, true);
+  assert.equal(createProvider("github", baseConfig).capabilities().branchChecks, true);
   assert.equal(createProvider("github", baseConfig).capabilities().pullRequestDraftState, true);
   assert.equal(createProvider("github", baseConfig).capabilities().pullRequestAutoMerge, true);
   assert.equal(createProvider("github", baseConfig).capabilities().pullRequestTemplates, true);
   assert.equal(createProvider("gitlab", { ...baseConfig, provider: { type: "gitlab", owner: "example", repo: "repo" } }).capabilities().pullRequests, true);
   assert.equal(createProvider("gitlab", { ...baseConfig, provider: { type: "gitlab", owner: "example", repo: "repo" } }).capabilities().pullRequestChecks, true);
+  assert.equal(createProvider("gitlab", { ...baseConfig, provider: { type: "gitlab", owner: "example", repo: "repo" } }).capabilities().pullRequestDetails, true);
+  assert.equal(createProvider("gitlab", { ...baseConfig, provider: { type: "gitlab", owner: "example", repo: "repo" } }).capabilities().pullRequestUpdates, true);
+  assert.equal(createProvider("gitlab", { ...baseConfig, provider: { type: "gitlab", owner: "example", repo: "repo" } }).capabilities().branchChecks, true);
   assert.equal(createProvider("gitlab", { ...baseConfig, provider: { type: "gitlab", owner: "example", repo: "repo" } }).capabilities().pullRequestDraftState, true);
   assert.equal(createProvider("gitlab", { ...baseConfig, provider: { type: "gitlab", owner: "example", repo: "repo" } }).capabilities().pullRequestAutoMerge, true);
+  assert.equal(createProvider("forgejo", { ...baseConfig, provider: { type: "forgejo", owner: "example", repo: "repo" } }).capabilities().pullRequestDetails, true);
+  assert.equal(createProvider("forgejo", { ...baseConfig, provider: { type: "forgejo", owner: "example", repo: "repo" } }).capabilities().pullRequestUpdates, true);
+  assert.equal(createProvider("forgejo", { ...baseConfig, provider: { type: "forgejo", owner: "example", repo: "repo" } }).capabilities().branchChecks, false);
   assert.equal(createProvider("local-folder", baseConfig).capabilities().pullRequestChecks, false);
+  assert.equal(createProvider("local-folder", baseConfig).capabilities().pullRequestDetails, true);
+  assert.equal(createProvider("local-folder", baseConfig).capabilities().pullRequestUpdates, true);
+  assert.equal(createProvider("local-folder", baseConfig).capabilities().branchChecks, false);
   assert.equal(createProvider("local-folder", baseConfig).capabilities().pullRequestTemplates, true);
 });
 
@@ -2896,6 +2908,140 @@ test("github and gitlab providers normalize pull request checks and logs", () =>
     assert.equal(gitlabChecks.overallState, "failed");
     assert.equal(gitlabChecks.checks[0]?.jobId, "500");
     assert.equal(gitlab.getPullRequestCheckLog!({ repoRoot: "/repo", storageRoot: "/repo/.changeyard", pullRequestNumber: 43, jobId: "500" }).content, "gitlab job trace");
+  } finally {
+    setHttpTransportForTests();
+    if (previousGitHubToken === undefined) delete process.env.CHANGEYARD_TEST_GITHUB_TOKEN; else process.env.CHANGEYARD_TEST_GITHUB_TOKEN = previousGitHubToken;
+    if (previousGitLabToken === undefined) delete process.env.CHANGEYARD_TEST_GITLAB_TOKEN; else process.env.CHANGEYARD_TEST_GITLAB_TOKEN = previousGitLabToken;
+  }
+});
+
+test("remote providers expose pull request details updates and branch checks", () => {
+  const previousGitHubToken = process.env.CHANGEYARD_TEST_GITHUB_TOKEN;
+  const previousGitLabToken = process.env.CHANGEYARD_TEST_GITLAB_TOKEN;
+  process.env.CHANGEYARD_TEST_GITHUB_TOKEN = "github-token";
+  process.env.CHANGEYARD_TEST_GITLAB_TOKEN = "gitlab-token";
+  const requests: ProviderRequest[] = [];
+  setHttpTransportForTests((request) => {
+    requests.push(request as ProviderRequest);
+    if (request.method === "GET" && request.url === "https://github.example.test/repos/example-org/example-repo/pulls/42") {
+      return {
+        status: 200,
+        body: JSON.stringify({
+          number: 42,
+          html_url: "https://example.test/github/42",
+          title: "GitHub title",
+          body: "GitHub body",
+          state: "open",
+          draft: false,
+          base: { ref: "main" },
+          head: { ref: "feature/a", sha: "headsha" },
+          user: { login: "octo" },
+          updated_at: "2026-06-20T10:00:00Z",
+        }),
+      };
+    }
+    if (request.method === "PATCH" && request.url === "https://github.example.test/repos/example-org/example-repo/pulls/42") {
+      return {
+        status: 200,
+        body: JSON.stringify({
+          number: 42,
+          html_url: "https://example.test/github/42",
+          title: (request.payload as { title?: string }).title,
+          body: (request.payload as { body?: string }).body,
+          state: "open",
+          base: { ref: "main" },
+          head: { ref: "feature/a", sha: "headsha" },
+        }),
+      };
+    }
+    if (request.method === "GET" && request.url === "https://github.example.test/repos/example-org/example-repo/commits/main") {
+      return { status: 200, body: JSON.stringify({ sha: "mainsha" }) };
+    }
+    if (request.method === "GET" && request.url.includes("/actions/runs?head_sha=mainsha")) {
+      return { status: 200, body: JSON.stringify({ workflow_runs: [{ id: 700, name: "Base CI", status: "completed", conclusion: "success" }] }) };
+    }
+    if (request.method === "GET" && request.url.endsWith("/actions/runs/700/jobs?per_page=100")) {
+      return { status: 200, body: JSON.stringify({ jobs: [{ id: 701, run_id: 700, name: "base-test", status: "completed", conclusion: "success" }] }) };
+    }
+    if (request.method === "GET" && request.url.endsWith("/commits/mainsha/check-runs?per_page=100")) {
+      return { status: 200, body: JSON.stringify({ check_runs: [] }) };
+    }
+    if (request.method === "GET" && request.url === "https://gitlab.example.test/api/v4/projects/example-org%2Fexample-repo/merge_requests/43") {
+      return {
+        status: 200,
+        body: JSON.stringify({
+          iid: 43,
+          web_url: "https://example.test/gitlab/43",
+          title: "GitLab title",
+          description: "GitLab body",
+          state: "opened",
+          source_branch: "feature/b",
+          target_branch: "main",
+          author: { username: "gitlab-user" },
+          updated_at: "2026-06-20T11:00:00Z",
+        }),
+      };
+    }
+    if (request.method === "PUT" && request.url === "https://gitlab.example.test/api/v4/projects/example-org%2Fexample-repo/merge_requests/43") {
+      return {
+        status: 200,
+        body: JSON.stringify({
+          iid: 43,
+          web_url: "https://example.test/gitlab/43",
+          title: (request.payload as { title?: string }).title,
+          description: (request.payload as { description?: string }).description,
+          state: "opened",
+          source_branch: "feature/b",
+          target_branch: "main",
+        }),
+      };
+    }
+    if (request.method === "GET" && request.url === "https://gitlab.example.test/api/v4/projects/example-org%2Fexample-repo/repository/branches/main") {
+      return { status: 200, body: JSON.stringify({ commit: { id: "glmainsha" } }) };
+    }
+    if (request.method === "GET" && request.url === "https://gitlab.example.test/api/v4/projects/example-org%2Fexample-repo/pipelines?ref=main&per_page=20") {
+      return { status: 200, body: JSON.stringify([{ id: 800, sha: "glmainsha", status: "success", web_url: "https://example.test/pipeline/800" }]) };
+    }
+    if (request.method === "GET" && request.url === "https://gitlab.example.test/api/v4/projects/example-org%2Fexample-repo/pipelines/800/jobs?per_page=100") {
+      return { status: 200, body: JSON.stringify([{ id: 801, name: "base-rspec", status: "success", web_url: "https://example.test/job/801", pipeline: { id: 800 } }]) };
+    }
+    throw new Error(`Unexpected request: ${request.method} ${request.url}`);
+  });
+
+  try {
+    const github = new GitHubProvider(providerConfig("github", "CHANGEYARD_TEST_GITHUB_TOKEN"));
+    const gitlab = new GitLabProvider(providerConfig("gitlab", "CHANGEYARD_TEST_GITLAB_TOKEN"));
+
+    const githubDetails = github.getPullRequestDetails!({ repoRoot: "/repo", storageRoot: "/repo/.changeyard", pullRequestNumber: 42 });
+    assert.equal(githubDetails.title, "GitHub title");
+    assert.equal(githubDetails.body, "GitHub body");
+    assert.equal(githubDetails.baseBranch, "main");
+    assert.equal(githubDetails.headBranch, "feature/a");
+    assert.equal(githubDetails.author, "octo");
+
+    const githubUpdated = github.updatePullRequestDetails!({ repoRoot: "/repo", storageRoot: "/repo/.changeyard", pullRequestNumber: 42, title: "Updated GitHub", body: "Updated body" });
+    assert.equal(githubUpdated.title, "Updated GitHub");
+    assert.equal(githubUpdated.body, "Updated body");
+    assert.equal(github.listBranchChecks!({ repoRoot: "/repo", storageRoot: "/repo/.changeyard", branch: "main" }).overallState, "passed");
+
+    const gitlabDetails = gitlab.getPullRequestDetails!({ repoRoot: "/repo", storageRoot: "/repo/.changeyard", pullRequestNumber: 43 });
+    assert.equal(gitlabDetails.title, "GitLab title");
+    assert.equal(gitlabDetails.body, "GitLab body");
+    assert.equal(gitlabDetails.baseBranch, "main");
+    assert.equal(gitlabDetails.headBranch, "feature/b");
+    assert.equal(gitlabDetails.author, "gitlab-user");
+
+    const gitlabUpdated = gitlab.updatePullRequestDetails!({ repoRoot: "/repo", storageRoot: "/repo/.changeyard", pullRequestNumber: 43, title: "Updated GitLab", body: "Updated GitLab body" });
+    assert.equal(gitlabUpdated.title, "Updated GitLab");
+    assert.equal(gitlabUpdated.body, "Updated GitLab body");
+    const gitlabBranchChecks = gitlab.listBranchChecks!({ repoRoot: "/repo", storageRoot: "/repo/.changeyard", branch: "main" });
+    assert.equal(gitlabBranchChecks.sha, "glmainsha");
+    assert.equal(gitlabBranchChecks.overallState, "passed");
+
+    const githubPatch = requests.find((request) => request.method === "PATCH" && request.url.endsWith("/pulls/42"));
+    const gitlabPut = requests.find((request) => request.method === "PUT" && request.url.endsWith("/merge_requests/43"));
+    assert.deepEqual(githubPatch?.payload, { title: "Updated GitHub", body: "Updated body" });
+    assert.deepEqual(gitlabPut?.payload, { title: "Updated GitLab", description: "Updated GitLab body" });
   } finally {
     setHttpTransportForTests();
     if (previousGitHubToken === undefined) delete process.env.CHANGEYARD_TEST_GITHUB_TOKEN; else process.env.CHANGEYARD_TEST_GITHUB_TOKEN = previousGitHubToken;
@@ -3676,11 +3822,20 @@ test("local-folder provider simulates branch pull request operations", () => {
     assert.equal(created?.pullRequestNumber, 1);
     assert.equal(provider.findOpenPullRequestByHead?.({ repoRoot: repo, storageRoot: storage, head: "feature/a" })?.pullRequestNumber, 1);
     assert.equal(provider.updatePullRequestBase?.({ repoRoot: repo, storageRoot: storage, pullRequestNumber: 1, base: "feature/base" }).baseBranch, "feature/base");
+    assert.equal(provider.getPullRequestDetails?.({ repoRoot: repo, storageRoot: storage, pullRequestNumber: 1 }).title, "Feature");
+    const details = provider.updatePullRequestDetails?.({ repoRoot: repo, storageRoot: storage, pullRequestNumber: 1, title: "Updated feature", body: "Updated body" });
+    assert.equal(details?.title, "Updated feature");
+    assert.equal(details?.body, "Updated body");
+    const branchChecks = provider.listBranchChecks?.({ repoRoot: repo, storageRoot: storage, branch: "main" });
+    assert.equal(branchChecks?.supported, false);
+    assert.equal(branchChecks?.overallState, "unknown");
     assert.equal(provider.upsertPullRequestComment?.({ repoRoot: repo, storageRoot: storage, pullRequestNumber: 1, marker: "<!-- marker -->", body: "<!-- marker -->\nfirst" }).action, "created");
     assert.equal(provider.upsertPullRequestComment?.({ repoRoot: repo, storageRoot: storage, pullRequestNumber: 1, marker: "<!-- marker -->", body: "<!-- marker -->\nsecond" }).action, "updated");
     const pullRequest = readFileSync(path.join(storage, "cache", "local-folder", "pull-requests", "0001-feature-a.md"), "utf8");
     const comments = readdirSync(path.join(storage, "cache", "local-folder", "pull-request-comments"));
     assert.match(pullRequest, /base: feature\/base/);
+    assert.match(pullRequest, /title: Updated feature/);
+    assert.match(pullRequest, /Updated body/);
     assert.equal(comments.length, 1);
   } finally {
     cleanup(repo);
