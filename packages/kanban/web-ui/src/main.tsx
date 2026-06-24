@@ -10,6 +10,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { isThemeId } from "@/hooks/use-theme";
 import { kanbanStore } from "@/runtime/kanban-store";
 import "@changeyard/web-ui/styles.css";
+import "@uiw/react-markdown-preview/markdown.css";
 import "@/styles/globals.css";
 
 // Apply the persisted theme synchronously before first paint to prevent a flash.

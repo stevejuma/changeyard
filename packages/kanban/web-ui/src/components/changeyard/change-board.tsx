@@ -7,14 +7,13 @@ import {
 } from "@hello-pangea/dnd";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
-import { FileListing, FileListingViewModeToggle } from "@changeyard/web-ui";
+import { FileListing, FileListingViewModeToggle, PullRequestCheckBadge, PullRequestViewButton } from "@changeyard/web-ui";
 import {
 	Bot,
 	ChevronDown,
 	ChevronLeft,
 	ChevronRight,
 	Copy,
-	ExternalLink,
 	FileText,
 	GitCommitVertical,
 	GitPullRequest,
@@ -56,15 +55,12 @@ import { buildUnifiedDiffRows, parsePatchToRows, ReadOnlyUnifiedDiff } from "@/c
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { ColumnIndicator } from "@/components/ui/column-indicator";
-import { Dialog, DialogBody, DialogFooter, DialogHeader } from "@/components/ui/dialog";
-import { ChangeStatusChip, StatusChip, type StatusChipTone } from "@/components/ui/status-chip";
+import { ChangeStatusChip, StatusChip } from "@/components/ui/status-chip";
 import {
 	useLazyGetChangeBoardFileDiffQuery,
 	useLazyGetChangeBoardFilesQuery,
 	useLazyGetChangeBoardSummaryQuery,
 	useGetPullRequestChecksQuery,
-	useGetPullRequestDetailsQuery,
-	useUpdatePullRequestMutation,
 } from "@/runtime/kanban-api";
 import type {
 	RuntimeChangeyardBoardFilesResponse,
@@ -74,8 +70,6 @@ import type {
 	RuntimeChangeyardBoardSummaryResponse,
 	RuntimeChangeyardChangeListItem,
 	RuntimeTaskSessionSummary,
-	RuntimeVcsCheckState,
-	RuntimeVcsPullRequestDetails,
 } from "@/runtime/types";
 import { LocalStorageKey, readLocalStorageItem, writeLocalStorageItem } from "@/storage/local-storage-store";
 import type { BoardCard as BoardCardModel, BoardColumnId, BoardData, DependencyEdge, DependencyNodeId } from "@/types";
@@ -432,6 +426,13 @@ type CopyMenuItem = {
 	value: string | null | undefined;
 };
 
+type KebabActionItem = {
+	label: string;
+	icon?: ReactNode;
+	disabled?: boolean;
+	onSelect: () => void;
+};
+
 function copyText(value: string): void {
 	void navigator.clipboard?.writeText(value).catch(() => {
 		// Ignore clipboard failures.
@@ -441,9 +442,11 @@ function copyText(value: string): void {
 function CopyKebabMenu({
 	label,
 	items,
+	actions = [],
 }: {
 	label: string;
 	items: CopyMenuItem[];
+	actions?: KebabActionItem[];
 }): ReactElement {
 	const availableItems = items.filter((item): item is { label: string; value: string } => Boolean(item.value));
 	return (
@@ -469,6 +472,23 @@ function CopyKebabMenu({
 					className="z-50 min-w-[180px] rounded-md border border-border-bright bg-surface-1 p-1 shadow-lg"
 					onCloseAutoFocus={(event) => event.preventDefault()}
 				>
+					{actions.length > 0 ? (
+						<>
+							<div className="px-2 pb-1 pt-1 text-[11px] font-medium text-text-tertiary">Actions</div>
+							{actions.map((item) => (
+								<DropdownMenu.Item
+									key={item.label}
+									className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-[12px] text-text-primary outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-45 data-[highlighted]:bg-surface-3"
+									disabled={item.disabled}
+									onSelect={item.onSelect}
+								>
+									{item.icon ? <span className="shrink-0 text-text-tertiary">{item.icon}</span> : null}
+									<span className="truncate">{item.label}</span>
+								</DropdownMenu.Item>
+							))}
+							<DropdownMenu.Separator className="my-1 h-px bg-divider" />
+						</>
+					) : null}
 					<div className="px-2 pb-1 pt-1 text-[11px] font-medium text-text-tertiary">Copy</div>
 					{availableItems.length > 0 ? (
 						availableItems.map((item) => (
@@ -498,203 +518,11 @@ function hasPullRequest(change: RuntimeChangeyardChangeListItem): boolean {
 	return getPullRequestNumber(change) !== null || Boolean(change.remote?.pullRequestUrl);
 }
 
-function checkStateMeta(
-	state: RuntimeVcsCheckState | undefined,
-	supported: boolean | undefined,
-	total: number | undefined,
-): { label: string; tone: StatusChipTone } {
-	if (supported === false) return { label: "Checks unsupported", tone: "neutral" };
-	if (!state || total === undefined) return { label: "Checks", tone: "neutral" };
-	if (total === 0) return { label: "No checks", tone: "neutral" };
-	if (state === "passed") return { label: "Checks passed", tone: "green" };
-	if (state === "failed") return { label: "Checks failed", tone: "red" };
-	if (state === "pending") return { label: "Checks running", tone: "blue" };
-	if (state === "cancelled") return { label: "Checks cancelled", tone: "gold" };
-	if (state === "skipped") return { label: "Checks skipped", tone: "neutral" };
-	return { label: "Checks unknown", tone: "neutral" };
-}
-
-function ChangePullRequestEditDialog({
-	open,
-	change,
-	workspaceId,
-	onOpenChange,
-	onSaved,
-}: {
-	open: boolean;
-	change: RuntimeChangeyardChangeListItem;
-	workspaceId?: string | null;
-	onOpenChange: (open: boolean) => void;
-	onSaved: () => void;
-}): ReactElement {
-	const queryArg = { workspaceId: workspaceId ?? "__missing__", input: { changeId: change.id } };
-	const detailsQuery = useGetPullRequestDetailsQuery(queryArg, { skip: !open || !workspaceId || !hasPullRequest(change) });
-	const [updatePullRequest, updateState] = useUpdatePullRequestMutation();
-	const [title, setTitle] = useState("");
-	const [body, setBody] = useState("");
-	const details = detailsQuery.data;
-
-	useEffect(() => {
-		if (!details || !open) return;
-		setTitle(details.title ?? "");
-		setBody(details.body ?? "");
-	}, [details, open]);
-
-	const handleSave = async () => {
-		if (!workspaceId) return;
-		const response = await updatePullRequest({
-			workspaceId,
-			input: {
-				changeId: change.id,
-				title,
-				body,
-			},
-		}).unwrap();
-		setTitle(response.title ?? "");
-		setBody(response.body ?? "");
-		onSaved();
-		onOpenChange(false);
-	};
-
-	return (
-		<Dialog open={open} onOpenChange={onOpenChange} contentClassName="max-w-2xl">
-			<DialogHeader title={details?.title ?? `PR #${getPullRequestNumber(change) ?? ""}`} icon={<GitPullRequest size={16} />} />
-			<DialogBody className="flex flex-col gap-4">
-				{detailsQuery.isError ? (
-					<div className="rounded-md border border-status-red/30 bg-status-red/10 px-3 py-2 text-[12px] text-status-red">
-						{getErrorMessage(detailsQuery.error, "Failed to load pull request details.")}
-					</div>
-				) : null}
-				<div className="grid grid-cols-2 gap-3 text-[12px] text-text-secondary">
-					<div>
-						<div className="font-medium text-text-tertiary">Head</div>
-						<div className="truncate text-text-primary">{details?.headBranch ?? change.workspace?.branch ?? "Unknown"}</div>
-					</div>
-					<div>
-						<div className="font-medium text-text-tertiary">Base</div>
-						<div className="truncate text-text-primary">{details?.baseBranch ?? "Unknown"}</div>
-					</div>
-				</div>
-				<label className="flex flex-col gap-1 text-[12px] font-medium text-text-secondary">
-					Title
-					<input
-						value={title}
-						onChange={(event) => setTitle(event.currentTarget.value)}
-						className="h-9 rounded-md border border-border-bright bg-surface-0 px-3 text-[13px] text-text-primary outline-none focus:border-accent"
-					/>
-				</label>
-				<label className="flex flex-col gap-1 text-[12px] font-medium text-text-secondary">
-					Description
-					<textarea
-						value={body}
-						onChange={(event) => setBody(event.currentTarget.value)}
-						className="min-h-[220px] resize-y rounded-md border border-border-bright bg-surface-0 px-3 py-2 font-mono text-[12px] text-text-primary outline-none focus:border-accent"
-					/>
-				</label>
-			</DialogBody>
-			<DialogFooter>
-				<Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
-					Cancel
-				</Button>
-				<Button
-					variant="primary"
-					size="sm"
-					onClick={() => {
-						void handleSave();
-					}}
-					disabled={!workspaceId || updateState.isLoading || detailsQuery.isFetching}
-				>
-					{updateState.isLoading ? "Saving..." : "Save"}
-				</Button>
-			</DialogFooter>
-		</Dialog>
-	);
-}
-
-function ChangePullRequestControls({
-	change,
-	workspaceId,
-}: {
-	change: RuntimeChangeyardChangeListItem;
-	workspaceId?: string | null;
-}): ReactElement | null {
-	const [editOpen, setEditOpen] = useState(false);
-	const prNumber = getPullRequestNumber(change);
-	const prUrl = change.remote?.pullRequestUrl ?? null;
-	const shouldFetch = Boolean(workspaceId && hasPullRequest(change));
-	const checksQuery = useGetPullRequestChecksQuery(
-		{ workspaceId: workspaceId ?? "__missing__", input: { changeId: change.id } },
-		{ skip: !shouldFetch },
-	);
-	if (!hasPullRequest(change)) return null;
-	const checks = checksQuery.data;
-	const meta = checkStateMeta(checks?.overallState, checks?.supported, checks?.summary.total);
-	return (
-		<>
-			<div className="flex min-w-0 flex-wrap items-center gap-2" onClick={(event) => event.stopPropagation()}>
-				{prUrl ? (
-					<Button
-						variant="ghost"
-						size="sm"
-						icon={<ExternalLink size={14} />}
-						onClick={() => {
-							window.open(prUrl, "_blank", "noopener,noreferrer");
-						}}
-					>
-						View PR
-					</Button>
-				) : null}
-				<StatusChip
-					label={checksQuery.isFetching && !checks ? "Checks..." : meta.label}
-					tone={meta.tone}
-					title={checks?.message}
-				/>
-				<Button
-					variant="ghost"
-					size="sm"
-					icon={<RefreshCw size={14} />}
-					aria-label={`Refresh PR checks for ${change.id}`}
-					title="Refresh checks"
-					className="h-7 w-7 px-0"
-					disabled={!shouldFetch}
-					onClick={() => {
-						void checksQuery.refetch();
-					}}
-				/>
-				{prUrl ? (
-					<Button
-						variant="ghost"
-						size="sm"
-						icon={<Copy size={14} />}
-						aria-label={`Copy PR link for ${change.id}`}
-						title="Copy PR link"
-						className="h-7 w-7 px-0"
-						onClick={() => copyText(prUrl)}
-					/>
-				) : null}
-				<Button
-					variant="ghost"
-					size="sm"
-					icon={<Pencil size={14} />}
-					aria-label={`Edit PR details for ${change.id}`}
-					title="Edit PR details"
-					className="h-7 w-7 px-0"
-					disabled={!workspaceId}
-					onClick={() => setEditOpen(true)}
-				/>
-				<span className="text-[12px] font-medium text-text-secondary">{prNumber ? `PR #${prNumber}` : "PR"}</span>
-			</div>
-			<ChangePullRequestEditDialog
-				open={editOpen}
-				change={change}
-				workspaceId={workspaceId}
-				onOpenChange={setEditOpen}
-				onSaved={() => {
-					void checksQuery.refetch();
-				}}
-			/>
-		</>
-	);
+function ChangePullRequestViewControl({ change }: { change: RuntimeChangeyardChangeListItem }): ReactElement | null {
+	if (!hasPullRequest(change)) {
+		return null;
+	}
+	return <PullRequestViewButton url={change.remote?.pullRequestUrl ?? null} number={getPullRequestNumber(change)} />;
 }
 
 function BoardFileList({
@@ -898,6 +726,7 @@ function ChangeCard({
 	selectedFile,
 	onSelectCard,
 	onOpenDetails,
+	onOpenPullRequestDetails,
 	onFileSelect,
 	onCommitUnselect,
 	onDependencyPointerDown,
@@ -917,6 +746,7 @@ function ChangeCard({
 	selectedFile: SelectedBoardFile | null;
 	onSelectCard: (changeId: string) => void;
 	onOpenDetails: (changeId: string) => void;
+	onOpenPullRequestDetails: (changeId: string, mode: "view" | "edit") => void;
 	onFileSelect: (
 		input: Pick<SelectedBoardFile, "changeId" | "columnId" | "scopeKey" | "scope" | "path">,
 	) => void;
@@ -1226,6 +1056,42 @@ function ChangeCard({
 		isWorkspaceDeletedError(allFilesError) ||
 		Object.values(commitFileErrors).some(isWorkspaceDeletedError);
 	const prNumber = getPullRequestNumber(change);
+	const hasPr = hasPullRequest(change);
+	const prUrl = change.remote?.pullRequestUrl ?? null;
+	const shouldFetchPrChecks = Boolean(workspaceId && hasPr);
+	const prChecksQuery = useGetPullRequestChecksQuery(
+		{ workspaceId: workspaceId ?? "__missing__", input: { changeId: change.id } },
+		{ skip: !shouldFetchPrChecks },
+	);
+	const prChecks = prChecksQuery.data ?? null;
+	const prActions: KebabActionItem[] = hasPr
+		? [
+				{
+					label: "Copy PR link",
+					icon: <Copy size={12} />,
+					disabled: !prUrl,
+					onSelect: () => {
+						if (prUrl) {
+							copyText(prUrl);
+						}
+					},
+				},
+				{
+					label: "Refresh PR checks",
+					icon: <RefreshCw size={12} />,
+					disabled: !shouldFetchPrChecks,
+					onSelect: () => {
+						void prChecksQuery.refetch();
+					},
+				},
+				{
+					label: "Edit PR description",
+					icon: <Pencil size={12} />,
+					disabled: !workspaceId,
+					onSelect: () => onOpenPullRequestDetails(change.id, "edit"),
+				},
+			]
+		: [];
 
 	return (
 		<Draggable draggableId={encodeChangeDraggableId(change.id)} index={index} isDragDisabled={isDragDisabled}>
@@ -1292,8 +1158,14 @@ function ChangeCard({
 								{change.workspace?.branch ? <span className="truncate">{change.workspace.branch}</span> : null}
 								{change.workspace?.branch ? <span aria-hidden>•</span> : null}
 								<ChangeStatusChip status={change.status} />
-								{hasPullRequest(change) ? (
-									<StatusChip label={prNumber ? `PR #${prNumber}` : "PR"} icon={<GitPullRequest size={12} />} tone="green" />
+								{hasPr ? (
+									<>
+										<StatusChip label={prNumber ? `PR #${prNumber}` : "PR"} icon={<GitPullRequest size={12} />} tone="green" />
+										<PullRequestCheckBadge
+											rollup={prChecks}
+											loading={prChecksQuery.isFetching && !prChecks}
+										/>
+									</>
 								) : null}
 								{sessionProvider ? (
 									<StatusChip
@@ -1357,10 +1229,11 @@ function ChangeCard({
 					<div className={cn("flex items-center gap-2 bg-surface-1 px-3 py-2", isCardSelected ? null : "border-y border-divider")}>
 						<StatusChip label={change.type} />
 						<PlanningBadge planning={change.planning} />
-						<ChangePullRequestControls change={change} workspaceId={workspaceId} />
+						<ChangePullRequestViewControl change={change} />
 						<span className="min-w-0 flex-1" />
 						<CopyKebabMenu
 							label={`More actions for ${change.id}`}
+							actions={prActions}
 							items={[
 								{ label: "Workspace Path", value: change.workspace?.path },
 								{ label: "Git Hash", value: summary?.workspaceHead },
@@ -1531,6 +1404,7 @@ export function ChangeBoard({
 	onFilterChange,
 	onSelectChange,
 	onSelectTask,
+	onOpenPullRequestDetails,
 	onCreateChange,
 	onCreateTask,
 	onMoveChange,
@@ -1561,6 +1435,7 @@ export function ChangeBoard({
 	onFilterChange: (nextFilter: ChangeBoardFilter) => void;
 	onSelectChange: (changeId: string) => void;
 	onSelectTask: (taskId: string) => void;
+	onOpenPullRequestDetails?: (changeId: string, mode: "view" | "edit") => void;
 	onCreateChange?: () => void;
 	onCreateTask?: () => void;
 	onMoveChange?: (changeId: string, targetColumnId: ChangeColumnId) => void;
@@ -2024,10 +1899,11 @@ export function ChangeBoard({
 															workspaceId={workspaceId}
 															workspaceEventVersion={workspaceEventVersions[change.id] ?? 0}
 															columnId={column.id}
-															selectedFile={selectedFile?.changeId === change.id ? selectedFile : null}
-															onSelectCard={handleSelectBoardChange}
-															onOpenDetails={onSelectChange}
-															onFileSelect={handleBoardFileSelect}
+																selectedFile={selectedFile?.changeId === change.id ? selectedFile : null}
+																onSelectCard={handleSelectBoardChange}
+																onOpenDetails={onSelectChange}
+																onOpenPullRequestDetails={onOpenPullRequestDetails ?? ((changeId) => onSelectChange(changeId))}
+																onFileSelect={handleBoardFileSelect}
 															onCommitUnselect={handleCommitUnselect}
 															onDependencyPointerDown={dependencyLinking.onDependencyPointerDown}
 															onDependencyPointerEnter={dependencyLinking.onDependencyPointerEnter}

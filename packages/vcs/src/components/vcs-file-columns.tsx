@@ -11,7 +11,7 @@ import { FileStatusGlyph } from "@/components/ui/status-chip";
 import { EmptyState } from "@/components/vcs-panels";
 import { clampNumber, type VcsFileViewMode } from "@/utils/vcs-ui-preferences";
 
-export type VcsColumnId = "refs" | "commits" | "operations" | "stack" | "unstaged";
+export type VcsColumnId = "refs" | "commits" | "operations" | "stack" | "unstaged" | "pull-request";
 
 export type VcsFileChange = {
 	path: string;

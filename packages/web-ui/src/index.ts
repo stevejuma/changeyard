@@ -30,6 +30,12 @@ export { buildFileTree, buildPackageFileTree, type FileTreeNode } from "./file-t
 export { FileTypeIcon } from "./file-type-icon";
 export { Kbd } from "./kbd";
 export { Link } from "./link";
+export {
+	MarkdownMessageEditor,
+	MarkdownMessagePreview,
+	toggleMarkdownTaskListItem,
+	type MarkdownMessageEditorMode,
+} from "./markdown-message-editor";
 export { NativeSelect } from "./native-select";
 export { getRepoRelativePath, PathDisplay } from "./path-display";
 export {
@@ -40,5 +46,18 @@ export {
 	workspaceDisplayName,
 	type ProjectWorkspaceNavigationWorkspace,
 } from "./project-workspace-navigation";
+export {
+	PullRequestCheckBadge,
+	pullRequestCheckBadgeMeta,
+	PullRequestDetailsPanel,
+	PullRequestViewButton,
+	type PullRequestCheckBadgeMeta,
+	type PullRequestCheckBadgeTone,
+	type PullRequestCheckRollup,
+	type PullRequestCheckState,
+	type PullRequestCheckSummary,
+	type PullRequestDetails,
+	type PullRequestSummary,
+} from "./pull-request";
 export { Spinner } from "./spinner";
 export { Tooltip, TooltipProvider } from "./tooltip";

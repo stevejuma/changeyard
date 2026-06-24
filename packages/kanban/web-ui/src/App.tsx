@@ -221,6 +221,7 @@ export default function App(): ReactElement {
 	const [isGitHistoryOpen, setIsGitHistoryOpen] = useState(false);
 	const [changeBoardFilter, setChangeBoardFilter] = useState<ChangeBoardFilter>("all");
 	const [selectedChangeId, setSelectedChangeId] = useState<string | null>(null);
+	const [selectedChangePullRequestMode, setSelectedChangePullRequestMode] = useState<"view" | "edit" | null>(null);
 	const [selectedSessionChangeId, setSelectedSessionChangeId] = useState<string | null>(null);
 	const [changeWorkspaceEventVersions, setChangeWorkspaceEventVersions] = useState<Record<string, number>>({});
 	const [isChangeReviewOpen, setIsChangeReviewOpen] = useState(false);
@@ -1690,6 +1691,7 @@ export default function App(): ReactElement {
 												onFilterChange={setChangeBoardFilter}
 												onSelectChange={(changeId) => {
 													setChangeActionError(null);
+													setSelectedChangePullRequestMode(null);
 													if (sessions[changeId]) {
 														setSelectedSessionChangeId(changeId);
 														setSelectedChangeId(changeId);
@@ -1698,6 +1700,13 @@ export default function App(): ReactElement {
 													}
 													setSelectedSessionChangeId(null);
 													setSelectedChangeId(changeId);
+												}}
+												onOpenPullRequestDetails={(changeId, mode) => {
+													setChangeActionError(null);
+													setSelectedSessionChangeId(null);
+													setSelectedChangeId(changeId);
+													setSelectedChangePullRequestMode(mode);
+													setIsGitHistoryOpen(false);
 												}}
 												onSelectTask={(taskId) => {
 													setSelectedSessionChangeId(null);
@@ -1925,6 +1934,7 @@ export default function App(): ReactElement {
 								if (!open) {
 									setSelectedSessionChangeId(null);
 									setSelectedChangeId(null);
+									setSelectedChangePullRequestMode(null);
 								}
 							}}
 						/>
@@ -1941,10 +1951,13 @@ export default function App(): ReactElement {
 							sessionSummary={sessions[selectedChangeId] ?? null}
 							isActionPending={isChangeActionPending}
 							actionError={changeActionError}
+							initialPullRequestMode={selectedChangePullRequestMode}
+							onPullRequestModeConsumed={() => setSelectedChangePullRequestMode(null)}
 							onOpenChange={(open) => {
 								if (!open) {
 									setSelectedSessionChangeId(null);
 									setSelectedChangeId(null);
+									setSelectedChangePullRequestMode(null);
 								}
 							}}
 							onRunAction={(action, changeId) => {

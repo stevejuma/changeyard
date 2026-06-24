@@ -1,6 +1,6 @@
 import * as RadixDropdownMenu from "@radix-ui/react-dropdown-menu";
 import { FileListing, FileListingViewModeToggle } from "@changeyard/web-ui";
-import { AlertTriangle, ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, Copy, GitBranch, GitCommitHorizontal, GitMerge, Info, Layers, LockKeyhole, Maximize2, MoreHorizontal, Pencil, PencilLine, Play, Plus, RotateCcw, Sparkles, Trash2, Type, Unlink, Upload, WrapText, X } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, Copy, GitBranch, GitCommitHorizontal, GitMerge, Info, Layers, LockKeyhole, Maximize2, MoreHorizontal, Pencil, PencilLine, Play, Plus, RefreshCw, RotateCcw, Sparkles, Trash2, Type, Unlink, Upload, WrapText, X } from "lucide-react";
 import { Fragment, useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent } from "react";
 
 import {
@@ -25,7 +25,12 @@ import { MarkdownMessageEditor, MarkdownMessagePreview, type MarkdownMessageEdit
 import { Spinner } from "@/components/ui/spinner";
 import { FileStatusGlyph, StatusChip } from "@/components/ui/status-chip";
 import { VcsConflictMergeEditor, VcsConflictMergeLauncher, type VcsConflictMergeSource } from "@/components/vcs-conflict-merge-editor";
-import { VcsPullRequestActions } from "@/components/vcs-pull-request-actions";
+import {
+	selectorForPullRequest,
+	VcsCheckStatusChip,
+	VcsPullRequestDetailsPanelContainer,
+	VcsPullRequestViewButton,
+} from "@/components/vcs-pull-request-actions";
 import {
 	findFileByPath,
 	getFirstFilePath,
@@ -53,6 +58,7 @@ import {
 	useGetProjectConfigQuery,
 	useGetRepositoryCommitDiffQuery,
 	useLazyPreviewVcsOperationQuery,
+	useGetPullRequestChecksQuery,
 	useUpdateProjectConfigMutation,
 } from "@/runtime/vcs-api";
 import { copyTextToClipboard } from "@/utils/clipboard";
@@ -802,6 +808,7 @@ function WorkspaceReady({
 	const [selectedComposerDiffStackId, setSelectedComposerDiffStackId] = useState<string | null>(null);
 	const [selectedStackHeaderId, setSelectedStackHeaderId] = useState<string | null>(null);
 	const [selectedStackFilePath, setSelectedStackFilePath] = useState<string | null>(null);
+	const [stackPrEditRequest, setStackPrEditRequest] = useState<{ stackId: string; key: number } | null>(null);
 	const [hasUserClearedFile, setHasUserClearedFile] = useState(false);
 	const [isFileSectionCollapsed, setFileSectionCollapsed] = useState(false);
 	const [isUnstagedCollapsed, setUnstagedCollapsed] = useState(() =>
@@ -883,6 +890,7 @@ function WorkspaceReady({
 		() => appliedStacks.find((stack) => stack.id === selectedStackHeaderId) ?? null,
 		[appliedStacks, selectedStackHeaderId],
 	);
+	const selectedHeaderPullRequest = selectedHeaderStack?.pr ?? null;
 	const selectedCommitChangeId = useMemo(() => {
 		if (!selectedCommitHash) {
 			return null;
@@ -1037,6 +1045,7 @@ function WorkspaceReady({
 		if (!appliedStacks.some((stack) => stack.id === selectedStackHeaderId)) {
 			setSelectedStackHeaderId(null);
 			setSelectedStackFilePath(null);
+			setStackPrEditRequest(null);
 		}
 	}, [appliedStacks, selectedStackHeaderId]);
 
@@ -1929,6 +1938,7 @@ function WorkspaceReady({
 			setSelectedFilePath(null);
 			setSelectedStackHeaderId(null);
 			setSelectedStackFilePath(null);
+			setStackPrEditRequest(null);
 			setHasUserClearedFile(true);
 			setFileSectionCollapsed(false);
 			writeQueryParam("commit", null);
@@ -1941,6 +1951,7 @@ function WorkspaceReady({
 		setSelectedComposerDiffStackId(null);
 		setSelectedStackHeaderId(null);
 		setSelectedStackFilePath(null);
+		setStackPrEditRequest(null);
 		setHasUserClearedFile(false);
 		setFileSectionCollapsed(false);
 		writeQueryParam("commit", change.changeId);
@@ -1958,18 +1969,13 @@ function WorkspaceReady({
 		setSelectedFilePath(path);
 		setSelectedUnstagedFilePath(null);
 		setSelectedComposerDiffStackId(null);
+		setStackPrEditRequest(null);
 		setHasUserClearedFile(false);
 		writeQueryParam("file", path);
 		writeWorkingCopyFileQueryParam(null);
 	}
 
-	function selectStackHeader(stackId: string): void {
-		if (selectedStackHeaderId === stackId) {
-			setSelectedStackHeaderId(null);
-			setSelectedStackFilePath(null);
-			setHasUserClearedFile(true);
-			return;
-		}
+	function openStackHeader(stackId: string): void {
 		setSelectedStackHeaderId(stackId);
 		setSelectedStackFilePath(null);
 		setSelectedCommitHash(null);
@@ -1981,6 +1987,27 @@ function WorkspaceReady({
 		writeQueryParam("commit", null);
 		writeQueryParam("file", null);
 		writeWorkingCopyFileQueryParam(null);
+	}
+
+	function closeSelectedStackHeaderColumn(): void {
+		setSelectedStackHeaderId(null);
+		setSelectedStackFilePath(null);
+		setStackPrEditRequest(null);
+		setHasUserClearedFile(true);
+	}
+
+	function selectStackHeader(stackId: string): void {
+		if (selectedStackHeaderId === stackId) {
+			closeSelectedStackHeaderColumn();
+			return;
+		}
+		setStackPrEditRequest(null);
+		openStackHeader(stackId);
+	}
+
+	function openStackPullRequestDescriptionEdit(stackId: string): void {
+		openStackHeader(stackId);
+		setStackPrEditRequest({ stackId, key: Date.now() });
 	}
 
 	function selectStackFile(path: string): void {
@@ -2000,6 +2027,7 @@ function WorkspaceReady({
 		setSelectedFilePath(null);
 		setSelectedStackHeaderId(null);
 		setSelectedStackFilePath(null);
+		setStackPrEditRequest(null);
 		setHasUserClearedFile(true);
 		writeQueryParam("commit", null);
 		writeWorkingCopyFileQueryParam(path);
@@ -2019,6 +2047,7 @@ function WorkspaceReady({
 				setSelectedFilePath(null);
 				setSelectedStackHeaderId(null);
 				setSelectedStackFilePath(null);
+				setStackPrEditRequest(null);
 				setSelectedComposerDiffStackId(null);
 				writeQueryParam("commit", null);
 				writeQueryParam("file", null);
@@ -2029,6 +2058,7 @@ function WorkspaceReady({
 			setSelectedUnstagedFilePath(null);
 			setSelectedStackHeaderId(null);
 			setSelectedStackFilePath(null);
+			setStackPrEditRequest(null);
 			setSelectedComposerDiffStackId(stackId);
 			setHasUserClearedFile(false);
 			writeQueryParam("commit", sourceChangeId);
@@ -2048,6 +2078,7 @@ function WorkspaceReady({
 		setSelectedFilePath(null);
 		setSelectedStackHeaderId(null);
 		setSelectedStackFilePath(null);
+		setStackPrEditRequest(null);
 		setHasUserClearedFile(true);
 		writeQueryParam("commit", null);
 		writeWorkingCopyFileQueryParam(path);
@@ -2277,7 +2308,30 @@ function WorkspaceReady({
 			}
 		/>
 	) : null;
-	const showTrailingSpacer = appliedStacks.length > 0 || Boolean(selectedFile) || Boolean(selectedUnstagedFilePath);
+	const pullRequestColumn =
+		selectedHeaderStack && selectedHeaderPullRequest ? (
+			<VcsColumn
+				id="pull-request"
+				title={selectedHeaderPullRequest.number ? `PR #${selectedHeaderPullRequest.number}` : "Pull Request"}
+				width={diffColumnWidth}
+				minWidth={WORKSPACE_COLUMN_LIMITS.diff.min}
+				maxWidth={WORKSPACE_COLUMN_LIMITS.diff.max}
+				onCollapse={closeSelectedStackHeaderColumn}
+				onWidthChange={changeDiffColumnWidth}
+			>
+				<VcsPullRequestDetailsPanelContainer
+					workspaceId={workspaceId}
+					workspacePath={workspacePath}
+					pr={selectedHeaderPullRequest}
+					editRequestKey={stackPrEditRequest?.stackId === selectedHeaderStack.id ? stackPrEditRequest.key : null}
+					onUpdated={onWorkspaceStateRefresh}
+					onClose={closeSelectedStackHeaderColumn}
+					className="h-full"
+				/>
+			</VcsColumn>
+		) : null;
+	const showTrailingSpacer =
+		appliedStacks.length > 0 || Boolean(selectedFile) || Boolean(selectedUnstagedFilePath) || Boolean(pullRequestColumn);
 	return (
 		<>
 		{floatingCommitSummary}
@@ -2414,6 +2468,7 @@ function WorkspaceReady({
 									onDropCommit={(event, change) => handleDrop(event, { kind: "commit", commitId: change.changeId })}
 									onPreviewOperation={openWorkspaceOperationPreview}
 									onPullRequestUpdated={onWorkspaceStateRefresh}
+									onEditPullRequestDescription={openStackPullRequestDescriptionEdit}
 									stackDropTargetState={getDropTargetState({ kind: "stack", stackId: stack.id })}
 									stackHeaderDropTargetState={getDropTargetState({ kind: "stack_header", stackId: stack.id })}
 									getStackHeaderDropTargetState={(targetKey) => getDropTargetState({ kind: "stack_header", stackId: stack.id }, targetKey)}
@@ -2426,6 +2481,8 @@ function WorkspaceReady({
 									: unstagedDiffColumn
 								: selectedStackId === stack.id
 									? diffColumn
+									: selectedStackHeaderId === stack.id && pullRequestColumn
+										? pullRequestColumn
 									: null}
 						</Fragment>
 					))
@@ -2773,6 +2830,7 @@ function WorkspaceStackLane({
 	onDropCommit,
 	onPreviewOperation,
 	onPullRequestUpdated,
+	onEditPullRequestDescription,
 	stackDropTargetState,
 	stackHeaderDropTargetState,
 	getStackHeaderDropTargetState,
@@ -2836,6 +2894,7 @@ function WorkspaceStackLane({
 	onDropCommit: (event: ReactDragEvent<HTMLElement>, change: BranchesStackChange) => void;
 	onPreviewOperation: (operation: VcsWorkspaceOperation) => void;
 	onPullRequestUpdated: () => void | Promise<void>;
+	onEditPullRequestDescription: (stackId: string) => void;
 	stackDropTargetState: WorkspaceDropTargetState;
 	stackHeaderDropTargetState: WorkspaceDropTargetState;
 	getStackHeaderDropTargetState: (targetKey: string) => WorkspaceDropTargetState;
@@ -2945,6 +3004,7 @@ function WorkspaceStackLane({
 							onDropCommit={onDropCommit}
 							onPreviewOperation={onPreviewOperation}
 							onPullRequestUpdated={onPullRequestUpdated}
+							onEditPullRequestDescription={onEditPullRequestDescription}
 							getStackHeaderDropTargetState={getStackHeaderDropTargetState}
 							getCommitDropTargetState={getCommitDropTargetState}
 						/>
@@ -3587,6 +3647,7 @@ function WorkspaceStackCard({
 	onDropCommit,
 	onPreviewOperation,
 	onPullRequestUpdated,
+	onEditPullRequestDescription,
 	getStackHeaderDropTargetState,
 	getCommitDropTargetState,
 }: {
@@ -3633,6 +3694,7 @@ function WorkspaceStackCard({
 	onDropCommit: (event: ReactDragEvent<HTMLElement>, change: BranchesStackChange) => void;
 	onPreviewOperation: (operation: VcsWorkspaceOperation) => void;
 	onPullRequestUpdated: () => void | Promise<void>;
+	onEditPullRequestDescription: (stackId: string) => void;
 	getStackHeaderDropTargetState: (targetKey: string) => WorkspaceDropTargetState;
 	getCommitDropTargetState: (change: BranchesStackChange, targetKey: string) => WorkspaceDropTargetState;
 }): React.ReactElement {
@@ -3640,6 +3702,15 @@ function WorkspaceStackCard({
 	const stackHeaderDropTargetState = getStackHeaderDropTargetState(stackHeaderDropTargetKey);
 	const remoteBookmarkActions = getStackRemoteBookmarkActions(group);
 	const isHeaderSelected = selectedStackHeaderId === stackId;
+	const prSelector = useMemo(() => (pr ? selectorForPullRequest(pr) : null), [pr]);
+	const prChecksResult = useGetPullRequestChecksQuery(
+		{ workspaceId: workspaceId ?? "", workspacePath, input: prSelector ?? { number: 0 } },
+		{ skip: !workspaceId || !pr || !prSelector, pollingInterval: 30_000 },
+	);
+	const prChecks = prChecksResult.data ?? pr?.checks ?? null;
+	const headerChange = group.changes[0] ?? null;
+	const authorName = headerChange?.authorName?.trim() || null;
+	const relativeTime = formatRelativeTime(headerChange?.timestamp);
 	return (
 		<section className="overflow-hidden rounded-lg border border-border bg-surface-0 shadow-sm">
 			<header
@@ -3672,11 +3743,35 @@ function WorkspaceStackCard({
 					</div>
 					<div className="min-w-0 flex-1">
 						<div className="truncate text-sm font-semibold text-text-primary">{group.head.bookmarkName}</div>
-						<div className="mt-1 text-xs text-text-secondary">Nothing to push</div>
+						<div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-text-secondary">
+							<Avatar
+								src={headerChange?.authorAvatarUrl ?? null}
+								name={authorName}
+								email={headerChange?.authorEmail ?? null}
+								initials={authorInitials(authorName)}
+								className="h-5 w-5 shrink-0"
+							/>
+							{authorName ? <span className="truncate">{authorName}</span> : null}
+							{relativeTime ? (
+								<>
+									<span aria-hidden className="text-text-tertiary">·</span>
+									<span>{relativeTime}</span>
+								</>
+							) : null}
+							<span aria-hidden className="text-text-tertiary">·</span>
+							<span>Nothing to push</span>
+							{pr ? (
+								<>
+									<span aria-hidden className="text-text-tertiary">·</span>
+									<StatusChip label={`PR #${pr.number}`} tone="green" />
+									<VcsCheckStatusChip rollup={prChecks} loading={prChecksResult.isFetching && !prChecks} />
+								</>
+							) : null}
+						</div>
 					</div>
 				</div>
 			</header>
-			{isHeaderSelected ? (
+			{isHeaderSelected && !pr ? (
 				<VcsInlineFileSection
 					title="Stack files"
 					files={selectedStackFiles}
@@ -3692,15 +3787,11 @@ function WorkspaceStackCard({
 				<Button variant="default" size="sm" icon={<Upload size={13} />} disabled>
 					Push
 				</Button>
-				<VcsPullRequestActions
-					workspaceId={workspaceId}
-					workspacePath={workspacePath}
-					pr={pr}
-					onUpdated={onPullRequestUpdated}
-				/>
+				<VcsPullRequestViewButton pr={pr} />
 				<Button variant="ghost" size="sm" icon={<Sparkles size={13} />} aria-label="Stack actions" title="Stack actions" />
 				<StackActionMenu
 					stackId={stackId}
+					pr={pr ?? null}
 					headCommitId={group.head.changeId}
 					baseCommitId={group.changes.at(-1)?.changeId ?? group.head.changeId}
 					remoteBookmarkActions={remoteBookmarkActions}
@@ -3711,6 +3802,8 @@ function WorkspaceStackCard({
 					onSquashStack={onSquashStack}
 					onUnapply={() => onPreviewOperation({ kind: "unapply_stack", stackId })}
 					onPreviewOperation={onPreviewOperation}
+					onRefreshPullRequestChecks={() => void prChecksResult.refetch()}
+					onEditPullRequestDescription={() => onEditPullRequestDescription(stackId)}
 				/>
 			</div>
 			<div>
@@ -3764,6 +3857,7 @@ function WorkspaceStackCard({
 
 function StackActionMenu({
 	stackId,
+	pr,
 	headCommitId,
 	baseCommitId,
 	remoteBookmarkActions,
@@ -3774,8 +3868,11 @@ function StackActionMenu({
 	onSquashStack,
 	onUnapply,
 	onPreviewOperation,
+	onRefreshPullRequestChecks,
+	onEditPullRequestDescription,
 }: {
 	stackId: string;
+	pr: BranchesStack["pr"] | null;
 	headCommitId: string;
 	baseCommitId: string;
 	remoteBookmarkActions: {
@@ -3789,6 +3886,8 @@ function StackActionMenu({
 	onSquashStack: (stackId: string) => void;
 	onUnapply: () => void;
 	onPreviewOperation: (operation: VcsWorkspaceOperation) => void;
+	onRefreshPullRequestChecks: () => void;
+	onEditPullRequestDescription: () => void;
 }): React.ReactElement {
 	const trackInfo = remoteBookmarkActions.untracked;
 	const untrackInfo = remoteBookmarkActions.tracked;
@@ -3811,6 +3910,14 @@ function StackActionMenu({
 					className="z-[80] min-w-56 overflow-hidden rounded-md border border-border bg-surface-1 p-1 text-sm text-text-primary shadow-xl"
 				>
 					<CopyDropdownItem icon={<Copy size={14} />} label="Copy branch name" value={stackId} />
+					{pr ? (
+						<>
+							{pr.url ? <CopyDropdownItem icon={<Copy size={14} />} label="Copy PR link" value={pr.url} /> : null}
+							<MenuItem icon={<RefreshCw size={14} />} label="Refresh PR checks" onSelect={onRefreshPullRequestChecks} />
+							<MenuItem icon={<Pencil size={14} />} label="Edit PR description" onSelect={onEditPullRequestDescription} />
+							<RadixDropdownMenu.Separator className="my-1 h-px bg-divider" />
+						</>
+					) : null}
 					<RadixDropdownMenu.Separator className="my-1 h-px bg-divider" />
 					<MenuSub label="Create branch" icon={<GitBranch size={14} />}>
 						<MenuItem icon={<ArrowUp size={14} />} label="Create branch above" onSelect={() => onCreateBookmark(headCommitId)} />

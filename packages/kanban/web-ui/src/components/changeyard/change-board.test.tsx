@@ -281,7 +281,7 @@ describe("ChangeBoard", () => {
 		expect(onFilterChange).toHaveBeenCalledWith("planned");
 	});
 
-	it("renders PR metadata and actions only when a change has a PR", () => {
+	it("renders PR metadata and keeps secondary PR actions in the kebab", async () => {
 		const board: BoardData = {
 			columns: [
 				{ id: "backlog", title: "Backlog", cards: [] },
@@ -299,8 +299,9 @@ describe("ChangeBoard", () => {
 				pullRequestUrl: "https://example.test/pull/2",
 			},
 		};
+		const onOpenPullRequestDetails = vi.fn();
 
-		act(() => {
+		await act(async () => {
 			root.render(
 				<ChangeBoard
 					board={board}
@@ -314,15 +315,43 @@ describe("ChangeBoard", () => {
 					onCreateChange={vi.fn()}
 					onCreateTask={vi.fn()}
 					onMoveChange={vi.fn()}
+					onOpenPullRequestDetails={onOpenPullRequestDetails}
+					workspaceId="workspace-1"
 				/>,
 			);
 		});
 
+		const prCard = container.querySelector('[data-change-id="CY-0002"]');
+		const noPrCard = container.querySelector('[data-change-id="CY-0001"]');
 		expect(container.textContent).toContain("PR #2");
 		expect(container.textContent).toContain("View PR");
-		expect(container.textContent).toContain("Checks");
+		expect(container.textContent).toContain("Checks unknown");
 		expect(container.textContent).not.toContain("No checks");
-		expect(container.querySelector('[data-change-id="CY-0001"]')?.textContent).not.toContain("View PR");
+		expect(noPrCard?.textContent).not.toContain("View PR");
+		expect(prCard?.querySelectorAll("button")).toHaveLength(3);
+
+		const trigger = prCard?.querySelector<HTMLButtonElement>('button[aria-label="More actions for CY-0002"]');
+		await act(async () => {
+			const pointerDown =
+				typeof PointerEvent === "function"
+					? new PointerEvent("pointerdown", { bubbles: true, button: 0 })
+					: new MouseEvent("pointerdown", { bubbles: true, button: 0 });
+			trigger?.dispatchEvent(pointerDown);
+			trigger?.click();
+			await Promise.resolve();
+		});
+
+		expect(document.body.textContent).toContain("Copy PR link");
+		expect(document.body.textContent).toContain("Refresh PR checks");
+		expect(document.body.textContent).toContain("Edit PR description");
+
+		const editItem = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((item) =>
+			item.textContent?.includes("Edit PR description"),
+		);
+		await act(async () => {
+			editItem?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+		});
+		expect(onOpenPullRequestDetails).toHaveBeenCalledWith("CY-0002", "edit");
 	});
 
 	it("filters visible board cards from the header search and clears inline", async () => {

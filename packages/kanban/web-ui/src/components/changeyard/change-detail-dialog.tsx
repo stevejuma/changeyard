@@ -8,6 +8,7 @@ import {
 	RefreshCw,
 	ShieldCheck,
 } from "lucide-react";
+import { PullRequestDetailsPanel } from "@changeyard/web-ui";
 import type { ReactElement, ReactNode } from "react";
 import { startTransition, useCallback, useEffect, useMemo, useState } from "react";
 
@@ -20,9 +21,15 @@ import { Dialog, DialogBody, DialogFooter, DialogHeader } from "@/components/ui/
 import { MarkdownMessageEditor, type MarkdownMessageEditorMode } from "@/components/ui/markdown-message-editor";
 import { PathDisplay } from "@/components/ui/path-display";
 import { ChangeStatusChip, StatusChip } from "@/components/ui/status-chip";
+import {
+	useGetPullRequestChecksQuery,
+	useGetPullRequestDetailsQuery,
+	useUpdatePullRequestMutation,
+} from "@/runtime/kanban-api";
 import type { RuntimeChangeyardChangeDetail, RuntimeTaskSessionSummary } from "@/runtime/types";
 import { useRuntimeChangeWorkspaceChanges } from "@/runtime/use-runtime-change-workspace-changes";
 import { LocalStorageKey } from "@/storage/local-storage-store";
+import { getErrorMessage } from "@/utils/error-message";
 
 export type ChangeDetailAction =
 	| "validate"
@@ -34,7 +41,7 @@ export type ChangeDetailAction =
 	| "approve"
 	| "requestChanges";
 
-type DetailTab = "details" | "changes";
+type DetailTab = "details" | "changes" | "pullRequest";
 
 const CHANGE_DETAIL_DIFF_POLL_INTERVAL_MS = 1_500;
 
@@ -160,6 +167,135 @@ function SkeletonLine({ className }: { className?: string }): ReactElement {
 	return <div className={cn("kb-skeleton h-3 rounded-sm", className)} />;
 }
 
+function ChangePullRequestDetailsPanel({
+	change,
+	workspaceId,
+	workspacePath,
+	editRequestKey,
+}: {
+	change: RuntimeChangeyardChangeDetail;
+	workspaceId: string | null;
+	workspacePath?: string | null;
+	editRequestKey: number | null;
+}): ReactElement {
+	const selector = useMemo(() => ({ changeId: change.id }), [change.id]);
+	const detailsQuery = useGetPullRequestDetailsQuery(
+		{ workspaceId: workspaceId ?? "__missing__", workspacePath, input: selector },
+		{ skip: !workspaceId },
+	);
+	const checksQuery = useGetPullRequestChecksQuery(
+		{ workspaceId: workspaceId ?? "__missing__", workspacePath, input: selector },
+		{ skip: !workspaceId },
+	);
+	const [updatePullRequest, updateState] = useUpdatePullRequestMutation();
+	const [draftBody, setDraftBody] = useState("");
+	const [isEditing, setEditing] = useState(false);
+	const [editorMode, setEditorMode] = useState<MarkdownMessageEditorMode>("preview");
+	const [saveError, setSaveError] = useState<string | null>(null);
+	const [handledEditRequestKey, setHandledEditRequestKey] = useState<number | null>(null);
+	const details = detailsQuery.data ?? null;
+	const checks = checksQuery.data ?? details?.checks ?? null;
+	const summary = {
+		number: change.remote?.pullRequestNumber ?? null,
+		url: change.remote?.pullRequestUrl ?? null,
+		baseBranch: details?.baseBranch ?? null,
+		headBranch: details?.headBranch ?? change.workspace?.branch ?? null,
+		title: details?.title ?? change.title,
+		checks,
+	};
+
+	useEffect(() => {
+		if (!isEditing) {
+			setDraftBody(details?.body ?? "");
+		}
+	}, [details?.body, isEditing]);
+
+	useEffect(() => {
+		setSaveError(null);
+		setEditorMode("preview");
+		setEditing(false);
+		setDraftBody("");
+		setHandledEditRequestKey(null);
+	}, [change.id]);
+
+	useEffect(() => {
+		if (!editRequestKey || editRequestKey === handledEditRequestKey) {
+			return;
+		}
+		setHandledEditRequestKey(editRequestKey);
+		setSaveError(null);
+		setDraftBody(details?.body ?? "");
+		setEditorMode("source");
+		setEditing(true);
+	}, [details?.body, editRequestKey, handledEditRequestKey]);
+
+	function startEdit(): void {
+		setSaveError(null);
+		setDraftBody(details?.body ?? "");
+		setEditorMode("source");
+		setEditing(true);
+	}
+
+	function cancelEdit(): void {
+		setSaveError(null);
+		setDraftBody(details?.body ?? "");
+		setEditorMode("preview");
+		setEditing(false);
+	}
+
+	async function save(): Promise<void> {
+		if (!workspaceId) {
+			return;
+		}
+		setSaveError(null);
+		try {
+			const response = await updatePullRequest({
+				workspaceId,
+				workspacePath,
+				input: {
+					changeId: change.id,
+					body: draftBody,
+				},
+			}).unwrap();
+			setDraftBody(response.body ?? draftBody);
+			setEditorMode("preview");
+			setEditing(false);
+			await detailsQuery.refetch();
+			void checksQuery.refetch();
+		} catch (error) {
+			setSaveError(getErrorMessage(error, "Failed to update pull request."));
+		}
+	}
+
+	return (
+		<div className="flex h-full min-h-0 flex-col">
+			{detailsQuery.isError ? (
+				<div className="border-b border-status-orange/30 bg-status-orange/10 px-3 py-2 text-[12px] text-status-orange">
+					{getErrorMessage(detailsQuery.error, "Failed to load pull request details.")}
+				</div>
+			) : null}
+			<PullRequestDetailsPanel
+				summary={summary}
+				details={details}
+				checks={checks}
+				isLoading={detailsQuery.isFetching && !details}
+				isSaving={updateState.isLoading}
+				isEditing={isEditing}
+				draftBody={draftBody}
+				editorMode={editorMode}
+				saveError={saveError}
+				onDraftBodyChange={setDraftBody}
+				onEditorModeChange={setEditorMode}
+				onStartEdit={startEdit}
+				onCancelEdit={cancelEdit}
+				onSave={() => void save()}
+				onRefreshChecks={() => void checksQuery.refetch()}
+				className="min-h-0 flex-1"
+			/>
+		</div>
+	);
+}
+
 export function ChangeDetailDialogSkeleton({
 	open,
 	onOpenChange,
@@ -215,6 +351,8 @@ export function ChangeDetailDialog({
 	sessionSummary = null,
 	isActionPending = false,
 	actionError = null,
+	initialPullRequestMode = null,
+	onPullRequestModeConsumed,
 	onOpenChange,
 	onRunAction,
 	onSaveBody,
@@ -226,6 +364,8 @@ export function ChangeDetailDialog({
 	sessionSummary?: RuntimeTaskSessionSummary | null;
 	isActionPending?: boolean;
 	actionError?: string | null;
+	initialPullRequestMode?: "view" | "edit" | null;
+	onPullRequestModeConsumed?: () => void;
 	onOpenChange: (open: boolean) => void;
 	onRunAction: (action: ChangeDetailAction, changeId: string) => void;
 	onSaveBody: (input: { changeId: string; body: string; expectedUpdatedAt?: string | null }) => void;
@@ -236,7 +376,9 @@ export function ChangeDetailDialog({
 	const [draftBody, setDraftBody] = useState("");
 	const [selectedPath, setSelectedPath] = useState<string | null>(null);
 	const [diffComments, setDiffComments] = useState<Map<string, DiffLineComment>>(new Map());
+	const [pullRequestEditRequestKey, setPullRequestEditRequestKey] = useState<number | null>(null);
 	const changeId = open && change ? change.id : null;
+	const changeHasPullRequest = Boolean(change?.remote?.pullRequestNumber || change?.remote?.pullRequestUrl);
 	const { changes: workspaceChanges, isRuntimeAvailable } = useRuntimeChangeWorkspaceChanges(
 		changeId,
 		workspaceId,
@@ -252,6 +394,7 @@ export function ChangeDetailDialog({
 			setDraftBody("");
 			setSelectedPath(null);
 			setDiffComments(new Map());
+			setPullRequestEditRequestKey(null);
 			return;
 		}
 		setDraftBody(change.body);
@@ -260,6 +403,7 @@ export function ChangeDetailDialog({
 		setMountedTabs(new Set(["details"]));
 		setSelectedPath(null);
 		setDiffComments(new Map());
+		setPullRequestEditRequestKey(null);
 	}, [change]);
 
 	const selectDetailTab = useCallback((nextTab: DetailTab) => {
@@ -273,6 +417,17 @@ export function ChangeDetailDialog({
 			});
 		});
 	}, []);
+
+	useEffect(() => {
+		if (!open || !change || !initialPullRequestMode || !changeHasPullRequest) {
+			return;
+		}
+		selectDetailTab("pullRequest");
+		if (initialPullRequestMode === "edit") {
+			setPullRequestEditRequestKey(Date.now());
+		}
+		onPullRequestModeConsumed?.();
+	}, [change, changeHasPullRequest, initialPullRequestMode, onPullRequestModeConsumed, open, selectDetailTab]);
 
 	const workspaceFiles = workspaceChanges?.files ?? null;
 	const availablePaths = useMemo(() => workspaceFiles?.map((file) => file.path) ?? [], [workspaceFiles]);
@@ -316,6 +471,7 @@ export function ChangeDetailDialog({
 	const hasWorkspacePath = Boolean(change.workspace?.path);
 	const hasWorkspaceFileChanges = workspaceFileCount > 0;
 	const shouldRenderChangesTab = mountedTabs.has("changes");
+	const shouldRenderPullRequestTab = changeHasPullRequest && mountedTabs.has("pullRequest");
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange} contentClassName="!max-w-[1180px] h-[88vh]">
@@ -354,6 +510,11 @@ export function ChangeDetailDialog({
 							<DetailTabButton active={detailTab === "changes"} onClick={() => selectDetailTab("changes")}>
 								Changes
 							</DetailTabButton>
+							{changeHasPullRequest ? (
+								<DetailTabButton active={detailTab === "pullRequest"} onClick={() => selectDetailTab("pullRequest")}>
+									PR
+								</DetailTabButton>
+							) : null}
 						</div>
 						<div className="min-h-0 flex-1 overflow-hidden px-3 py-2">
 							<div
@@ -517,6 +678,20 @@ export function ChangeDetailDialog({
 								)}
 							</div>
 						) : null}
+						{shouldRenderPullRequestTab ? (
+							<div
+								className="flex min-h-0 flex-1 flex-col overflow-hidden"
+								hidden={detailTab !== "pullRequest"}
+								aria-hidden={detailTab !== "pullRequest"}
+							>
+								<ChangePullRequestDetailsPanel
+									change={change}
+									workspaceId={workspaceId}
+									workspacePath={repoRoot ?? null}
+									editRequestKey={pullRequestEditRequestKey}
+								/>
+							</div>
+						) : null}
 					</div>
 				</div>
 			</DialogBody>
@@ -524,16 +699,20 @@ export function ChangeDetailDialog({
 				<Button variant="default" onClick={() => onOpenChange(false)} disabled={isActionPending}>
 					Close
 				</Button>
-				<Button variant="ghost" onClick={() => setDraftBody(change.body)} disabled={!isDirty || isActionPending}>
-					Reset
-				</Button>
-				<Button
-					variant="primary"
-					onClick={() => saveBody(draftBody)}
-					disabled={!isDirty || isActionPending}
-				>
-					Save Markdown
-				</Button>
+				{detailTab === "details" ? (
+					<>
+						<Button variant="ghost" onClick={() => setDraftBody(change.body)} disabled={!isDirty || isActionPending}>
+							Reset
+						</Button>
+						<Button
+							variant="primary"
+							onClick={() => saveBody(draftBody)}
+							disabled={!isDirty || isActionPending}
+						>
+							Save Markdown
+						</Button>
+					</>
+				) : null}
 			</DialogFooter>
 		</Dialog>
 	);
