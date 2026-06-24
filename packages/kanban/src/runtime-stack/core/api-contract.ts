@@ -440,6 +440,36 @@ export const runtimeVcsPullRequestDetailsSchema = runtimeVcsPullRequestSummarySc
 });
 export type RuntimeVcsPullRequestDetails = z.infer<typeof runtimeVcsPullRequestDetailsSchema>;
 
+export const runtimeVcsPullRequestConversationEventSchema = z.object({
+	provider: z.string(),
+	id: z.string(),
+	kind: z.enum(["comment", "review", "review_comment"]),
+	author: z.string().nullable(),
+	authorAvatarUrl: z.string().nullable().optional(),
+	authorAssociation: z.string().nullable().optional(),
+	body: z.string(),
+	createdAt: z.string().nullable(),
+	updatedAt: z.string().nullable().optional(),
+	url: z.string().nullable().optional(),
+	reviewState: z.string().nullable().optional(),
+	path: z.string().nullable().optional(),
+	line: z.number().int().nullable().optional(),
+	startLine: z.number().int().nullable().optional(),
+	side: z.string().nullable().optional(),
+	diffHunk: z.string().nullable().optional(),
+	commitId: z.string().nullable().optional(),
+});
+export type RuntimeVcsPullRequestConversationEvent = z.infer<typeof runtimeVcsPullRequestConversationEventSchema>;
+
+export const runtimeVcsPullRequestConversationSchema = z.object({
+	provider: z.string(),
+	pullRequestNumber: z.number().int(),
+	supported: z.boolean(),
+	events: z.array(runtimeVcsPullRequestConversationEventSchema),
+	message: z.string().optional(),
+});
+export type RuntimeVcsPullRequestConversation = z.infer<typeof runtimeVcsPullRequestConversationSchema>;
+
 export const runtimeVcsJjInventoryPullRequestSchema = runtimeVcsPullRequestSummarySchema;
 export type RuntimeVcsJjInventoryPullRequest = z.infer<typeof runtimeVcsJjInventoryPullRequestSchema>;
 

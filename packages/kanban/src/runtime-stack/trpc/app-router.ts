@@ -120,6 +120,7 @@ import type {
 	RuntimeVcsBaseBranchChecksRequest,
 	RuntimeVcsBranchChecksResponse,
 	RuntimeVcsPullRequestChecksResponse,
+	RuntimeVcsPullRequestConversation,
 	RuntimeVcsPullRequestDetails,
 	RuntimeVcsPullRequestSelector,
 	RuntimeVcsPullRequestUpdateRequest,
@@ -286,6 +287,7 @@ import {
 	runtimeVcsBaseBranchChecksRequestSchema,
 	runtimeVcsBranchChecksResponseSchema,
 	runtimeVcsPullRequestChecksResponseSchema,
+	runtimeVcsPullRequestConversationSchema,
 	runtimeVcsPullRequestDetailsSchema,
 	runtimeVcsPullRequestSelectorSchema,
 	runtimeVcsPullRequestUpdateRequestSchema,
@@ -567,6 +569,10 @@ export interface RuntimeTrpcContext {
 			scope: RuntimeTrpcWorkspaceScope | null,
 			input: RuntimeVcsPullRequestSelector,
 		) => Promise<RuntimeVcsPullRequestChecksResponse>;
+		pullRequestConversation: (
+			scope: RuntimeTrpcWorkspaceScope | null,
+			input: RuntimeVcsPullRequestSelector,
+		) => Promise<RuntimeVcsPullRequestConversation>;
 		baseBranchChecks: (
 			scope: RuntimeTrpcWorkspaceScope | null,
 			input?: RuntimeVcsBaseBranchChecksRequest,
@@ -988,6 +994,12 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeVcsPullRequestChecksResponseSchema)
 			.query(async ({ ctx, input }) => {
 				return await ctx.vcsApi.pullRequestChecks(ctx.workspaceScope, input);
+			}),
+		pullRequestConversation: t.procedure
+			.input(runtimeVcsPullRequestSelectorSchema)
+			.output(runtimeVcsPullRequestConversationSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.vcsApi.pullRequestConversation(ctx.workspaceScope, input);
 			}),
 		baseBranchChecks: t.procedure
 			.input(runtimeVcsBaseBranchChecksRequestSchema.optional())

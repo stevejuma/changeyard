@@ -27,7 +27,7 @@ import { listGlobalTemplateProfiles } from "../config/templateProfiles.js";
 import { runInit } from "./init.js";
 import { runUpdate } from "./update.js";
 import { doctorReport } from "./doctor.js";
-import { applyVcsOperation, applyVcsWorkspaceOperation, createJjSnapshot, detectVcs, getJjBranchesData, getJjDiff, getJjInventory, getJjOperationDiff, getJjOperations, getJjState, getVcsBaseChecks, getVcsBranchesData, getVcsConflictFile, getVcsDiff, getVcsPrChecks, getVcsPrDetails, getVcsWorkspaceStacks, getVcsWorkspaceState, previewVcsOperation, previewVcsWorkspaceOperation, resolveVcsConflictFile, revertJjOperationById, submitVcsStack, submitVcsStackPreview, updateVcsPrDetails } from "../vcs/adapter.js";
+import { applyVcsOperation, applyVcsWorkspaceOperation, createJjSnapshot, detectVcs, getJjBranchesData, getJjDiff, getJjInventory, getJjOperationDiff, getJjOperations, getJjState, getVcsBaseChecks, getVcsBranchesData, getVcsConflictFile, getVcsDiff, getVcsPrChecks, getVcsPrConversation, getVcsPrDetails, getVcsWorkspaceStacks, getVcsWorkspaceState, previewVcsOperation, previewVcsWorkspaceOperation, resolveVcsConflictFile, revertJjOperationById, submitVcsStack, submitVcsStackPreview, updateVcsPrDetails } from "../vcs/adapter.js";
 import type { VcsApplyOperationInput, VcsPreviewOperationInput, VcsSubmitStackPreviewInput } from "../vcs/types.js";
 import { installCliShutdownHandlers } from "./gracefulShutdown.js";
 import { DEFAULT_PLANNING_SECTION_ORDER, STRICT_PLANNING_SECTION_ORDER, type PlanningSectionId } from "../planning/types.js";
@@ -447,6 +447,9 @@ export function createChangeyardUiApi() {
     },
     getVcsPullRequestChecks(repoRoot: string, input: Parameters<typeof getVcsPrChecks>[1]) {
       return getVcsPrChecks(repoRoot, input);
+    },
+    getVcsPullRequestConversation(repoRoot: string, input: Parameters<typeof getVcsPrConversation>[1]) {
+      return getVcsPrConversation(repoRoot, input);
     },
     getVcsBaseBranchChecks(repoRoot: string, input?: Parameters<typeof getVcsBaseChecks>[1]) {
       return getVcsBaseChecks(repoRoot, input);

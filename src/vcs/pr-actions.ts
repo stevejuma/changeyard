@@ -9,12 +9,14 @@ import type {
 	RemoteCheckSummary,
 	RemotePullRequest,
 	RemotePullRequestChecks,
+	RemotePullRequestConversation,
 	RemotePullRequestDetails,
 } from "../providers/ChangeProvider.js";
 import { findChangeFile } from "../state/id.js";
 import type { ChangeyardConfig, Frontmatter, ParsedMarkdown } from "../types.js";
 import {
 	getGitHubCliPullRequestChecks,
+	getGitHubCliPullRequestConversation,
 	getGitHubCliPullRequestDetails,
 	updateGitHubCliPullRequestDetails,
 } from "./github-cli-pr.js";
@@ -85,6 +87,16 @@ function unsupportedPullRequestChecks(provider: ChangeProvider, pullRequestNumbe
 		summary: emptySummary(),
 		checks: [],
 		message: message ?? `Provider ${provider.name} does not support remote pull request checks.`,
+	};
+}
+
+function unsupportedPullRequestConversation(provider: ChangeProvider, pullRequestNumber: number): RemotePullRequestConversation {
+	return {
+		provider: provider.name,
+		pullRequestNumber,
+		supported: false,
+		events: [],
+		message: `Provider ${provider.name} does not expose pull request conversation comments.`,
 	};
 }
 
@@ -326,6 +338,18 @@ export function getVcsPullRequestChecks(repoRoot: string, selector: VcsPullReque
 		pullRequestNumber: target.pullRequestNumber,
 		frontmatter: target.frontmatter,
 	});
+}
+
+export function getVcsPullRequestConversation(repoRoot: string, selector: VcsPullRequestSelector): RemotePullRequestConversation {
+	const target = resolvePullRequestTarget(repoRoot, selector);
+	const discovered = getGitHubCliPullRequestConversation(repoRoot, {
+		number: target.pullRequestNumber,
+		headBranch: target.headBranch,
+	});
+	if (discovered) {
+		return discovered;
+	}
+	return unsupportedPullRequestConversation(target.provider, target.pullRequestNumber);
 }
 
 export function getVcsBaseBranchChecks(repoRoot: string, input: VcsBaseBranchChecksInput = {}): RemoteBranchChecks {

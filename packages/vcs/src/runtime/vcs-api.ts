@@ -25,6 +25,7 @@ import type {
 	RuntimeVcsBaseBranchChecksRequest,
 	RuntimeVcsBranchChecksResponse,
 	RuntimeVcsPullRequestChecksResponse,
+	RuntimeVcsPullRequestConversation,
 	RuntimeVcsPullRequestDetails,
 	RuntimeVcsPullRequestSelector,
 	RuntimeVcsPullRequestUpdateRequest,
@@ -76,6 +77,7 @@ export type VcsApiTag =
 	| "RepositoryLog"
 	| "PullRequests"
 	| "PullRequestChecks"
+	| "PullRequestConversation"
 	| "BaseBranchChecks"
 	| "Projects";
 
@@ -397,10 +399,11 @@ export function tagsForVcsEvent(kind: RuntimeVcsProjectEventKind): VcsApiTag[] {
 				"RepositoryLog",
 				"PullRequests",
 				"PullRequestChecks",
+				"PullRequestConversation",
 				"BaseBranchChecks",
 			];
 		case "vcs/fetch":
-			return ["BranchListing", "BaseBranchData", "DivergentBookmarks", "VcsDetection", "BaseBranchChecks", "PullRequestChecks"];
+			return ["BranchListing", "BaseBranchData", "DivergentBookmarks", "VcsDetection", "BaseBranchChecks", "PullRequestChecks", "PullRequestConversation"];
 	}
 }
 
@@ -447,6 +450,7 @@ export const vcsApi = createApi({
 		"RepositoryLog",
 		"PullRequests",
 		"PullRequestChecks",
+		"PullRequestConversation",
 		"BaseBranchChecks",
 		"Projects",
 	],
@@ -764,7 +768,7 @@ export const vcsApi = createApi({
 					return { error };
 				}
 			},
-			invalidatesTags: ["PullRequests", "PullRequestChecks", "BranchListing", "Stacks", "StackDetails"],
+			invalidatesTags: ["PullRequests", "PullRequestChecks", "PullRequestConversation", "BranchListing", "Stacks", "StackDetails"],
 		}),
 		getPullRequestChecks: builder.query<RuntimeVcsPullRequestChecksResponse, PullRequestSelectorArg>({
 			queryFn: async ({ workspaceId, workspacePath, input }, { signal }) => {
@@ -784,6 +788,26 @@ export const vcsApi = createApi({
 			providesTags: (_result, _error, arg) => [
 				"PullRequestChecks",
 				{ type: "PullRequestChecks", id: JSON.stringify(arg.input) },
+			],
+		}),
+		getPullRequestConversation: builder.query<RuntimeVcsPullRequestConversation, PullRequestSelectorArg>({
+			queryFn: async ({ workspaceId, workspacePath, input }, { signal }) => {
+				try {
+					return {
+						data: await fetchTrpcQuery<RuntimeVcsPullRequestConversation>(
+							"vcs.pullRequestConversation",
+							withActiveWorkspaceInput(input, workspacePath),
+							workspaceId,
+							{ signal },
+						),
+					};
+				} catch (error) {
+					return { error };
+				}
+			},
+			providesTags: (_result, _error, arg) => [
+				"PullRequestConversation",
+				{ type: "PullRequestConversation", id: JSON.stringify(arg.input) },
 			],
 		}),
 		getBaseBranchChecks: builder.query<RuntimeVcsBranchChecksResponse, BaseBranchChecksArg>({
@@ -1146,6 +1170,8 @@ export const {
 	useGetPullRequestDetailsQuery,
 	useUpdatePullRequestMutation,
 	useGetPullRequestChecksQuery,
+	useLazyGetPullRequestChecksQuery,
+	useGetPullRequestConversationQuery,
 	useGetBaseBranchChecksQuery,
 	useGetVcsDiffQuery,
 	useRunGitSyncActionMutation,

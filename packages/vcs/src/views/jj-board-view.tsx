@@ -59,7 +59,7 @@ import {
 	useGetProjectConfigQuery,
 	useGetRepositoryCommitDiffQuery,
 	useLazyPreviewVcsOperationQuery,
-	useGetPullRequestChecksQuery,
+	useLazyGetPullRequestChecksQuery,
 	useUpdateProjectConfigMutation,
 } from "@/runtime/vcs-api";
 import { copyTextToClipboard } from "@/utils/clipboard";
@@ -2426,7 +2426,7 @@ function WorkspaceReady({
 				aria-pressed={pullRequestDetailsMode === "description"}
 				onClick={() => setPullRequestDetailsMode("description")}
 			>
-				PR description
+				Conversation
 			</button>
 			<button
 				type="button"
@@ -2451,7 +2451,7 @@ function WorkspaceReady({
 				pr={selectedHeaderPullRequest}
 				editRequestKey={stackPrEditRequest?.stackId === selectedHeaderStack.id ? stackPrEditRequest.key : null}
 				author={selectedHeaderAuthor}
-				filesContent={pullRequestDetailsMode === "files" ? pullRequestDiffContent : null}
+				belowContent={pullRequestDetailsMode === "files" ? pullRequestDiffContent : null}
 				headerViewModeControl={pullRequestModeToggle}
 				isFloating={isPullRequestSummaryFloating}
 				showHeaderControls={isPullRequestSummaryFloating}
@@ -3884,14 +3884,17 @@ function WorkspaceStackCard({
 	const remoteBookmarkActions = getStackRemoteBookmarkActions(group);
 	const isHeaderSelected = selectedStackHeaderId === stackId;
 	const prSelector = useMemo(() => (pr ? selectorForPullRequest(pr) : null), [pr]);
-	const prChecksResult = useGetPullRequestChecksQuery(
-		{ workspaceId: workspaceId ?? "", workspacePath, input: prSelector ?? { number: 0 } },
-		{ skip: !workspaceId || !pr || !prSelector, pollingInterval: 10 * 60 * 1000 },
-	);
-	const prChecks = prChecksResult.data ?? pr?.checks ?? null;
+	const [refreshPullRequestChecks, refreshedPullRequestChecks] = useLazyGetPullRequestChecksQuery();
+	const prChecks = refreshedPullRequestChecks.data ?? pr?.checks ?? null;
 	const headerChange = group.changes[0] ?? null;
 	const authorName = headerChange?.authorName?.trim() || null;
 	const relativeTime = formatRelativeTime(headerChange?.timestamp);
+	function refreshStackPullRequestChecks(): void {
+		if (!workspaceId || !prSelector) {
+			return;
+		}
+		void refreshPullRequestChecks({ workspaceId, workspacePath, input: prSelector });
+	}
 	return (
 		<section className="overflow-hidden rounded-lg border border-border bg-surface-0 shadow-sm">
 			<header
@@ -3945,7 +3948,7 @@ function WorkspaceStackCard({
 								<>
 									<span aria-hidden className="text-text-tertiary">·</span>
 									<StatusChip label={`PR #${pr.number}`} tone="green" />
-									<VcsCheckStatusChip rollup={prChecks} loading={prChecksResult.isFetching && !prChecks} />
+									<VcsCheckStatusChip rollup={prChecks} loading={refreshedPullRequestChecks.isFetching && !prChecks} />
 								</>
 							) : null}
 						</div>
@@ -3990,7 +3993,7 @@ function WorkspaceStackCard({
 					onSquashStack={onSquashStack}
 					onUnapply={() => onPreviewOperation({ kind: "unapply_stack", stackId })}
 					onPreviewOperation={onPreviewOperation}
-					onRefreshPullRequestChecks={() => void prChecksResult.refetch()}
+					onRefreshPullRequestChecks={refreshStackPullRequestChecks}
 					onEditPullRequestDescription={() => onEditPullRequestDescription(stackId)}
 				/>
 			</div>

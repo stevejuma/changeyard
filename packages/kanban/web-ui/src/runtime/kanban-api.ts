@@ -35,6 +35,7 @@ import type {
 	RuntimeProjectsResponse,
 	RuntimeStateStreamMessage,
 	RuntimeVcsPullRequestChecksResponse,
+	RuntimeVcsPullRequestConversation,
 	RuntimeVcsPullRequestDetails,
 	RuntimeVcsPullRequestSelector,
 	RuntimeVcsPullRequestUpdateRequest,
@@ -61,6 +62,7 @@ export type KanbanApiTag =
 	| "ChangeReviews"
 	| "PullRequests"
 	| "PullRequestChecks"
+	| "PullRequestConversation"
 	| "Directory";
 
 type WorkspaceQueryArg = {
@@ -304,6 +306,7 @@ export const kanbanApi = createApi({
 		"ChangeReviews",
 		"PullRequests",
 		"PullRequestChecks",
+		"PullRequestConversation",
 		"Directory",
 	],
 	endpoints: (builder) => ({
@@ -471,7 +474,7 @@ export const kanbanApi = createApi({
 					return { error: toKanbanQueryError(error) };
 				}
 			},
-			invalidatesTags: ["PullRequests", "ChangeList"],
+			invalidatesTags: ["PullRequests", "PullRequestConversation", "ChangeList"],
 		}),
 		getPullRequestChecks: builder.query<RuntimeVcsPullRequestChecksResponse, PullRequestSelectorArg>({
 			queryFn: async ({ workspaceId, workspacePath, input }, { signal }) => {
@@ -484,6 +487,19 @@ export const kanbanApi = createApi({
 			providesTags: (_result, _error, arg) => [
 				"PullRequestChecks",
 				{ type: "PullRequestChecks", id: JSON.stringify(arg.input) },
+			],
+		}),
+		getPullRequestConversation: builder.query<RuntimeVcsPullRequestConversation, PullRequestSelectorArg>({
+			queryFn: async ({ workspaceId, workspacePath, input }, { signal }) => {
+				try {
+					return { data: await query<RuntimeVcsPullRequestConversation>("vcs.pullRequestConversation", input, workspaceId, signal, workspacePath) };
+				} catch (error) {
+					return { error: toKanbanQueryError(error) };
+				}
+			},
+			providesTags: (_result, _error, arg) => [
+				"PullRequestConversation",
+				{ type: "PullRequestConversation", id: JSON.stringify(arg.input) },
 			],
 		}),
 		getChangeWorkspaceChanges: builder.query<RuntimeWorkspaceChangesResponse, ChangeQueryArg>({
@@ -705,6 +721,7 @@ export const {
 	useGetPullRequestDetailsQuery,
 	useUpdatePullRequestMutation,
 	useGetPullRequestChecksQuery,
+	useGetPullRequestConversationQuery,
 	useGetChangeWorkspaceChangesQuery,
 	useCreateChangeMutation,
 	useUpdateChangeStatusMutation,

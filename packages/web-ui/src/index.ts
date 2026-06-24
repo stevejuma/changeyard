@@ -48,6 +48,7 @@ export {
 } from "./project-workspace-navigation";
 export {
 	PullRequestCheckBadge,
+	PullRequestConversationTimeline,
 	pullRequestCheckBadgeMeta,
 	PullRequestDetailsPanel,
 	PullRequestViewButton,
@@ -57,6 +58,8 @@ export {
 	type PullRequestCheckRollup,
 	type PullRequestCheckState,
 	type PullRequestCheckSummary,
+	type PullRequestConversation,
+	type PullRequestConversationEvent,
 	type PullRequestDetails,
 	type PullRequestSummary,
 } from "./pull-request";

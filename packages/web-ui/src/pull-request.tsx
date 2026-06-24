@@ -1,4 +1,4 @@
-import { ExternalLink, GitPullRequest, Maximize2, Save, X } from "lucide-react";
+import { ExternalLink, Eye, GitPullRequest, Maximize2, MessageSquare, RefreshCw, Save, X } from "lucide-react";
 import type { ReactElement, ReactNode } from "react";
 
 import { Button } from "./button";
@@ -39,6 +39,34 @@ export type PullRequestDetails = PullRequestSummary & {
 	updatedAt?: string | null;
 };
 
+export type PullRequestConversationEvent = {
+	provider?: string | null;
+	id: string;
+	kind: "comment" | "review" | "review_comment";
+	author?: string | null;
+	authorAvatarUrl?: string | null;
+	authorAssociation?: string | null;
+	body: string;
+	createdAt?: string | null;
+	updatedAt?: string | null;
+	url?: string | null;
+	reviewState?: string | null;
+	path?: string | null;
+	line?: number | null;
+	startLine?: number | null;
+	side?: string | null;
+	diffHunk?: string | null;
+	commitId?: string | null;
+};
+
+export type PullRequestConversation = {
+	provider?: string | null;
+	pullRequestNumber: number;
+	supported: boolean;
+	events: PullRequestConversationEvent[];
+	message?: string | null;
+};
+
 export type PullRequestAuthorDisplay = {
 	name?: string | null;
 	email?: string | null;
@@ -72,8 +100,214 @@ function formatUpdatedAt(value: string | null | undefined): string | null {
 	return date.toLocaleString();
 }
 
+function formatConversationDate(value: string | null | undefined): string | null {
+	if (!value) {
+		return null;
+	}
+	const date = new Date(value);
+	if (Number.isNaN(date.getTime())) {
+		return value;
+	}
+	return date.toLocaleDateString(undefined, {
+		month: "short",
+		day: "numeric",
+		year: date.getFullYear() === new Date().getFullYear() ? undefined : "numeric",
+	});
+}
+
 function branchValue(value: string | null | undefined): string {
 	return value?.trim() || "Unknown";
+}
+
+function authorInitials(value: string | null | undefined): string {
+	const name = value?.trim();
+	if (!name) {
+		return "?";
+	}
+	const parts = name.split(/[\s._-]+/).filter(Boolean);
+	return (parts[0]?.[0] ?? "?").toUpperCase();
+}
+
+function reviewStateLabel(value: string | null | undefined): string {
+	switch (value?.toLowerCase()) {
+		case "approved":
+			return "approved";
+		case "changes_requested":
+			return "requested changes";
+		case "commented":
+			return "reviewed";
+		case "dismissed":
+			return "dismissed review";
+		default:
+			return "reviewed";
+	}
+}
+
+function conversationActionLabel(event: PullRequestConversationEvent): string {
+	if (event.kind === "review") {
+		return reviewStateLabel(event.reviewState);
+	}
+	if (event.kind === "review_comment") {
+		return "commented on";
+	}
+	return "commented";
+}
+
+function diffHunkPreview(value: string | null | undefined): string[] {
+	if (!value) {
+		return [];
+	}
+	return value
+		.split("\n")
+		.filter((line) => !line.startsWith("@@"))
+		.slice(-8);
+}
+
+function PullRequestConversationAvatar({
+	name,
+	avatarUrl,
+}: {
+	name?: string | null;
+	avatarUrl?: string | null;
+}): ReactElement {
+	if (avatarUrl) {
+		return (
+			<img
+				src={avatarUrl}
+				alt={name ? `${name} avatar` : "Comment author avatar"}
+				className="h-8 w-8 rounded-full border border-border bg-surface-2 object-cover"
+			/>
+		);
+	}
+	return (
+		<div className="grid h-8 w-8 place-items-center rounded-full border border-border bg-surface-2 text-xs font-semibold text-text-secondary">
+			{authorInitials(name)}
+		</div>
+	);
+}
+
+function PullRequestConversationInlineReference({ event }: { event: PullRequestConversationEvent }): ReactElement | null {
+	const path = event.path?.trim();
+	const line = event.line ?? event.startLine ?? null;
+	if (!path && !line && !event.diffHunk) {
+		return null;
+	}
+	const label = path ? `${path}${line ? `:${line}` : ""}` : line ? `Line ${line}` : "Code comment";
+	const preview = diffHunkPreview(event.diffHunk);
+	return (
+		<div className="overflow-hidden rounded-md border border-divider bg-surface-0">
+			<div className="flex min-w-0 items-center justify-between gap-2 border-b border-divider bg-surface-2 px-2.5 py-1.5">
+				<span className="min-w-0 truncate font-mono text-[11px] font-medium text-text-primary" title={label}>
+					{label}
+				</span>
+				{event.side ? <span className="shrink-0 text-[10px] uppercase text-text-tertiary">{event.side}</span> : null}
+			</div>
+			{preview.length > 0 ? (
+				<pre className="max-h-48 overflow-auto px-2.5 py-2 text-[11px] leading-5 text-text-secondary">
+					{preview.map((lineText, index) => (
+						<code
+							key={`${event.id}-hunk-${index}`}
+							className={cn(
+								"block min-w-max whitespace-pre font-mono",
+								lineText.startsWith("+") && "text-status-green",
+								lineText.startsWith("-") && "text-status-red",
+							)}
+						>
+							{lineText}
+						</code>
+					))}
+				</pre>
+			) : (
+				<div className="px-2.5 py-2 text-[11px] text-text-tertiary">Line snippet unavailable.</div>
+			)}
+		</div>
+	);
+}
+
+function PullRequestConversationCard({ event }: { event: PullRequestConversationEvent }): ReactElement {
+	const author = event.author?.trim() || "Someone";
+	const date = formatConversationDate(event.createdAt);
+	const action = conversationActionLabel(event);
+	const isReview = event.kind === "review";
+	const hasBody = event.body.trim().length > 0;
+	return (
+		<div className="flex gap-2">
+			<div className="shrink-0 pt-1">
+				<PullRequestConversationAvatar name={event.author} avatarUrl={event.authorAvatarUrl} />
+			</div>
+			<div className="min-w-0 flex-1 overflow-hidden rounded-md border border-divider bg-surface-0">
+				<div className="flex min-w-0 items-center gap-2 border-b border-divider bg-surface-2 px-3 py-2 text-sm">
+					{isReview ? <Eye size={14} className="shrink-0 text-text-tertiary" /> : <MessageSquare size={14} className="shrink-0 text-text-tertiary" />}
+					<div className="min-w-0 flex-1 truncate">
+						<span className="font-semibold text-text-primary">{author}</span>{" "}
+						<span className="text-text-secondary">{action}</span>
+						{event.path ? <span className="text-text-secondary"> {event.path}</span> : null}
+					</div>
+					{event.authorAssociation ? (
+						<span className="shrink-0 rounded-full border border-border bg-surface-1 px-1.5 py-0.5 text-[10px] font-semibold text-text-secondary">
+							{event.authorAssociation}
+						</span>
+					) : null}
+					{date ? <span className="shrink-0 text-[11px] text-text-tertiary">{date}</span> : null}
+				</div>
+				<div className="grid gap-3 p-3 text-sm text-text-primary">
+					<PullRequestConversationInlineReference event={event} />
+					{hasBody ? (
+						<MarkdownMessagePreview value={event.body} emptyLabel="" className="cy-markdown-preview--plain text-sm" />
+					) : isReview ? (
+						<div className="text-sm text-text-secondary">Review submitted.</div>
+					) : null}
+				</div>
+			</div>
+		</div>
+	);
+}
+
+export function PullRequestConversationTimeline({
+	conversation,
+	isLoading = false,
+	className,
+}: {
+	conversation?: PullRequestConversation | null;
+	isLoading?: boolean;
+	className?: string;
+}): ReactElement {
+	if (isLoading && !conversation) {
+		return (
+			<div className={cn("grid gap-3 border-t border-divider pt-3", className)} role="status" aria-label="Loading pull request conversation">
+				<div className="kb-skeleton h-20 rounded-md" />
+				<div className="kb-skeleton h-28 rounded-md" />
+			</div>
+		);
+	}
+	if (!conversation) {
+		return (
+			<div className={cn("border-t border-divider pt-3 text-sm text-text-tertiary", className)}>
+				Conversation has not been loaded.
+			</div>
+		);
+	}
+	if (!conversation.supported) {
+		return (
+			<div className={cn("rounded-md border border-divider bg-surface-0 px-3 py-3 text-sm text-text-secondary", className)}>
+				{conversation.message ?? "Pull request conversation is not available for this provider."}
+			</div>
+		);
+	}
+	if (conversation.events.length === 0) {
+		return (
+			<div className={cn("rounded-md border border-dashed border-divider px-3 py-3 text-sm text-text-tertiary", className)}>
+				{conversation.message ?? "No PR comments yet."}
+			</div>
+		);
+	}
+	return (
+		<div className={cn("grid gap-3 border-t border-divider pt-3", className)}>
+			{conversation.events.map((event) => (
+				<PullRequestConversationCard key={`${event.kind}:${event.id}`} event={event} />
+			))}
+		</div>
+	);
 }
 
 export function pullRequestCheckBadgeMeta(
@@ -275,13 +509,13 @@ export function PullRequestDetailsPanel({
 									"inline-flex h-7 max-w-[150px] items-center justify-center gap-1.5 rounded-md border px-2 text-xs font-semibold leading-none",
 									"focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent",
 									badgeToneStyles[checkMeta.tone],
-								)}
-								title={`${checkMeta.title} Click to refresh.`}
-								onClick={onRefreshChecks}
-							>
-								{areChecksRefreshing ? <Spinner size={11} /> : null}
-								<span className="truncate">{checkMeta.label}</span>
-							</button>
+							)}
+							title={`${checkMeta.title} Click to refresh.`}
+							onClick={onRefreshChecks}
+						>
+							<RefreshCw size={12} className="shrink-0" />
+							<span className="truncate">{checkMeta.label}</span>
+						</button>
 						) : (
 							<PullRequestCheckBadge rollup={rollup} loading={areChecksRefreshing && !rollup} />
 						)}
@@ -348,7 +582,7 @@ export function PullRequestDetailsPanel({
 					</div>
 				</div>
 				{showDescriptionContent || isEditing ? (
-					<div className="min-h-0 flex-1">
+					<div className="min-h-0">
 						{isEditing ? (
 							<div className="grid gap-3">
 								<MarkdownMessageEditor

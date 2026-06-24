@@ -1,6 +1,7 @@
 import * as RadixDropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
 	PullRequestCheckBadge,
+	PullRequestConversationTimeline,
 	PullRequestDetailsPanel,
 	PullRequestViewButton,
 	pullRequestCheckBadgeMeta,
@@ -22,13 +23,13 @@ import type {
 import {
 	useGetBaseBranchChecksQuery,
 	useGetPullRequestChecksQuery,
+	useGetPullRequestConversationQuery,
 	useGetPullRequestDetailsQuery,
 	useUpdatePullRequestMutation,
 } from "@/runtime/vcs-api";
 import { copyTextToClipboard } from "@/utils/clipboard";
 
 type PullRequestSelectorInput = Omit<RuntimeVcsPullRequestSelector, "workspacePath">;
-const CHECK_POLLING_INTERVAL_MS = 10 * 60 * 1000;
 
 function checkBadgeToneClassName(tone: string): string {
 	switch (tone) {
@@ -114,7 +115,7 @@ export function VcsBaseBranchCheckStatus({
 }): React.ReactElement | null {
 	const result = useGetBaseBranchChecksQuery(
 		{ workspaceId: workspaceId ?? "", workspacePath },
-		{ skip: !workspaceId, pollingInterval: CHECK_POLLING_INTERVAL_MS },
+		{ skip: !workspaceId },
 	);
 	const rollup = result.data ?? null;
 	const meta = pullRequestCheckBadgeMeta(rollup, result.isFetching && !rollup);
@@ -134,7 +135,7 @@ export function VcsBaseBranchCheckStatus({
 			<Button
 				variant="ghost"
 				size="sm"
-				icon={result.isFetching ? <Spinner size={12} /> : <RefreshCw size={12} />}
+				icon={<RefreshCw size={12} />}
 				aria-label="Refresh base branch checks"
 				title="Refresh base branch checks"
 				onClick={() => void result.refetch()}
@@ -149,7 +150,7 @@ export function VcsPullRequestDetailsPanelContainer({
 	pr,
 	editRequestKey = null,
 	author = null,
-	filesContent,
+	belowContent,
 	headerViewModeControl,
 	isFloating = false,
 	showHeaderControls = true,
@@ -164,7 +165,7 @@ export function VcsPullRequestDetailsPanelContainer({
 	pr: RuntimeVcsPullRequestSummary | null | undefined;
 	editRequestKey?: number | null;
 	author?: PullRequestAuthorDisplay | null;
-	filesContent?: ReactNode;
+	belowContent?: ReactNode;
 	headerViewModeControl?: ReactNode;
 	isFloating?: boolean;
 	showHeaderControls?: boolean;
@@ -175,14 +176,6 @@ export function VcsPullRequestDetailsPanelContainer({
 	className?: string;
 }): React.ReactElement | null {
 	const selector = useMemo(() => (pr ? selectorForPullRequest(pr) : null), [pr]);
-	const detailsResult = useGetPullRequestDetailsQuery(
-		{ workspaceId: workspaceId ?? "", workspacePath, input: selector ?? { number: 0 } },
-		{ skip: !workspaceId || !selector || !pr },
-	);
-	const checksResult = useGetPullRequestChecksQuery(
-		{ workspaceId: workspaceId ?? "", workspacePath, input: selector ?? { number: 0 } },
-		{ skip: !workspaceId || !selector || !pr, pollingInterval: CHECK_POLLING_INTERVAL_MS },
-	);
 	const [updatePullRequest, updateState] = useUpdatePullRequestMutation();
 	const [draftBody, setDraftBody] = useState("");
 	const [isEditing, setEditing] = useState(false);
@@ -190,8 +183,26 @@ export function VcsPullRequestDetailsPanelContainer({
 	const [saveError, setSaveError] = useState<string | null>(null);
 	const lastEditRequestKey = useRef<number | null>(null);
 	const [pendingEditRequestKey, setPendingEditRequestKey] = useState<number | null>(null);
+	const detailsResult = useGetPullRequestDetailsQuery(
+		{ workspaceId: workspaceId ?? "", workspacePath, input: selector ?? { number: 0 } },
+		{ skip: !workspaceId || !selector || !pr },
+	);
+	const checksResult = useGetPullRequestChecksQuery(
+		{ workspaceId: workspaceId ?? "", workspacePath, input: selector ?? { number: 0 } },
+		{ skip: !workspaceId || !selector || !pr },
+	);
+	const conversationResult = useGetPullRequestConversationQuery(
+		{ workspaceId: workspaceId ?? "", workspacePath, input: selector ?? { number: 0 } },
+		{ skip: !workspaceId || !selector || !pr || !showDescriptionContent || isEditing },
+	);
 	const details = detailsResult.data ?? null;
 	const rollup = checksResult.data ?? details?.checks ?? pr?.checks ?? null;
+	const conversationContent = showDescriptionContent && !isEditing ? (
+		<PullRequestConversationTimeline
+			conversation={conversationResult.data ?? null}
+			isLoading={conversationResult.isFetching && !conversationResult.data}
+		/>
+	) : null;
 
 	useEffect(() => {
 		if (!isEditing) {
@@ -263,6 +274,7 @@ export function VcsPullRequestDetailsPanelContainer({
 			setEditing(false);
 			await detailsResult.refetch();
 			void checksResult.refetch();
+			void conversationResult.refetch();
 			await onUpdated?.();
 		} catch (error) {
 			setSaveError(errorMessage(error));
@@ -293,7 +305,7 @@ export function VcsPullRequestDetailsPanelContainer({
 			onClose={onClose}
 			onRefreshChecks={() => void checksResult.refetch()}
 			onFloatingChange={onFloatingChange}
-			belowContent={filesContent}
+			belowContent={belowContent ?? conversationContent}
 			actions={
 				<>
 					{headerViewModeControl}
@@ -328,7 +340,7 @@ export function VcsPullRequestColumnHeaderActions({
 	const selector = useMemo(() => (pr ? selectorForPullRequest(pr) : null), [pr]);
 	const checksResult = useGetPullRequestChecksQuery(
 		{ workspaceId: workspaceId ?? "", workspacePath, input: selector ?? { number: 0 } },
-		{ skip: !workspaceId || !selector || !pr, pollingInterval: CHECK_POLLING_INTERVAL_MS },
+		{ skip: !workspaceId || !selector || !pr },
 	);
 	const rollup = checksResult.data ?? pr?.checks ?? null;
 	const meta = pullRequestCheckBadgeMeta(rollup, checksResult.isFetching && !rollup);
@@ -347,7 +359,7 @@ export function VcsPullRequestColumnHeaderActions({
 				title={`${meta.title} Click to refresh.`}
 				onClick={() => void checksResult.refetch()}
 			>
-				{checksResult.isFetching ? <Spinner size={11} /> : null}
+				<RefreshCw size={12} className="shrink-0" />
 				<span className="truncate">{meta.label}</span>
 			</button>
 			{pr.url ? (

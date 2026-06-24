@@ -143,6 +143,34 @@ export type RemotePullRequestDetails = RemotePullRequest & {
   updatedAt?: string | null;
 };
 
+export type RemotePullRequestConversationEvent = {
+  provider: string;
+  id: string;
+  kind: "comment" | "review" | "review_comment";
+  author: string | null;
+  authorAvatarUrl?: string | null;
+  authorAssociation?: string | null;
+  body: string;
+  createdAt: string | null;
+  updatedAt?: string | null;
+  url?: string | null;
+  reviewState?: string | null;
+  path?: string | null;
+  line?: number | null;
+  startLine?: number | null;
+  side?: string | null;
+  diffHunk?: string | null;
+  commitId?: string | null;
+};
+
+export type RemotePullRequestConversation = {
+  provider: string;
+  pullRequestNumber: number;
+  supported: boolean;
+  events: RemotePullRequestConversationEvent[];
+  message?: string;
+};
+
 export type RemotePullRequestComment = {
   provider: string;
   commentNumber: number | null;

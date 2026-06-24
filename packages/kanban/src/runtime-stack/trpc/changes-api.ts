@@ -64,6 +64,7 @@ import type {
 	RuntimeVcsBaseBranchChecksRequest,
 	RuntimeVcsBranchChecksResponse,
 	RuntimeVcsPullRequestChecksResponse,
+	RuntimeVcsPullRequestConversation,
 	RuntimeVcsPullRequestDetails,
 	RuntimeVcsPullRequestSelector,
 	RuntimeVcsPullRequestUpdateRequest,
@@ -297,6 +298,10 @@ export interface RuntimeChangeyardApiAdapter {
 		repoRoot: string,
 		input: RuntimeVcsPullRequestSelector,
 	) => Promise<RuntimeVcsPullRequestChecksResponse> | RuntimeVcsPullRequestChecksResponse;
+	getVcsPullRequestConversation?: (
+		repoRoot: string,
+		input: RuntimeVcsPullRequestSelector,
+	) => Promise<RuntimeVcsPullRequestConversation> | RuntimeVcsPullRequestConversation;
 	getVcsBaseBranchChecks?: (
 		repoRoot: string,
 		input?: RuntimeVcsBaseBranchChecksRequest,

@@ -20,7 +20,7 @@ import { previewJjStackSubmit, submitJjStack } from "./jj/stack-submit.js";
 import { listGitHubCliPullRequests } from "./github-cli-pr.js";
 import { loadJjState, loadJjStateFromDetect } from "./jj/state.js";
 import { cachedPullRequestToInventoryPr, findCachedPullRequest, providerRepositoryIdentity, readVcsPullRequestCache } from "./pr-cache.js";
-import { getVcsBaseBranchChecks, getVcsPullRequestChecks, getVcsPullRequestDetails, updateVcsPullRequestDetails } from "./pr-actions.js";
+import { getVcsBaseBranchChecks, getVcsPullRequestChecks, getVcsPullRequestConversation, getVcsPullRequestDetails, updateVcsPullRequestDetails } from "./pr-actions.js";
 import {
 	applyJjWorkspaceOperation,
 	loadJjConflictFile,
@@ -724,6 +724,10 @@ export async function updateVcsPrDetails(repoRoot: string, input: Parameters<typ
 
 export async function getVcsPrChecks(repoRoot: string, input: Parameters<typeof getVcsPullRequestChecks>[1]) {
 	return getVcsPullRequestChecks(repoRoot, input);
+}
+
+export async function getVcsPrConversation(repoRoot: string, input: Parameters<typeof getVcsPullRequestConversation>[1]) {
+	return getVcsPullRequestConversation(repoRoot, input);
 }
 
 export async function getVcsBaseChecks(repoRoot: string, input?: Parameters<typeof getVcsBaseBranchChecks>[1]) {
