@@ -1,6 +1,5 @@
 import { toast } from "sonner";
-import { Copy } from "lucide-react";
-import { createElement, type CSSProperties, type ReactNode } from "react";
+import type { CSSProperties } from "react";
 
 import { copyTextToClipboard } from "@/utils/clipboard";
 
@@ -50,21 +49,12 @@ function toastStyleForIntent(intent: AppToastProps["intent"]): CSSProperties | u
 	return undefined;
 }
 
-function copyIconLabel(): ReactNode {
-	return createElement(
-		"span",
-		{ className: "inline-flex items-center gap-1", title: "Copy details" },
-		createElement(Copy, { size: 14, "aria-hidden": true }),
-		createElement("span", { className: "sr-only" }, "Copy details"),
-	);
-}
-
 export function showAppToast(props: AppToastProps, key?: string): void {
 	const isPersistent = props.intent === "danger" || props.intent === "warning";
 	const copyText = props.copyText ?? (isPersistent ? props.message : undefined);
 	const copyAction = copyText
 		? {
-				label: copyIconLabel(),
+				label: "Copy details",
 				onClick: () => {
 					void copyTextToClipboard(copyText).then((copied) => {
 						if (copied) {
