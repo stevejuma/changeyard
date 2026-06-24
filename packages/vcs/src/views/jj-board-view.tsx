@@ -2363,20 +2363,43 @@ function WorkspaceReady({
 				),
 			}
 		: null;
-	const stackHeaderDiffColumn =
+	const pullRequestDiffContent =
 		selectedStackHeaderId && selectedStackFilePath ? (
-			<VcsFileDiffColumn
-				file={selectedHeaderFile}
-				isLoading={commitDiffQuery.state.status === "loading"}
-				width={diffColumnWidth}
-				minWidth={WORKSPACE_COLUMN_LIMITS.diff.min}
-				maxWidth={WORKSPACE_COLUMN_LIMITS.diff.max}
-				onWidthChange={changeDiffColumnWidth}
-				onClose={() => {
-					setSelectedStackFilePath(null);
-					setHasUserClearedStackFile(true);
-				}}
-			/>
+			<section data-testid="vcs-pr-inline-file-diff" className="grid min-h-0 gap-2 border-t border-divider pt-3">
+				<div className="flex h-9 min-w-0 items-center gap-2 rounded-md border border-divider bg-surface-0 px-2">
+					{selectedHeaderFile ? <FileTypeIcon path={selectedHeaderFile.path} title={selectedHeaderFile.path} /> : <FileTypeIcon path="diff" />}
+					<span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-text-primary" title={selectedHeaderFile?.path}>
+						{selectedHeaderFile?.path ?? (commitDiffQuery.state.status === "loading" ? "Loading diff" : "Diff")}
+					</span>
+					{selectedHeaderFile ? <FileStatusGlyph status={selectedHeaderFile.status} /> : null}
+					<Button
+						variant="ghost"
+						size="sm"
+						icon={<X size={14} />}
+						aria-label="Close PR file diff"
+						title="Close diff"
+						onClick={() => {
+							setSelectedStackFilePath(null);
+							setHasUserClearedStackFile(true);
+						}}
+					/>
+				</div>
+				<div className="min-h-[220px] overflow-auto rounded-md border border-divider bg-surface-0 p-2">
+					{commitDiffQuery.state.status === "loading" ? (
+						<div className="grid gap-2 p-1">
+							<div className="kb-skeleton h-4 w-2/5" />
+							<div className="kb-skeleton h-32 w-full" />
+							<div className="kb-skeleton h-24 w-full" />
+						</div>
+					) : selectedHeaderDiffError ? (
+						<div className="px-2 py-2 text-[12px] text-status-red">{selectedHeaderDiffError}</div>
+					) : selectedHeaderFile ? (
+						<VcsFileDiffContent file={selectedHeaderFile} />
+					) : (
+						<EmptyState title="Select a file">Choose a PR file to inspect its diff.</EmptyState>
+					)}
+				</div>
+			</section>
 		) : null;
 	const pullRequestPanel =
 		selectedHeaderStack && selectedHeaderPullRequest ? (
@@ -2386,6 +2409,7 @@ function WorkspaceReady({
 				pr={selectedHeaderPullRequest}
 				editRequestKey={stackPrEditRequest?.stackId === selectedHeaderStack.id ? stackPrEditRequest.key : null}
 				author={selectedHeaderAuthor}
+				filesContent={pullRequestDiffContent}
 				isFloating={isPullRequestSummaryFloating}
 				showHeaderControls={isPullRequestSummaryFloating}
 				onFloatingChange={changePullRequestSummaryFloating}
@@ -2438,7 +2462,6 @@ function WorkspaceReady({
 		Boolean(selectedFile) ||
 		Boolean(selectedUnstagedFilePath) ||
 		Boolean(pullRequestColumn) ||
-		Boolean(stackHeaderDiffColumn) ||
 		Boolean(floatingPullRequestSummary);
 	return (
 		<>
@@ -2593,10 +2616,7 @@ function WorkspaceReady({
 							) : selectedStackId === stack.id ? (
 								diffColumn
 							) : selectedStackHeaderId === stack.id ? (
-								<>
-									{pullRequestColumn}
-									{stackHeaderDiffColumn}
-								</>
+								pullRequestColumn
 							) : null}
 						</Fragment>
 					))
