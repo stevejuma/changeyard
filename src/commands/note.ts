@@ -1,14 +1,10 @@
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
-import { loadConfig } from "../config/loadConfig.js";
 import { parseFrontmatter } from "../documents/frontmatter.js";
 import { parseSections, replaceSection } from "../documents/sections.js";
-import { changesRoot } from "../paths.js";
-import { writeChangeDocument, workspaceChangePathForMetadata } from "../state/activeChangeDocument.js";
-import { findChangeFile } from "../state/id.js";
-import type { Frontmatter, WorkspaceMetadata } from "../types.js";
+import { resolveActiveChangePaths, writeChangeDocument } from "../state/activeChangeDocument.js";
+import type { Frontmatter } from "../types.js";
 import { assertTransition } from "../state/transitions.js";
-import { readWorkspaceMetadataFromRoot } from "./workspace.js";
 
 export type NoteOptions = {
   message?: string;
@@ -16,31 +12,8 @@ export type NoteOptions = {
   dryRun?: boolean;
 };
 
-type ActiveChangePaths = {
-  changeId: string;
-  rootPath: string;
-  activePath: string;
-  metadata: WorkspaceMetadata | null;
-};
-
 function nowIso(): string {
   return new Date().toISOString();
-}
-
-function resolveActiveChangePaths(id: string, repoRoot: string): ActiveChangePaths {
-  const config = loadConfig(repoRoot);
-  const rootPath = findChangeFile(changesRoot(repoRoot, config), id);
-  if (!rootPath) throw new Error(`Change not found: ${id}`);
-  const rootParsed = parseFrontmatter(readFileSync(rootPath, "utf8"));
-  const changeId = String(rootParsed.frontmatter.id ?? id);
-  const metadata = readWorkspaceMetadataFromRoot(changeId, repoRoot);
-  const workspacePath = metadata ? workspaceChangePathForMetadata(metadata, rootPath) : null;
-  return {
-    changeId,
-    rootPath,
-    activePath: workspacePath && existsSync(workspacePath) ? workspacePath : rootPath,
-    metadata,
-  };
 }
 
 function writeDocument(filePath: string, frontmatter: Frontmatter, body: string, dryRun: boolean | undefined): void {

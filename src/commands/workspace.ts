@@ -4,7 +4,7 @@ import { validateFinalCommitDescription } from "../change/commitDescriptions.js"
 import { loadConfig } from "../config/loadConfig.js";
 import { parseFrontmatter } from "../documents/frontmatter.js";
 import { changesRoot, workspacesRoot } from "../paths.js";
-import { findChangeFile, findWorkspaceId } from "../state/id.js";
+import { findChangeFile } from "../state/id.js";
 import type { ChangeStatus, WorkspaceMetadata } from "../types.js";
 import { shellCommandRunner, shellInspectionCommandRunner } from "../workspace/commandRunner.js";
 import { validateJjLandingDescriptions } from "../workspace/jjLandingDescriptions.js";
@@ -13,6 +13,9 @@ import { resolveWorkspaceChangePath } from "../workspace/marker.js";
 import { deleteTaskWorkspace, verifyTaskWorkspace, type WorkspaceRepositoryKind } from "../workspace/runtimeBridge.js";
 import { isDenied } from "../workspace/patterns.js";
 import { remoteCheckGate } from "./pr.js";
+import { readWorkspaceMetadataFromRoot } from "../workspace/metadata.js";
+
+export { readWorkspaceMetadataFromRoot, workspaceMetadataPath } from "../workspace/metadata.js";
 
 export type WorkspaceStatus = {
   id: string;
@@ -57,30 +60,6 @@ export type WorkspaceDeleteOptions = {
   dryRun?: boolean;
   force?: boolean;
 };
-
-function asWorkspaceMetadata(value: unknown): WorkspaceMetadata {
-  const record = typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
-  const required = ["changeId", "engine", "name", "path", "repoRoot", "changePath", "createdAt"];
-  for (const key of required) {
-    if (typeof record[key] !== "string" || record[key] === "") {
-      throw new Error(`Workspace metadata is missing ${key}`);
-    }
-  }
-  return record as WorkspaceMetadata;
-}
-
-export function workspaceMetadataPath(id: string, repoRoot: string): string {
-  const config = loadConfig(repoRoot);
-  const root = workspacesRoot(repoRoot, config);
-  const workspaceId = findWorkspaceId(root, id) ?? id;
-  return path.join(root, workspaceId, "metadata.json");
-}
-
-export function readWorkspaceMetadataFromRoot(id: string, repoRoot: string): WorkspaceMetadata | null {
-  const metadataPath = workspaceMetadataPath(id, repoRoot);
-  if (!existsSync(metadataPath)) return null;
-  return asWorkspaceMetadata(JSON.parse(readFileSync(metadataPath, "utf8")));
-}
 
 function statusFromChangePath(changePath: string): ChangeStatus | string {
   const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));

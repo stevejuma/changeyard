@@ -1,16 +1,14 @@
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { quickCompletionProfile, validateQuickCompletion } from "../change/quickLifecycle.js";
+import { quickCompletionProfile } from "../change/quickLifecycle.js";
 import { parseSliceRecords } from "../change/slices.js";
 import { loadConfig } from "../config/loadConfig.js";
 import { parseFrontmatter, writeFrontmatter } from "../documents/frontmatter.js";
-import { parseSections } from "../documents/sections.js";
 import { validateChangeFile } from "../documents/validateDocument.js";
-import { changesRoot, storageRoot, workspacesRoot } from "../paths.js";
-import { validatePlanningForGate } from "../planning/validation.js";
-import { findChangeFile } from "../state/id.js";
+import { storageRoot, workspacesRoot } from "../paths.js";
+import { resolveActiveChangePaths } from "../state/activeChangeDocument.js";
 import type { Frontmatter, WorkspaceMetadata } from "../types.js";
-import { readWorkspaceMetadata, resolveWorkspaceChangePath } from "../workspace/marker.js";
+import { readWorkspaceMetadata } from "../workspace/marker.js";
 import { describeJjWorkspaceCommit } from "../workspace/jjLandingDescriptions.js";
 import { assertTransition } from "../state/transitions.js";
 import { createProvider } from "../providers/index.js";
@@ -100,14 +98,6 @@ function legacyHasWorkspaceChanges(repoRoot: string, workspaceRoot: string, neve
   return false;
 }
 
-function completionNotesPresent(body: string): boolean {
-  const notes = parseSections(body).get("Completion Notes") ?? "";
-  const trimmed = notes.trim();
-  return trimmed.length > 0
-    && !trimmed.includes("Summarize what changed")
-    && !trimmed.includes("Summarize changed areas");
-}
-
 function asRecord(value: unknown): Frontmatter {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Frontmatter : {};
 }
@@ -123,7 +113,8 @@ export function runComplete(id: string, options: CompleteOptions = {}, cwd = pro
   const metadata = readWorkspaceMetadata(id, cwd);
   const changeId = metadata.changeId;
   const config = loadConfig(metadata.repoRoot);
-  const changePath = metadata.engine === "jj" ? resolveWorkspaceChangePath(metadata) : findChangeFile(changesRoot(metadata.repoRoot, config), changeId) ?? metadata.changePath;
+  const changePaths = resolveActiveChangePaths(changeId, metadata.repoRoot);
+  const changePath = changePaths.activePath;
   const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
   runVerify(changeId, cwd);
   assertTransition(String(parsed.frontmatter.status ?? ""), "ready_for_pr", `Complete ${changeId}`);
@@ -134,27 +125,6 @@ export function runComplete(id: string, options: CompleteOptions = {}, cwd = pro
     gate: "complete",
     result: validation,
   }));
-  const planningValidation = validatePlanningForGate(parsed.frontmatter, parsed.body, "complete");
-  if (!planningValidation.valid) throw new Error(formatValidationFailure({
-    id: changeId,
-    repoRoot: metadata.repoRoot,
-    gate: "complete",
-    result: planningValidation,
-  }));
-  const quickValidation = validateQuickCompletion(parsed.frontmatter, parsed.body);
-  if (!quickValidation.valid) throw new Error(formatValidationFailure({
-    id: changeId,
-    repoRoot: metadata.repoRoot,
-    gate: "complete",
-    result: { ...quickValidation, warnings: [] },
-  }));
-  if (!completionNotesPresent(parsed.body)) throw new Error([
-    "Completion Notes must be filled before completing a change",
-    "",
-    "Recovery:",
-    "- Update # Completion Notes with changed areas, checks run, and remaining risks or follow-ups.",
-    `- Re-run cy complete ${changeId} --no-pr from ${metadata.path}.`,
-  ].join("\n"));
   const changedFiles = changedWorkspaceFiles(metadata.repoRoot, metadata.path, config.workspace.hydrate.neverCopy);
   if (!options.noCodeChange && changedFiles.length === 0 && !legacyHasWorkspaceChanges(metadata.repoRoot, metadata.path, config.workspace.hydrate.neverCopy)) {
     throw new Error([
@@ -204,6 +174,9 @@ export function runComplete(id: string, options: CompleteOptions = {}, cwd = pro
   const providerPrSupported = Boolean(provider.createPullRequest);
 
   writeFileSync(changePath, writeFrontmatter(nextFrontmatter, parsed.body));
+  if (metadata.engine !== "jj" && changePaths.rootPath !== changePath) {
+    writeFileSync(changePaths.rootPath, writeFrontmatter(nextFrontmatter, parsed.body));
+  }
   let finalDescriptionUpdated = false;
   if (metadata.engine === "jj" && metadata.workspaceChangeId) {
     const generated = finalDescriptionMessage(changeId, metadata, metadata.repoRoot, metadata.targetRef ?? config.project.defaultBase);

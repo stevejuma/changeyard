@@ -20,6 +20,14 @@ function valueMissing(frontmatter: Frontmatter, key: string): boolean {
   return value === undefined || value === null || value === "" || (Array.isArray(value) && value.length === 0);
 }
 
+function completionNotesPresent(body: string): boolean {
+  const notes = parseSections(body).get("Completion Notes") ?? "";
+  const trimmed = notes.trim();
+  return trimmed.length > 0
+    && !trimmed.includes("Summarize what changed")
+    && !trimmed.includes("Summarize changed areas");
+}
+
 export function validateParsedChange(
   frontmatter: Frontmatter,
   body: string,
@@ -56,6 +64,10 @@ export function validateParsedChange(
   const acceptanceCriteria = sections.get("Acceptance Criteria") ?? "";
   if (template?.validation.requireUncheckedAcceptanceCriteria && options.gate !== "complete" && !hasUncheckedCheckboxTask(acceptanceCriteria)) {
     errors.push("Acceptance Criteria must include at least one unchecked task before completion. If all tasks are checked, run cy validate <id> --gate complete or cy complete <id>.");
+  }
+
+  if (options.gate === "complete" && !completionNotesPresent(body)) {
+    errors.push("Completion Notes must be filled before completing a change");
   }
 
   const planningValidation = validatePlanningForGate(frontmatter, body, options.gate ?? "document");

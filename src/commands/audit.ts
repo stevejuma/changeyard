@@ -1,12 +1,12 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { isQuickChange, planningModel, workflowMetadata, workflowMode } from "../change/changeMetadata.js";
 import { loadConfig } from "../config/loadConfig.js";
 import { parseFrontmatter } from "../documents/frontmatter.js";
 import { validateChangeFile, type ValidationResult } from "../documents/validateDocument.js";
-import { changesRoot, storageRoot } from "../paths.js";
+import { storageRoot } from "../paths.js";
 import { readPlanningMetadata } from "../planning/model.js";
-import { findChangeFile } from "../state/id.js";
+import { resolveActiveChangePaths } from "../state/activeChangeDocument.js";
 import type { Frontmatter } from "../types.js";
 import type { ValidationGate } from "../planning/validation.js";
 import { getNextAction } from "./next.js";
@@ -67,7 +67,7 @@ function uniq(values: string[]): string[] {
 }
 
 function relativeOrAbsolute(repoRoot: string, targetPath: string): string {
-  const relative = path.relative(repoRoot, targetPath);
+  const relative = path.relative(realpathSync(repoRoot), realpathSync(targetPath));
   return relative && !relative.startsWith("..") ? relative : targetPath;
 }
 
@@ -164,18 +164,17 @@ export function buildValidationAuditChecks(input: {
 }): WorkflowAuditCheck[] {
   const config = loadConfig(input.repoRoot);
   const root = storageRoot(input.repoRoot, config);
-  const filePath = findChangeFile(changesRoot(input.repoRoot, config), input.id);
-  if (!filePath) throw new Error(`Change not found: ${input.id}`);
-  const parsed = parseFrontmatter(readFileSync(filePath, "utf8"));
+  const paths = resolveActiveChangePaths(input.id, input.repoRoot);
+  const parsed = parseFrontmatter(readFileSync(paths.activePath, "utf8"));
   const changeId = String(parsed.frontmatter.id ?? input.id);
-  const canonicalPath = relativeOrAbsolute(input.repoRoot, filePath);
+  const canonicalPath = relativeOrAbsolute(input.repoRoot, paths.activePath);
   const gates = input.gates ?? ALL_VALIDATION_GATES;
   return gates.map(({ gate, name }) => checkFromValidation({
     id: changeId,
     gate,
     name,
     canonicalPath,
-    result: validateChangeFile(filePath, root, { gate, config }),
+    result: validateChangeFile(paths.activePath, root, { gate, config }),
   }));
 }
 
@@ -185,9 +184,12 @@ export function formatValidationFailure(input: {
   gate: ValidationGate;
   result: ValidationResult;
 }): string {
-  const config = loadConfig(input.repoRoot);
-  const filePath = findChangeFile(changesRoot(input.repoRoot, config), input.id);
-  const canonicalPath = filePath ? relativeOrAbsolute(input.repoRoot, filePath) : input.id;
+  let canonicalPath = input.id;
+  try {
+    canonicalPath = relativeOrAbsolute(input.repoRoot, resolveActiveChangePaths(input.id, input.repoRoot).activePath);
+  } catch {
+    // Preserve the original validation failure when the path cannot be resolved again.
+  }
   const check = checkFromValidation({
     id: input.id,
     gate: input.gate,
@@ -259,10 +261,8 @@ function remotePrCheckAudit(id: string, repoRoot: string, frontmatter: Frontmatt
 
 export function getWorkflowAuditReport(id: string, repoRoot = process.cwd()): WorkflowAuditReport {
   if (!id) throw new Error("change id is required");
-  const config = loadConfig(repoRoot);
-  const filePath = findChangeFile(changesRoot(repoRoot, config), id);
-  if (!filePath) throw new Error(`Change not found: ${id}`);
-  const parsed = parseFrontmatter(readFileSync(filePath, "utf8"));
+  const paths = resolveActiveChangePaths(id, repoRoot);
+  const parsed = parseFrontmatter(readFileSync(paths.activePath, "utf8"));
   const changeId = String(parsed.frontmatter.id ?? id);
   const status = getStatus(changeId, repoRoot);
   const next = getNextAction(changeId, repoRoot);
@@ -299,7 +299,7 @@ export function getWorkflowAuditReport(id: string, repoRoot = process.cwd()): Wo
     type: status.type,
     status: status.status,
     workflow: classifyWorkflow(parsed.frontmatter),
-    canonicalPath: relativeOrAbsolute(repoRoot, filePath),
+    canonicalPath: relativeOrAbsolute(repoRoot, paths.activePath),
     expectedCwd: relativeOrAbsolute(repoRoot, next.expectedCwd),
     nextCommand: next.nextCommand,
     blockers: uniq(blockers),

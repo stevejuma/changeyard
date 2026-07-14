@@ -38,6 +38,14 @@ function isTerminalQuickStatus(status: string): boolean {
   return ["ready_for_pr", "pr_open", "in_review", "changes_requested", "approved", "merged", "abandoned"].includes(status);
 }
 
+function hasBlockingUncheckedItems(section: string): boolean {
+  return section.split(/\r?\n/).some((line) => /^\s*- \[ \]\s+/.test(line) && !/DEFERRED:/i.test(line));
+}
+
+function completionNotesMentionChecks(notes: string): boolean {
+  return /(?:checks?|tests?)\s+(?:run|ran|passed|completed|succeeded)|(?:run|ran|passed)\s+(?:checks?|tests?)|verif(?:ication|ied)|(?:checks?|tests?)\s+(?:were\s+)?not\s+run|did\s+not\s+run\s+(?:checks?|tests?)|no\s+(?:checks?|tests?)(?:\s+(?:were\s+)?run)?/i.test(notes);
+}
+
 function isQuickCandidate(frontmatter: Frontmatter): boolean {
   const type = typeof frontmatter.type === "string" ? frontmatter.type : "";
   if (type === "quick") return true;
@@ -141,6 +149,16 @@ export function validateQuickChange(
       const uncheckedTaskError = "Acceptance Criteria must include at least one unchecked task before quick completion";
       const index = errors.indexOf(uncheckedTaskError);
       if (index >= 0) errors.splice(index, 1);
+    }
+    if (acceptanceCriteria.trim() === "" || !hasCheckboxTask(acceptanceCriteria)) {
+      errors.push("Acceptance Criteria must include checkbox items before quick completion.");
+    } else if (hasBlockingUncheckedItems(acceptanceCriteria)) {
+      errors.push("Acceptance Criteria must be completed or marked `Deferred: <reason>` before quick completion.");
+    }
+
+    const completionNotes = (sections.get("Completion Notes") ?? "").trim();
+    if (completionNotes && !completionNotesMentionChecks(completionNotes)) {
+      errors.push("Completion Notes must mention checks run or explain why checks were not run before quick completion.");
     }
   }
   validateQuickPlanningMarkers(body, errors);

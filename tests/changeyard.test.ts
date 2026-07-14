@@ -1674,11 +1674,64 @@ test("validate complete gate accepts fully checked acceptance criteria", () => {
     runCreate({ template: "agent-task", title: "Complete gate validation" }, repo);
     const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-complete-gate-validation.md");
     updateSection(changePath, "Acceptance Criteria", "- [x] Completion gate can validate checked tasks");
+    updateSection(changePath, "Completion Notes", "Validation complete. Checks run: node -v.");
     assert.throws(
       () => runValidate("CY-0001", repo),
       /run cy validate <id> --gate complete or cy complete <id>/,
     );
     assert.match(runValidate("CY-0001", repo, { gate: "complete" }), /Valid change/);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("completion commands share the active workspace document and completion evidence rules", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    writeFileSync(path.join(repo, ".changeyard", "config.local.jsonc"), `{"checks":{"minimal":["node -v"]}}\n`);
+    runCreate({ template: "quick", title: "Active completion validation" }, repo);
+    runStart("CY-0001", repo);
+
+    const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
+    const workspaceChangePath = path.join(workspacePath, ".changeyard", "changes", "CY-0001-active-completion-validation.md");
+    updateSection(workspaceChangePath, "Acceptance Criteria", "- [x] Completion commands agree");
+
+    for (const notes of [
+      "Implemented the change. Checks run: node -v.",
+      "Implemented the change. Checks ran: node -v.",
+      "Implemented the change. Tests passed: CLI suite.",
+      "Implemented the change. Verification evidence: manual CLI exercise.",
+      "Implemented the change. No checks were run because this scenario is documentation-only.",
+    ]) {
+      updateSection(workspaceChangePath, "Completion Notes", notes);
+      assert.match(runValidate("CY-0001", repo, { gate: "complete" }), /Valid change: \.changeyard\/workspaces\/CY-0001\/repo\/\.changeyard\/changes\//);
+      const audit = getWorkflowAuditReport("CY-0001", repo);
+      assert.notEqual(audit.checks.find((check) => check.gate === "complete")?.status, "fail");
+      assert.match(audit.canonicalPath, /\.changeyard\/workspaces\/CY-0001\/repo\/\.changeyard\/changes\//);
+    }
+
+    const rootCli = spawnSync(nodeBinary(), [cliBinPath(), "validate", "CY-0001", "--gate", "complete"], { cwd: repo, encoding: "utf8" });
+    const workspaceCli = spawnSync(nodeBinary(), [cliBinPath(), "validate", "CY-0001", "--gate", "complete"], { cwd: workspacePath, encoding: "utf8" });
+    assert.equal(rootCli.status, 0, rootCli.stderr);
+    assert.equal(workspaceCli.status, 0, workspaceCli.stderr);
+    assert.equal(rootCli.stdout, workspaceCli.stdout);
+
+    updateSection(workspaceChangePath, "Completion Notes", "Implemented the change with low remaining risk.");
+    const captureMessage = (run: () => unknown): string => {
+      try {
+        run();
+      } catch (error) {
+        return error instanceof Error ? error.message : String(error);
+      }
+      assert.fail("Expected command to fail");
+    };
+    const validateFailure = captureMessage(() => runValidate("CY-0001", repo, { gate: "complete" }));
+    const completeFailure = captureMessage(() => runComplete("CY-0001", { noPr: true }, workspacePath));
+    assert.equal(completeFailure, validateFailure);
+    const auditFailure = getWorkflowAuditReport("CY-0001", repo).checks.find((check) => check.gate === "complete");
+    assert.deepEqual(auditFailure?.errors, ["Completion Notes must mention checks run or explain why checks were not run before quick completion."]);
+    assert.match(validateFailure, new RegExp(auditFailure?.errors[0] ?? "$^"));
   } finally {
     cleanup(repo);
   }
@@ -1850,10 +1903,10 @@ test("complete runs checks and updates ready_for_pr", () => {
     runStart("CY-0001", repo);
     const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
     writeFileSync(path.join(workspacePath, "implementation.txt"), "done\n");
-    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-complete-workspace.md");
+    const changePath = path.join(workspacePath, ".changeyard", "changes", "CY-0001-complete-workspace.md");
     updateSection(changePath, "Completion Notes", "Implemented workspace changes. Checks ran: node -v. No remaining risks.");
     assert.match(runComplete("CY-0001", { noPr: true }, workspacePath), /Completed CY-0001: 1 checks passed/);
-    const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
+    const parsed = parseFrontmatter(readFileSync(path.join(repo, ".changeyard", "changes", "CY-0001-complete-workspace.md"), "utf8"));
     assert.equal(parsed.frontmatter.status, "ready_for_pr");
     assert.match(readFileSync(path.join(repo, ".changeyard", "workspaces", "CY-0001", "logs", "checks.log"), "utf8"), /node -v/);
   } finally {
@@ -1869,7 +1922,7 @@ test("check record preserves manual evidence and complete uses it when no checks
     runStart("CY-0001", repo);
     const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
     writeFileSync(path.join(workspacePath, "implementation.txt"), "done\n");
-    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-manual-check-evidence.md");
+    const changePath = path.join(workspacePath, ".changeyard", "changes", "CY-0001-manual-check-evidence.md");
     updateSection(changePath, "Acceptance Criteria", "- [x] Manual evidence is recorded");
     updateSection(changePath, "Completion Notes", "Implemented workspace changes. Checks ran: pnpm test.");
 
@@ -1885,7 +1938,7 @@ test("check record preserves manual evidence and complete uses it when no checks
 
     const syncOutput = runSync("CY-0001", repo);
     assert.match(syncOutput, /Synced CY-0001 with noop/);
-    assert.equal(parseFrontmatter(readFileSync(changePath, "utf8")).frontmatter.status, "ready_for_pr");
+    assert.equal(parseFrontmatter(readFileSync(path.join(repo, ".changeyard", "changes", "CY-0001-manual-check-evidence.md"), "utf8")).frontmatter.status, "ready_for_pr");
   } finally {
     cleanup(repo);
   }
@@ -1980,7 +2033,7 @@ test("complete blocks large single-slice work unless explicitly allowed", () => 
     for (let index = 1; index <= 4; index += 1) {
       writeFileSync(path.join(workspacePath, `file-${index}.txt`), `file ${index}\n`);
     }
-    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-large-single-commit.md");
+    const changePath = path.join(workspacePath, ".changeyard", "changes", "CY-0001-large-single-commit.md");
     updateSection(changePath, "Completion Notes", "Implemented workspace changes. Checks ran: node -v.");
     assert.throws(
       () => runComplete("CY-0001", { noPr: true }, workspacePath),
@@ -2003,12 +2056,12 @@ test("quick complete defaults to the minimal profile and records quick completio
     const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
     writeFileSync(path.join(workspacePath, "implementation.txt"), "done\n");
 
-    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-quick-complete-minimal-profile.md");
+    const changePath = path.join(workspacePath, ".changeyard", "changes", "CY-0001-quick-complete-minimal-profile.md");
     updateSection(changePath, "Acceptance Criteria", "- [x] Updated the targeted wording\n- [ ] Deferred: screenshot refresh handled separately");
     updateSection(changePath, "Completion Notes", "Updated the targeted wording. Checks ran: node -v. Remaining risk is low.");
 
     assert.match(runComplete("CY-0001", { noPr: true }, workspacePath), /Completed CY-0001: 1 checks passed; status ready_for_pr/);
-    const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
+    const parsed = parseFrontmatter(readFileSync(path.join(repo, ".changeyard", "changes", "CY-0001-quick-complete-minimal-profile.md"), "utf8"));
     assert.equal((parsed.frontmatter.checks as { profile?: string }).profile, "minimal");
 
     const log = readFileSync(path.join(repo, ".changeyard", "workspaces", "CY-0001", "logs", "checks.log"), "utf8");
@@ -2030,7 +2083,7 @@ test("quick complete fails when acceptance criteria remain unchecked", () => {
     const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
     writeFileSync(path.join(workspacePath, "implementation.txt"), "done\n");
 
-    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-quick-complete-blocked-ac.md");
+    const changePath = path.join(workspacePath, ".changeyard", "changes", "CY-0001-quick-complete-blocked-ac.md");
     updateSection(changePath, "Completion Notes", "Updated the targeted wording. Checks ran: node -v.");
 
     assert.throws(
@@ -2053,7 +2106,7 @@ test("quick complete fails when completion notes omit check context", () => {
     const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
     writeFileSync(path.join(workspacePath, "implementation.txt"), "done\n");
 
-    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-quick-complete-notes-gate.md");
+    const changePath = path.join(workspacePath, ".changeyard", "changes", "CY-0001-quick-complete-notes-gate.md");
     updateSection(changePath, "Acceptance Criteria", "- [x] Updated the targeted wording");
     updateSection(changePath, "Completion Notes", "Updated the targeted wording and kept the risk low.");
 
@@ -2125,11 +2178,11 @@ test("pr new creates a local-folder pull request after local completion", () => 
     runStart("CY-0001", repo);
     const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
     writeFileSync(path.join(workspacePath, "implementation.txt"), "done\n");
-    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-open-local-pr.md");
+    const changePath = path.join(workspacePath, ".changeyard", "changes", "CY-0001-open-local-pr.md");
     updateSection(changePath, "Completion Notes", "Implemented PR creation. Checks ran: node -v. No remaining risks.");
     assert.match(runComplete("CY-0001", {}, workspacePath), /status ready_for_pr/);
     assert.match(runPrNew("CY-0001", { ready: true }, repo, repo), /Created PR for CY-0001/);
-    const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
+    const parsed = parseFrontmatter(readFileSync(path.join(repo, ".changeyard", "changes", "CY-0001-open-local-pr.md"), "utf8"));
     assert.equal(parsed.frontmatter.status, "pr_open");
     assert.equal(asRecordForTest(parsed.frontmatter.remote).draft, false);
     const prRoot = path.join(repo, ".changeyard", "cache", "local-folder", "pull-requests");
@@ -2159,7 +2212,7 @@ test("pr new rejects uncompleted changes and uses selected templates", () => {
     runStart("CY-0001", repo);
     const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
     writeFileSync(path.join(workspacePath, "implementation.txt"), "done\n");
-    const changePath = path.join(repo, ".changeyard", "changes", "CY-0001-template-pr.md");
+    const changePath = path.join(workspacePath, ".changeyard", "changes", "CY-0001-template-pr.md");
     updateSection(changePath, "Completion Notes", "Implemented template-backed PR creation. Checks ran: node -v.");
     runComplete("CY-0001", { noPr: true }, workspacePath);
 

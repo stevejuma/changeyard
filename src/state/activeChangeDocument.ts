@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { loadConfig } from "../config/loadConfig.js";
 import { parseFrontmatter, writeFrontmatter } from "../documents/frontmatter.js";
@@ -6,6 +6,7 @@ import { changesRoot } from "../paths.js";
 import { findChangeFile } from "./id.js";
 import type { ChangeStatus, Frontmatter, ParsedMarkdown, WorkspaceMetadata } from "../types.js";
 import { resolveWorkspaceChangePath } from "../workspace/marker.js";
+import { readWorkspaceMetadataFromRoot } from "../workspace/metadata.js";
 
 export type ChangeDocument = ParsedMarkdown & {
   path: string;
@@ -14,6 +15,13 @@ export type ChangeDocument = ParsedMarkdown & {
 export type MaterializeWorkspaceChangeResult = {
   path: string;
   fixes: string[];
+};
+
+export type ActiveChangePaths = {
+  changeId: string;
+  rootPath: string;
+  activePath: string;
+  metadata: WorkspaceMetadata | null;
 };
 
 const recoverableActiveStatuses = new Set(["ready", "synced"]);
@@ -26,10 +34,29 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-function readChangeDocument(filePath: string): ChangeDocument {
+export function readChangeDocument(filePath: string): ChangeDocument {
   return {
     ...parseFrontmatter(readFileSync(filePath, "utf8")),
     path: filePath,
+  };
+}
+
+export function resolveActiveChangePaths(id: string, repoRoot: string): ActiveChangePaths {
+  const config = loadConfig(repoRoot);
+  const explicitPath = path.resolve(repoRoot, id);
+  const rootPath = findChangeFile(changesRoot(repoRoot, config), id) ?? (existsSync(explicitPath) ? explicitPath : undefined);
+  if (!rootPath) throw new Error(`Change not found: ${id}`);
+
+  const canonicalRootPath = realpathSync(rootPath);
+  const root = readChangeDocument(canonicalRootPath);
+  const changeId = String(root.frontmatter.id ?? id);
+  const metadata = readWorkspaceMetadataFromRoot(changeId, repoRoot);
+  const workspacePath = metadata ? workspaceChangePathForMetadata(metadata, canonicalRootPath) : null;
+  return {
+    changeId,
+    rootPath: canonicalRootPath,
+    activePath: workspacePath && existsSync(workspacePath) ? realpathSync(workspacePath) : canonicalRootPath,
+    metadata,
   };
 }
 
@@ -44,7 +71,8 @@ export function findRootChangePathForMetadata(metadata: WorkspaceMetadata): stri
 }
 
 export function workspaceChangePathForMetadata(metadata: WorkspaceMetadata, rootChangePath = findRootChangePathForMetadata(metadata)): string {
-  return metadata.workspaceChangePath ?? path.join(metadata.path, path.relative(metadata.repoRoot, rootChangePath));
+  const relativePath = path.relative(realpathSync(metadata.repoRoot), realpathSync(rootChangePath));
+  return metadata.workspaceChangePath ?? path.join(metadata.path, relativePath);
 }
 
 export function materializeWorkspaceChangeDocument(
