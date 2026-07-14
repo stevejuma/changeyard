@@ -57,7 +57,7 @@ function parseCommitRecord(record: string): RuntimeGitCommit | null {
 	return {
 		hash,
 		shortHash,
-		authorName: authorName?.trim() ?? "",
+		authorName,
 		authorEmail: authorEmail ?? "",
 		authorAvatarUrl: null,
 		date: dateIso,
@@ -124,7 +124,7 @@ function parseJjLogCommitRecord(record: string): RuntimeGitCommit | null {
 		shortHash: hash.slice(0, 8),
 		changeId,
 		changeIdUniquePrefix: changeIdUniquePrefix?.trim() || undefined,
-		authorName,
+		authorName: authorName?.trim() ?? "",
 		authorEmail: normalizedAuthorEmail,
 		authorAvatarUrl: gravatarUrlForEmail(normalizedAuthorEmail),
 		date: dateIso,
