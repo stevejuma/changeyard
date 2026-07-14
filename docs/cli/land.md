@@ -25,3 +25,5 @@ cy land CY-0001 --target main --dry-run
 ```
 
 For JJ workspaces, landing requires the recorded workspace change to have a rich final description with summary, slices, validation, files, and notes/follow-up sections. If `cy land --dry-run` reports `finalDescriptionValid: false`, run `cy describe final CY-0001` before landing.
+
+Dry-run and actual landing both report `targetBookmark`, `landedCommit`, `landingFiles`, `rootWorkspaceCommit`, and `rootDisplaysTarget`. Landing advances the target bookmark without rebasing or updating root `@`. When root does not display the advanced target, the output says it was intentionally left unchanged and prints an opt-in `jj rebase -r @ -d <target>` hint.

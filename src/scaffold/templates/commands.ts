@@ -82,12 +82,11 @@ const CHANGEYARD_COMMANDS: CommandContent[] = [
     tags: ["changeyard", "complete"],
     body: `Complete a Changeyard change locally only when the user explicitly asks to complete, mark ready, ready for PR, or complete and land.
 
-1. Ensure Completion Notes in the change markdown are filled in.
-   They must summarize changed areas, checks run or not run, and remaining risks or follow-ups.
-2. Review recorded slices with \`cy review slices <id>\`.
+1. Ensure Completion Notes summarize changed areas, remaining risks, and evidence such as \`Checks run: pnpm test.\`, \`Tests passed: focused suite.\`, or an explicit no-check explanation.
+2. Review recorded slices with \`cy review slices <id>\`, then record each decision with \`--decision approve|request-changes --slice <slice-id>\`; use \`--all-pending\` only for deliberate bulk approval, and include \`--note\` with requested changes.
 3. Run \`cy verify <id>\` from the workspace.
 4. Run \`cy complete <id> --no-pr\`; create a provider PR later with \`cy pr new <id>\` only when explicitly requested.
-5. For JJ workspaces, completion writes the final PR-style landing description; if land later reports missing context, run \`cy describe final <id>\`.
+5. For JJ workspaces, completion writes the final PR-style landing description; if land later reports missing context, run \`cy describe final <id>\`. Landing advances the target bookmark but intentionally leaves root \`@\` unchanged, so report the printed commit, files, and opt-in rebase hint.
 6. Run \`cy next <id>\` and report its landing confirmation guidance.
 6. Do not run \`cy land <id>\` for planned/OpenSpec-lite or legacy unplanned changes unless the user explicitly confirms landing in the current conversation.
 7. Quick low-risk changes may land after successful checks when the user's task clearly asks for completion and no hold, review, or PR was requested.
@@ -119,13 +118,14 @@ Do not run \`cy complete\` for "looks good", "continue", or "next"; commit anoth
     body: `Review a completed Changeyard change.
 
 1. Identify the change id from context or run \`cy list\`.
-2. Run \`cy review start <id>\` to create \`.changeyard/reviews/<id>/review-NNN.md\`.
-3. Edit the review file before completing:
+2. Review implementation slices with \`cy review slices <id>\`, then record \`--decision approve|request-changes --slice <slice-id>\`; requested changes require \`--note\`, and \`--all-pending\` is an explicit bulk path.
+3. Run \`cy review start <id>\` to create \`.changeyard/reviews/<id>/review-NNN.md\` when a whole-change review artifact is needed.
+4. Edit the review file before completing:
    - **Summary** — what was reviewed, scope, risks, and decision rationale (replace the template placeholder).
    - **Required Changes** — check off items or mark none (e.g. \`- [x] None\`).
    - **Inline Comments** — optional \`path/to/file.ts:42: comment\` bullets, or write \`None.\`
-4. Run \`cy review complete <id> --decision approve|request-changes|reject\` only after Summary is filled in.
-5. Report the decision and any follow-up actions.
+5. Run \`cy review complete <id> --decision approve|request-changes|reject\` only after Summary is filled in.
+6. Report the decision and any follow-up actions.
 
 Gate protocol (hard stop): do not run \`cy review complete\` while Summary still says "Review the change here." — the CLI rejects empty template reviews.`,
   },

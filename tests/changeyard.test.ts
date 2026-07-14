@@ -479,6 +479,9 @@ test("generated skill guidance defaults non-trivial agent work to strict plannin
   assert.match(skill, /Landing policy/);
   assert.match(skill, /Do not run `cy land <id>` for planned\/OpenSpec-lite or legacy unplanned changes unless the user explicitly confirms landing/);
   assert.match(skill, /Quick low-risk changes may land after successful checks when the user's task clearly asks for completion/);
+  assert.match(skill, /Checks run: pnpm test/);
+  assert.match(skill, /cy review slices <id> --decision approve --slice <slice-id>/);
+  assert.match(skill, /JJ landing advances the target bookmark without updating root `@`/);
   assert.match(skill, /Agents must not use them unless the user explicitly names the flag or asks for that exact cleanup/);
 });
 
@@ -498,6 +501,8 @@ test("generated start and verify guidance explains workspace commit messages", (
   assert.match(verify.body, /final landing tip must have summary, slices, validation, files, and notes sections/);
   assert.match(complete.body, /only when the user explicitly asks to complete/);
   assert.match(complete.body, /final PR-style landing description/);
+  assert.match(complete.body, /--all-pending/);
+  assert.match(complete.body, /intentionally leaves root `@` unchanged/);
   assert.match(complete.body, /Do not run `cy complete` for "looks good", "continue", or "next"/);
   assert.match(complete.body, /Run `cy next <id>` and report its landing confirmation guidance/);
   assert.match(complete.body, /Do not run `cy land <id>` for planned\/OpenSpec-lite or legacy unplanned changes unless the user explicitly confirms landing/);
@@ -1732,7 +1737,7 @@ test("completion commands share the active workspace document and completion evi
     const completeFailure = captureMessage(() => runComplete("CY-0001", { noPr: true }, workspacePath));
     assert.equal(completeFailure, validateFailure);
     const auditFailure = getWorkflowAuditReport("CY-0001", repo).checks.find((check) => check.gate === "complete");
-    assert.deepEqual(auditFailure?.errors, ["Completion Notes must mention checks run or explain why checks were not run before quick completion."]);
+    assert.deepEqual(auditFailure?.errors, ["Completion Notes must mention checks run, tests passed, verification evidence, or explain why no checks were run before quick completion."]);
     assert.match(validateFailure, new RegExp(auditFailure?.errors[0] ?? "$^"));
   } finally {
     cleanup(repo);
@@ -2230,7 +2235,7 @@ test("quick complete fails when completion notes omit check context", () => {
 
     assert.throws(
       () => runComplete("CY-0001", { noPr: true }, workspacePath),
-      /Completion Notes must mention checks run or explain why checks were not run before quick completion\./,
+      /Completion Notes must mention checks run, tests passed, verification evidence, or explain why no checks were run before quick completion\./,
     );
   } finally {
     cleanup(repo);
@@ -4562,8 +4567,28 @@ test("land rebases and lands a described jj workspace task commit without root w
     assert.match(preview, /Summary:/);
     assert.match(preview, /Files:/);
     assert.match(runDescribeFinal("CY-0001", {}, repo), /Updated final description for CY-0001/);
-    assert.match(runLand("CY-0001", { dryRun: true }, repo), /finalDescriptionValid: true/);
-    assert.match(runLand("CY-0001", {}, repo), /Landed CY-0001 into main/);
+    const finalDryRun = runLand("CY-0001", { dryRun: true }, repo);
+    assert.match(finalDryRun, /finalDescriptionValid: true/);
+    assert.match(finalDryRun, /targetBookmark: main/);
+    assert.match(finalDryRun, /landedCommit: [a-f0-9]+ \(projected\)/);
+    assert.match(finalDryRun, /landingFiles: .*landed\.txt/);
+    assert.match(finalDryRun, /rootWorkspaceCommit: [a-f0-9]+/);
+    assert.match(finalDryRun, /rootDisplaysTarget: false/);
+    assert.match(finalDryRun, /rootWorkspace: intentionally left unchanged/);
+    assert.match(finalDryRun, /rootRebaseHint: jj rebase -r @ -d main/);
+
+    const rootCommitBeforeLand = commandOutput("jj", ["log", "--ignore-working-copy", "--at-op=@", "-r", "@", "--no-graph", "-T", "commit_id"], repo);
+    const landedOutput = runLand("CY-0001", {}, repo);
+    assert.match(landedOutput, /Landed CY-0001 into main/);
+    assert.match(landedOutput, /targetBookmark: main/);
+    assert.match(landedOutput, /landingFiles: .*landed\.txt/);
+    assert.match(landedOutput, /rootDisplaysTarget: false/);
+    assert.match(landedOutput, /rootWorkspace: intentionally left unchanged/);
+    assert.match(landedOutput, /rootRebaseHint: jj rebase -r @ -d main/);
+    const landedCommit = /landedCommit: ([a-f0-9]+)/.exec(landedOutput)?.[1];
+    assert.ok(landedCommit);
+    assert.equal(commandOutput("jj", ["log", "--ignore-working-copy", "--at-op=@", "-r", "main", "--no-graph", "-T", "commit_id"], repo), landedCommit);
+    assert.equal(commandOutput("jj", ["log", "--ignore-working-copy", "--at-op=@", "-r", "@", "--no-graph", "-T", "commit_id"], repo), rootCommitBeforeLand);
 
     assert.equal(existsSync(path.join(repo, ".changeyard", "workspaces", "CY-0001")), false);
     assert.equal(parseFrontmatter(readFileSync(rootChangePath, "utf8")).frontmatter.status, "merged");

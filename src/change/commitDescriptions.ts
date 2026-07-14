@@ -38,6 +38,7 @@ function isPlaceholder(line: string): boolean {
     "Describe the change to make.",
     "Explain why this is needed and what problem it solves.",
     "Summarize changed areas, checks run or not run, and remaining risks or follow-ups.",
+    "Summarize changed areas, checks, and remaining risks or follow-ups. Use evidence such as `Checks run: pnpm test.`, `Tests passed: focused CLI suite.`, or `No checks were run because this was documentation-only.`",
   ].includes(line.trim());
 }
 

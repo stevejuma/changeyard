@@ -20,6 +20,7 @@ cy note CY-0001 --message <text> [--replace] [--dry-run]
 ## Examples
 
 ```sh
-cy note CY-0001 --message "Checks ran: pnpm test."
-cy note CY-0001 --message "No code changes." --replace
+cy note CY-0001 --message "Checks run: pnpm test."
+cy note CY-0001 --message "Tests passed: focused CLI suite."
+cy note CY-0001 --message "No checks were run because this was documentation-only." --replace
 ```

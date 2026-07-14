@@ -36,6 +36,26 @@ function jjWorkspaceCommitId(workspacePath: string): string {
   return jjCommitId(workspacePath, "@");
 }
 
+function rootWorkspaceReport(repoRoot: string, landedCommitId: string, target: string): string[] {
+  const rootCommitId = jjCommitId(repoRoot, "@");
+  const displayed = commandOutput("jj", [
+    "log",
+    "--ignore-working-copy",
+    "--at-op=@",
+    "-r",
+    `${landedCommitId} & ancestors(@)`,
+    "--no-graph",
+    "-T",
+    "commit_id",
+  ], repoRoot).length > 0;
+  return [
+    `rootWorkspaceCommit: ${rootCommitId}`,
+    `rootDisplaysTarget: ${String(displayed)}`,
+    "rootWorkspace: intentionally left unchanged",
+    ...(!displayed ? [`rootRebaseHint: jj rebase -r @ -d ${target}`] : []),
+  ];
+}
+
 function writeWorkspaceMetadata(repoRoot: string, id: string, metadata: WorkspaceMetadata): void {
   writeFileSync(workspaceMetadataPath(id, repoRoot), `${JSON.stringify(metadata, null, 2)}\n`);
 }
@@ -137,12 +157,15 @@ export function runLand(id: string, options: LandOptions = {}, repoRoot = proces
       `targetMoved: ${String(targetMoved)}`,
       ...(targetMoved ? [`rebaseRevset: ${landingRevset}`] : []),
       `landingRevset: ${landingRevset}`,
+      `targetBookmark: ${target}`,
+      `landedCommit: ${landing.workspaceCommitId} (projected)`,
       `landingDescription: ${descriptionErrors.length > 0 ? "blocked" : "ok"}`,
       `landingDescriptions: ${descriptionErrors.length > 0 ? "blocked" : "ok"}`,
       `finalDescriptionValid: ${String(finalDescription.valid)}`,
       `finalDescriptionSummary: ${finalDescription.summary || "unknown"}`,
       `metadataSource: ${metadata.engine === "jj" ? "workspace" : "root"}`,
       `landingFiles: ${landing.landingFiles.length === 0 ? "none" : landing.landingFiles.join(", ")}`,
+      ...rootWorkspaceReport(repoRoot, landing.workspaceCommitId, target),
       `remoteChecksSupported: ${String(remoteGate.supported)}`,
       `remoteChecksState: ${remoteGate.overallState}`,
       `description: ${description.split("\n")[0] ?? description}`,
@@ -192,10 +215,20 @@ export function runLand(id: string, options: LandOptions = {}, repoRoot = proces
     workspaceCommitId: jjWorkspaceCommitId(metadata.path),
   };
   writeWorkspaceMetadata(repoRoot, changeId, nextMetadata);
-  commandOutput("jj", ["bookmark", "set", target, "-r", nextMetadata.workspaceCommitId ?? workspaceChangeId], repoRoot);
+  const landedCommitId = nextMetadata.workspaceCommitId ?? workspaceChangeId;
+  commandOutput("jj", ["--ignore-working-copy", "bookmark", "set", target, "-r", landedCommitId], repoRoot);
 
+  const rootReport = rootWorkspaceReport(repoRoot, landedCommitId, target);
   const cleanupMessage = options.keepWorkspace ? null : deleteWorkspace(changeId, { force: true }, repoRoot);
-  const lines = [`Landed ${changeId} into ${target}`, `Workspace change: ${workspaceChangeId}`, `Description: ${description.split("\n")[0] ?? description}`];
+  const lines = [
+    `Landed ${changeId} into ${target}`,
+    `targetBookmark: ${target}`,
+    `landedCommit: ${landedCommitId}`,
+    `landingFiles: ${landing.landingFiles.length === 0 ? "none" : landing.landingFiles.join(", ")}`,
+    ...rootReport,
+    `Workspace change: ${workspaceChangeId}`,
+    `Description: ${description.split("\n")[0] ?? description}`,
+  ];
   if (options.keepWorkspace) {
     lines.push(`Next: cy workspace delete ${changeId}`);
   } else if (cleanupMessage) {

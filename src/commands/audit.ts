@@ -119,7 +119,7 @@ function recoveryForValidationError(error: string, input: {
   }
   if (/Completion Notes/i.test(error)) {
     return [
-      `Update # Completion Notes in ${input.canonicalPath} with changed areas, checks run, and remaining risks or follow-ups.`,
+      `Update # Completion Notes in ${input.canonicalPath} with changed areas, remaining risks, and evidence such as "Checks run: pnpm test.", "Tests passed: focused suite.", or an explicit no-check explanation.`,
       `Re-run cy validate ${input.id} --gate ${input.gate}.`,
     ];
   }

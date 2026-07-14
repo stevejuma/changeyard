@@ -26,4 +26,6 @@ cy complete CY-0001 --no-pr
 cy complete CY-0001 --profile full
 ```
 
-Completion requires explicit user completion wording, verified workspace context, completed or deferred acceptance criteria, non-placeholder Completion Notes, reviewable slice history, and passing checks. `cy complete <id> --no-pr` marks the local work `ready_for_pr`; create the provider PR later with `cy pr new <id>`. For JJ workspaces, `cy complete` also writes a final PR-style landing description to the recorded workspace change so repository history keeps the full context after landing. If completion fails, run `cy audit <id>` for the expected cwd, blockers, and recovery commands.
+Completion requires explicit user completion wording, verified workspace context, completed or deferred acceptance criteria, non-placeholder Completion Notes, reviewed slice records, and passing checks. Completion Notes can record `Checks run`, `Checks ran`, `Tests passed`, verification evidence, or an explicit reason no checks were run. Pending or changes-requested slices block completion and print exact `cy review slices` recovery commands.
+
+`cy complete <id> --no-pr` marks the local work `ready_for_pr`; create the provider PR later with `cy pr new <id>`. For JJ workspaces, `cy complete` also writes a final PR-style landing description to the recorded workspace change so repository history keeps the full context after landing. If completion fails, run `cy audit <id>` for the expected cwd, blockers, and recovery commands.

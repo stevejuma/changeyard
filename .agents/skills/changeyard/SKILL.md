@@ -22,13 +22,15 @@ Changeyard is the markdown-first local change workflow for this repository. Cano
 6. Verify workspace context before editing: `cy verify <id>`
 7. Work only inside the verified workspace checkout
 8. After each user-requested implementation increment, run focused validation and commit the slice with `cy slice commit <id> -m "<summary>"`
-9. Update Completion Notes in the change markdown with changed areas, checks run, and remaining risks or follow-ups
+9. Update Completion Notes with changed areas, remaining risks, and canonical evidence such as `Checks run: pnpm test.`, `Tests passed: focused suite.`, or `No checks were run because this was documentation-only.`
 10. Complete locally only on explicit user completion wording: `cy complete <id> --no-pr`; planned changes stop here until the user explicitly confirms landing
 11. Create a provider PR only when explicitly requested: `cy pr new <id>`
 12. Review when needed: `cy review start <id>`, edit `.changeyard/reviews/<id>/review-NNN.md`, then `cy review complete <id> --decision <approve|request-changes|reject>`
 
 ## Review gate (hard stop)
 
+- Review recorded implementation slices explicitly with `cy review slices <id> --decision approve --slice <slice-id>`; use `--all-pending` only for deliberate bulk approval
+- `request-changes` requires `--note <text>`, and completion remains blocked until every recorded slice is reviewed
 - Do not run `cy review complete` until the review file **Summary** is written (not the template placeholder)
 - Update **Required Changes** — check items off or explicitly mark none
 - **Inline Comments** are optional; note findings or write `None.`
@@ -72,6 +74,7 @@ After `cy start`, all product edits belong **only** in the workspace checkout pr
 - Before starting a new requested slice, commit the previous completed slice if it changed code.
 - Use `cy slice commit <id> -m "<summary>"` after focused validation. Slice subjects must start with the change id, for example `CY-0001: Add parser validation`, and the generated body should read like a compact PR description with summary, validation, files, and notes.
 - The final completion commit must summarize all completed slices and validation evidence. If `cy land --dry-run` reports `finalDescriptionValid: false`, run `cy describe final <id>` before landing.
+- JJ landing advances the target bookmark without updating root `@`; follow the printed opt-in rebase hint only when the user wants root to display the landed target.
 - Do not accumulate multiple user-requested iterations in one mutable JJ `@` or Git worktree unless the user explicitly asks for an uncommitted working diff.
 - After each slice commit, report what changed and stop unless the user already provided the next requested change. Completion remains separate from committing.
 - Failure example: accumulating UI iterations, date picker work, drag preview work, and final cleanup into one landed commit is not acceptable for iterative review-heavy work.

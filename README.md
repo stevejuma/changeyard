@@ -185,7 +185,7 @@ Use `cy next CY-0001` whenever you are unsure which action is valid. Use `cy aud
 Update Completion Notes and, only when the work is explicitly ready to finish, run the completion gate:
 
 ```sh
-cy note CY-0001 --message "Implemented marker validation. Checks: pnpm test -- workspace."
+cy note CY-0001 --message "Implemented marker validation. Checks run: pnpm test -- workspace."
 cy complete CY-0001 --no-pr
 ```
 
@@ -196,6 +196,8 @@ cy pr new CY-0001 --draft
 # or
 cy land CY-0001
 ```
+
+JJ landing advances the target bookmark without rebasing or updating root `@`. Both dry-run and actual output report the landed commit and files, whether root displays the target, and an opt-in rebase hint when it does not.
 
 ## The change lifecycle
 
@@ -310,7 +312,11 @@ Reviews remain local markdown artifacts under `.changeyard/reviews/<id>/` and ca
 cy review start CY-0001
 cy review complete CY-0001 --decision request-changes
 cy review slices CY-0001
+cy review slices CY-0001 --decision approve --slice <slice-id>
+cy review slices CY-0001 --decision request-changes --slice <slice-id> --note "Add a regression test."
 ```
+
+Recorded slices must be explicitly reviewed before completion. Use `--all-pending` for deliberate bulk approval of existing pending slices; dry-run previews decisions without changing records.
 
 Where provider APIs support it, review results are published remotely while the markdown file remains authoritative.
 

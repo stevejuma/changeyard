@@ -158,7 +158,7 @@ export function validateQuickChange(
 
     const completionNotes = (sections.get("Completion Notes") ?? "").trim();
     if (completionNotes && !completionNotesMentionChecks(completionNotes)) {
-      errors.push("Completion Notes must mention checks run or explain why checks were not run before quick completion.");
+      errors.push("Completion Notes must mention checks run, tests passed, verification evidence, or explain why no checks were run before quick completion.");
     }
   }
   validateQuickPlanningMarkers(body, errors);

@@ -37,7 +37,7 @@ Describe the small change.
 
 # Completion Notes
 
-Summarize changed areas, checks run or not run, and remaining risks or follow-ups.
+Summarize changed areas, checks, and remaining risks or follow-ups. Use evidence such as `Checks run: pnpm test.`, `Tests passed: focused CLI suite.`, or `No checks were run because this was documentation-only.`
 
 # Change Slices
 
