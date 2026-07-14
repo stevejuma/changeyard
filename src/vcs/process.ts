@@ -108,6 +108,12 @@ export async function runVcsCommand(input: RunVcsCommandInput): Promise<VcsComma
 				exitCode,
 			});
 		});
+		child.stdin.on("error", () => {
+			// Ignore EPIPE and similar errors: the child process may close its
+			// stdin end before we finish writing (e.g. git apply exits after
+			// reading enough data). The command outcome is captured via the
+			// child 'close' event, so these write errors are safe to suppress.
+		});
 		child.stdin.end(input.stdin ?? "");
 	});
 }
