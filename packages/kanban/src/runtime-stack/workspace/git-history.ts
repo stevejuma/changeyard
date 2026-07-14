@@ -115,7 +115,7 @@ function parseJjLogCommitRecord(record: string): RuntimeGitCommit | null {
 		emptyLabel,
 		hiddenLabel,
 	] = fields;
-	if (!changeId || !hash || !authorName || !dateIso) {
+	if (!changeId || !hash || !dateIso) {
 		return null;
 	}
 	const normalizedAuthorEmail = authorEmail?.trim() ?? "";
@@ -124,7 +124,7 @@ function parseJjLogCommitRecord(record: string): RuntimeGitCommit | null {
 		shortHash: hash.slice(0, 8),
 		changeId,
 		changeIdUniquePrefix: changeIdUniquePrefix?.trim() || undefined,
-		authorName,
+		authorName: authorName?.trim() ?? "",
 		authorEmail: normalizedAuthorEmail,
 		authorAvatarUrl: gravatarUrlForEmail(normalizedAuthorEmail),
 		date: dateIso,

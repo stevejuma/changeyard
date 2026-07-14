@@ -58,6 +58,9 @@ test("change board reads merged changes from landed JJ metadata", async () => {
 	const repoRoot = await mkdtemp(path.join(tmpdir(), "change-board-api-"));
 	try {
 		await runJj(repoRoot, ["git", "init", "--colocate"]);
+		await runJj(repoRoot, ["config", "set", "--repo", "user.name", "Test User"]);
+		await runJj(repoRoot, ["config", "set", "--repo", "user.email", "test@example.com"]);
+		await runJj(repoRoot, ["config", "set", "--repo", "signing.behavior", "drop"]);
 		await writeFile(path.join(repoRoot, ".gitignore"), ".changeyard/\n", "utf8");
 		await writeFile(path.join(repoRoot, "note.txt"), "one\n", "utf8");
 		await runJj(repoRoot, ["file", "track", ".gitignore", "note.txt"]);
