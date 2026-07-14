@@ -115,7 +115,7 @@ function parseJjLogCommitRecord(record: string): RuntimeGitCommit | null {
 		emptyLabel,
 		hiddenLabel,
 	] = fields;
-	if (!changeId || !hash || !authorName || !dateIso) {
+	if (!changeId || !hash || !dateIso) {
 		return null;
 	}
 	const normalizedAuthorEmail = authorEmail?.trim() ?? "";
