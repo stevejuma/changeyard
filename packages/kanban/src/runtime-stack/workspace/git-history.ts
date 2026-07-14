@@ -57,7 +57,7 @@ function parseCommitRecord(record: string): RuntimeGitCommit | null {
 	return {
 		hash,
 		shortHash,
-		authorName,
+		authorName: authorName?.trim() ?? "",
 		authorEmail: authorEmail ?? "",
 		authorAvatarUrl: null,
 		date: dateIso,
