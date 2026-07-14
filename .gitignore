@@ -10,11 +10,16 @@ packages/desktop/cli/
 packages/desktop/out/
 
 # Changeyard runtime state
+.agents/skills/changeyard
 .changeyard/workspaces/
 .changeyard/cache/
 .changeyard/**/logs/
 .changeyard-hydrate.json
 .changeyard-workspace.json
+.codex/
+.github/hooks
+.github/prompts
+.github/skills/changeyard
 
 # Keep markdown specs/reviews trackable when a repo opts in
 # !.changeyard/changes/
