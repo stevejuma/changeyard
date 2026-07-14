@@ -10,7 +10,10 @@ function escapeRegex(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
-const tracked = spawnSync("jj", ["--color=never", "file", "list"], { encoding: "utf8" });
+let tracked = spawnSync("jj", ["--color=never", "file", "list"], { encoding: "utf8" });
+if (tracked.status !== 0) {
+  tracked = spawnSync("git", ["ls-files"], { encoding: "utf8" });
+}
 if (tracked.status !== 0) {
   process.stderr.write(`Could not list tracked files: ${tracked.stderr || tracked.stdout}\n`);
   process.exit(tracked.status ?? 1);
