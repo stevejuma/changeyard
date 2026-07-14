@@ -1,4 +1,5 @@
 import type { ChangeyardConfig } from "../types.js";
+import { z } from "zod";
 import { ChangeyardError } from "../errors.js";
 import type {
   BranchPullRequestInput,
@@ -21,7 +22,7 @@ import type {
   UpdatePullRequestDetailsInput,
   UpsertPullRequestCommentInput,
 } from "./ChangeProvider.js";
-import { curlJson } from "./http.js";
+import { curlJson, curlJsonWithSchema } from "./http.js";
 import { validateReviewCommentPath } from "./reviewHelpers.js";
 
 type PullRequestFile = {
@@ -63,6 +64,14 @@ type IssueCommentResponse = {
   body?: string;
 };
 
+const forgejoPullRequestFileSchema = z.object({ filename: z.string().optional(), patch: z.string().optional(), path: z.string().optional() }).passthrough();
+const forgejoPullRequestSchema = z.object({
+  number: z.number().optional(), title: z.string().optional(), body: z.string().nullable().optional(), html_url: z.string().optional(), url: z.string().optional(),
+  base: z.object({ ref: z.string().optional(), name: z.string().optional() }).optional(), state: z.string().optional(), merged: z.boolean().optional(), merged_at: z.string().nullable().optional(),
+  head: z.object({ ref: z.string().optional(), label: z.string().optional(), sha: z.string().optional() }).optional(), user: z.object({ login: z.string().optional(), username: z.string().optional(), full_name: z.string().optional() }).optional(), updated_at: z.string().optional(),
+}).passthrough();
+const forgejoIssueCommentSchema = z.object({ id: z.number().optional(), html_url: z.string().optional(), url: z.string().optional(), body: z.string().optional() }).passthrough();
+
 function requireConfig(config: ChangeyardConfig): { baseUrl: string; owner: string; repo: string; token: string } {
   const tokenEnv = config.provider.auth?.tokenEnv ?? "FORGE_TOKEN";
   const token = process.env[tokenEnv];
@@ -86,24 +95,23 @@ function remoteThreadNumber(input: PublishReviewInput): number | null {
 }
 
 function pullRequestFiles(cfg: { baseUrl: string; owner: string; repo: string; token: string }, pullNumber: number): PullRequestFile[] {
-  const response = curlJson({
+  return curlJsonWithSchema({
     method: "GET",
     url: `${cfg.baseUrl}/api/v1/repos/${cfg.owner}/${cfg.repo}/pulls/${pullNumber}/files`,
     token: cfg.token,
     tokenScheme: "token",
     payload: {},
-  });
-  return Array.isArray(response) ? response as PullRequestFile[] : [];
+  }, z.array(forgejoPullRequestFileSchema));
 }
 
 function pullRequest(cfg: { baseUrl: string; owner: string; repo: string; token: string }, pullNumber: number): PullRequestResponse {
-  return curlJson({
+  return curlJsonWithSchema({
     method: "GET",
     url: `${cfg.baseUrl}/api/v1/repos/${cfg.owner}/${cfg.repo}/pulls/${pullNumber}`,
     token: cfg.token,
     tokenScheme: "token",
     payload: {},
-  });
+  }, forgejoPullRequestSchema);
 }
 
 function remotePullRequestFromResponse(response: PullRequestResponse, fallback?: { head?: string; base?: string }): RemotePullRequest | null {
@@ -142,14 +150,13 @@ function emptyCheckSummary(): RemoteCheckSummary {
 }
 
 function issueComments(cfg: { baseUrl: string; owner: string; repo: string; token: string }, pullNumber: number): IssueCommentResponse[] {
-  const response = curlJson({
+  return curlJsonWithSchema({
     method: "GET",
     url: `${cfg.baseUrl}/api/v1/repos/${cfg.owner}/${cfg.repo}/issues/${pullNumber}/comments`,
     token: cfg.token,
     tokenScheme: "token",
     payload: {},
-  });
-  return Array.isArray(response) ? response as IssueCommentResponse[] : [];
+  }, z.array(forgejoIssueCommentSchema));
 }
 
 export class ForgejoProvider implements ChangeProvider {

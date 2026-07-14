@@ -17,6 +17,7 @@ import {
 } from "./diff-renderer";
 import { Button } from "./button";
 import { buildFileTree } from "./file-tree";
+import { authorInitial } from "./display";
 
 export type ReviewDiffFileStatus = "modified" | "added" | "deleted" | "renamed";
 
@@ -123,15 +124,6 @@ function formatCommentsForTerminal(comments: DiffLineComment[]): string {
 	return lines.join("\n").trimEnd();
 }
 
-function authorInitials(value: string | null | undefined): string {
-	const name = value?.trim();
-	if (!name) {
-		return "?";
-	}
-	const parts = name.split(/[\s._-]+/).filter(Boolean);
-	return (parts[0]?.[0] ?? "?").toUpperCase();
-}
-
 function formatCommentDate(value: string | null | undefined): string | null {
 	if (!value) {
 		return null;
@@ -212,7 +204,7 @@ function InlineComment({
 								/>
 							) : author ? (
 								<span className="grid h-5 w-5 shrink-0 place-items-center rounded-full border border-border bg-surface-2 text-[10px] font-semibold">
-									{authorInitials(author)}
+									{authorInitial(author)}
 								</span>
 							) : null}
 							<span className="min-w-0 truncate">

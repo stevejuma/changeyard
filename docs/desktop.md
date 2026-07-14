@@ -32,7 +32,9 @@ From the repo root:
 
 ## Required assumptions
 
-- The desktop runtime launcher is driven by the local CLI at `dist/cli.js`.
+- The desktop runtime launcher stages the built CLI and Kanban runtime into
+  `packages/desktop/cli/`; Electron executes that staged payload rather than a
+  source-tree CLI path.
 - The shell probes the local runtime endpoint from `runtime-endpoint.ts`:
   - host: `127.0.0.1` (or `KANBAN_RUNTIME_HOST`)
   - port: `3484` (or `KANBAN_RUNTIME_PORT`)

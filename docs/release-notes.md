@@ -1,8 +1,8 @@
-# Release Notes and Smoke Results
+# Release Notes
 
-This file is intended as a lightweight release artifact tracker and can also hold
-live smoke outcomes for each release branch.
+[`CHANGELOG.md`](../CHANGELOG.md) is the canonical record of released and
+unreleased Changeyard changes. Keep release notes there so the package, source
+documentation, and published docs do not drift.
 
-## Release Log
-
-_No entries yet._
+This page may contain links to release-specific smoke evidence when it is useful,
+but it must not duplicate the changelog.

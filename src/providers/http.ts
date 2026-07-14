@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { z, type ZodType } from "zod";
 import { ChangeyardError } from "../errors.js";
 
 export type HttpRequest = {
@@ -20,6 +21,7 @@ export type HttpResponse = {
 export type HttpTransport = (request: HttpRequest) => HttpResponse;
 
 let transport: HttpTransport = curlTransport;
+const providerJsonSchema = z.union([z.record(z.string(), z.unknown()), z.array(z.unknown())]);
 
 function curlTransport(request: HttpRequest): HttpResponse {
   const auth = request.tokenScheme === "Bearer" ? `Bearer ${request.token}` : `token ${request.token}`;
@@ -56,13 +58,26 @@ export function setHttpTransportForTests(next?: HttpTransport): void {
 
 function responseErrorMessage(request: HttpRequest, response: HttpResponse): string {
   const status = `HTTP ${response.status}`;
-  if (!response.body.trim()) return `${status} from ${request.url}`;
+  const url = safeRequestUrl(request.url);
+  if (!response.body.trim()) return `${status} from ${url}`;
   try {
     const parsed = JSON.parse(response.body) as { message?: unknown; error?: unknown };
     const message = typeof parsed.message === "string" ? parsed.message : typeof parsed.error === "string" ? parsed.error : response.body;
-    return `${status} from ${request.url}: ${message}`;
+    return `${status} from ${url}: ${message}`;
   } catch {
-    return `${status} from ${request.url}: ${response.body}`;
+    return `${status} from ${url}: ${response.body}`;
+  }
+}
+
+function safeRequestUrl(rawUrl: string): string {
+  try {
+    const url = new URL(rawUrl);
+    url.username = "";
+    url.password = "";
+    url.search = "";
+    return url.toString();
+  } catch {
+    return rawUrl.replace(/([?&](?:token|access_token|apikey|api_key)=)[^&\s]+/gi, "$1[redacted]");
   }
 }
 
@@ -70,11 +85,30 @@ export function curlJson(request: HttpRequest): any {
   const response = transport(request);
   if (response.status < 200 || response.status >= 300) throw new ChangeyardError("PROVIDER_REQUEST_FAILED", responseErrorMessage(request, response));
   if (!response.body.trim()) return {};
+  let parsed: unknown;
   try {
-    return JSON.parse(response.body);
+    parsed = JSON.parse(response.body);
   } catch {
-    throw new ChangeyardError("PROVIDER_REQUEST_FAILED", `Provider returned invalid JSON from ${request.url}`);
+    throw new ChangeyardError("PROVIDER_REQUEST_FAILED", `Provider returned invalid JSON from ${safeRequestUrl(request.url)}`);
   }
+  if (!providerJsonSchema.safeParse(parsed).success) {
+    throw new ChangeyardError("PROVIDER_REQUEST_FAILED", `Provider returned an unexpected JSON shape from ${safeRequestUrl(request.url)}`);
+  }
+  return parsed;
+}
+
+/**
+ * Parse and validate a provider response at the HTTP boundary. New provider
+ * reads should use this helper instead of casting unvalidated JSON.
+ */
+export function curlJsonWithSchema<T>(request: HttpRequest, schema: ZodType<T>): T {
+  const response = curlJson(request) as unknown;
+  const parsed = schema.safeParse(response);
+  if (parsed.success) return parsed.data;
+  throw new ChangeyardError(
+    "PROVIDER_REQUEST_FAILED",
+    `Provider returned an unexpected response from ${safeRequestUrl(request.url)}: ${parsed.error.issues[0]?.message ?? "schema validation failed"}`,
+  );
 }
 
 export function curlRaw(request: HttpRequest): string {

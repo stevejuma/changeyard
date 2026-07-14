@@ -1,4 +1,5 @@
 import type { ChangeyardConfig } from "../types.js";
+import { z } from "zod";
 import { ChangeyardError } from "../errors.js";
 import type {
   BranchPullRequestInput,
@@ -30,7 +31,7 @@ import type {
   UpdatePullRequestDetailsInput,
   UpsertPullRequestCommentInput,
 } from "./ChangeProvider.js";
-import { curlJson, curlRaw } from "./http.js";
+import { curlJson, curlJsonWithSchema, curlRaw } from "./http.js";
 import { validateReviewCommentPath } from "./reviewHelpers.js";
 
 type MergeRequestResponse = {
@@ -103,6 +104,15 @@ type BranchResponse = {
   };
 };
 
+const gitlabMergeRequestSchema = z.object({
+  iid: z.number().optional(), id: z.number().optional(), title: z.string().optional(), description: z.string().nullable().optional(), web_url: z.string().optional(), source_branch: z.string().optional(), target_branch: z.string().optional(), state: z.string().optional(), merged_at: z.string().nullable().optional(),
+  author: z.object({ username: z.string().optional(), name: z.string().optional() }).optional(), updated_at: z.string().optional(), head_pipeline: z.object({ sha: z.string().optional() }).optional(), sha: z.string().optional(), diff_refs: z.object({ base_sha: z.string().optional(), head_sha: z.string().optional(), start_sha: z.string().optional() }).optional(),
+}).passthrough();
+const gitlabPipelineSchema = z.object({ id: z.number().optional(), sha: z.string().optional(), ref: z.string().optional(), status: z.string().optional(), web_url: z.string().optional(), created_at: z.string().optional(), updated_at: z.string().optional() }).passthrough();
+const gitlabPipelineJobSchema = z.object({ id: z.number().optional(), name: z.string().optional(), status: z.string().optional(), web_url: z.string().optional(), started_at: z.string().nullable().optional(), finished_at: z.string().nullable().optional(), pipeline: z.object({ id: z.number().optional() }).optional() }).passthrough();
+const gitlabBranchSchema = z.object({ name: z.string().optional(), commit: z.object({ id: z.string().optional() }).optional() }).passthrough();
+const gitlabDiffFileSchema = z.object({ old_path: z.string().optional(), new_path: z.string().optional(), diff: z.string().optional() }).passthrough();
+
 function encodeProject(owner: string, repo: string): string {
   return encodeURIComponent(`${owner}/${repo}`);
 }
@@ -165,72 +175,67 @@ function remoteThread(input: PublishReviewInput): { kind: "merge_requests" | "is
 }
 
 function mergeRequest(cfg: { baseUrl: string; owner: string; repo: string; token: string }, mergeRequestNumber: number): MergeRequestResponse {
-  return curlJson({
+  return curlJsonWithSchema({
     method: "GET",
     url: `${cfg.baseUrl}/api/v4/projects/${encodeProject(cfg.owner, cfg.repo)}/merge_requests/${mergeRequestNumber}`,
     token: cfg.token,
     tokenScheme: "Bearer",
     payload: {},
-  });
+  }, gitlabMergeRequestSchema);
 }
 
 function mergeRequestPipelines(cfg: { baseUrl: string; owner: string; repo: string; token: string }, mergeRequestNumber: number): PipelineResponse[] {
-  const response = curlJson({
+  return curlJsonWithSchema({
     method: "GET",
     url: `${cfg.baseUrl}/api/v4/projects/${encodeProject(cfg.owner, cfg.repo)}/merge_requests/${mergeRequestNumber}/pipelines?per_page=100`,
     token: cfg.token,
     tokenScheme: "Bearer",
-  });
-  return Array.isArray(response) ? response as PipelineResponse[] : [];
+  }, z.array(gitlabPipelineSchema));
 }
 
 function pipelineJobs(cfg: { baseUrl: string; owner: string; repo: string; token: string }, pipelineId: number): PipelineJobResponse[] {
-  const response = curlJson({
+  return curlJsonWithSchema({
     method: "GET",
     url: `${cfg.baseUrl}/api/v4/projects/${encodeProject(cfg.owner, cfg.repo)}/pipelines/${pipelineId}/jobs?per_page=100`,
     token: cfg.token,
     tokenScheme: "Bearer",
-  });
-  return Array.isArray(response) ? response as PipelineJobResponse[] : [];
+  }, z.array(gitlabPipelineJobSchema));
 }
 
 function branch(cfg: { baseUrl: string; owner: string; repo: string; token: string }, branchName: string): BranchResponse {
-  return curlJson({
+  return curlJsonWithSchema({
     method: "GET",
     url: `${cfg.baseUrl}/api/v4/projects/${encodeProject(cfg.owner, cfg.repo)}/repository/branches/${encodeURIComponent(branchName)}`,
     token: cfg.token,
     tokenScheme: "Bearer",
     payload: {},
-  }) as BranchResponse;
+  }, gitlabBranchSchema);
 }
 
 function branchPipelines(cfg: { baseUrl: string; owner: string; repo: string; token: string }, branchName: string): PipelineResponse[] {
-  const response = curlJson({
+  return curlJsonWithSchema({
     method: "GET",
     url: `${cfg.baseUrl}/api/v4/projects/${encodeProject(cfg.owner, cfg.repo)}/pipelines?ref=${encodeURIComponent(branchName)}&per_page=20`,
     token: cfg.token,
     tokenScheme: "Bearer",
-  });
-  return Array.isArray(response) ? response as PipelineResponse[] : [];
+  }, z.array(gitlabPipelineSchema));
 }
 
 function mergeRequestDiffs(cfg: { baseUrl: string; owner: string; repo: string; token: string }, mergeRequestNumber: number): MergeRequestDiffFile[] {
-  const response = curlJson({
+  const response = curlJsonWithSchema({
     method: "GET",
     url: `${cfg.baseUrl}/api/v4/projects/${encodeProject(cfg.owner, cfg.repo)}/merge_requests/${mergeRequestNumber}/changes`,
     token: cfg.token,
     tokenScheme: "Bearer",
     payload: {},
-  });
-  const changes = (response as { changes?: unknown }).changes;
-  return Array.isArray(changes)
-    ? (changes as MergeRequestDiffFile[]).map((file) => ({
+  }, z.object({ changes: z.array(gitlabDiffFileSchema).optional() }).passthrough());
+  return (response.changes ?? [])
+    .map((file) => ({
         ...file,
         oldPath: file.old_path,
         newPath: file.new_path,
         patch: file.diff,
-      }))
-    : [];
+      }));
 }
 
 function remotePullRequestFromMergeRequest(response: MergeRequestResponse, fallback?: { head?: string; base?: string }): RemotePullRequest | null {

@@ -1,5 +1,5 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import path, { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const packageRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -7,182 +7,98 @@ const repoRoot = resolve(packageRoot, "..", "..");
 const sourceRoot = resolve(repoRoot, "docs");
 const outputRoot = resolve(packageRoot, "src", "content", "docs");
 
-const pages = [
-  {
-    source: "index.md",
-    output: "index.md",
-    title: "Changeyard Documentation",
-    description: "Start here for Changeyard Kanban, VCS, CLI, and hub documentation.",
-  },
-  {
-    source: "getting-started.md",
-    output: "getting-started/index.md",
-    title: "Getting Started",
-    description: "Install, open, and navigate the Changeyard docs and runtime surfaces.",
-  },
-  {
-    source: "kanban/overview.md",
-    output: "kanban/overview.md",
-    title: "Kanban Overview",
-    description: "How Changeyard uses Kanban as the local planning and runtime surface.",
-  },
-  {
-    source: "kanban/core-workflow.md",
-    output: "kanban/core-workflow.md",
-    title: "Kanban Core Workflow",
-    description: "The Changeyard task lifecycle from creation through review and completion.",
-  },
-  {
-    source: "kanban/architecture.md",
-    output: "kanban/architecture.md",
-    title: "Kanban Architecture",
-    description: "Runtime, state ownership, execution, and UI boundaries for the Kanban surface.",
-  },
-  {
-    source: "kanban/remote-access.md",
-    output: "kanban/remote-access.md",
-    title: "Kanban Remote Access",
-    description: "How to expose the local hub safely when remote access is required.",
-  },
-  {
-    source: "kanban/upstream.md",
-    output: "kanban/upstream.md",
-    title: "Kanban Upstream Provenance",
-    description: "Upstream Cline Kanban lineage and Changeyard-specific differences.",
-  },
-  {
-    source: "vcs/index.md",
-    output: "vcs/index.md",
-    title: "VCS Overview",
-    description: "Provider-neutral VCS app architecture and support matrix.",
-  },
-  {
-    source: "vcs/core-workflow.md",
-    output: "vcs/core-workflow.md",
-    title: "VCS Core Workflow",
-    description: "How to inspect, preview, and apply repository changes through the VCS app.",
-  },
-  {
-    source: "vcs/provider-model.md",
-    output: "vcs/provider-model.md",
-    title: "VCS Provider Model",
-    description: "How neutral VCS operations map to JJ and Git provider implementations.",
-  },
-  {
-    source: "vcs/jj-supported-functionality.md",
-    output: "vcs/jj-supported-functionality.md",
-    title: "JJ Supported Functionality",
-    description: "Current JJ capabilities, unsupported operations, and safety behavior.",
-  },
-  {
-    source: "vcs/jj-ui-interactions.md",
-    output: "vcs/jj-ui-interactions.md",
-    title: "JJ UI Interactions",
-    description: "User-facing flows and neutral operation mapping for the JJ provider.",
-  },
-  {
-    source: "vcs/jj-backend-queries.md",
-    output: "vcs/jj-backend-queries.md",
-    title: "JJ Backend Reference",
-    description: "JJ commands, revsets, templates, and mutation command shapes.",
-  },
-  {
-    source: "vcs/troubleshooting.md",
-    output: "vcs/troubleshooting.md",
-    title: "VCS Troubleshooting",
-    description: "Common VCS app diagnostics and recovery paths.",
-  },
-  {
-    source: "hub.md",
-    output: "cli-hub/hub.md",
-    title: "Hub",
-    description: "Global hub instance behavior, registry state, dashboard controls, and remote access.",
-  },
-  {
-    source: "cli/root.md",
-    output: "cli-hub/cli-reference.md",
-    title: "CLI Reference",
-    description: "Root Changeyard CLI command reference.",
-  },
-  {
-    source: "cli/hub.md",
-    output: "reference/cli-hub-command.md",
-    title: "Hub Command",
-    description: "Command reference for cy hub.",
-  },
-  {
-    source: "architecture.md",
-    output: "architecture/index.md",
-    title: "System Architecture",
-    description: "Changeyard architecture and ownership boundaries.",
-  },
-  {
-    source: "desktop.md",
-    output: "architecture/desktop.md",
-    title: "Desktop",
-    description: "Desktop app onboarding and runtime notes.",
-  },
-  {
-    source: "adr-inline-planning.md",
-    output: "architecture/inline-planning.md",
-    title: "Inline Planning ADR",
-    description: "Architecture decision record for inline planning.",
-  },
-  {
-    source: "troubleshooting.md",
-    output: "troubleshooting/index.md",
-    title: "Troubleshooting",
-    description: "Common Changeyard setup, workspace, docs, and hub issues.",
-  },
-  {
-    source: "planning-profiles.md",
-    output: "reference/planning-profiles.md",
-    title: "Planning Profiles",
-    description: "Planning profile reference.",
-  },
-  {
-    source: "versioning-policy.md",
-    output: "reference/versioning-policy.md",
-    title: "Versioning Policy",
-    description: "Versioning policy reference.",
-  },
-  {
-    source: "release-notes.md",
-    output: "reference/release-notes.md",
-    title: "Release Notes",
-    description: "Release notes for Changeyard.",
-  },
-];
+// Keep established public routes stable while every other canonical source page
+// is published at the matching docs path.
+const legacyRoutes = new Map([
+	["index.md", "index.md"],
+	["getting-started.md", "getting-started/index.md"],
+	["hub.md", "cli-hub/hub.md"],
+	["cli/root.md", "cli-hub/cli-reference.md"],
+	["cli/hub.md", "reference/cli-hub-command.md"],
+	["architecture.md", "architecture/index.md"],
+	["desktop.md", "architecture/desktop.md"],
+	["adr-inline-planning.md", "architecture/inline-planning.md"],
+	["troubleshooting.md", "troubleshooting/index.md"],
+	["planning-profiles.md", "reference/planning-profiles.md"],
+	["versioning-policy.md", "reference/versioning-policy.md"],
+	["release-notes.md", "reference/release-notes.md"],
+]);
+
+const sourceFiles = [...await findMarkdownFiles(sourceRoot), "../CHANGELOG.md"];
+const routes = new Map(sourceFiles.map((source) => [source, source === "../CHANGELOG.md" ? "reference/changelog.md" : legacyRoutes.get(source) ?? source]));
 
 await rm(outputRoot, { recursive: true, force: true });
 
-for (const page of pages) {
-  const sourcePath = resolve(sourceRoot, page.source);
-  const outputPath = resolve(outputRoot, page.output);
-  const markdown = await readFile(sourcePath, "utf8");
-  await mkdir(dirname(outputPath), { recursive: true });
-  await writeFile(outputPath, renderPage(page, markdown));
+for (const source of sourceFiles) {
+	const output = routes.get(source);
+	if (!output) throw new Error(`Missing docs route for ${source}`);
+	const sourcePath = source === "../CHANGELOG.md" ? resolve(repoRoot, "CHANGELOG.md") : resolve(sourceRoot, source);
+	const outputPath = resolve(outputRoot, output);
+	const markdown = await readFile(sourcePath, "utf8");
+	await mkdir(dirname(outputPath), { recursive: true });
+	await writeFile(outputPath, renderPage({ source, output, markdown, routes }));
 }
 
-console.log(`Synced ${pages.length} docs pages to ${outputRoot}`);
+console.log(`Synced ${sourceFiles.length} docs pages to ${outputRoot}`);
 
-function renderPage(page, markdown) {
-  const body = stripFirstHeading(stripFrontmatter(markdown)).trimStart();
-  return `---\ntitle: ${quoteYaml(page.title)}\ndescription: ${quoteYaml(page.description)}\n---\n\n${body}`;
+async function findMarkdownFiles(root, directory = root) {
+	const entries = await readdir(directory, { withFileTypes: true });
+	const nested = await Promise.all(entries.map(async (entry) => {
+		const entryPath = resolve(directory, entry.name);
+		if (entry.isDirectory()) return findMarkdownFiles(root, entryPath);
+		if (entry.isFile() && entry.name.endsWith(".md")) return [relative(root, entryPath)];
+		return [];
+	}));
+	return nested.flat().sort();
+}
+
+function renderPage({ source, output, markdown, routes }) {
+	const withoutFrontmatter = stripFrontmatter(markdown);
+	const title = firstHeading(withoutFrontmatter) ?? titleFromPath(source);
+	const body = rewriteMarkdownLinks(stripFirstHeading(withoutFrontmatter).trimStart(), source, output, routes);
+	return `---\ntitle: ${quoteYaml(title)}\n---\n\n${body}`;
+}
+
+function rewriteMarkdownLinks(markdown, source, output, routes) {
+	return markdown.replace(/(\]\()([^\s)]+)(\))/g, (match, prefix, href, suffix) => {
+		if (href.startsWith("#") || /^[a-z][a-z\d+.-]*:/i.test(href) || href.startsWith("//")) return match;
+		const [target, fragment = ""] = href.split("#", 2);
+		if (!target.endsWith(".md")) return match;
+		const resolvedSource = path.posix.normalize(path.posix.join(path.posix.dirname(source), target));
+		const targetOutput = routes.get(resolvedSource);
+		if (!targetOutput) return match;
+		return `${prefix}${routeUrl(targetOutput)}${fragment ? `#${fragment}` : ""}${suffix}`;
+	});
+}
+
+function routeUrl(output) {
+	const withoutExtension = output.replace(/\.md$/, "");
+	const normalized = withoutExtension === "index" ? "" : withoutExtension.replace(/\/index$/, "");
+	return `/${normalized}${normalized ? "/" : ""}`;
 }
 
 function stripFrontmatter(markdown) {
-  if (!markdown.startsWith("---\n")) {
-    return markdown;
-  }
-  const end = markdown.indexOf("\n---\n", 4);
-  return end === -1 ? markdown : markdown.slice(end + 5);
+	if (!markdown.startsWith("---\n")) return markdown;
+	const end = markdown.indexOf("\n---\n", 4);
+	return end === -1 ? markdown : markdown.slice(end + 5);
+}
+
+function firstHeading(markdown) {
+	return markdown.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? null;
 }
 
 function stripFirstHeading(markdown) {
-  return markdown.replace(/^# [^\n]+\n+/, "");
+	return markdown.replace(/^# [^\n]+\n+/, "");
+}
+
+function titleFromPath(source) {
+	return source
+		.replace(/\.md$/, "")
+		.split("/")
+		.map((part) => part.replace(/[-_]/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase()))
+		.join(" / ");
 }
 
 function quoteYaml(value) {
-  return JSON.stringify(value);
+	return JSON.stringify(value);
 }

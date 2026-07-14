@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { resolveWorkspaceProjectPath } from "@changeyard/web-ui";
 
 import { AddProjectDialog } from "@/components/add-project-dialog";
@@ -26,10 +26,7 @@ import {
 	useRunGitSyncActionMutation,
 } from "@/runtime/vcs-api";
 import type { VcsDiffResult, VcsWorkspaceState } from "@/vcs-workspace-contracts";
-import { BranchesView } from "@/views/branches-view";
-import { HistoryView } from "@/views/history-view";
-import { WorkspaceView } from "@/views/jj-board-view";
-import { SettingsDialog } from "@/views/settings-view";
+import type { VcsShellProjectState } from "@/components/vcs-shell";
 import { shouldUseNativeDirectoryPicker } from "@/utils/localhost-detection";
 import { withWorkspaceParam } from "@/utils/vcs-navigation";
 import {
@@ -43,6 +40,31 @@ import {
 } from "@/utils/vcs-ui-preferences";
 import { readVcsQueryParam, useVcsRouter } from "@/utils/vcs-router";
 import "@changeyard/merge/styles.css";
+
+const WorkspaceView = lazy(async () => {
+	const mod = await import("@/views/jj-board-view");
+	return { default: mod.WorkspaceView };
+});
+const BranchesView = lazy(async () => {
+	const mod = await import("@/views/branches-view");
+	return { default: mod.BranchesView };
+});
+const HistoryView = lazy(async () => {
+	const mod = await import("@/views/history-view");
+	return { default: mod.HistoryView };
+});
+const SettingsDialog = lazy(async () => {
+	const mod = await import("@/views/settings-view");
+	return { default: mod.SettingsDialog };
+});
+
+function VcsRouteLoading(): React.ReactElement {
+	return <div className="min-h-48 animate-pulse rounded-md bg-surface-1" role="status" aria-label="Loading VCS view" />;
+}
+
+function VcsRouteBoundary({ children }: { children: React.ReactNode }): React.ReactElement {
+	return <Suspense fallback={<VcsRouteLoading />}>{children}</Suspense>;
+}
 
 const DIRECTORY_PICKER_UNAVAILABLE_MARKERS = [
 	"could not open directory picker",
@@ -475,7 +497,7 @@ export default function App(): React.ReactElement {
 	return (
 		<>
 			<FModeNavigation enabled={fModeEnabled} />
-			{routedView}
+			<VcsRouteBoundary>{routedView}</VcsRouteBoundary>
 			<AddProjectDialog
 				open={isAddProjectDialogOpen}
 				onOpenChange={(open) => {
@@ -488,17 +510,21 @@ export default function App(): React.ReactElement {
 				currentProjectId={workspaceId}
 				initialGitInitPath={pendingNativeGitInitPath}
 			/>
-			<SettingsDialog
-				open={isSettingsOpen}
-				onOpenChange={setSettingsOpen}
-				projectState={projectState}
-				workspaceId={workspaceId}
-				state={detectQuery.state}
-				fModeEnabled={fModeEnabled}
-				onFModeEnabledChange={setFModeEnabled}
-				mergeEditorPreferences={mergeEditorPreferences}
-				onMergeEditorPreferencesChange={replaceMergeEditorPreferences}
-			/>
+			{isSettingsOpen ? (
+				<VcsRouteBoundary>
+					<SettingsDialog
+						open={isSettingsOpen}
+						onOpenChange={setSettingsOpen}
+						projectState={projectState}
+						workspaceId={workspaceId}
+						state={detectQuery.state}
+						fModeEnabled={fModeEnabled}
+						onFModeEnabledChange={setFModeEnabled}
+						mergeEditorPreferences={mergeEditorPreferences}
+						onMergeEditorPreferencesChange={replaceMergeEditorPreferences}
+					/>
+				</VcsRouteBoundary>
+			) : null}
 		</>
 	);
 }

@@ -5,7 +5,6 @@ summary: Changeyard is a markdown-first local change workflow manager.
 aliases:
   - cy new -> cy create
   - cy begin -> cy start
-  - cy check -> cy verify
   - cy done -> cy complete
 ---
 

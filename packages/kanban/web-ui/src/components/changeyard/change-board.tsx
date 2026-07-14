@@ -7,7 +7,7 @@ import {
 } from "@hello-pangea/dnd";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
-import { FileListing, FileListingViewModeToggle, PullRequestCheckBadge, PullRequestViewButton } from "@changeyard/web-ui";
+import { FileListing, FileListingViewModeToggle, formatDiffDelta, PullRequestCheckBadge, PullRequestViewButton } from "@changeyard/web-ui";
 import {
 	Bot,
 	ChevronDown,
@@ -365,10 +365,6 @@ const DEFAULT_DIFF_PANEL_WIDTH = 520;
 const MIN_DIFF_PANEL_WIDTH = 360;
 const MAX_DIFF_PANEL_WIDTH = 820;
 
-function formatDelta(value: number, prefix: "+" | "-"): string {
-	return value > 0 ? `${prefix}${value}` : `${prefix}0`;
-}
-
 function normalizeBoardFileViewMode(value: string | null | undefined): BoardFileViewMode | null {
 	return value === "list" || value === "tree" || value === "package" ? value : null;
 }
@@ -564,9 +560,9 @@ function BoardFileList({
 			renderFileMeta={({ file, isSelected }) => (
 				<>
 					<span className={cn("ml-auto shrink-0", isSelected ? "text-text-primary" : "text-green-600")}>
-						{formatDelta(file.additions, "+")}
+						{formatDiffDelta(file.additions, "+")}
 					</span>
-					<span className={cn("shrink-0", isSelected ? "text-text-primary" : "text-red-600")}>{formatDelta(file.deletions, "-")}</span>
+					<span className={cn("shrink-0", isSelected ? "text-text-primary" : "text-red-600")}>{formatDiffDelta(file.deletions, "-")}</span>
 				</>
 			)}
 		/>
@@ -688,8 +684,8 @@ function ChangeFileBanner({
 					{isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
 					<span className="min-w-0 flex-1 truncate text-sm font-semibold text-text-primary">{scopeLabel(scope)}</span>
 					<span className="rounded-full bg-surface-2 px-1.5 py-0.5 text-[11px] font-semibold">{fileCount}</span>
-					<span className="text-[12px] font-medium text-green-600">{formatDelta(additions, "+")}</span>
-					<span className="text-[12px] font-medium text-red-600">{formatDelta(deletions, "-")}</span>
+					<span className="text-[12px] font-medium text-green-600">{formatDiffDelta(additions, "+")}</span>
+					<span className="text-[12px] font-medium text-red-600">{formatDiffDelta(deletions, "-")}</span>
 				</button>
 				<BoardFilesToggle mode={viewMode} onModeChange={onViewModeChange} />
 			</div>

@@ -173,9 +173,6 @@ export default defineConfig({
 					if (isNodeModule(id, "@trpc") || isNodeModule(id, "@reduxjs") || isNodeModule(id, "react-redux")) {
 						return "runtime-vendor";
 					}
-					if (isVcsSourceModule(id)) {
-						return "vcs-app";
-					}
 					return undefined;
 				},
 			},

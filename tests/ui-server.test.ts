@@ -117,9 +117,9 @@ async function fetchShellCss(origin: string, html: string): Promise<string> {
 
 function readPackagedVcsCss(): string {
   const assetsDir = path.join(process.cwd(), "packages/kanban/dist/web-ui/assets");
-  const fileName = readdirSync(assetsDir).find((entry) => /^vcs-app-.*\.css$/.test(entry));
-  assert.ok(fileName);
-  return readFileSync(path.join(assetsDir, fileName), "utf8");
+  const fileNames = readdirSync(assetsDir).filter((entry) => /^(?:vcs-shell|_virtual_changeyard-vcs-route)-.*\.css$/.test(entry));
+  assert.ok(fileNames.length > 0);
+  return fileNames.map((fileName) => readFileSync(path.join(assetsDir, fileName), "utf8")).join("\n");
 }
 
 function assertVcsLayoutUtilities(css: string): void {

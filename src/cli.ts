@@ -266,7 +266,6 @@ function createOptionsFromFlags(
 const COMMAND_ALIASES: Record<string, CommandName> = {
   new: "create",
   begin: "start",
-  check: "verify",
   done: "complete",
 };
 

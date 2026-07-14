@@ -3,6 +3,7 @@ import type { ReactElement, ReactNode } from "react";
 
 import { Button } from "./button";
 import { cn } from "./cn";
+import { authorInitial } from "./display";
 import { MarkdownMessageEditor, MarkdownMessagePreview, type MarkdownMessageEditorMode } from "./markdown-message-editor";
 import { Spinner } from "./spinner";
 
@@ -129,15 +130,6 @@ function branchValue(value: string | null | undefined): string {
 	return value?.trim() || "Unknown";
 }
 
-function authorInitials(value: string | null | undefined): string {
-	const name = value?.trim();
-	if (!name) {
-		return "?";
-	}
-	const parts = name.split(/[\s._-]+/).filter(Boolean);
-	return (parts[0]?.[0] ?? "?").toUpperCase();
-}
-
 function reviewStateLabel(value: string | null | undefined): string {
 	switch (value?.toLowerCase()) {
 		case "approved":
@@ -201,7 +193,7 @@ function PullRequestConversationAvatar({
 	}
 	return (
 		<div className="grid h-8 w-8 place-items-center rounded-full border border-border bg-surface-2 text-xs font-semibold text-text-secondary">
-			{authorInitials(name)}
+			{authorInitial(name)}
 		</div>
 	);
 }

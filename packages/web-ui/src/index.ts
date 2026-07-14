@@ -2,6 +2,7 @@ export { Button, type ButtonSize, type ButtonVariant } from "./button";
 export { ClineIcon } from "./cline-icon";
 export { cn } from "./cn";
 export { copyTextToClipboard } from "./clipboard";
+export { authorInitial, formatDiffDelta } from "./display";
 export {
 	AlertDialog,
 	AlertDialogAction,

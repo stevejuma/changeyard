@@ -33,12 +33,8 @@ jobs:
           tar -xzf "${tmp}/jj.tar.gz" -C "${tmp}"
           sudo install "${tmp}/jj" /usr/local/bin/jj
           jj --version
-      - name: Build
-        run: pnpm run build
-      - name: Build docs
-        run: pnpm run docs:build
-      - name: Run tests
-        run: pnpm test
+      - name: Run complete validation
+        run: pnpm run check:all
       - name: Package dry-run
         run: pnpm run pack:check
   bun-tui:

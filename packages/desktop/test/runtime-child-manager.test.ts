@@ -393,19 +393,26 @@ describe("RuntimeChildManager", () => {
 	// -----------------------------------------------------------------------
 
 	describe("env filtering", () => {
-		it("passes filtered env to spawn", async () => {
+		it("forwards parent env to spawn", async () => {
+			const previousElectronRunAsNode = process.env.ELECTRON_RUN_AS_NODE;
+			process.env.ELECTRON_RUN_AS_NODE = "1";
 			const spawnSpy = vi.fn(() => mockChild) as unknown as typeof spawn;
 			manager = new RuntimeChildManager({
 				cliPath: CLI_PATH,
 				spawnFn: spawnSpy,
 			});
 
-			await manager.start(TEST_CONFIG);
+			try {
+				await manager.start(TEST_CONFIG);
 
-			const spawnCall = (spawnSpy as ReturnType<typeof vi.fn>).mock.calls[0];
-			const options = spawnCall[2] as { env: NodeJS.ProcessEnv };
-			expect(options.env.ELECTRON_RUN_AS_NODE).toBeUndefined();
-			expect(options.env.PATH).toBeDefined();
+				const spawnCall = (spawnSpy as ReturnType<typeof vi.fn>).mock.calls[0];
+				const options = spawnCall[2] as { env: NodeJS.ProcessEnv };
+				expect(options.env.ELECTRON_RUN_AS_NODE).toBe("1");
+				expect(options.env.PATH).toBeDefined();
+			} finally {
+				if (previousElectronRunAsNode === undefined) delete process.env.ELECTRON_RUN_AS_NODE;
+				else process.env.ELECTRON_RUN_AS_NODE = previousElectronRunAsNode;
+			}
 		});
 	});
 
@@ -637,4 +644,3 @@ describe("RuntimeChildManager", () => {
 		});
 	});
 });
-

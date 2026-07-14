@@ -6,10 +6,11 @@ import type { ReactElement } from "react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { notifyError, showAppToast } from "@/components/app-toaster";
+import { buildChangeSessionSelection } from "@/app/change-session-selection";
 import { ChangeBoard, type ChangeBoardFilter, type ChangeColumnId } from "@/components/changeyard/change-board";
-import { ChangeDetailDialogSkeleton } from "@/components/changeyard/change-detail-dialog";
 import type { ChangeDetailAction } from "@/components/changeyard/change-detail-dialog";
-import { ChangeReviewModalSkeleton } from "@/components/changeyard/change-review-modal";
+import { ChangeDetailDialogSkeleton } from "@/components/changeyard/change-detail-dialog-skeleton";
+import { ChangeReviewModalSkeleton } from "@/components/changeyard/change-review-modal-skeleton";
 import { ProjectNavigationPanel } from "@/components/project-navigation-panel";
 import type { RuntimeSettingsSection } from "@/components/runtime-settings-dialog";
 import { TaskInlineCreateCard } from "@/components/task-inline-create-card";
@@ -63,7 +64,6 @@ import {
 import type {
 	RuntimeClineReasoningEffort,
 	RuntimeChangeyardChangeDetail,
-	RuntimeChangeyardChangeListItem,
 	RuntimeTaskSessionSummary,
 } from "@/runtime/types";
 import {
@@ -93,7 +93,7 @@ import {
 	resetWorkspaceMetadataStore,
 } from "@/stores/workspace-metadata-store";
 import { useTerminalThemeColors } from "@/terminal/theme-colors";
-import type { BoardCard, BoardColumn, BoardColumnId, BoardData, CardSelection } from "@/types";
+import type { BoardData } from "@/types";
 import { unsupportedChangeMoveMessage } from "@/utils/change-move-error";
 import {
 	findAffectedWorkspaceChangeIds,
@@ -151,62 +151,6 @@ const TaskCreateDialog = lazy(async () => {
 	const mod = await import("@/components/task-create-dialog");
 	return { default: mod.TaskCreateDialog };
 });
-
-const TASK_DETAIL_COLUMNS: Array<{ id: BoardColumnId; title: string }> = [
-	{ id: "backlog", title: "Backlog" },
-	{ id: "in_progress", title: "In Progress" },
-	{ id: "review", title: "Review" },
-	{ id: "trash", title: "Done" },
-];
-
-function mapChangeStatusToTaskColumnId(status: string): BoardColumnId {
-	switch (status) {
-		case "in_progress":
-		case "changes_requested":
-			return "in_progress";
-		case "ready_for_pr":
-		case "pr_open":
-		case "in_review":
-		case "approved":
-		case "merged":
-			return "review";
-		case "abandoned":
-			return "trash";
-		default:
-			return "backlog";
-	}
-}
-
-function buildChangeSessionSelection({
-	change,
-	detail,
-	summary,
-}: {
-	change: RuntimeChangeyardChangeListItem;
-	detail: RuntimeChangeyardChangeDetail | null;
-	summary: RuntimeTaskSessionSummary;
-}): CardSelection {
-	const columnId = mapChangeStatusToTaskColumnId(change.status);
-	const timestamp = Date.parse(detail?.updatedAt ?? change.updatedAt ?? "") || summary.updatedAt || Date.now();
-	const card: BoardCard = {
-		id: change.id,
-		title: change.title,
-		prompt: detail?.body ?? change.title,
-		startInPlanMode: false,
-		autoReviewEnabled: false,
-		autoReviewMode: "commit",
-		agentId: summary.agentId ?? undefined,
-		baseRef: change.base?.revision ?? "main",
-		createdAt: timestamp,
-		updatedAt: timestamp,
-	};
-	const allColumns: BoardColumn[] = TASK_DETAIL_COLUMNS.map((column) => ({
-		...column,
-		cards: column.id === columnId ? [card] : [],
-	}));
-	const column = allColumns.find((candidate) => candidate.id === columnId) ?? allColumns[0]!;
-	return { card, column, allColumns };
-}
 
 export default function App(): ReactElement {
 	const terminalThemeColors = useTerminalThemeColors();

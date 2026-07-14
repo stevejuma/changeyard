@@ -1,4 +1,5 @@
 import type { ChangeyardConfig } from "../types.js";
+import { z } from "zod";
 import { ChangeyardError } from "../errors.js";
 import type {
   BranchPullRequestInput,
@@ -30,7 +31,7 @@ import type {
   UpdatePullRequestDetailsInput,
   UpsertPullRequestCommentInput,
 } from "./ChangeProvider.js";
-import { curlGraphql, curlJson, curlRaw } from "./http.js";
+import { curlGraphql, curlJson, curlJsonWithSchema, curlRaw } from "./http.js";
 import { validateReviewCommentPath } from "./reviewHelpers.js";
 
 const GITHUB_HEADERS = ["Accept: application/vnd.github+json", "X-GitHub-Api-Version: 2022-11-28"];
@@ -107,6 +108,17 @@ type CheckRun = {
   completed_at?: string | null;
 };
 
+const githubPullRequestSchema = z.object({
+  number: z.number().optional(), node_id: z.string().optional(), title: z.string().optional(), body: z.string().nullable().optional(), html_url: z.string().optional(), url: z.string().optional(),
+  base: z.object({ ref: z.string().optional() }).optional(), state: z.string().optional(), merged_at: z.string().nullable().optional(),
+  head: z.object({ ref: z.string().optional(), sha: z.string().optional() }).optional(), user: z.object({ login: z.string().optional() }).optional(), updated_at: z.string().optional(), draft: z.boolean().optional(), auto_merge: z.unknown().optional(),
+}).passthrough();
+const githubWorkflowRunSchema = z.object({ id: z.number().optional(), name: z.string().optional(), status: z.string().optional(), conclusion: z.string().nullable().optional(), html_url: z.string().optional(), created_at: z.string().optional(), updated_at: z.string().optional(), run_started_at: z.string().optional() }).passthrough();
+const githubWorkflowJobSchema = z.object({ id: z.number().optional(), run_id: z.number().optional(), name: z.string().optional(), status: z.string().optional(), conclusion: z.string().nullable().optional(), html_url: z.string().optional(), started_at: z.string().optional(), completed_at: z.string().nullable().optional() }).passthrough();
+const githubCheckRunSchema = z.object({ id: z.number().optional(), name: z.string().optional(), status: z.string().optional(), conclusion: z.string().nullable().optional(), html_url: z.string().optional(), started_at: z.string().optional(), completed_at: z.string().nullable().optional() }).passthrough();
+const githubCommitSchema = z.object({ sha: z.string().optional() }).passthrough();
+const githubPullRequestFileSchema = z.object({ filename: z.string().optional(), patch: z.string().optional() }).passthrough();
+
 function githubCheckState(status: string | undefined, conclusion: string | null | undefined): RemoteCheckState {
   if (status !== "completed") {
     return ["queued", "in_progress", "requested", "waiting", "pending"].includes(status ?? "") ? "pending" : "unknown";
@@ -170,73 +182,69 @@ function remoteThreadNumber(input: PublishReviewInput): number | null {
 }
 
 function pullRequest(cfg: { baseUrl: string; owner: string; repo: string; token: string }, pullNumber: number): PullRequestResponse {
-  return curlJson({
+  return curlJsonWithSchema({
     method: "GET",
     url: `${cfg.baseUrl}/repos/${cfg.owner}/${cfg.repo}/pulls/${pullNumber}`,
     token: cfg.token,
     tokenScheme: "Bearer",
     payload: {},
     extraHeaders: GITHUB_HEADERS,
-  });
+  }, githubPullRequestSchema);
 }
 
 function workflowRuns(cfg: { baseUrl: string; owner: string; repo: string; token: string }, headSha: string): WorkflowRun[] {
-  const response = curlJson({
+  const response = curlJsonWithSchema({
     method: "GET",
     url: `${cfg.baseUrl}/repos/${cfg.owner}/${cfg.repo}/actions/runs?head_sha=${encodeURIComponent(headSha)}&per_page=100`,
     token: cfg.token,
     tokenScheme: "Bearer",
     extraHeaders: GITHUB_HEADERS,
-  });
-  const runs = (response as { workflow_runs?: unknown }).workflow_runs;
-  return Array.isArray(runs) ? runs as WorkflowRun[] : [];
+  }, z.object({ workflow_runs: z.array(githubWorkflowRunSchema).optional() }).passthrough());
+  return response.workflow_runs ?? [];
 }
 
 function workflowJobs(cfg: { baseUrl: string; owner: string; repo: string; token: string }, runId: number): WorkflowJob[] {
-  const response = curlJson({
+  const response = curlJsonWithSchema({
     method: "GET",
     url: `${cfg.baseUrl}/repos/${cfg.owner}/${cfg.repo}/actions/runs/${runId}/jobs?per_page=100`,
     token: cfg.token,
     tokenScheme: "Bearer",
     extraHeaders: GITHUB_HEADERS,
-  });
-  const jobs = (response as { jobs?: unknown }).jobs;
-  return Array.isArray(jobs) ? jobs as WorkflowJob[] : [];
+  }, z.object({ jobs: z.array(githubWorkflowJobSchema).optional() }).passthrough());
+  return response.jobs ?? [];
 }
 
 function commitCheckRuns(cfg: { baseUrl: string; owner: string; repo: string; token: string }, headSha: string): CheckRun[] {
-  const response = curlJson({
+  const response = curlJsonWithSchema({
     method: "GET",
     url: `${cfg.baseUrl}/repos/${cfg.owner}/${cfg.repo}/commits/${headSha}/check-runs?per_page=100`,
     token: cfg.token,
     tokenScheme: "Bearer",
     extraHeaders: GITHUB_HEADERS,
-  });
-  const checkRuns = (response as { check_runs?: unknown }).check_runs;
-  return Array.isArray(checkRuns) ? checkRuns as CheckRun[] : [];
+  }, z.object({ check_runs: z.array(githubCheckRunSchema).optional() }).passthrough());
+  return response.check_runs ?? [];
 }
 
 function branchCommit(cfg: { baseUrl: string; owner: string; repo: string; token: string }, branch: string): CommitResponse {
-  return curlJson({
+  return curlJsonWithSchema({
     method: "GET",
     url: `${cfg.baseUrl}/repos/${cfg.owner}/${cfg.repo}/commits/${encodeURIComponent(branch)}`,
     token: cfg.token,
     tokenScheme: "Bearer",
     payload: {},
     extraHeaders: GITHUB_HEADERS,
-  }) as CommitResponse;
+  }, githubCommitSchema);
 }
 
 function pullRequestFiles(cfg: { baseUrl: string; owner: string; repo: string; token: string }, pullNumber: number): PullRequestListFile[] {
-  const response = curlJson({
+  return curlJsonWithSchema({
     method: "GET",
     url: `${cfg.baseUrl}/repos/${cfg.owner}/${cfg.repo}/pulls/${pullNumber}/files?per_page=100`,
     token: cfg.token,
     tokenScheme: "Bearer",
     payload: {},
     extraHeaders: GITHUB_HEADERS,
-  });
-  return Array.isArray(response) ? response as PullRequestListFile[] : [];
+  }, z.array(githubPullRequestFileSchema));
 }
 
 function remotePullRequestFromResponse(response: PullRequestResponse, fallback?: { head?: string; base?: string }): RemotePullRequest | null {

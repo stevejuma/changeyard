@@ -69,7 +69,8 @@ import { ForgejoProvider } from "../src/providers/ForgejoProvider.js";
 import { GitHubProvider } from "../src/providers/GitHubProvider.js";
 import { GitLabProvider } from "../src/providers/GitLabProvider.js";
 import { LocalFolderProvider } from "../src/providers/LocalFolderProvider.js";
-import { curlJson, setHttpTransportForTests, type HttpRequest } from "../src/providers/http.js";
+import { curlJson, curlJsonWithSchema, setHttpTransportForTests, type HttpRequest } from "../src/providers/http.js";
+import { z } from "zod";
 import { GitWorktreeEngine } from "../src/workspace/GitWorktreeEngine.js";
 import { JjWorkspaceEngine } from "../src/workspace/JjWorkspaceEngine.js";
 import { jjInspectionArgs } from "../src/workspace/commandRunner.js";
@@ -1973,6 +1974,15 @@ test("check record preserves manual evidence and complete uses it when no checks
   } finally {
     cleanup(repo);
   }
+});
+
+test("cy check resolves to the manual validation evidence command", () => {
+  const result = spawnSync(nodeBinary(), [cliBinPath(), "check", "--help"], {
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Record manual validation evidence/);
+  assert.match(result.stdout, /cy check record CY-0001/);
 });
 
 test("slice commit records a Git workspace slice and leaves a clean worktree", () => {
@@ -4064,6 +4074,14 @@ test("HTTP provider helper surfaces remote status and JSON errors", () => {
     assert.throws(() => curlJson({ method: "POST", url: "https://api.example.test/issues", token: "token", payload: {} }), /HTTP 422.*Validation failed/);
     setHttpTransportForTests(() => ({ status: 200, body: "not-json" }));
     assert.throws(() => curlJson({ method: "POST", url: "https://api.example.test/issues", token: "token", payload: {} }), /invalid JSON/);
+    setHttpTransportForTests(() => ({ status: 200, body: JSON.stringify({ number: "not-a-number" }) }));
+    assert.throws(
+      () => curlJsonWithSchema(
+        { method: "GET", url: "https://api.example.test/issues?access_token=secret", token: "token" },
+        z.object({ number: z.number() }),
+      ),
+      (error: unknown) => error instanceof Error && /unexpected response/.test(error.message) && !error.message.includes("secret"),
+    );
   } finally {
     setHttpTransportForTests();
   }

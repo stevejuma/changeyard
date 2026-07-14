@@ -3,6 +3,7 @@ import starlight from "@astrojs/starlight";
 
 export default defineConfig({
   output: "static",
+  ...(process.env.DOCS_SITE_URL ? { site: process.env.DOCS_SITE_URL } : {}),
   integrations: [
     starlight({
       title: "Changeyard Docs",
@@ -43,6 +44,7 @@ export default defineConfig({
             { label: "Hub", link: "/cli-hub/hub/" },
             { label: "CLI Reference", link: "/cli-hub/cli-reference/" },
             { label: "Hub Command", link: "/reference/cli-hub-command/" },
+            { autogenerate: { directory: "cli" } },
           ],
         },
         {
