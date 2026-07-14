@@ -1,14 +1,13 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { loadConfig } from "../config/loadConfig.js";
 import { parseFrontmatter } from "../documents/frontmatter.js";
-import { changesRoot } from "../paths.js";
-import { findChangeFile } from "../state/id.js";
+import { resolveActiveChangePaths } from "../state/activeChangeDocument.js";
 import { createWorkspaceEngine } from "../workspace/index.js";
 import { validateJjLandingDescriptions } from "../workspace/jjLandingDescriptions.js";
-import { readWorkspaceMetadata, resolveWorkspaceChangePath } from "../workspace/marker.js";
+import { readWorkspaceMetadata } from "../workspace/marker.js";
 import { workspaceSetupWarnings } from "../workspace/setupGuidance.js";
 import type { WorkspaceMetadata } from "../types.js";
+import { getNextAction } from "./next.js";
 
 function withVerifyRecovery(message: string, id: string, extraRecovery: string[] = []): string {
   return [
@@ -44,11 +43,11 @@ export function runVerify(id: string, cwd = process.cwd()): string {
     throw new Error(withVerifyRecovery(message, id));
   }
   const changeId = metadata.changeId;
-  const config = loadConfig(metadata.repoRoot);
-  const changePath = metadata.engine === "jj" ? resolveWorkspaceChangePath(metadata) : findChangeFile(changesRoot(metadata.repoRoot, config), changeId) ?? metadata.changePath;
+  const changePath = resolveActiveChangePaths(changeId, metadata.repoRoot).activePath;
   const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
-  if (parsed.frontmatter.status !== "in_progress") {
-    throw new Error(withVerifyRecovery(`Change ${changeId} is not in progress: ${String(parsed.frontmatter.status ?? "unknown")}`, changeId));
+  const status = String(parsed.frontmatter.status ?? "unknown");
+  if (!new Set(["in_progress", "ready_for_pr", "pr_open", "in_review", "changes_requested", "approved"]).has(status)) {
+    throw new Error(withVerifyRecovery(`Change ${changeId} does not have a verifiable active workspace status: ${status}`, changeId));
   }
 
   const engine = createWorkspaceEngine(metadata.engine);
@@ -56,9 +55,10 @@ export function runVerify(id: string, cwd = process.cwd()): string {
   if (!result.valid) throw new Error(withVerifyRecovery(result.errors.join("\n"), changeId));
   validateJjWorkspaceDescriptions(metadata, changeId);
   const setupWarnings = workspaceSetupWarnings(metadata.path);
+  const next = getNextAction(changeId, metadata.repoRoot);
   return [
     `Verified ${changeId} in ${path.relative(metadata.repoRoot, cwd) || "."}`,
     ...(setupWarnings.length ? ["", ...setupWarnings] : []),
-    `Next: implement, update Completion Notes, then cy complete ${changeId} --no-pr`,
+    `Next: ${next.nextCommand}`,
   ].join("\n");
 }

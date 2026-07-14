@@ -18,13 +18,21 @@ function isLocalMarker(file: string): boolean {
   return file === ".changeyard-workspace.json" || file === ".changeyard-hydrate.json";
 }
 
+function workflowDocumentPath(metadata: WorkspaceMetadata): string {
+  const workspacePath = metadata.workspaceChangePath ?? path.join(metadata.path, path.relative(metadata.repoRoot, metadata.changePath));
+  return path.relative(metadata.path, workspacePath).split(path.sep).join("/");
+}
+
 function outputLines(output: string): string[] {
   return output.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
 }
 
 function parseGitStatus(output: string): string[] {
   return uniqSorted(output.split(/\r?\n/u)
-    .map((line) => line.slice(3).trim().replace(/.* -> /u, ""))
+    .map((line) => {
+      const pathOffset = line[2] === " " ? 3 : line[1] === " " ? 2 : 3;
+      return line.slice(pathOffset).trim().replace(/.* -> /u, "");
+    })
     .filter((file) => file && !isLocalMarker(file)));
 }
 
@@ -35,7 +43,9 @@ function gitBaseCommit(metadata: WorkspaceMetadata, config: ChangeyardConfig): s
 }
 
 function inspectGit(metadata: WorkspaceMetadata, config: ChangeyardConfig): WorkspaceChangeInspection {
-  const workingFiles = parseGitStatus(shellCommandRunner("git", ["status", "--porcelain", "--untracked-files=all"], metadata.path));
+  const workflowDocument = workflowDocumentPath(metadata);
+  const workingFiles = parseGitStatus(shellCommandRunner("git", ["status", "--porcelain", "--untracked-files=all"], metadata.path))
+    .filter((file) => file !== workflowDocument);
   const baseCommit = gitBaseCommit(metadata, config);
   const committedFiles = outputLines(shellCommandRunner("git", ["diff", "--name-only", baseCommit, "HEAD"], metadata.path));
   return {
@@ -48,7 +58,7 @@ function inspectJj(metadata: WorkspaceMetadata): WorkspaceChangeInspection {
   const workspaceChangeId = metadata.workspaceChangeId
     ?? shellCommandRunner("jj", ["log", "--ignore-working-copy", "--at-op=@", "-r", "@", "--no-graph", "-T", "change_id.short()"], metadata.path);
   const workingFiles = outputLines(shellCommandRunner("jj", ["diff", "--name-only", "-r", "@"], metadata.path))
-    .filter((file) => !isLocalMarker(file));
+    .filter((file) => !isLocalMarker(file) && file !== workflowDocumentPath(metadata));
   return {
     workingFiles: uniqSorted(workingFiles),
     landingFiles: uniqSorted(jjLandingFiles(metadata.path, metadata, workspaceChangeId).filter((file) => !isLocalMarker(file))),

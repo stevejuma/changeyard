@@ -33,6 +33,16 @@ export type SliceCommitResult = {
   changePath: string;
 };
 
+export type SliceReviewDecision = "approve" | "request-changes";
+
+export type ReviewSlicesOptions = {
+  decision?: SliceReviewDecision;
+  slice?: string;
+  allPending?: boolean;
+  note?: string;
+  dryRun?: boolean;
+};
+
 function asRecord(value: unknown): Frontmatter {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Frontmatter : {};
 }
@@ -287,12 +297,59 @@ export function sliceSummary(id: string, repoRoot = process.cwd()): { id: string
   return { id: String(parsed.frontmatter.id ?? id), records: parseSliceRecords(parsed.body), changePath: resolvedChangePath };
 }
 
-export function runReviewSlices(id: string, repoRoot = process.cwd()): string {
+function sliceMatches(record: ChangeSliceRecord, selector: string): boolean {
+  return [record.id, record.commitId]
+    .filter((value): value is string => Boolean(value))
+    .some((value) => value === selector || value.startsWith(selector));
+}
+
+export function runReviewSlices(id: string, repoRoot = process.cwd(), options: ReviewSlicesOptions = {}): string {
   const summary = sliceSummary(id, repoRoot);
+  if (!options.decision) {
+    if (options.slice || options.allPending || options.note) {
+      throw new Error("slice review selection requires --decision approve|request-changes");
+    }
+    if (summary.records.length === 0) return `No slices recorded for ${summary.id}`;
+    return [
+      `Slices for ${summary.id}: ${summary.records.length}`,
+      ...summary.records.map((record, index) => `${index + 1}. ${record.title} — ${record.id}${record.commitId ? ` (${record.commitId})` : ""}; validation: ${record.validation.length ? record.validation.join("; ") : "not recorded"}; review: ${record.manualReviewStatus}`),
+    ].join("\n");
+  }
+  if (Boolean(options.slice) === Boolean(options.allPending)) {
+    throw new Error("choose exactly one slice-review selector: --slice <slice-id> or --all-pending");
+  }
+  const note = options.note?.trim();
+  if (options.decision === "request-changes" && !note) {
+    throw new Error("request-changes requires --note <text>");
+  }
   if (summary.records.length === 0) return `No slices recorded for ${summary.id}`;
+
+  let selectedIndexes: number[];
+  if (options.allPending) {
+    selectedIndexes = summary.records.flatMap((record, index) => record.manualReviewStatus === "pending" ? [index] : []);
+  } else {
+    const selector = options.slice!.trim();
+    selectedIndexes = summary.records.flatMap((record, index) => sliceMatches(record, selector) ? [index] : []);
+    if (selectedIndexes.length === 0) throw new Error(`Slice not found for ${summary.id}: ${selector}`);
+    if (selectedIndexes.length > 1) throw new Error(`Slice selector is ambiguous for ${summary.id}: ${selector}`);
+  }
+  if (selectedIndexes.length === 0) return `No pending slices for ${summary.id}`;
+
+  const nextStatus = options.decision === "approve" ? "reviewed" : "changes_requested";
+  const nextRecords: ChangeSliceRecord[] = summary.records.map((record, index) => selectedIndexes.includes(index)
+    ? {
+        ...record,
+        manualReviewStatus: nextStatus,
+        notes: note ?? record.notes,
+      }
+    : record);
+  if (!options.dryRun) {
+    const parsed = parseFrontmatter(readFileSync(summary.changePath, "utf8"));
+    writeFileSync(summary.changePath, writeFrontmatter(parsed.frontmatter, replaceSliceRecords(parsed.body, nextRecords)));
+  }
   return [
-    `Slices for ${summary.id}: ${summary.records.length}`,
-    ...summary.records.map((record, index) => `${index + 1}. ${record.title} — ${record.id}${record.commitId ? ` (${record.commitId})` : ""}; validation: ${record.validation.length ? record.validation.join("; ") : "not recorded"}; review: ${record.manualReviewStatus}`),
+    `${options.dryRun ? "Dry-run: would record" : "Recorded"} ${options.decision} for ${selectedIndexes.length} slice${selectedIndexes.length === 1 ? "" : "s"} in ${summary.id}`,
+    ...selectedIndexes.map((index) => `- ${summary.records[index].title}: ${summary.records[index].id} -> ${nextStatus}${note ? `; note: ${note}` : ""}`),
   ].join("\n");
 }
 

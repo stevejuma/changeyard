@@ -47,6 +47,22 @@ function enforceSliceGuard(changeId: string, metadataPath: string, body: string,
   ].join("\n"));
 }
 
+function enforceSliceReviews(changeId: string, body: string): void {
+  const unresolved = parseSliceRecords(body).filter((slice) => slice.manualReviewStatus !== "reviewed");
+  if (unresolved.length === 0) return;
+  const pending = unresolved.filter((slice) => slice.manualReviewStatus === "pending");
+  const requested = unresolved.filter((slice) => slice.manualReviewStatus === "changes_requested");
+  throw new Error([
+    `Change ${changeId} has unresolved slice reviews:`,
+    ...unresolved.map((slice) => `- ${slice.title}: ${slice.id} (${slice.manualReviewStatus})`),
+    "",
+    "Recovery:",
+    ...pending.map((slice) => `- cy review slices ${changeId} --decision approve --slice ${slice.id}`),
+    ...(pending.length > 1 ? [`- cy review slices ${changeId} --decision approve --all-pending`] : []),
+    ...requested.map((slice) => `- cy review slices ${changeId} --decision approve --slice ${slice.id} --note "Changes addressed and re-reviewed."`),
+  ].join("\n"));
+}
+
 function asRecord(value: unknown): Frontmatter {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Frontmatter : {};
 }
@@ -74,6 +90,7 @@ export function runComplete(id: string, options: CompleteOptions = {}, cwd = pro
     gate: "complete",
     result: validation,
   }));
+  enforceSliceReviews(changeId, parsed.body);
   const changedFiles = inspectWorkspaceChanges(metadata, config).landingFiles;
   if (!options.noCodeChange && changedFiles.length === 0) {
     throw new Error([

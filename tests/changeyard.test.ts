@@ -57,6 +57,7 @@ import {
 } from "../src/commands/install-cli.js";
 import { repoRootFromModule } from "../src/dev/paths.js";
 import { checkProfile, isQuickChange, planningModel, workflowMode } from "../src/change/changeMetadata.js";
+import { parseSliceRecords } from "../src/change/slices.js";
 import { loadConfig } from "../src/config/loadConfig.js";
 import { parseFrontmatter, writeFrontmatter } from "../src/documents/frontmatter.js";
 import { replaceSection } from "../src/documents/sections.js";
@@ -1587,7 +1588,7 @@ test("start creates a plain-copy workspace and verify enforces the workspace dir
     const metadata = readFileSync(path.join(repo, ".changeyard", "workspaces", "CY-0001", "metadata.json"), "utf8");
     assert.match(metadata, /"engine": "plain-copy"/);
     assert.match(readFileSync(path.join(workspacePath, ".changeyard-workspace.json"), "utf8"), /metadataPath/);
-    assert.match(runVerify("CY-0001", workspacePath), /Verified CY-0001 in \.changeyard\/workspaces\/CY-0001\/repo\nNext: implement, update Completion Notes, then cy complete CY-0001 --no-pr/);
+    assert.match(runVerify("CY-0001", workspacePath), /Verified CY-0001 in \.changeyard\/workspaces\/CY-0001\/repo\nNext: cd \.changeyard\/workspaces\/CY-0001\/repo && cy slice commit CY-0001 -m "<slice title>"/);
     const validateFromWorkspace = spawnSync(nodeBinary(), [cliBinPath(), "validate", "CY-0001"], { cwd: workspacePath, encoding: "utf8" });
     assert.equal(validateFromWorkspace.status, 0, validateFromWorkspace.stderr || validateFromWorkspace.stdout);
     assert.throws(() => runVerify("CY-0001", repo), /not inside a Changeyard workspace/);
@@ -1930,6 +1931,7 @@ test("complete runs checks and updates ready_for_pr", () => {
     const changePath = path.join(workspacePath, ".changeyard", "changes", "CY-0001-complete-workspace.md");
     updateSection(changePath, "Completion Notes", "Implemented workspace changes. Checks ran: node -v. No remaining risks.");
     assert.match(runComplete("CY-0001", { noPr: true }, workspacePath), /Completed CY-0001: 1 checks passed/);
+    assert.match(runVerify("CY-0001", workspacePath), /Next: cy land CY-0001/);
     const parsed = parseFrontmatter(readFileSync(path.join(repo, ".changeyard", "changes", "CY-0001-complete-workspace.md"), "utf8"));
     assert.equal(parsed.frontmatter.status, "ready_for_pr");
     assert.match(readFileSync(path.join(repo, ".changeyard", "workspaces", "CY-0001", "logs", "checks.log"), "utf8"), /node -v/);
@@ -2034,7 +2036,9 @@ test("slice commit records a JJ workspace slice and leaves a fresh empty @", () 
     runCreate({ template: "agent-task", title: "JJ slice" }, repo);
     runStart("CY-0001", repo);
     const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
+    assert.match(runVerify("CY-0001", workspacePath), /cy slice commit CY-0001 -m "<slice title>"/);
     writeFileSync(path.join(workspacePath, "jj-slice.txt"), "slice\n");
+    assert.match(runVerify("CY-0001", workspacePath), /cy slice commit CY-0001 -m "<slice title>"/);
     const dirtyNext = runNext("CY-0001", repo);
     assert.match(dirtyNext, /cy slice commit CY-0001 -m "<slice title>"/);
     assert.match(dirtyNext, /commit the current slice or explicitly keep working uncommitted/);
@@ -2052,7 +2056,85 @@ test("slice commit records a JJ workspace slice and leaves a fresh empty @", () 
     assert.match(runReviewSlices("CY-0001", repo), /Add jj slice/);
     const cleanNext = runNext("CY-0001", repo);
     assert.match(cleanNext, /Next: cy review slices CY-0001/);
+    assert.match(runVerify("CY-0001", workspacePath), /Next: cy review slices CY-0001/);
     assert.match(runDiffSlice(commandOutput("jj", ["log", "--ignore-working-copy", "--at-op=@", "-r", "@-", "--no-graph", "-T", "change_id.short()"], workspacePath), workspacePath), /jj-slice\.txt/);
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("slice review decisions gate completion and support dry-run and bulk approval", () => {
+  if (!hasCommand("git")) return;
+  const repo = tempRepo();
+  try {
+    runCommand("git", ["init", "-b", "main"], repo);
+    runCommand("git", ["config", "user.email", "changeyard@example.test"], repo);
+    runCommand("git", ["config", "user.name", "Changeyard Test"], repo);
+    runInit(repo);
+    writeFileSync(path.join(repo, "README.md"), "# repo\n");
+    runCommand("git", ["add", "README.md"], repo);
+    runCommand("git", ["commit", "-m", "initial"], repo);
+    runCreate({ template: "agent-task", title: "Review slices" }, repo);
+    runStart("CY-0001", repo);
+    const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
+    const changePath = path.join(workspacePath, ".changeyard", "changes", "CY-0001-review-slices.md");
+
+    writeFileSync(path.join(workspacePath, "slice-one.txt"), "one\n");
+    runSliceCommit("CY-0001", { message: "Add first slice" }, workspacePath);
+    writeFileSync(path.join(workspacePath, "slice-two.txt"), "two\n");
+    runSliceCommit("CY-0001", { message: "Add second slice" }, workspacePath);
+    updateSection(changePath, "Completion Notes", "Implemented both slices. Checks run: node -v.");
+
+    const records = parseSliceRecords(parseFrontmatter(readFileSync(changePath, "utf8")).body);
+    assert.equal(records.length, 2);
+    const pendingFailure = (() => {
+      try {
+        runComplete("CY-0001", { noPr: true }, workspacePath);
+      } catch (error) {
+        return error instanceof Error ? error.message : String(error);
+      }
+      assert.fail("Expected pending slices to block completion");
+    })();
+    assert.match(pendingFailure, new RegExp(`cy review slices CY-0001 --decision approve --slice ${records[0].id}`));
+    assert.match(pendingFailure, /cy review slices CY-0001 --decision approve --all-pending/);
+
+    const cliDryRun = spawnSync(nodeBinary(), [cliBinPath(), "review", "slices", "CY-0001", "--decision", "approve", "--all-pending", "--dry-run"], { cwd: repo, encoding: "utf8" });
+    assert.equal(cliDryRun.status, 0, cliDryRun.stderr);
+    assert.match(cliDryRun.stdout, /Dry-run: would record approve for 2 slices/);
+    assert.equal(parseSliceRecords(parseFrontmatter(readFileSync(changePath, "utf8")).body).every((record) => record.manualReviewStatus === "pending"), true);
+
+    assert.throws(
+      () => runReviewSlices("CY-0001", repo, { decision: "request-changes", slice: records[0].id }),
+      /request-changes requires --note <text>/,
+    );
+    assert.match(runReviewSlices("CY-0001", repo, {
+      decision: "request-changes",
+      slice: records[0].id,
+      note: "Add a boundary-case assertion.",
+    }), /changes_requested/);
+    const requestedFailure = (() => {
+      try {
+        runComplete("CY-0001", { noPr: true }, workspacePath);
+      } catch (error) {
+        return error instanceof Error ? error.message : String(error);
+      }
+      assert.fail("Expected requested changes to block completion");
+    })();
+    assert.match(requestedFailure, /Changes addressed and re-reviewed/);
+
+    assert.match(runReviewSlices("CY-0001", repo, {
+      decision: "approve",
+      slice: records[0].id,
+      note: "Boundary case verified.",
+    }), /reviewed/);
+    assert.match(runReviewSlices("CY-0001", repo, { decision: "approve", allPending: true }), /Recorded approve for 1 slice/);
+    const reviewed = parseSliceRecords(parseFrontmatter(readFileSync(changePath, "utf8")).body);
+    assert.equal(reviewed.every((record) => record.manualReviewStatus === "reviewed"), true);
+    const reviewedMetadata = JSON.parse(readFileSync(path.join(repo, ".changeyard", "workspaces", "CY-0001", "metadata.json"), "utf8")) as WorkspaceMetadata;
+    assert.deepEqual(inspectWorkspaceChanges(reviewedMetadata, loadConfig(repo)).workingFiles, []);
+    assert.equal(getNextAction("CY-0001", repo).nextKind, "complete");
+    assert.match(runVerify("CY-0001", workspacePath), /Next: .*cy complete CY-0001 --no-pr/);
+    assert.match(runComplete("CY-0001", { noPr: true }, workspacePath), /Completed CY-0001/);
   } finally {
     cleanup(repo);
   }

@@ -32,7 +32,7 @@ import { runRefresh } from "./commands/refresh.js";
 import { runRecover } from "./commands/recover.js";
 import { runReviewComplete, runReviewStart, type ReviewDecision } from "./commands/review.js";
 import { attachSession, runSession } from "./commands/session.js";
-import { runDiffSlice, runReviewSlices, runSliceCommit, runSummarizeSlices } from "./commands/slice.js";
+import { runDiffSlice, runReviewSlices, runSliceCommit, runSummarizeSlices, type SliceReviewDecision } from "./commands/slice.js";
 import { runStart } from "./commands/start.js";
 import { getStatus, runStatus } from "./commands/status.js";
 import { runSync } from "./commands/sync.js";
@@ -88,6 +88,7 @@ type MutationOptions = {
 };
 
 const BOOLEAN_FLAGS = new Set([
+  "all-pending",
   "dashboard",
   "check-completed-acceptance-criteria",
   "debug",
@@ -126,6 +127,7 @@ const BOOLEAN_FLAGS = new Set([
 ]);
 const VALIDATION_GATES = ["document", "sync", "start", "complete"] as const;
 const REVIEW_DECISIONS = ["approve", "request-changes", "reject", "comment"] as const;
+const SLICE_REVIEW_DECISIONS = ["approve", "request-changes"] as const;
 const HOOK_EVENTS = ["to_review", "to_in_progress", "activity"] as const;
 const ROOT_LAUNCH_TARGETS = ["--tui", "--dashboard", "--kanban", "--vcs"] as const;
 
@@ -923,7 +925,16 @@ async function main(): Promise<void> {
           const decision = requireChoice(stringFlag(args.flags, "decision"), "--decision", REVIEW_DECISIONS, guidanceColors, "cy review complete --help") as ReviewDecision;
           output = runReviewComplete(id, decision, repoRoot, { dryRun });
         }
-        else if (subcommand === "slices") output = runReviewSlices(id, rootForChange(id));
+        else if (subcommand === "slices") {
+          const decision = validateChoice(stringFlag(args.flags, "decision"), "--decision", SLICE_REVIEW_DECISIONS, guidanceColors, "cy review slices --help") as SliceReviewDecision | undefined;
+          output = runReviewSlices(id, rootForChange(id), {
+            decision,
+            slice: stringFlag(args.flags, "slice"),
+            allPending: asBooleanFlag(args.flags, "all-pending"),
+            note: stringFlag(args.flags, "note"),
+            dryRun,
+          });
+        }
         break;
       }
       case "diff": {

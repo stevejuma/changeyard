@@ -1,11 +1,11 @@
 import path from "node:path";
 import { isQuickChange, planningModel, workflowMode } from "../change/changeMetadata.js";
 import { parseSliceRecords } from "../change/slices.js";
-import { readOverlayChangeDocument } from "../state/workspaceOverlay.js";
+import { readChangeDocument, resolveActiveChangePaths } from "../state/activeChangeDocument.js";
 import type { Frontmatter } from "../types.js";
 import { remoteCheckGate } from "./pr.js";
 import { getStatus } from "./status.js";
-import { getWorkspaceStatus, readWorkspaceMetadataFromRoot, type WorkspaceStatus } from "./workspace.js";
+import { getWorkspaceStatus, type WorkspaceStatus } from "./workspace.js";
 
 export type NextCommandKind =
   | "validate"
@@ -105,7 +105,7 @@ export function getNextAction(id: string, repoRoot = process.cwd()): NextAction 
   if (!id) throw new Error("change id is required");
   const status = getStatus(id, repoRoot);
   const changeId = status.id;
-  const parsed = readOverlayChangeDocument(status.path, readWorkspaceMetadataFromRoot(changeId, repoRoot));
+  const parsed = readChangeDocument(resolveActiveChangePaths(changeId, repoRoot).activePath);
   const nextWorkflowMode = classifyWorkflowMode(parsed.frontmatter);
   const workspace = workspaceOrNull(changeId, repoRoot);
   const effectiveStatus = workspace?.status ?? status.status;
@@ -177,9 +177,16 @@ export function getNextAction(id: string, repoRoot = process.cwd()): NextAction 
       } else {
         const slices = parseSliceRecords(parsed.body);
         if (slices.length > 0) {
-          nextKind = "review";
-          nextCommand = `cy review slices ${changeId}`;
-          blockers.push("Review the committed slice summary, then wait for the next requested implementation slice or explicit completion wording.");
+          const unresolvedReviews = slices.filter((slice) => slice.manualReviewStatus !== "reviewed");
+          if (unresolvedReviews.length > 0) {
+            nextKind = "review";
+            nextCommand = `cy review slices ${changeId}`;
+            blockers.push(`${unresolvedReviews.length} slice review${unresolvedReviews.length === 1 ? " is" : "s are"} unresolved; review them before completion.`);
+          } else {
+            nextKind = "complete";
+            nextCommand = `cd ${relativeOrAbsolute(repoRoot, workspace.path)} && cy complete ${changeId} --no-pr`;
+            ready.complete = true;
+          }
         } else {
           nextKind = "slice";
           nextCommand = `cd ${relativeOrAbsolute(repoRoot, workspace.path)} && cy slice commit ${changeId} -m "<slice title>"`;
