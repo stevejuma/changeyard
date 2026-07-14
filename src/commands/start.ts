@@ -29,8 +29,9 @@ function jjCommitId(repoRoot: string, revision: string): string {
   return shellCommandRunner("jj", ["log", "--ignore-working-copy", "--at-op=@", "-r", revision, "--no-graph", "-T", "commit_id"], repoRoot);
 }
 
-function gitCommitId(repoRoot: string): string {
-  return shellCommandRunner("git", ["rev-parse", "--verify", "HEAD"], repoRoot);
+function gitCommitId(repoRoot: string): string | null {
+  const result = commandResult("git", ["rev-parse", "--verify", "HEAD"], repoRoot);
+  return result.ok ? result.output : null;
 }
 
 function commandResult(command: string, args: string[], cwd: string): { ok: true; output: string } | { ok: false; error: string } {
@@ -152,6 +153,7 @@ export function runStart(id: string, repoRoot = process.cwd(), mutationOptions: 
   const workspaceRelativePath = path.relative(repoRoot, workspacePath);
   const workspaceChangePath = path.join(workspacePath, path.relative(repoRoot, filePath));
   const metadataSeedMessage = engineName === "jj" && !mutationOptions.dryRun ? seedJjChangeMetadata(repoRoot, changeId, targetRef, filePath) : null;
+  const gitBaseCommitId = engineName === "git-worktree" ? gitCommitId(repoRoot) : null;
   const metadata: WorkspaceMetadata = {
     changeId,
     engine: engineName,
@@ -171,7 +173,7 @@ export function runStart(id: string, repoRoot = process.cwd(), mutationOptions: 
       : engineName === "git-worktree"
         ? {
             targetRef,
-            baseCommitId: gitCommitId(repoRoot),
+            ...(gitBaseCommitId ? { baseCommitId: gitBaseCommitId } : {}),
           }
         : {}),
   };

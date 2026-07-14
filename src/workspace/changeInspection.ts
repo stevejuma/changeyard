@@ -36,10 +36,18 @@ function parseGitStatus(output: string): string[] {
     .filter((file) => file && !isLocalMarker(file)));
 }
 
-function gitBaseCommit(metadata: WorkspaceMetadata, config: ChangeyardConfig): string {
+function tryGitOutput(args: string[], cwd: string): string | null {
+  try {
+    return shellCommandRunner("git", args, cwd);
+  } catch {
+    return null;
+  }
+}
+
+function gitBaseCommit(metadata: WorkspaceMetadata, config: ChangeyardConfig): string | null {
   if (metadata.baseCommitId) return metadata.baseCommitId;
   const target = metadata.targetRef ?? config.project.defaultBase;
-  return shellCommandRunner("git", ["merge-base", "HEAD", target], metadata.path);
+  return tryGitOutput(["merge-base", "HEAD", target], metadata.path);
 }
 
 function inspectGit(metadata: WorkspaceMetadata, config: ChangeyardConfig): WorkspaceChangeInspection {
@@ -47,7 +55,9 @@ function inspectGit(metadata: WorkspaceMetadata, config: ChangeyardConfig): Work
   const workingFiles = parseGitStatus(shellCommandRunner("git", ["status", "--porcelain", "--untracked-files=all"], metadata.path))
     .filter((file) => file !== workflowDocument);
   const baseCommit = gitBaseCommit(metadata, config);
-  const committedFiles = outputLines(shellCommandRunner("git", ["diff", "--name-only", baseCommit, "HEAD"], metadata.path));
+  const committedFiles = baseCommit
+    ? outputLines(shellCommandRunner("git", ["diff", "--name-only", baseCommit, "HEAD"], metadata.path))
+    : [];
   return {
     workingFiles,
     landingFiles: uniqSorted([...committedFiles, ...workingFiles].filter((file) => !isLocalMarker(file))),
