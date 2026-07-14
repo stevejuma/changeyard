@@ -13,6 +13,7 @@ import { shellCommandRunner } from "../workspace/commandRunner.js";
 import { describeJjWorkspaceCommit } from "../workspace/jjLandingDescriptions.js";
 import { workspaceSetupWarnings } from "../workspace/setupGuidance.js";
 import { materializeWorkspaceChangeDocument, writeChangeDocument } from "../state/activeChangeDocument.js";
+import { ensureWorkspaceMarkerExcludes } from "../workspace/marker.js";
 import type { Frontmatter, WorkspaceMetadata } from "../types.js";
 import { formatValidationFailure } from "./audit.js";
 
@@ -26,6 +27,10 @@ function fillPattern(pattern: string, id: string): string {
 
 function jjCommitId(repoRoot: string, revision: string): string {
   return shellCommandRunner("jj", ["log", "--ignore-working-copy", "--at-op=@", "-r", revision, "--no-graph", "-T", "commit_id"], repoRoot);
+}
+
+function gitCommitId(repoRoot: string): string {
+  return shellCommandRunner("git", ["rev-parse", "--verify", "HEAD"], repoRoot);
 }
 
 function commandResult(command: string, args: string[], cwd: string): { ok: true; output: string } | { ok: false; error: string } {
@@ -154,7 +159,7 @@ export function runStart(id: string, repoRoot = process.cwd(), mutationOptions: 
     path: workspacePath,
     repoRoot,
     changePath: filePath,
-    ...(engineName === "jj" ? { workspaceChangePath } : {}),
+    workspaceChangePath,
     createdAt: new Date().toISOString(),
     branch: String(asRecord(startFrontmatter.branch).name ?? `cy/${changeId}`),
     ...(engineName === "jj"
@@ -163,7 +168,12 @@ export function runStart(id: string, repoRoot = process.cwd(), mutationOptions: 
           baseCommitId: jjCommitId(repoRoot, targetRef),
           seedDescription,
         }
-      : {}),
+      : engineName === "git-worktree"
+        ? {
+            targetRef,
+            baseCommitId: gitCommitId(repoRoot),
+          }
+        : {}),
   };
 
   if (mutationOptions.dryRun) {
@@ -175,6 +185,7 @@ export function runStart(id: string, repoRoot = process.cwd(), mutationOptions: 
   let hydrateResult: ReturnType<typeof hydrateWorkspace> | null = null;
   try {
     createdMetadata = engine.create({ repoRoot, workspacePath, metadata, neverCopy: config.workspace.hydrate.neverCopy });
+    if (engineName === "jj" || engineName === "git-worktree") ensureWorkspaceMarkerExcludes(createdMetadata.path);
     const metadataPath = path.join(workspacesRoot(repoRoot, config), changeId, "metadata.json");
     mkdirSync(path.dirname(metadataPath), { recursive: true });
     writeFileSync(metadataPath, `${JSON.stringify(createdMetadata, null, 2)}\n`);

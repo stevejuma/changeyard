@@ -7,7 +7,7 @@ import { changesRoot } from "../paths.js";
 import { findChangeFile } from "../state/id.js";
 import type { WorkspaceMetadata } from "../types.js";
 import { describeJjWorkspaceCommit } from "../workspace/jjLandingDescriptions.js";
-import { getJjLandingContext } from "../workspace/jjLandingContext.js";
+import { inspectWorkspaceChanges } from "../workspace/changeInspection.js";
 import { resolveWorkspaceChangePath } from "../workspace/marker.js";
 import { readWorkspaceMetadataFromRoot, workspaceMetadataPath } from "./workspace.js";
 
@@ -31,9 +31,7 @@ export function finalDescriptionMessage(
   if (!existsSync(changePath)) throw new Error(`Change document not found for ${id}: ${changePath}`);
   const parsed = parseFrontmatter(readFileSync(changePath, "utf8"));
   const changeId = String(parsed.frontmatter.id ?? id);
-  const files = metadata.engine === "jj"
-    ? getJjLandingContext(changeId, metadata, target ?? metadata.targetRef ?? config.project.defaultBase, repoRoot).landingFiles
-    : [];
+  const files = inspectWorkspaceChanges(metadata, config).landingFiles;
   const description = buildFinalCommitDescription({
     changeId,
     frontmatter: parsed.frontmatter,

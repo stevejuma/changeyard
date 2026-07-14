@@ -10,7 +10,8 @@ import { parseFrontmatter, writeFrontmatter } from "../documents/frontmatter.js"
 import { changesRoot, workspacesRoot } from "../paths.js";
 import { findChangeFile } from "../state/id.js";
 import type { Frontmatter, ManualCheckRecord, WorkspaceMetadata } from "../types.js";
-import { readWorkspaceMetadata, resolveWorkspaceChangePath } from "../workspace/marker.js";
+import { ensureWorkspaceMarkerExcludes, readWorkspaceMetadata, resolveWorkspaceChangePath } from "../workspace/marker.js";
+import { inspectWorkspaceChanges } from "../workspace/changeInspection.js";
 import { runVerify } from "./verify.js";
 import { readWorkspaceMetadataFromRoot } from "./workspace.js";
 
@@ -86,37 +87,8 @@ function gitShort(cwd: string, revision: string): string {
   return requireOk(run("git", ["rev-parse", "--short", revision], cwd), "Could not shorten Git commit id");
 }
 
-function isLocalMarker(file: string): boolean {
-  return file === ".changeyard-workspace.json" || file === ".changeyard-hydrate.json";
-}
-
-function ensureGitMarkerExcludes(cwd: string): void {
-  const excludePath = requireOk(run("git", ["rev-parse", "--git-path", "info/exclude"], cwd), "Could not find Git exclude file");
-  const absoluteExcludePath = path.isAbsolute(excludePath) ? excludePath : path.join(cwd, excludePath);
-  const current = existsSync(absoluteExcludePath) ? readFileSync(absoluteExcludePath, "utf8") : "";
-  const entries = [".changeyard-workspace.json", ".changeyard-hydrate.json"];
-  const missing = entries.filter((entry) => !new RegExp(`^${entry.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "mu").test(current));
-  if (missing.length === 0) return;
-  writeFileSync(absoluteExcludePath, `${current.replace(/\s*$/u, "\n")}${missing.join("\n")}\n`);
-}
-
 function changedFiles(metadata: WorkspaceMetadata): string[] {
-  if (metadata.engine === "jj") {
-    return requireOk(run("jj", ["diff", "--name-only"], metadata.path), "Could not inspect JJ changed files")
-      .split(/\r?\n/u)
-      .map((line) => line.trim())
-      .filter((line) => line && !isLocalMarker(line))
-      .sort();
-  }
-  if (metadata.engine === "git-worktree") {
-    ensureGitMarkerExcludes(metadata.path);
-    return requireOk(run("git", ["status", "--porcelain"], metadata.path), "Could not inspect Git changed files")
-      .split(/\r?\n/u)
-      .map((line) => line.slice(3).trim().replace(/.* -> /u, ""))
-      .filter((line) => line && !isLocalMarker(line))
-      .sort();
-  }
-  return [];
+  return inspectWorkspaceChanges(metadata, loadConfig(metadata.repoRoot)).workingFiles;
 }
 
 function workspaceDirty(metadata: WorkspaceMetadata): boolean {
@@ -195,7 +167,7 @@ function commitJj(metadata: WorkspaceMetadata, message: string, dryRun: boolean 
 
 function commitGit(metadata: WorkspaceMetadata, message: string, dryRun: boolean | undefined, changePath: string): { id: string; commitId: string } {
   if (!dryRun) {
-    ensureGitMarkerExcludes(metadata.path);
+    ensureWorkspaceMarkerExcludes(metadata.path);
     requireOk(run("git", ["add", "-A"], metadata.path), "Could not stage Git workspace changes");
     run("git", ["reset", "-q", "--", ".changeyard-workspace.json", ".changeyard-hydrate.json"], metadata.path);
     withMessageFile(message, (messageFile) => {

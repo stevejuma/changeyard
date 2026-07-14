@@ -72,6 +72,7 @@ import { curlJson, setHttpTransportForTests, type HttpRequest } from "../src/pro
 import { GitWorktreeEngine } from "../src/workspace/GitWorktreeEngine.js";
 import { JjWorkspaceEngine } from "../src/workspace/JjWorkspaceEngine.js";
 import { jjInspectionArgs } from "../src/workspace/commandRunner.js";
+import { inspectWorkspaceChanges } from "../src/workspace/changeInspection.js";
 import { colorEnabled, createColors, parseColorChoice } from "../src/cli/color.js";
 import { readCliHelpEntry, readCliTopic, renderCliHelp, renderCliTopic } from "../src/cli/docs.js";
 import { renderHumanOutput } from "../src/cli/render.js";
@@ -1772,6 +1773,29 @@ test("workspace status and delete protect dirty unlanded work", () => {
   }
 });
 
+test("plain-copy inspection compares only authoritative non-hydrated files", () => {
+  const repo = tempRepo();
+  try {
+    runInit(repo);
+    runCreate({ template: "agent-task", title: "Plain inspection" }, repo);
+    runStart("CY-0001", repo);
+    const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
+    const metadata = JSON.parse(readFileSync(path.join(repo, ".changeyard", "workspaces", "CY-0001", "metadata.json"), "utf8")) as WorkspaceMetadata;
+
+    mkdirSync(path.join(workspacePath, "node_modules", "dependency"), { recursive: true });
+    writeFileSync(path.join(workspacePath, "node_modules", "dependency", "generated.js"), "generated\n");
+    writeFileSync(path.join(workspacePath, ".changeyard-hydrate.json"), "{}\n");
+    writeFileSync(path.join(workspacePath, "implementation.txt"), "done\n");
+
+    assert.deepEqual(inspectWorkspaceChanges(metadata, loadConfig(repo)), {
+      workingFiles: ["implementation.txt"],
+      landingFiles: ["implementation.txt"],
+    });
+  } finally {
+    cleanup(repo);
+  }
+});
+
 test("workspace status reports merged cleanup separately from land blockers", () => {
   const repo = tempRepo();
   try {
@@ -1958,7 +1982,14 @@ test("slice commit records a Git workspace slice and leaves a clean worktree", (
     runCreate({ template: "agent-task", title: "Git slice" }, repo);
     runStart("CY-0001", repo);
     const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
+    const metadata = JSON.parse(readFileSync(path.join(repo, ".changeyard", "workspaces", "CY-0001", "metadata.json"), "utf8")) as WorkspaceMetadata;
+    assert.ok(metadata.baseCommitId);
+    assert.equal(metadata.targetRef, "main");
     writeFileSync(path.join(workspacePath, "git-slice.txt"), "slice\n");
+    assert.deepEqual(inspectWorkspaceChanges(metadata, loadConfig(repo)), {
+      workingFiles: ["git-slice.txt"],
+      landingFiles: ["git-slice.txt"],
+    });
 
     const output = runSliceCommit("CY-0001", { message: "Add git slice", body: "Reviewer note for git slice.", checks: ["node -v"] }, workspacePath);
     assert.match(output, /Committed slice for CY-0001/);
@@ -1978,6 +2009,11 @@ test("slice commit records a Git workspace slice and leaves a clean worktree", (
     assert.match(workspaceChange, /VCS: git/);
     assert.match(workspaceChange, /Description: Summary, Slices, Validation, Files, Notes \/ Follow-up, Additional Context/);
     assert.match(runReviewSlices("CY-0001", repo), /Add git slice/);
+    const gitLandingFiles = [".changeyard/changes/CY-0001-git-slice.md", "git-slice.txt"];
+    assert.deepEqual(getWorkspaceStatus("CY-0001", repo).landingFiles, gitLandingFiles);
+    const fallbackInspection = inspectWorkspaceChanges({ ...metadata, baseCommitId: undefined }, loadConfig(repo));
+    assert.deepEqual(fallbackInspection.workingFiles, []);
+    assert.deepEqual(fallbackInspection.landingFiles, gitLandingFiles);
     assert.match(runSummarizeSlices("CY-0001", repo), /Slice summary for CY-0001/);
     assert.match(runDiffSlice("HEAD", workspacePath), /git-slice\.txt/);
   } finally {
@@ -4151,6 +4187,7 @@ test("jj start writes active change file when changeyard metadata is locally ign
     runCommand("jj", ["config", "set", "--repo", "user.email", "changeyard@example.test"], repo);
     runCommand("jj", ["config", "set", "--repo", "signing.behavior", "drop"], repo);
     writeFileSync(path.join(repo, "README.md"), "# repo\n");
+    writeFileSync(path.join(repo, ".gitignore"), "node_modules/\n");
     runCommand("jj", ["commit", "-m", "initial"], repo);
     runCommand("jj", ["bookmark", "set", "main", "-r", "@-"], repo);
 
@@ -4170,12 +4207,51 @@ test("jj start writes active change file when changeyard metadata is locally ign
     assert.equal(parseFrontmatter(readFileSync(workspaceChangePath, "utf8")).frontmatter.status, "in_progress");
     assert.match(runVerify("CY-0001", workspacePath), /Verified CY-0001/);
 
+    writeFileSync(path.join(repo, "unrelated-root-wip.txt"), "root only\n");
+    mkdirSync(path.join(workspacePath, "node_modules", "generated-dependency"), { recursive: true });
+    writeFileSync(path.join(workspacePath, "node_modules", "generated-dependency", "index.js"), "generated\n");
     writeFileSync(path.join(workspacePath, "implementation.txt"), "done\n");
+    assert.deepEqual(getWorkspaceStatus("CY-0001", repo).landingFiles, ["implementation.txt"]);
     updateSection(workspaceChangePath, "Acceptance Criteria", "- [x] Ignored JJ metadata supports completion");
     updateSection(workspaceChangePath, "Completion Notes", "Implemented ignored metadata handling. Checks ran: node -v.");
     assert.match(runComplete("CY-0001", { noPr: true }, workspacePath), /Completed CY-0001: 1 checks passed/);
     assert.equal(parseFrontmatter(readFileSync(workspaceChangePath, "utf8")).frontmatter.status, "ready_for_pr");
     assert.equal(parseFrontmatter(readFileSync(path.join(repo, ".changeyard", "changes", "CY-0001-ignored-jj-metadata.md"), "utf8")).frontmatter.status, "ready");
+  } finally {
+    cleanup(repo);
+  }
+});
+
+test("jj completion guard uses a genuinely large landing diff", () => {
+  if (!hasCommand("git") || !hasCommand("jj")) return;
+  const repo = tempRepo();
+  try {
+    runCommand("git", ["init", "-b", "main"], repo);
+    runCommand("jj", ["git", "init", "--colocate"], repo);
+    runCommand("jj", ["config", "set", "--repo", "user.name", "Changeyard Test"], repo);
+    runCommand("jj", ["config", "set", "--repo", "user.email", "changeyard@example.test"], repo);
+    runCommand("jj", ["config", "set", "--repo", "signing.behavior", "drop"], repo);
+    writeFileSync(path.join(repo, "README.md"), "# repo\n");
+    runCommand("jj", ["commit", "-m", "initial"], repo);
+    runCommand("jj", ["bookmark", "set", "main", "-r", "@-"], repo);
+
+    runInit(repo);
+    writeFileSync(path.join(repo, ".changeyard", "config.local.jsonc"), `{"vcs":{"engine":"jj","fallback":"plain-copy"},"checks":{"standard":["node -v"]}}\n`);
+    runCreate({ template: "agent-task", title: "Large jj landing" }, repo);
+    runStart("CY-0001", repo);
+    const workspacePath = path.join(repo, ".changeyard", "workspaces", "CY-0001", "repo");
+    const workspaceChangePath = path.join(workspacePath, ".changeyard", "changes", "CY-0001-large-jj-landing.md");
+    for (let index = 1; index <= 4; index += 1) {
+      writeFileSync(path.join(workspacePath, `landing-${index}.txt`), `file ${index}\n`);
+    }
+    updateSection(workspaceChangePath, "Acceptance Criteria", "- [x] Large JJ landing is detected");
+    updateSection(workspaceChangePath, "Completion Notes", "Implemented four landing files. Checks run: node -v.");
+
+    assert.deepEqual(getWorkspaceStatus("CY-0001", repo).landingFiles, ["landing-1.txt", "landing-2.txt", "landing-3.txt", "landing-4.txt"]);
+    assert.throws(
+      () => runComplete("CY-0001", { noPr: true }, workspacePath),
+      /appears to have 4 changed files but only 0 recorded slice commits/,
+    );
   } finally {
     cleanup(repo);
   }

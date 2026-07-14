@@ -45,7 +45,10 @@ export function jjLandingFiles(cwd: string, metadata: WorkspaceMetadata, workspa
     ? ["diff", "--name-only", "--from", metadata.baseCommitId, "--to", workspaceChangeId]
     : ["diff", "--name-only", "-r", workspaceChangeId];
   const output = commandOutput("jj", args, cwd);
-  return output.split("\n").map((line) => line.trim()).filter(Boolean).sort();
+  return output.split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line && line !== ".changeyard-workspace.json" && line !== ".changeyard-hydrate.json")
+    .sort();
 }
 
 export function updateJjWorkspaceStale(workspacePath: string): void {

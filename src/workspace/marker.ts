@@ -1,12 +1,22 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { taskIdMatches } from "../state/id.js";
 import type { WorkspaceMetadata } from "../types.js";
+import { shellCommandRunner } from "./commandRunner.js";
 
 export type WorkspaceMarker = {
   changeId: string;
   metadataPath: string;
 };
+
+export function ensureWorkspaceMarkerExcludes(cwd: string): void {
+  const excludePath = shellCommandRunner("git", ["rev-parse", "--git-path", "info/exclude"], cwd);
+  const absoluteExcludePath = path.isAbsolute(excludePath) ? excludePath : path.join(cwd, excludePath);
+  const current = existsSync(absoluteExcludePath) ? readFileSync(absoluteExcludePath, "utf8") : "";
+  const entries = [".changeyard-workspace.json", ".changeyard-hydrate.json"];
+  const missing = entries.filter((entry) => !new RegExp(`^${entry.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "mu").test(current));
+  if (missing.length > 0) writeFileSync(absoluteExcludePath, `${current.replace(/\s*$/u, "\n")}${missing.join("\n")}\n`);
+}
 
 export function findWorkspaceMarker(startDir: string): string | undefined {
   let current = path.resolve(startDir);

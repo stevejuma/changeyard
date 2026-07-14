@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { validateFinalCommitDescription } from "../change/commitDescriptions.js";
 import { loadConfig } from "../config/loadConfig.js";
@@ -10,8 +10,8 @@ import { shellCommandRunner, shellInspectionCommandRunner } from "../workspace/c
 import { validateJjLandingDescriptions } from "../workspace/jjLandingDescriptions.js";
 import { getJjLandingContext } from "../workspace/jjLandingContext.js";
 import { resolveWorkspaceChangePath } from "../workspace/marker.js";
+import { inspectWorkspaceChanges } from "../workspace/changeInspection.js";
 import { deleteTaskWorkspace, verifyTaskWorkspace, type WorkspaceRepositoryKind } from "../workspace/runtimeBridge.js";
-import { isDenied } from "../workspace/patterns.js";
 import { remoteCheckGate } from "./pr.js";
 import { readWorkspaceMetadataFromRoot } from "../workspace/metadata.js";
 
@@ -132,62 +132,45 @@ function repositoryKind(engine: string): WorkspaceRepositoryKind | null {
   return null;
 }
 
-function listComparableFiles(root: string, neverCopy: string[], prefix = ""): string[] {
-  if (!existsSync(root)) return [];
-  const files: string[] = [];
-  for (const entry of readdirSync(root)) {
-    const relative = prefix ? `${prefix}/${entry}` : entry;
-    if (entry === ".changeyard-workspace.json" || entry === ".changeyard-hydrate.json" || isDenied(relative, [".git", ".jj", ".changeyard", ...neverCopy])) continue;
-    const fullPath = path.join(root, entry);
-    const stats = statSync(fullPath);
-    if (stats.isDirectory()) files.push(...listComparableFiles(fullPath, neverCopy, relative));
-    else if (stats.isFile()) files.push(relative);
+function inspectDirtyState(metadata: WorkspaceMetadata, config: ReturnType<typeof loadConfig>): { dirty: boolean; conflicts: boolean; landingFiles: string[]; errors: string[] } {
+  if (!existsSync(metadata.path)) return { dirty: false, conflicts: false, landingFiles: [], errors: [`Workspace path does not exist: ${metadata.path}`] };
+  let inspection: ReturnType<typeof inspectWorkspaceChanges>;
+  try {
+    inspection = inspectWorkspaceChanges(metadata, config);
+  } catch (error) {
+    return {
+      dirty: false,
+      conflicts: false,
+      landingFiles: [],
+      errors: [`Could not inspect workspace changes: ${error instanceof Error ? error.message : String(error)}`],
+    };
   }
-  return files.sort();
-}
-
-function plainCopyDirty(repoRoot: string, workspacePath: string, neverCopy: string[]): boolean {
-  const repoFiles = listComparableFiles(repoRoot, neverCopy);
-  const workspaceFiles = listComparableFiles(workspacePath, neverCopy);
-  if (repoFiles.join("\n") !== workspaceFiles.join("\n")) return true;
-  for (const file of workspaceFiles) {
-    const repoContent = existsSync(path.join(repoRoot, file)) ? readFileSync(path.join(repoRoot, file), "utf8") : "";
-    const workspaceContent = existsSync(path.join(workspacePath, file)) ? readFileSync(path.join(workspacePath, file), "utf8") : "";
-    if (repoContent !== workspaceContent) return true;
-  }
-  return false;
-}
-
-function inspectDirtyState(metadata: WorkspaceMetadata, neverCopy: string[]): { dirty: boolean; conflicts: boolean; errors: string[] } {
-  if (!existsSync(metadata.path)) return { dirty: false, conflicts: false, errors: [`Workspace path does not exist: ${metadata.path}`] };
   if (metadata.engine === "jj") {
-    const statusResult = inspectionCommandResult("jj", ["status"], metadata.path);
-    if (!statusResult.ok) {
-      return { dirty: false, conflicts: false, errors: [`Could not inspect jj workspace status: ${statusResult.error}`] };
-    }
     const conflictsResult = inspectionCommandResult("jj", ["resolve", "--list"], metadata.path);
     const noConflicts = !conflictsResult.ok && conflictsResult.error.includes("No conflicts found");
     if (!conflictsResult.ok && !noConflicts) {
-      return { dirty: false, conflicts: false, errors: [`Could not inspect jj workspace conflicts: ${conflictsResult.error}`] };
+      return { dirty: inspection.workingFiles.length > 0, conflicts: false, landingFiles: inspection.landingFiles, errors: [`Could not inspect jj workspace conflicts: ${conflictsResult.error}`] };
     }
-    const status = statusResult.output;
     return {
-      dirty: !status.includes("The working copy has no changes."),
+      dirty: inspection.workingFiles.length > 0,
       conflicts: conflictsResult.ok && conflictsResult.output.trim().length > 0,
+      landingFiles: inspection.landingFiles,
       errors: [],
     };
   }
   if (metadata.engine === "git-worktree") {
     const status = commandOutput("git", ["status", "--porcelain"], metadata.path);
     return {
-      dirty: status.trim().length > 0,
+      dirty: inspection.workingFiles.length > 0,
       conflicts: /^UU\s/m.test(status) || /^AA\s/m.test(status) || /^DD\s/m.test(status),
+      landingFiles: inspection.landingFiles,
       errors: [],
     };
   }
   return {
-    dirty: plainCopyDirty(metadata.repoRoot, metadata.path, neverCopy),
+    dirty: inspection.workingFiles.length > 0,
     conflicts: false,
+    landingFiles: inspection.landingFiles,
     errors: [],
   };
 }
@@ -251,16 +234,17 @@ export function getWorkspaceStatus(id: string, repoRoot = process.cwd()): Worksp
   } else if (!existsSync(metadata.path)) {
     errors.push(`Workspace path does not exist: ${metadata.path}`);
   }
-  const dirtyState = inspectDirtyState(metadata, config.workspace.hydrate.neverCopy);
+  const dirtyState = inspectDirtyState(metadata, config);
   errors.push(...dirtyState.errors);
   const rootMismatch = path.resolve(metadata.repoRoot) !== path.resolve(repoRoot);
   if (rootMismatch) errors.push(`Workspace repo root mismatch: expected ${repoRoot}, got ${metadata.repoRoot}`);
   const landed = status === "merged" && !dirtyState.dirty;
   const workspaceChangeId = metadata.workspaceChangeId ?? (metadata.engine === "jj" ? jjLogValue(metadata.path, "@", "change_id.short()") : null);
-  const workspaceCommitId = metadata.workspaceCommitId ?? (metadata.engine === "jj" ? jjLogValue(metadata.path, "@", "commit_id") : null);
+  const workspaceCommitId = metadata.workspaceCommitId
+    ?? (metadata.engine === "jj" ? jjLogValue(metadata.path, "@", "commit_id") : metadata.engine === "git-worktree" ? commandOutput("git", ["rev-parse", "HEAD"], metadata.path) || null : null);
   let landingDescription = metadata.engine === "jj" && workspaceChangeId ? jjLogValue(metadata.path, workspaceChangeId, "description") : null;
   let landingRevset: string | null = null;
-  let landingFiles: string[] = [];
+  let landingFiles: string[] = dirtyState.landingFiles;
   let currentWorkspaceChangeId: string | null = null;
   let finalDescriptionValid = metadata.engine !== "jj";
   let finalDescriptionSummary: string | null = null;
@@ -290,7 +274,11 @@ export function getWorkspaceStatus(id: string, repoRoot = process.cwd()): Worksp
   const landingDescriptionError = landingDescriptionErrors.length > 0
     ? `JJ workspace commit descriptions must start with ${changeId}: ${landingDescriptionErrors.join("; ")}`
     : null;
-  const currentTargetCommitId = metadata.engine === "jj" ? jjCurrentTargetCommit(repoRoot, metadata.targetRef) : null;
+  const currentTargetCommitId = metadata.engine === "jj"
+    ? jjCurrentTargetCommit(repoRoot, metadata.targetRef)
+    : metadata.engine === "git-worktree" && metadata.targetRef
+      ? commandOutput("git", ["rev-parse", metadata.targetRef], repoRoot) || null
+      : null;
   const targetMoved = Boolean(metadata.baseCommitId && currentTargetCommitId && metadata.baseCommitId !== currentTargetCommitId);
   let remoteChecksSupported = false;
   let remoteChecksState: string | null = null;

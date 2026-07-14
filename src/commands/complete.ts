@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { quickCompletionProfile } from "../change/quickLifecycle.js";
 import { parseSliceRecords } from "../change/slices.js";
@@ -12,7 +12,7 @@ import { readWorkspaceMetadata } from "../workspace/marker.js";
 import { describeJjWorkspaceCommit } from "../workspace/jjLandingDescriptions.js";
 import { assertTransition } from "../state/transitions.js";
 import { createProvider } from "../providers/index.js";
-import { isDenied } from "../workspace/patterns.js";
+import { inspectWorkspaceChanges } from "../workspace/changeInspection.js";
 import { countPassedManualChecks, runChecks } from "../checks/runChecks.js";
 import { runVerify } from "./verify.js";
 import { formatValidationFailure } from "./audit.js";
@@ -25,43 +25,6 @@ export type CompleteOptions = {
   profile?: string;
   dryRun?: boolean;
 };
-
-function listFiles(root: string, neverCopy: string[], prefix = ""): string[] {
-  if (!existsSync(root)) return [];
-  const files: string[] = [];
-  for (const entry of readdirSync(root)) {
-    const relative = prefix ? `${prefix}/${entry}` : entry;
-    if (entry === ".changeyard-workspace.json" || entry === ".changeyard-hydrate.json" || isDenied(relative, [".git", ".jj", ".changeyard", ...neverCopy])) continue;
-    const full = path.join(root, entry);
-    const stats = statSync(full);
-    if (stats.isDirectory()) files.push(...listFiles(full, neverCopy, relative));
-    if (stats.isFile()) files.push(relative);
-  }
-  return files.sort();
-}
-
-function hasWorkspaceChanges(repoRoot: string, workspaceRoot: string, neverCopy: string[]): boolean {
-  return changedWorkspaceFiles(repoRoot, workspaceRoot, neverCopy).length > 0;
-}
-
-function changedWorkspaceFiles(repoRoot: string, workspaceRoot: string, neverCopy: string[]): string[] {
-  const repoFiles = listFiles(repoRoot, neverCopy);
-  const workspaceFiles = listFiles(workspaceRoot, neverCopy);
-  const allFiles = [...new Set([...repoFiles, ...workspaceFiles])].sort();
-  const changed: string[] = [];
-  for (const file of allFiles) {
-    if (!repoFiles.includes(file) || !workspaceFiles.includes(file)) {
-      changed.push(file);
-      continue;
-    }
-    const repoPath = path.join(repoRoot, file);
-    const workspacePath = path.join(workspaceRoot, file);
-    const repoContent = existsSync(repoPath) ? readFileSync(repoPath, "utf8") : "";
-    const workspaceContent = existsSync(workspacePath) ? readFileSync(workspacePath, "utf8") : "";
-    if (repoContent !== workspaceContent) changed.push(file);
-  }
-  return changed;
-}
 
 function enforceSliceGuard(changeId: string, metadataPath: string, body: string, changedFiles: string[], options: CompleteOptions): void {
   if (options.noCodeChange || options.singleCommitOk || changedFiles.length <= 3) return;
@@ -82,20 +45,6 @@ function enforceSliceGuard(changeId: string, metadataPath: string, body: string,
     "- If this is intentionally one indivisible change, re-run cy complete with --single-commit-ok.",
     `- Agents must only run cy complete on explicit completion wording; update protocol notes in ${metadataPath} if needed.`,
   ].join("\n"));
-}
-
-function legacyHasWorkspaceChanges(repoRoot: string, workspaceRoot: string, neverCopy: string[]): boolean {
-  const repoFiles = listFiles(repoRoot, neverCopy);
-  const workspaceFiles = listFiles(workspaceRoot, neverCopy);
-  if (repoFiles.join("\n") !== workspaceFiles.join("\n")) return true;
-  for (const file of workspaceFiles) {
-    const repoPath = path.join(repoRoot, file);
-    const workspacePath = path.join(workspaceRoot, file);
-    const repoContent = existsSync(repoPath) ? readFileSync(repoPath, "utf8") : "";
-    const workspaceContent = existsSync(workspacePath) ? readFileSync(workspacePath, "utf8") : "";
-    if (repoContent !== workspaceContent) return true;
-  }
-  return false;
 }
 
 function asRecord(value: unknown): Frontmatter {
@@ -125,8 +74,8 @@ export function runComplete(id: string, options: CompleteOptions = {}, cwd = pro
     gate: "complete",
     result: validation,
   }));
-  const changedFiles = changedWorkspaceFiles(metadata.repoRoot, metadata.path, config.workspace.hydrate.neverCopy);
-  if (!options.noCodeChange && changedFiles.length === 0 && !legacyHasWorkspaceChanges(metadata.repoRoot, metadata.path, config.workspace.hydrate.neverCopy)) {
+  const changedFiles = inspectWorkspaceChanges(metadata, config).landingFiles;
+  if (!options.noCodeChange && changedFiles.length === 0) {
     throw new Error([
       "No workspace changes detected; use --no-code-change to complete metadata-only work",
       "",
